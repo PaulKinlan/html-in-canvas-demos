@@ -83,8 +83,12 @@ export class DomPortalSource extends HTMLElement {
     if (parent instanceof DomPortalSource && parent.children.length === 1) return parent;
     const host = document.createElement('dom-portal-source');
     const cs = getComputedStyle(target);
-    const isItem = parent ? /flex|grid/.test(getComputedStyle(parent).display) : false;
-    if (cs.display.startsWith('inline') || isItem) host.setAttribute('inline', '');
+    const ps = parent ? getComputedStyle(parent) : null;
+    const isItem = /flex|grid/.test(ps?.display ?? '');
+    // Grid items and column-flex items normally stretch across their track, so
+    // the host fills it like a block. Row-flex items are sized by their content.
+    const stretches = isItem && (/grid/.test(ps.display) || ps.flexDirection.startsWith('column')) && /normal|stretch|auto/.test(/grid/.test(ps.display) ? cs.justifySelf : cs.alignSelf);
+    if (cs.display.startsWith('inline') || (isItem && !stretches)) host.setAttribute('inline', '');
     if (isItem) for (const p of ['flex', 'align-self', 'justify-self', 'order', 'grid-area']) host.style.setProperty(p, cs.getPropertyValue(p));
     host.style.margin = cs.margin;
     host.setAttribute('adopted', '');

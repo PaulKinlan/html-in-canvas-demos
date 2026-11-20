@@ -75,9 +75,12 @@ export class SurfaceElement extends HTMLElement {
     if (existing && existing.localName === tag && existing.children.length === 1) return existing;
     const host = document.createElement(tag);
     const cs = getComputedStyle(target);
-    const parentDisplay = target.parentElement ? getComputedStyle(target.parentElement).display : '';
-    const isItem = /flex|grid/.test(parentDisplay);
-    if (cs.display.startsWith('inline') || isItem) host.setAttribute('inline', '');
+    const ps = target.parentElement ? getComputedStyle(target.parentElement) : null;
+    const isItem = /flex|grid/.test(ps?.display ?? '');
+    // Grid items and column-flex items normally stretch across their track, so
+    // the host fills it like a block. Row-flex items are sized by their content.
+    const stretches = isItem && (/grid/.test(ps.display) || ps.flexDirection.startsWith('column')) && /normal|stretch|auto/.test(/grid/.test(ps.display) ? cs.justifySelf : cs.alignSelf);
+    if (cs.display.startsWith('inline') || (isItem && !stretches)) host.setAttribute('inline', '');
     if (isItem) {
       for (const p of ['flex', 'align-self', 'justify-self', 'order', 'grid-area']) host.style.setProperty(p, cs.getPropertyValue(p));
     }
@@ -314,8 +317,8 @@ export class ElementTexture {
   update() {
     const { gl } = this;
     const size = this.canvas.getElementImageDefaultSize(this.element);
-    const w = Math.max(1, Math.round(size.width));
-    const h = Math.max(1, Math.round(size.height));
+    const w = Math.max(1, Math.ceil(size.width));
+    const h = Math.max(1, Math.ceil(size.height));
     gl.bindTexture(gl.TEXTURE_2D, this.texture);
     if (w !== this.width || h !== this.height) {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);

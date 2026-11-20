@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shader CSS: fx="ripple"</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; align-items: start; }
+  .tile { display: grid; gap: 8px; align-content: start; }
+  .tile > code { font-size: 12px; color: var(--muted); }
+  .demo { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; font-size: 14.5px; }
+  .demo h3 { margin: 0 0 6px; font-size: 18px; letter-spacing: -0.01em; }
+  .demo p { margin: 0 0 10px; }
+  .demo input[type=text], .demo input[type=email] { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); width: 100%; margin-bottom: 8px; }
+  .pond { background: linear-gradient(160deg, #1d6fa5, #0f3d5c); color: #eaf6ff; border-color: transparent; }
+  .pond button { background: #eaf6ff; color: #0f3d5c; border: 0; font-weight: 600; }
+  .glassy { background: linear-gradient(135deg, #ff9a6b 0%, #d2491f 35%, #7b2ff7 100%); color: #fff; border-color: transparent; }
+  .glassy input[type=text] { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.5); color: #fff; }
+  .glassy input::placeholder { color: rgba(255,255,255,0.75); }
+  .hot { background: linear-gradient(#ffcf5c, #ff7a3d); color: #3a1300; border-color: transparent; }
+  .tube { background: #06140a; color: #5dff8a; border-color: #0d2a15; font-family: var(--mono); border-radius: 18px; }
+  .tube input[type=text] { background: #020a05; border-color: #1b5a30; color: #5dff8a; font-family: var(--mono); }
+  .tube button { background: #0d2a15; color: #5dff8a; border-color: #1b5a30; font-family: var(--mono); }
+
+  /* CSS drives the shader: a transition on a registered custom property. */
+  .burn { transition: --fx-progress 900ms ease-in-out; }
+  .burn.gone, .burn-on-hover:hover { --fx-progress: 1; }
+  .burn-on-hover { transition: --fx-progress 700ms ease-in-out; }
+  .coupon { background: #fff7e6; color: #2a2116; border: 1px dashed #c9a868; }
+  .under { position: relative; }
+  .under::before { content: "Peeled. This text is ordinary DOM underneath."; position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px; border-radius: 14px; background: repeating-linear-gradient(45deg, #2a2116 0 10px, #3a2f20 10px 20px); color: #ffe7b0; font-size: 14px; }
+  .under > * { position: relative; }
+
+  .play { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 720px) { .play { grid-template-columns: 1fr; } }
+  #glsl { width: 100%; height: 210px; font: 12.5px/1.5 var(--mono); padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); resize: vertical; tab-size: 2; }
+  #glslError { font: 12px var(--mono); color: var(--bad); white-space: pre-wrap; min-height: 1.5em; }
+  #backends { font: 12px var(--mono); color: var(--muted); }
+  #fixtures { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .chip { background: rgb(255, 204, 0); color: #000; padding: 10px; width: 140px; height: 60px; box-sizing: border-box; font: 13px system-ui; }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>Shader CSS</h1>
+  <p class="lede">
+    Add <code>fx="ripple"</code> to an element and it is drawn through a fragment shader. Nothing else changes: the button
+    still clicks, the field still takes typing, the text is still selectable and in the accessibility tree. CSS custom properties
+    are the shader's uniforms, so transitions and <code>:hover</code> animate it.
+  </p>
+
+  <div class="gallery">
+    <div class="tile">
+      <div class="demo pond" fx="ripple">
+        <h3>Ripple</h3>
+        <p>Click or tap anywhere on this card. Rings spread from each press.</p>
+        <button type="button" id="count">Pressed 0×</button>
+      </div>
+      <code>&lt;div fx="ripple"&gt;</code>
+    </div>
+    <div class="tile">
+      <form class="demo glassy" fx="glass" onsubmit="event.preventDefault()">
+        <h3>Liquid glass</h3>
+        <p>The rim refracts, and a bead follows your pointer.</p>
+        <input type="text" placeholder="Type under the glass" aria-label="Type under the glass">
+      </form>
+      <code>&lt;form fx="glass"&gt;</code>
+    </div>
+    <div class="tile">
+      <div class="demo hot" fx="haze">
+        <h3>Heat haze</h3>
+        <p>Rising noise bends the element. <a href="#how" style="color:inherit">This link still works.</a></p>
+        <label><input type="checkbox" checked> A real checkbox</label>
+      </div>
+      <code>&lt;div fx="haze"&gt;</code>
+    </div>
+    <div class="tile">
+      <form class="demo tube" fx="crt" onsubmit="event.preventDefault(); this.querySelector('output').textContent = 'HELLO, ' + (this.querySelector('input').value || 'WORLD').toUpperCase()">
+        <h3>CRT</h3>
+        <p>&gt; WHAT IS YOUR NAME?</p>
+        <input type="text" aria-label="Your name" placeholder="_">
+        <button>RUN</button> <output></output>
+      </form>
+      <code>&lt;form fx="crt"&gt;</code>
+    </div>
+    <div class="tile">
+      <div class="demo burn" fx="dissolve" id="burn">
+        <h3>Dissolve</h3>
+        <p>A CSS transition on <code>--fx-progress</code> burns this card away and back.</p>
+        <button type="button" id="burnBtn">Burn it</button>
+      </div>
+      <code>.burn { transition: --fx-progress 900ms }</code>
+    </div>
+    <div class="tile">
+      <div class="under">
+        <div class="demo coupon" fx="curl" id="coupon">
+          <h3>Page curl</h3>
+          <p>Drag the slider to peel the corner. The value goes straight into a CSS variable.</p>
+          <input type="range" id="curl" min="0" max="1" step="0.005" value="0.28" aria-label="Curl amount" style="width:100%">
+        </div>
+      </div>
+      <code>style="--fx-progress: 0.28"</code>
+    </div>
+  </div>
+  <p id="backends"></p>
+
+<pre><code>&lt;script type="module" src="/lib/shader-fx.js"&gt;&lt;/script&gt;
+
+&lt;button fx="ripple"&gt;Still a button&lt;/button&gt;
+
+&lt;style&gt;
+  .card { transition: --fx-progress 700ms; }
+  .card:hover { --fx-progress: 1; }
+&lt;/style&gt;
+&lt;article class="card" fx="dissolve"&gt;Hover to burn&lt;/article&gt;</code></pre>
+
+  <h2>Write your own</h2>
+  <p>An effect is one GLSL function. <code>p</code> is in CSS pixels from the element's top-left; <code>tex(p)</code> samples the element. Edit it: the card on the right updates as you type.</p>
+  <div class="play">
+    <div>
+      <textarea id="glsl" spellcheck="false" aria-label="GLSL for the custom effect">vec4 fx(vec2 p) {
+  // slide each row sideways on a sine wave
+  float wave = sin(p.y * 0.08 + u_time * 3.0) * 6.0 * u_amount;
+  vec4 col = tex(p + vec2(wave, 0.0));
+  // tint towards the pointer
+  float glow = exp(-distance(p, u_pointer) / 60.0) * u_hover;
+  col.rgb += col.a * glow * vec3(0.3, 0.1, 0.0);
+  return col;
+}</textarea>
+      <div id="glslError"></div>
+    </div>
+    <div class="tile">
+      <div class="demo burn-on-hover" fx="custom" id="custom">
+        <h3>Your shader</h3>
+        <p>Real text, a real <a href="#how">link</a> and a real field.</p>
+        <input type="text" placeholder="Type here" aria-label="Type here">
+      </div>
+      <code>defineEffect('custom', { animated: true, glsl })</code>
+    </div>
+  </div>
+
+  <h2 id="how">How it works</h2>
+  <ul class="findings">
+    <li><strong>The attribute wraps the element.</strong> A MutationObserver finds <code>[fx]</code> and wraps the element in <code>&lt;fx-surface&gt;</code>, which slots it into a canvas the same size. Remove the attribute and it is unwrapped.</li>
+    <li><strong>Direct backend:</strong> the canvas is WebGL and <code>texElementSubImage2D()</code> uploads the DOM straight into a texture, only when the DOM repaints. One quad, one fragment shader.</li>
+    <li><strong>Shared backend:</strong> browsers allow about 16 WebGL contexts per page, so after the first eight surfaces the rest use a 2D canvas: <code>drawElementImage()</code>, copy into one shared WebGL context, shade, draw back. Unlimited surfaces for two extra copies per frame.</li>
+    <li><strong>CSS is the control surface.</strong> <code>--fx-progress</code> and <code>--fx-amount</code> are registered as numbers, so they transition and animate. The surface samples the computed value each frame and redraws only when a uniform changed.</li>
+    <li><strong>Interaction stays put.</strong> The element's hit-test geometry is its layout box. Displacement is visual only, like a CSS filter. With reduced motion on, time-driven effects hold still.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <div id="fixtures"></div>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+</main>
+
+<script type="module">
+  import { FxSurface, defineEffect } from '/lib/shader-fx.js';
+  import { banner, nav, runTests, supported } from '/shared/support.js';
+  nav('/shader-css/');
+  banner();
+  const $ = (id) => document.getElementById(id);
+
+  let presses = 0;
+  $('count').onclick = (e) => (e.target.textContent = `Pressed ${++presses}×`);
+  $('burnBtn').onclick = (e) => {
+    const gone = $('burn').classList.toggle('gone');
+    // Bring it back by itself so the button is never lost.
+    if (gone) setTimeout(() => $('burn').classList.remove('gone'), 1800);
+  };
+  const curl = $('curl');
+  const setCurl = () => $('coupon').style.setProperty('--fx-progress', curl.value);
+  curl.oninput = setCurl;
+  setCurl();
+
+  const glsl = $('glsl');
+  function compile() {
+    defineEffect('custom', { animated: true, glsl: glsl.value });
+    setTimeout(() => {
+      const err = $('custom').closest('fx-surface')?.error;
+      $('glslError').textContent = err ? String(err.message).replace('shader compile failed: ', '') : '';
+    }, 120);
+  }
+  glsl.oninput = compile;
+  compile();
+
+  setInterval(() => {
+    const all = [...document.querySelectorAll('.gallery fx-surface, .play fx-surface')];
+    if (!all.length) return;
+    $('backends').textContent = `${all.length} surfaces here: ` + all.map((s) => `${s.effectName} → ${s.backend}`).join(', ') + ` · ${FxSurface.directContexts} WebGL contexts in use on the page, plus one shared`;
+  }, 400);
+
+  // ---- Live checks ----
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const fixtures = $('fixtures');
+  async function fixture(attrs = '', inner = 'chip <button>b</button>') {
+    const el = document.createElement('div');
+    el.innerHTML = `<div class="chip" ${attrs}>${inner}</div>`;
+    const chip = el.firstElementChild;
+    fixtures.append(chip);
+    let s;
+    for (let i = 0; i < 60; i++) {
+      s = chip.closest('fx-surface');
+      if (s?.ready) break;
+      await sleep(25);
+    }
+    if (!s) throw new Error('the element was never wrapped');
+    if (!s.ready) throw new Error('surface never became ready');
+    return { chip, s };
+  }
+  const read = (s, x, y) => Array.from(s.snapshot().getImageData(Math.round((x + s.bleed) * s.scale), Math.round((y + s.bleed) * s.scale), 1, 1).data);
+  const isYellow = (p) => p[0] > 235 && p[1] > 185 && p[1] < 225 && p[2] < 30 && p[3] > 245;
+
+  if (supported) {
+    runTests($('results'), [
+      {
+        name: 'WebGPU: DOM → GPUTexture → WGSL shader',
+        why: 'queue.drawElementImageToTexture() on a WebGPU canvas, sampled by a WGSL fragment shader that swaps red and blue. Needs a WebGPU adapter.',
+        timeout: 8000,
+        run: async () => {
+          if (!navigator.gpu) throw new Error('navigator.gpu is not available in this browser');
+          const adapter = await navigator.gpu.requestAdapter();
+          if (!adapter) throw new Error('no WebGPU adapter on this machine');
+          const device = await adapter.requestDevice();
+          if (!device.queue.drawElementImageToTexture) throw new Error('GPUQueue.drawElementImageToTexture is missing');
+          const canvas = document.createElement('canvas');
+          canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+          canvas.width = 140; canvas.height = 60; canvas.style.cssText = 'width:140px;height:60px';
+          canvas.innerHTML = '<div drawable class="chip">WebGPU <button>b</button></div>';
+          fixtures.append(canvas);
+          const format = navigator.gpu.getPreferredCanvasFormat();
+          const ctx = canvas.getContext('webgpu');
+          ctx.configure({ device, format, alphaMode: 'premultiplied' });
+          await new Promise((r) => { canvas.addEventListener('paint', r, { once: true }); canvas.requestPaint(); });
+          const texture = device.createTexture({ size: [140, 60], format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+          device.pushErrorScope('validation');
+          device.queue.drawElementImageToTexture({ source: canvas.firstElementChild }, { texture });
+          const module = device.createShaderModule({ code: `
+            @group(0) @binding(0) var t: texture_2d<f32>;
+            @group(0) @binding(1) var s: sampler;
+            struct V { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+            @vertex fn vs(@builtin(vertex_index) i: u32) -> V {
+              var p = array<vec2f, 3>(vec2f(-1, -1), vec2f(3, -1), vec2f(-1, 3));
+              var o: V; o.pos = vec4f(p[i], 0, 1); o.uv = vec2f((p[i].x + 1) / 2, (1 - p[i].y) / 2); return o;
+            }
+            @fragment fn fs(v: V) -> @location(0) vec4f { return textureSample(t, s, v.uv).bgra; }` });
+          const pipeline = device.createRenderPipeline({ layout: 'auto', vertex: { module }, fragment: { module, targets: [{ format }] } });
+          const bind = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: texture.createView() }, { binding: 1, resource: device.createSampler({ magFilter: 'linear' }) }] });
+          // Render into an offscreen texture and read it back, so the check does not
+          // depend on this machine being able to present a WebGPU canvas.
+          const out = device.createTexture({ size: [140, 60], format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+          const enc = device.createCommandEncoder();
+          const pass = enc.beginRenderPass({ colorAttachments: [{ view: out.createView(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] }] });
+          pass.setPipeline(pipeline); pass.setBindGroup(0, bind); pass.draw(3); pass.end();
+          const buffer = device.createBuffer({ size: 768 * 60, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+          enc.copyTextureToBuffer({ texture: out }, { buffer, bytesPerRow: 768 }, [140, 60]);
+          device.queue.submit([enc.finish()]);
+          const err = await device.popErrorScope();
+          if (err) throw new Error(err.message);
+          await buffer.mapAsync(GPUMapMode.READ);
+          const bytes = new Uint8Array(buffer.getMappedRange());
+          let p = Array.from(bytes.slice(4 * 768 + 16, 4 * 768 + 20));
+          if (format === 'bgra8unorm') p = [p[2], p[1], p[0], p[3]];
+          canvas.updateElementGeometry(canvas.firstElementChild, { canvasTransform: new DOMMatrix() });
+          // rgb(255,204,0) with red and blue swapped is rgb(0,204,255)
+          if (!(p[0] < 20 && p[1] > 185 && p[2] > 235)) throw new Error(`pixel ${p} (expected about 0,204,255)`);
+          return `yellow element came out ${p.slice(0, 3)} through WGSL (read back from the GPU)`;
+        },
+      },
+      {
+        name: 'fx attribute, direct backend: DOM → WebGL texture → shader',
+        why: 'texElementSubImage2D into the surface\'s own WebGL canvas, drawn with the identity effect.',
+        run: async () => {
+          const { s } = await fixture('fx="none" fx-backend="direct"');
+          const p = read(s, 4, 4);
+          if (s.backend !== 'direct') throw new Error(`backend is ${s.backend}`);
+          if (!isYellow(p)) throw new Error(`pixel ${p}`);
+          return `pixel ${p.slice(0, 3)} through a shader`;
+        },
+      },
+      {
+        name: 'Shared backend: one WebGL context for any number of elements',
+        why: 'drawElementImage → texImage2D(canvas) into a shared context → drawImage back.',
+        run: async () => {
+          const { s } = await fixture('fx="none" fx-backend="shared"');
+          const p = read(s, 4, 4);
+          if (s.backend !== 'shared') throw new Error(`backend is ${s.backend}`);
+          if (!isYellow(p)) throw new Error(`pixel ${p}`);
+          return `pixel ${p.slice(0, 3)} after the round trip`;
+        },
+      },
+      {
+        name: 'Both backends draw the same picture',
+        why: 'The CRT effect with time frozen, compared pixel by pixel.',
+        run: async () => {
+          defineEffect('test-warp', { glsl: 'vec4 fx(vec2 p) { vec4 c = tex(p + vec2(sin(p.y * 0.3) * 5.0, 0.0)); c.rgb *= 0.5 + 0.5 * (p.x / u_size.x); return c; }' });
+          const a = await fixture('fx="test-warp" fx-backend="direct"', 'same <b>picture</b>');
+          const b = await fixture('fx="test-warp" fx-backend="shared"', 'same <b>picture</b>');
+          const da = a.s.snapshot().getImageData(0, 0, a.s.canvas.width, a.s.canvas.height).data;
+          const db = b.s.snapshot().getImageData(0, 0, b.s.canvas.width, b.s.canvas.height).data;
+          if (da.length !== db.length) throw new Error('canvas sizes differ');
+          let worst = 0, off = 0, ink = 0;
+          for (let i = 3; i < da.length; i += 4) if (da[i] > 200) ink++;
+          if (ink < 1000) throw new Error('nothing was drawn');
+          for (let i = 0; i < da.length; i++) { const d = Math.abs(da[i] - db[i]); if (d > worst) worst = d; if (d > 24) off++; }
+          const frac = off / da.length;
+          if (frac > 0.02) throw new Error(`${(frac * 100).toFixed(1)}% of channels differ by more than 24 (worst ${worst})`);
+          return `${(frac * 100).toFixed(2)}% of channels differ visibly (worst ${worst}, on antialiased text edges)`;
+        },
+      },
+      {
+        name: 'A CSS custom property is a shader uniform',
+        why: 'dissolve with --fx-progress 0, then 1.',
+        run: async () => {
+          const { chip, s } = await fixture('fx="dissolve"');
+          const before = read(s, 6, 52);
+          chip.style.setProperty('--fx-progress', '1');
+          await sleep(80);
+          const after = read(s, 6, 52);
+          if (!isYellow(before) || after[3] !== 0) throw new Error(`before ${before}, after ${after}`);
+          return `alpha of a pixel in the element: ${before[3]} → ${after[3]}`;
+        },
+      },
+      {
+        name: 'A CSS transition animates the shader',
+        why: 'transition: --fx-progress 600ms. Sampled mid-flight, the computed value is between 0 and 1.',
+        run: async () => {
+          const { chip, s } = await fixture('fx="dissolve" style="transition: --fx-progress 600ms linear"');
+          s.scrollIntoView({ block: 'center' });
+          await sleep(120);
+          const f0 = s.frames;
+          chip.style.setProperty('--fx-progress', '1');
+          await sleep(300);
+          const mid = Number(getComputedStyle(chip).getPropertyValue('--fx-progress'));
+          await sleep(450);
+          const drawn = s.frames - f0;
+          if (!(mid > 0.05 && mid < 0.95)) throw new Error(`mid-transition value was ${mid}`);
+          if (drawn < 5) throw new Error(`only ${drawn} frames drawn during the transition`);
+          return `value at 300ms: ${mid.toFixed(2)}; ${drawn} shader frames drawn over the transition`;
+        },
+      },
+      {
+        name: 'The element is still the hit target',
+        why: 'elementFromPoint on the button inside a rippling element.',
+        run: async () => {
+          const { chip, s } = await fixture('fx="ripple"');
+          s.scrollIntoView({ block: 'center' });
+          await sleep(80);
+          const b = chip.querySelector('button');
+          const r = b.getBoundingClientRect();
+          s.poke(20, 20);
+          await sleep(60);
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          scrollTo(0, 0);
+          if (hit !== b) throw new Error(`found ${hit?.localName}`);
+          return 'elementFromPoint → the real button, mid-ripple';
+        },
+      },
+      {
+        name: 'DOM changes reach the texture',
+        why: 'Change a background colour; the paint event marks the texture dirty.',
+        run: async () => {
+          const { chip, s } = await fixture('fx="none"');
+          chip.style.background = 'rgb(0, 120, 255)';
+          await sleep(100);
+          const p = Array.from(s.snapshot().getImageData(Math.round(4 * s.scale), Math.round(4 * s.scale), 1, 1).data);
+          if (!(p[2] > 240 && p[0] < 20)) throw new Error(`pixel ${p}`);
+          return `pixel now ${p.slice(0, 3)}`;
+        },
+      },
+      {
+        name: '24 shaded elements on one page',
+        why: 'More than the WebGL context limit. The first eight go direct, the rest share one context.',
+        run: async () => {
+          const made = [];
+          for (let i = 0; i < 24; i++) {
+            const el = document.createElement('span');
+            el.setAttribute('fx', i % 2 ? 'crt' : 'haze');
+            el.textContent = String(i + 1).padStart(2, '0');
+            el.style.cssText = 'display:inline-block;padding:4px 7px;background:rgb(255,204,0);color:#000;font:12px monospace';
+            fixtures.append(el);
+            made.push(el);
+          }
+          made[0].scrollIntoView({ block: 'center' });
+          await sleep(800);
+          const surfaces = made.map((el) => el.closest('fx-surface'));
+          const lost = surfaces.filter((s) => !s || !s.live || s.error).length;
+          const drawn = surfaces.filter((s) => s && s.frames > 0 && s.snapshot().getImageData(Math.round((s.width / 2) * s.scale), Math.round(4 * s.scale), 1, 1).data[3] > 200).length;
+          const direct = surfaces.filter((s) => s?.backend === 'direct').length;
+          if (lost || drawn !== 24) throw new Error(`${drawn}/24 drawn, ${lost} lost`);
+          return `24/24 drawn: ${direct} direct, ${24 - direct} shared; ${FxSurface.directContexts} WebGL contexts in use on the page`;
+        },
+      },
+      {
+        name: 'A custom effect, and a broken one',
+        why: 'defineEffect() with valid GLSL inverts the element; invalid GLSL falls back to the unshaded element.',
+        run: async () => {
+          defineEffect('test-invert', { glsl: 'vec4 fx(vec2 p) { vec4 c = tex(p); return vec4(c.a - c.rgb, c.a); }' });
+          const good = await fixture('fx="test-invert"');
+          const inv = read(good.s, 4, 4);
+          defineEffect('test-broken', { glsl: 'vec4 fx(vec2 p) { return nonsense; }' });
+          const bad = await fixture('fx="test-broken"');
+          const plain = read(bad.s, 4, 4);
+          if (!(inv[0] < 20 && inv[2] > 235)) throw new Error(`inverted pixel is ${inv}`);
+          if (!bad.s.error || !isYellow(plain)) throw new Error(`broken shader: error=${!!bad.s.error}, pixel ${plain}`);
+          return `inverted → ${inv.slice(0, 3)}; broken shader reported an error and drew the element unshaded`;
+        },
+      },
+      {
+        name: 'Removing the attribute unwraps the element',
+        why: 'The observer hands the element back to its original parent.',
+        run: async () => {
+          const { chip } = await fixture('fx="haze"');
+          chip.removeAttribute('fx');
+          await sleep(80);
+          if (chip.parentElement !== fixtures) throw new Error(`parent is ${chip.parentElement?.localName}`);
+          return 'parent is the original container again';
+        },
+      },
+    ]).then(() => scrollTo(0, 0));
+  }
+</script>
+</body>
+</html>
