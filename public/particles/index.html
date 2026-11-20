@@ -39,6 +39,7 @@
   </p>
 
   <div class="stage2">
+    <div id="fallback-note" class="note" role="status" hidden></div>
     <glyph-field id="field" pointer="repel">
       <h2>Letters that <em>fly</em>, words that stay words.</h2>
       <p contenteditable="true" spellcheck="false">This paragraph is editable. Type into it and the new letters join the swarm. Nothing here was split into spans; each glyph is a small rectangle cut from one picture of the whole block.</p>
@@ -54,6 +55,15 @@
     <button id="scatter">Scatter and reassemble</button>
     <button id="assemble">Call them home</button>
     <label><input type="checkbox" id="repel" checked> Letters flee the pointer</label>
+  </div>
+  <div class="bar">
+    <label>Renderer
+      <select id="engine">
+        <option value="2d">2D canvas with a bitmap atlas</option>
+        <option value="webgl">WebGL instanced quads</option>
+      </select>
+    </label>
+    <span id="diag" class="note" style="font:12px var(--mono)"></span>
   </div>
   <div class="bar">
     <input type="search" id="find" placeholder="Find in the text" aria-label="Find in the text">
@@ -88,7 +98,9 @@
   <ul class="findings">
     <li><strong>The text is never split up.</strong> <code>Range.getClientRects()</code> gives a rectangle per grapheme without touching the markup, and each particle is that rectangle cut from one picture of the whole block. Kerning, ligatures, emoji sequences, links and the accessibility tree are untouched.</li>
     <li><strong>First try, 2D: right idea, wrong cost.</strong> <code>drawElementImage(el, sx, sy, sw, sh, dx, dy, dw, dh)</code> cuts a glyph out directly and is quick while glyphs stay upright. Give each glyph its own angle and every draw re-rasterises text at that angle; a thousand draws took over a second here.</li>
-    <li><strong>Second try, WebGL: one texture, one draw call.</strong> <code>texElementSubImage2D</code> uploads the block when the browser repaints it (the <code>paint</code> event says when), and the glyphs are instanced quads. Rotation and scale are free. The trade is that enlarged letters are scaled pixels, where the 2D route redraws them sharp.</li>
+    <li><strong>Second try, WebGL: one texture, one draw call.</strong> <code>texElementSubImage2D</code> uploads the block when the browser repaints it (the <code>paint</code> event says when), and the glyphs are instanced quads. Fast, but on an Android phone the canvas came out as a solid white block once the letters started moving.</li>
+    <li><strong>Third try, the default: 2D with a bitmap atlas.</strong> Draw the block into the 2D canvas, copy it with <code>createImageBitmap</code>, clear, and draw each glyph with <code>drawImage</code> from the copy, all inside one <code>paint</code> handler so the intermediate picture never reaches the screen. Rotation is cheap again because the pieces are pixels. At rest the block is one <code>drawElementImage</code>, sharp as ever.</li>
+    <li><strong>A canvas that fails should get out of the way.</strong> If the context is lost the element lifts its children out of the canvas and shows them as plain HTML until the context returns. A live test reads the canvas back and fails if it is blank or mostly solid.</li>
     <li><strong>The selection is part of the picture.</strong> Selected glyphs carry their highlight when they fly. <code>selectionchange</code> plus <code>Range.isPointInRange</code> tells the element which particles are selected, so a selection or a <code>window.find()</code> match can drive the motion.</li>
     <li><strong>Interaction stays where the text rests.</strong> The element's hit box is pinned to the home position with <code>updateElementGeometry</code>, so selecting, clicking the link and placing the caret work there even mid-explosion. A glyph in mid-air cannot be clicked: one element has one hit box.</li>
     <li><strong>One drawable span per letter does get a hit box per letter,</strong> and inline spans nearly keep the shaping, but it puts an element around every character and each one is a separate draw.</li>
@@ -98,7 +110,12 @@
 
 <script type="module">
   import { banner, supported, runTests } from '/shared/support.js';
-  import '/lib/glyph-field.js';
+  // The renderer has to be chosen before the element is defined, so it rides in the URL.
+  const wantEngine = new URLSearchParams(location.search).get('engine') === 'webgl' ? 'webgl' : '2d';
+  document.getElementById('field').setAttribute('engine', wantEngine);
+  document.getElementById('engine').value = wantEngine;
+  document.getElementById('engine').addEventListener('change', (e) => { location.search = e.target.value === 'webgl' ? '?engine=webgl' : ''; });
+  await import('/lib/glyph-field.js');
   banner();
 
   const field = document.getElementById('field');
@@ -127,6 +144,44 @@
   });
   void at;
   if (supported) customElements.whenDefined('glyph-field').then(() => setTimeout(() => field.scatter(), 300));
+
+  // Say so on the page if the canvas gives up, and show what the renderer is working with.
+  const note = document.getElementById('fallback-note'), diag = document.getElementById('diag');
+  const showFallback = () => {
+    const reason = field.fallbackReason;
+    note.hidden = !reason;
+    note.textContent = reason ? `Showing plain HTML because ${reason}. The text still works; the particles are off.` : '';
+  };
+  field.addEventListener('glyphfallback', showFallback);
+  /** Share of the canvas that is opaque, and whether anything was drawn at all. */
+  function coverage(el) {
+    const c = el.canvas;
+    const t = document.createElement('canvas');
+    t.width = Math.max(1, Math.round(c.width / 8)); t.height = Math.max(1, Math.round(c.height / 8));
+    const x = t.getContext('2d', { willReadFrequently: true });
+    x.drawImage(c, 0, 0, t.width, t.height);
+    const d = x.getImageData(0, 0, t.width, t.height).data;
+    let opaque = 0, any = 0;
+    for (let i = 3; i < d.length; i += 4) { if (d[i] > 250) opaque++; if (d[i] > 8) any++; }
+    const n = d.length / 4;
+    return { opaque: opaque / n, any: any / n };
+  }
+  /** The same, measured inside the next frame, which is the only time a WebGL canvas can be read. */
+  const coverageNext = (el) => new Promise((resolve) => {
+    el.addEventListener('glyphframe', () => resolve(coverage(el)), { once: true });
+    el.canvas.requestPaint();
+  });
+  if (supported) {
+    let last = 0;
+    field.addEventListener('glyphframe', (e) => {
+      if (performance.now() - last < 500) return;
+      last = performance.now();
+      const c = field.canvas, cov = coverage(field);
+      diag.textContent = `${e.detail.engine} · canvas ${c.width}×${c.height} at ${devicePixelRatio}× · ${e.detail.particles} particles · ${(cov.opaque * 100).toFixed(0)}% of the canvas opaque`;
+      // A canvas that is mostly solid is not text. Stop drawing on it rather than cover the page.
+      if (cov.opaque > 0.6) { diag.textContent += ' · that is a solid block, not text'; note.hidden = false; note.textContent = `The canvas came out ${(cov.opaque * 100).toFixed(0)}% solid, which is wrong. Try the other renderer below.`; }
+    });
+  }
 
   // ---------------------------------------------------------------- tests
   const rig = document.getElementById('rig');
@@ -169,15 +224,17 @@
     const ctx = c.getContext('2d', { willReadFrequently: true });
     await paintOf(c);
     const el = c.firstElementChild;
+    // The rotated run is kept short: it is the slow path, and a phone GPU should not be made to chew on it.
+    const n = rotate ? 120 : 1000;
     const t0 = performance.now();
     ctx.reset();
-    for (let i = 0; i < 1000; i++) {
+    for (let i = 0; i < n; i++) {
       const a = rotate ? i * 0.37 : 0, cos = Math.cos(a), sin = Math.sin(a);
       ctx.setTransform(cos, sin, -sin, cos, (i * 53) % 600, (i * 29) % 300);
       ctx.drawElementImage(el, (i % 40) * 12, (i % 7) * 28, 12, 28, -6, -14, 12, 28);
     }
     ctx.getImageData(0, 0, 1, 1);   // forces the queued draws to finish
-    const ms = performance.now() - t0;
+    const ms = (performance.now() - t0) * (1000 / n);
     c.remove();
     return ms;
   }
@@ -203,8 +260,8 @@
         await rig.whenSettled(); await rigFrame();
         const before = checksum();
         const home = ink(0, 0, 300, 28);
-        rig.explode({ x: 150, y: 14, power: 0.5, hold: 500 });
-        await sleep(260); await rigFrame();
+        rig.explode({ x: 150, y: 14, power: 0.5, hold: 700 });
+        await sleep(400); await rigFrame();
         const mid = ink(0, 0, 300, 28), outside = ink(-40, -40, 380, 40) + ink(-40, 28, 380, 40);
         await rig.whenSettled(); await rigFrame();
         const after = checksum();
@@ -289,8 +346,8 @@
       },
     },
     {
-      name: 'WebGL: every glyph of the text above as a spinning quad',
-      why: 'One texture upload when the text repaints, one instanced draw per frame.',
+      name: 'Every glyph of the text above in flight, with the renderer chosen below the text',
+      why: 'One picture of the block when the text repaints, then one piece of it per glyph per frame.',
       timeout: 15000,
       async run() {
         await field.whenSettled();
@@ -308,7 +365,55 @@
         field.assemble();
         const avg = times.reduce((a, b) => a + b, 0) / Math.max(1, times.length);
         must(times.length > 5 && avg < 12, `${avg.toFixed(2)} ms per frame over ${times.length} frames`);
-        return `${n} particles, ${avg.toFixed(2)} ms of script and GL calls per frame, ${fps.toFixed(0)} frames per second`;
+        return `${field.engine}: ${n} particles, ${avg.toFixed(2)} ms of script and draw calls per frame, ${fps.toFixed(0)} frames per second`;
+      },
+    },
+    {
+      name: 'The canvas is neither blank nor a solid block, at rest and mid-explosion',
+      why: 'Reads the big canvas above back. Text covers a small share of it; a blank or fully opaque canvas means the renderer is broken.',
+      timeout: 15000,
+      async run() {
+        must(!field.fallbackReason, `fell back to plain HTML: ${field.fallbackReason}`);
+        await field.whenSettled(); await frames(3);
+        const rest = await coverageNext(field);
+        field.setAttribute('force-motion', '');
+        field.explode({ power: 1, hold: 600 });
+        await sleep(400);
+        const mid = await coverageNext(field);
+        field.removeAttribute('force-motion');
+        field.assemble();
+        const pct = (v) => (v * 100).toFixed(1) + '%';
+        must(rest.any > 0.005 && mid.any > 0.005, `canvas is blank: ${pct(rest.any)} drawn at rest, ${pct(mid.any)} mid-explosion`);
+        must(rest.opaque < 0.6 && mid.opaque < 0.6, `canvas is a solid block: ${pct(rest.opaque)} opaque at rest, ${pct(mid.opaque)} mid-explosion`);
+        return `${field.engine}: ${pct(rest.any)} of the canvas drawn at rest, ${pct(mid.any)} mid-explosion; opaque ${pct(rest.opaque)} and ${pct(mid.opaque)}`;
+      },
+    },
+    {
+      name: 'The WebGL renderer draws the same text, and survives losing its context',
+      why: 'A second rig with engine="webgl": check it drew, force a context loss, expect plain HTML, restore, expect the canvas back.',
+      timeout: 15000,
+      async run() {
+        const g = document.createElement('glyph-field');
+        g.setAttribute('engine', 'webgl'); g.setAttribute('debug-readback', ''); g.setAttribute('bleed', '20'); g.setAttribute('force-motion', '');
+        g.style.cssText = 'width:200px;background:#fff;color:#000;margin:20px';
+        g.innerHTML = '<p style="font:20px/28px monospace;margin:0">WebGL text</p>';
+        spans.append(g);
+        try {
+          await frames(6);
+          must(g.engine === 'webgl', 'WebGL 2 with texElementSubImage2D is not available');
+          g.explode({ power: 0.3, hold: 300 }); await sleep(200);
+          const cov = coverage(g);
+          must(cov.any > 0.005 && cov.opaque < 0.6, `drawn ${(cov.any * 100).toFixed(1)}%, opaque ${(cov.opaque * 100).toFixed(1)}%`);
+          const ext = g.canvas.getContext('webgl2').getExtension('WEBGL_lose_context');
+          must(ext, 'no WEBGL_lose_context extension to test with');
+          ext.loseContext(); await sleep(150);
+          const lost = g.fallbackReason, plainVisible = g.shadowRoot.querySelector('.wrap.plain') !== null && g.offsetHeight > 10;
+          ext.restoreContext(); await sleep(400); await frames(4);
+          const back = !g.fallbackReason, cov2 = coverage(g);
+          must(lost && plainVisible, `after losing the context: reason "${lost}", plain text visible: ${plainVisible}`);
+          must(back && cov2.any > 0.005, `after restoring: fallback ${g.fallbackReason}, drawn ${(cov2.any * 100).toFixed(1)}%`);
+          return `drew ${(cov.any * 100).toFixed(1)}% of its canvas; on context loss showed plain HTML ("${lost}"); drew again after restore`;
+        } finally { g.remove(); }
       },
     },
     {
@@ -321,13 +426,13 @@
       },
     },
     {
-      name: '2D: the same 1,000 draws, each glyph at its own angle',
+      name: '2D: the same draws, each glyph at its own angle',
       expect: 'fail',
-      why: 'Every rotation needs its own rasterisation of the text, so the cost explodes. This is why the element uses WebGL.',
+      why: 'Every rotation needs its own rasterisation of the text, so the cost explodes. This is why the element flies bitmaps, not live paint commands.',
       timeout: 60000,
       async run() {
         const ms = await bench2d(true);
-        must(ms < 60, `${ms.toFixed(0)} ms per 1,000 draws: far over a 16 ms frame`);
+        must(ms < 60, `${ms.toFixed(0)} ms per 1,000 draws (measured on 120): far over a 16 ms frame`);
         return `${ms.toFixed(1)} ms per 1,000 draws`;
       },
     },
