@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OffscreenCanvas reprojection</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  canvas-slot#orbit { height: 300px; }
+  canvas-slot#orbit > [slot] { width: 220px; }
+  .tile { font: 15px/1.4 system-ui; padding: 12px 14px; border-radius: 10px; border: 1px solid; }
+  .tile h3 { margin: 0 0 4px; font-size: 15px; }
+  .t1 { background: #fff0f3; color: #3d0a17; border-color: #f0b8c6; }
+  .t2 { background: #eef6ff; color: #0c2440; border-color: #b6d0ef; }
+  .t3 { background: #effaf0; color: #10301a; border-color: #b8e0c0; }
+  .t2 button { font: inherit; }
+  #fps { font: 14px var(--mono); }
+
+  canvas-slot#doc { height: 340px; cursor: none; }
+  canvas-slot#doc > article { width: 560px; font: 15px/1.6 Georgia, serif; padding: 16px 20px; background: #fffdf7; color: #222; border: 1px solid #e4dccb; border-radius: 8px; }
+  canvas-slot#doc > article h3 { font: 700 20px/1.2 system-ui; margin: 0 0 8px; }
+  canvas-slot#doc > article table { border-collapse: collapse; font: 13px system-ui; margin-top: 8px; }
+  canvas-slot#doc > article td, canvas-slot#doc > article th { border: 1px solid #ddd; padding: 3px 8px; }
+  .mirrors { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  .mirrors figure { margin: 0; }
+  .mirrors canvas { display: block; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
+  .mirrors figcaption { font: 12px var(--mono); color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>2 · OffscreenCanvas &amp; reprojecting parts of the DOM</h1>
+  <p class="lede">
+    <code>&lt;canvas-slot worker="./renderer.js"&gt;</code> hands its canvas to a worker. On each <code>paint</code> the main thread captures
+    the slotted elements with <code>captureElementImage()</code> and transfers the <code>ElementImage</code> snapshots. The worker animates them
+    with its own <code>requestAnimationFrame</code>.
+  </p>
+
+  <div class="stage">
+    <canvas-slot id="orbit" worker="/offscreen/renderer.js">
+      <section slot="a" class="tile t1"><h3>Live clock</h3><time id="clock"></time></section>
+      <section slot="b" class="tile t2"><h3>Button</h3><button id="b" type="button">Clicked 0×</button></section>
+      <section slot="c" class="tile t3"><h3>Plain text</h3>Drawn off the main thread.</section>
+    </canvas-slot>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="block">Block the main thread for 3s</button>
+    <span id="fps">worker fps: –</span>
+    <span id="geom" class="note"></span>
+  </div>
+  <p class="note">While the main thread is blocked the orbit keeps moving (the worker owns the canvas), but the clock freezes: new snapshots only come from the main thread's rendering update. Try clicking the button while it orbits; drawing in the worker updates the element's geometry back on the main thread.</p>
+
+  <h2>Reprojecting parts of the DOM</h2>
+  <p>One element, drawn once, then re-used: a magnifier that follows the pointer (source-rect crops of the same snapshot), and plain <code>&lt;canvas&gt;</code> elements elsewhere on the page that copy regions of the source canvas.</p>
+  <div class="stage">
+    <canvas-slot id="doc">
+      <article slot="doc">
+        <h3>A document, drawn once</h3>
+        <p>Move your pointer over this. The lens redraws a crop of the <em>same</em> <code>drawElementImage()</code> snapshot at 2.5×, clipped to a circle, so it stays sharp. Text stays selectable underneath.</p>
+        <table><tr><th>Region</th><th>Q3</th><th>Q4</th></tr><tr><td>North</td><td>1,204</td><td id="live-cell">1,388</td></tr><tr><td>South</td><td>982</td><td>1,045</td></tr></table>
+      </article>
+    </canvas-slot>
+  </div>
+  <div class="mirrors">
+    <figure><canvas id="m1" width="420" height="34"></canvas><figcaption>heading region</figcaption></figure>
+    <figure><canvas id="m2" width="200" height="90"></canvas><figcaption>table region (live)</figcaption></figure>
+  </div>
+
+  <h2>What works with OffscreenCanvas (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <div id="fixtures" class="note" style="display:flex;gap:6px;flex-wrap:wrap;opacity:.5;margin-top:8px"></div>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>Worker rendering works</strong> with the transferred canvas: <code>captureElementImage()</code> → <code>postMessage(…, [img])</code> → <code>drawElementImage(img)</code> on the OffscreenCanvas, and a snapshot can be redrawn every frame until it's replaced or closed.</li>
+    <li><strong>Snapshots are tied to their canvas.</strong> A new <code>OffscreenCanvas()</code>, or any canvas other than the source (or its transferred OffscreenCanvas), throws "The source was captured from a different canvas". To show DOM in a second canvas you copy pixels (<code>drawImage(sourceCanvas)</code>), which loses interactivity.</li>
+    <li><strong>The worker can't make new snapshots.</strong> Only the main thread's rendering update produces them, so a blocked main thread means motion continues but content freezes.</li>
+    <li><strong>Hit testing follows the worker.</strong> Worker-side draws update geometry asynchronously and fire <code>elementgeometryupdate</code> on the canvas element.</li>
+    <li><strong>The source canvas must render.</strong> <code>display: none</code> and <code>visibility: hidden</code> canvases never record a snapshot ("No cached paint record"), and a canvas positioned far off-screen is culled (transparent). A visible-but-<code>opacity: 0</code> canvas does work, which is a usable "hidden source" trick.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/canvas-slot.js';
+  import { banner, nav, runTests, nextPaint, pixel, supported } from '/shared/support.js';
+  nav('/offscreen/');
+  banner();
+
+  // ---- Worker orbit ----
+  const orbit = document.getElementById('orbit');
+  const clock = document.getElementById('clock');
+  const tick = () => (clock.textContent = new Date().toLocaleTimeString([], { hour12: false }) + '.' + String(Date.now() % 1000).padStart(3, '0').slice(0, 1));
+  setInterval(tick, 100);
+  tick();
+  let clicks = 0;
+  document.getElementById('b').onclick = (e) => (e.target.textContent = `Clicked ${++clicks}×`);
+  orbit.addEventListener('workermessage', (e) => {
+    if (e.detail.type === 'fps') document.getElementById('fps').textContent = `worker fps: ${e.detail.fps}`;
+  });
+  let geomUpdates = 0;
+  orbit.canvas.addEventListener('elementgeometryupdate', () => {
+    geomUpdates++;
+  });
+  setInterval(() => (document.getElementById('geom').textContent = `elementgeometryupdate events: ${geomUpdates}`), 500);
+  document.getElementById('block').onclick = () => {
+    const end = performance.now() + 3000;
+    while (performance.now() < end) {}
+  };
+
+  // ---- Magnifier + mirrors ----
+  const doc = document.getElementById('doc');
+  let lens = null;
+  doc.addEventListener('pointermove', (e) => {
+    const r = doc.getBoundingClientRect();
+    lens = { x: e.clientX - r.x, y: e.clientY - r.y };
+    doc.requestPaint();
+  });
+  doc.addEventListener('pointerleave', () => {
+    lens = null;
+    doc.requestPaint();
+  });
+  const m1 = document.getElementById('m1').getContext('2d');
+  const m2 = document.getElementById('m2').getContext('2d');
+  doc.onrender = ({ ctx, draw, elements, dpr }) => {
+    const el = elements.get('doc');
+    if (!el) return;
+    const x0 = 16, y0 = 16;
+    draw(el, x0, y0);
+    if (lens) {
+      const R = 70, Z = 2.5;
+      // Source rect in canvas-grid pixels around the pointer, drawn magnified.
+      const sx = (lens.x - x0) - R / Z, sy = (lens.y - y0) - R / Z;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(lens.x, lens.y, R, 0, Math.PI * 2);
+      ctx.fillStyle = '#fffdf7';
+      ctx.fill();
+      ctx.clip();
+      ctx.drawElementImage(el, sx * dpr, sy * dpr, (2 * R / Z) * dpr, (2 * R / Z) * dpr, lens.x - R, lens.y - R, 2 * R, 2 * R, { preserveElementGeometry: true });
+      ctx.restore();
+      ctx.beginPath();
+      ctx.arc(lens.x, lens.y, R, 0, Math.PI * 2);
+      ctx.strokeStyle = '#444';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+    // Pixel copies of regions into ordinary canvases elsewhere on the page.
+    const src = doc.canvas;
+    const h3 = el.querySelector('h3').getBoundingClientRect();
+    const table = el.querySelector('table').getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    const copy = (target, rect) => {
+      target.clearRect(0, 0, target.canvas.width, target.canvas.height);
+      const sx = (x0 + rect.x - er.x) * dpr, sy = (y0 + rect.y - er.y) * dpr;
+      const s = Math.min(target.canvas.width / rect.width, target.canvas.height / rect.height);
+      target.drawImage(src, sx, sy, rect.width * dpr, rect.height * dpr, 0, 0, rect.width * s, rect.height * s);
+    };
+    if (!lens) {
+      copy(m1, h3);
+      copy(m2, table);
+    }
+  };
+  setInterval(() => {
+    document.getElementById('live-cell').textContent = (1300 + Math.floor(Math.random() * 200)).toLocaleString();
+  }, 1000);
+
+  // ---- Live tests ----
+  if (supported) {
+    const fixtures = document.getElementById('fixtures');
+    function fixture() {
+      const c = document.createElement('canvas');
+      c.setAttribute('content', 'drawable');
+      c.width = 200; c.height = 50;
+      c.innerHTML = '<div drawable style="background:#fc0;color:#000;padding:6px;width:150px">snapshot</div>';
+      fixtures.append(c);
+      return { c, el: c.firstElementChild };
+    }
+    const workerFrom = (src) => new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    const ask = (w, msg, transfer) => new Promise((resolve, reject) => {
+      w.onmessage = (e) => (e.data.ok ? resolve(e.data.detail) : reject(new Error(e.data.detail)));
+      w.postMessage(msg, transfer);
+    });
+    const W = `let ctx; onmessage = async ({ data }) => { try {
+        if (data.canvas) { ctx = data.canvas.getContext('2d'); postMessage({ ok: true, detail: 'init' }); return; }
+        if (data.mode === 'own') { ctx.reset(); ctx.drawElementImage(data.img, 0, 0); postMessage({ ok: true, detail: 'drawn into transferred canvas' }); return; }
+        if (data.mode === 'again') { for (let i = 0; i < 30; i++) { ctx.reset(); ctx.drawElementImage(data.img, i, 0); await new Promise(r => setTimeout(r, 16)); } postMessage({ ok: true, detail: 'redrew the same ElementImage 30 times' }); return; }
+        if (data.mode === 'closed') { data.img.close(); ctx.drawElementImage(data.img, 0, 0); postMessage({ ok: true, detail: 'drew after close()' }); return; }
+        if (data.mode === 'fresh') { const oc = new OffscreenCanvas(200, 50); oc.getContext('2d').drawElementImage(data.img, 0, 0); postMessage({ ok: true, detail: 'drawn' }); return; }
+        if (data.mode === 'bitmap') { const bmp = ctx.canvas.transferToImageBitmap(); postMessage({ ok: true, detail: 'transferToImageBitmap ' + bmp.width + 'x' + bmp.height }); return; }
+      } catch (e) { postMessage({ ok: false, detail: e.name + ': ' + e.message }); } };`;
+
+    runTests(document.getElementById('results'), [
+      {
+        name: 'Draw a transferred ElementImage into the transferred OffscreenCanvas (worker)',
+        why: 'The canonical worker pattern from the explainer.',
+        run: async () => {
+          const { c, el } = fixture();
+          await nextPaint(c);
+          const img = c.captureElementImage(el);
+          const off = c.transferControlToOffscreen();
+          const w = workerFrom(W);
+          await ask(w, { canvas: off }, [off]);
+          return ask(w, { mode: 'own', img }, [img]);
+        },
+      },
+      {
+        name: 'Redraw one ElementImage across many frames in the worker',
+        why: 'Animation without new snapshots.',
+        run: async () => {
+          const { c, el } = fixture();
+          await nextPaint(c);
+          const img = c.captureElementImage(el);
+          const off = c.transferControlToOffscreen();
+          const w = workerFrom(W);
+          await ask(w, { canvas: off }, [off]);
+          return ask(w, { mode: 'again', img }, [img]);
+        },
+      },
+      {
+        name: 'Draw an ElementImage after close()',
+        why: 'close() releases the snapshot.',
+        run: async () => {
+          const { c, el } = fixture();
+          await nextPaint(c);
+          const img = c.captureElementImage(el);
+          const off = c.transferControlToOffscreen();
+          const w = workerFrom(W);
+          await ask(w, { canvas: off }, [off]);
+          return ask(w, { mode: 'closed', img }, [img]);
+        },
+      },
+      {
+        name: 'Draw an ElementImage into a brand-new OffscreenCanvas in a worker',
+        why: 'Could a worker composite DOM from anywhere?',
+        run: async () => {
+          const { c, el } = fixture();
+          await nextPaint(c);
+          const img = c.captureElementImage(el);
+          return ask(workerFrom(W), { mode: 'fresh', img }, [img]);
+        },
+      },
+      {
+        name: 'Draw an ElementImage into a new OffscreenCanvas on the main thread',
+        why: 'Same question without a worker.',
+        run: async () => {
+          const { c, el } = fixture();
+          await nextPaint(c);
+          const img = c.captureElementImage(el);
+          new OffscreenCanvas(200, 50).getContext('2d').drawElementImage(img, 0, 0);
+          return 'drawn';
+        },
+      },
+      {
+        name: 'Copy drawn DOM pixels out of the canvas',
+        why: 'drawImage(sourceCanvas) into a plain canvas; what the mirrors above use.',
+        run: async () => {
+          const { c, el } = fixture();
+          await nextPaint(c);
+          c.getContext('2d').drawElementImage(el, 0, 0);
+          const t = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+          t.drawImage(c, 0, 0);
+          const px = pixel(t, 4, 4);
+          if (px === '0,0,0,0') throw new Error('transparent');
+          return `copied pixel ${px}`;
+        },
+      },
+      {
+        name: 'structuredClone(ElementImage)',
+        why: 'Transferable, but is it serializable?',
+        run: async () => {
+          const { c, el } = fixture();
+          await nextPaint(c);
+          structuredClone(c.captureElementImage(el));
+          return 'cloned';
+        },
+      },
+    ]);
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cross-tab reprojection</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  canvas-slot#source { height: 330px; }
+  canvas-slot#source > [slot] { width: 300px; margin: 0; }
+  .w { font: 15px/1.4 system-ui; padding: 12px 14px; border-radius: 10px; border: 1px solid; }
+  .w h3 { margin: 0 0 6px; font-size: 15px; }
+  .counter { background: #fff1e6; color: #3b1d06; border-color: #f0c9a6; }
+  .counter output { font: 700 28px/1 system-ui; margin-right: 12px; }
+  .counter button { font: inherit; padding: 4px 12px; border-radius: 6px; border: 1px solid #c58a55; background: white; color: inherit; }
+  .notes { background: #eef4ff; color: #0f2347; border-color: #bccdf0; }
+  .notes input { font: inherit; padding: 4px 8px; width: 190px; }
+  .notes ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
+  .clock { background: #f0f7ec; color: #183318; border-color: #bfdcb2; font-variant-numeric: tabular-nums; }
+  .clock time { font: 600 22px/1 ui-monospace, monospace; }
+  #status { font: 14px var(--mono); }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>3 · Reproject DOM into another tab</h1>
+  <p class="lede">
+    The widgets below are real DOM, slotted into a canvas on this page. Open a viewer and each named slot
+    is streamed to it over a <code>MessagePort</code>. Click and type in the viewer: the events come back over
+    the same port and are replayed on the real elements here.
+  </p>
+
+  <div class="row" style="margin-bottom:12px">
+    <button id="popup">Open viewer window</button>
+    <a href="/cross-tab/viewer.html" target="_blank" rel="opener">…or open the viewer in a new tab</a>
+    <span id="status">0 viewers</span>
+  </div>
+
+  <div class="stage">
+    <canvas-slot id="source">
+      <section slot="counter" class="w counter">
+        <h3>slot="counter"</h3>
+        <output id="count">0</output>
+        <button id="inc" type="button">+1</button>
+        <button id="dec" type="button">−1</button>
+      </section>
+      <form slot="notes" class="w notes" id="notes-form">
+        <h3>slot="notes"</h3>
+        <input id="note" placeholder="Type a note, press Enter" autocomplete="off">
+        <ul id="note-list"></ul>
+      </form>
+      <section slot="clock" class="w clock">
+        <h3>slot="clock"</h3>
+        <time id="clock"></time>
+      </section>
+    </canvas-slot>
+  </div>
+
+  <h2>How it travels</h2>
+  <ol>
+    <li><strong>Introductions.</strong> A popup gets a port directly: <code>popup.postMessage({…}, '*', [port2])</code>. An unrelated tab has no window reference, so both tabs connect to a <code>SharedWorker</code> that creates a <code>MessageChannel</code> and hands one end to each. After that they talk port to port.</li>
+    <li><strong>Frames.</strong> On every <code>paint</code> event the publisher draws the slotted elements, then cuts each element's region out with <code>createImageBitmap(canvas, …)</code> and transfers it. The element's client rect gives the region, because <code>drawElementImage()</code> moved its geometry to where it was drawn.</li>
+    <li><strong>Input.</strong> The viewer sends element-local pointer coordinates and keys. The publisher maps them with <code>elementFromPoint()</code>, focuses, clicks, and edits inputs with <code>setRangeText()</code>.</li>
+  </ol>
+
+  <h2>What can cross a tab boundary (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>The snapshot can't follow the DOM to another tab.</strong> <code>ElementImage</code> is transferable, so <code>postMessage</code> to a popup succeeds, but the popup can't draw it: an ElementImage can only be drawn into the canvas it was captured from (or that canvas's OffscreenCanvas).</li>
+    <li><strong><code>BroadcastChannel</code> can't carry it at all.</strong> ElementImage is transferable but not serializable, so <code>structuredClone</code> and BroadcastChannel throw <code>DataCloneError</code>.</li>
+    <li><strong>Pixels can.</strong> Because HTML-in-canvas strips sensitive content when painting, the canvas isn't tainted and an <code>ImageBitmap</code> of the drawn DOM can go anywhere: MessagePort, BroadcastChannel, popups.</li>
+    <li><strong>So cross-tab reprojection is "remote framebuffer + input forwarding".</strong> It's live and interactive, but text in the viewer isn't selectable or accessible; the semantics stay in the source tab.</li>
+    <li><strong>The source tab has to be rendering.</strong> The <code>paint</code> event runs in the rendering loop, so a hidden or backgrounded source tab stops sending frames. Side-by-side windows (or a popup) work best.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/canvas-slot.js';
+  import { publish, connectBroker } from '/lib/slot-share.js';
+  import { banner, nav, runTests, nextPaint, supported } from '/shared/support.js';
+  nav('/cross-tab/');
+  banner();
+
+  // ---- The widgets (plain DOM logic, nothing canvas-specific) ----
+  const count = document.getElementById('count');
+  document.getElementById('inc').onclick = () => (count.value = +count.value + 1);
+  document.getElementById('dec').onclick = () => (count.value = +count.value - 1);
+  document.getElementById('notes-form').onsubmit = (e) => {
+    e.preventDefault();
+    const input = document.getElementById('note');
+    if (!input.value.trim()) return;
+    const li = document.createElement('li');
+    li.textContent = input.value;
+    document.getElementById('note-list').prepend(li);
+    while (document.getElementById('note-list').children.length > 3) document.getElementById('note-list').lastElementChild.remove();
+    input.value = '';
+  };
+  const clock = document.getElementById('clock');
+  const tick = () => (clock.textContent = new Date().toLocaleTimeString());
+  tick();
+  setInterval(tick, 1000);
+
+  // ---- Canvas: lay the slots out flat so each one is a clean rectangle ----
+  const source = document.getElementById('source');
+  source.onrender = ({ ctx, width, draw, elements }) => {
+    ctx.fillStyle = 'rgba(127,127,127,0.08)';
+    ctx.fillRect(0, 0, width, 330);
+    draw('counter', 16, 16);
+    draw('clock', 16, 150);
+    draw('notes', Math.max(332, width - 316), 16);
+  };
+
+  // ---- Sharing ----
+  const pub = publish(source);
+  const status = document.getElementById('status');
+  const setStatus = () => (status.textContent = `${pub.viewerCount} viewer${pub.viewerCount === 1 ? '' : 's'}`);
+  setInterval(setStatus, 500);
+
+  // Unrelated tabs find us through the SharedWorker broker.
+  try {
+    connectBroker({ role: 'publisher', channel: 'cross-tab-demo', onPort: (port) => pub.add(port) });
+  } catch (err) {
+    status.textContent = err.message;
+  }
+
+  // Popups get a port handed to them directly.
+  document.getElementById('popup').onclick = () => {
+    const w = window.open('/cross-tab/viewer.html?direct', 'slot-viewer', 'popup,width=420,height=560');
+    addEventListener('message', function onReady(e) {
+      if (e.source !== w || e.data?.type !== 'viewer-ready') return;
+      removeEventListener('message', onReady);
+      const { port1, port2 } = new MessageChannel();
+      pub.add(port1);
+      w.postMessage({ type: 'port' }, location.origin, [port2]);
+    });
+  };
+
+  // ---- Live tests ----
+  if (supported) {
+    const canvas = source.canvas;
+    const cardEl = () => source.elements.get('counter');
+    runTests(document.getElementById('results'), [
+      {
+        name: 'Transfer an ElementImage over a MessageChannel',
+        why: 'ElementImage is [Transferable].',
+        run: async () => {
+          await nextPaint(canvas);
+          const img = canvas.captureElementImage(cardEl());
+          const { port1, port2 } = new MessageChannel();
+          const got = new Promise((r) => (port2.onmessage = (e) => r(e.data.img)));
+          port1.postMessage({ img }, [img]);
+          const received = await got;
+          return `received ${Object.prototype.toString.call(received)}`;
+        },
+      },
+      {
+        name: 'Send an ElementImage on a BroadcastChannel',
+        why: 'BroadcastChannel can only structured-clone, not transfer.',
+        run: async () => {
+          await nextPaint(canvas);
+          const img = canvas.captureElementImage(cardEl());
+          new BroadcastChannel('x').postMessage({ img });
+          return 'sent';
+        },
+      },
+      {
+        name: 'Draw a received ElementImage into another canvas',
+        why: 'What a second tab would have to do with it.',
+        run: async () => {
+          await nextPaint(canvas);
+          const img = canvas.captureElementImage(cardEl());
+          const other = document.createElement('canvas');
+          other.setAttribute('content', 'drawable');
+          other.getContext('2d').drawElementImage(img, 0, 0);
+          return 'drawn';
+        },
+      },
+      {
+        name: 'Read back pixels of drawn DOM (canvas not tainted)',
+        why: 'Required for the ImageBitmap path.',
+        run: async () => {
+          const ev = new Promise((r) => source.addEventListener('render', r, { once: true }));
+          source.requestPaint();
+          await ev;
+          const r = cardEl().getBoundingClientRect();
+          const cr = canvas.getBoundingClientRect();
+          const s = canvas.width / cr.width;
+          const bmp = await createImageBitmap(canvas, (r.x - cr.x + 4) * s, (r.y - cr.y + 4) * s, 4, 4);
+          const c = new OffscreenCanvas(4, 4).getContext('2d');
+          c.drawImage(bmp, 0, 0);
+          return `ImageBitmap ${bmp.width}×${bmp.height}, pixel ${Array.from(c.getImageData(1, 1, 1, 1).data).join(',')}`;
+        },
+      },
+      {
+        name: 'Send that ImageBitmap on a BroadcastChannel',
+        why: 'ImageBitmap is serializable, so it reaches every same-origin tab.',
+        run: async () => {
+          const bmp = await createImageBitmap(canvas, 0, 0, 10, 10);
+          const a = new BroadcastChannel('bmp-test');
+          const b = new BroadcastChannel('bmp-test');
+          const got = new Promise((r) => (b.onmessage = (e) => r(e.data)));
+          a.postMessage(bmp);
+          const x = await got;
+          return `received ImageBitmap ${x.width}×${x.height}`;
+        },
+      },
+      {
+        name: 'SharedWorker broker available',
+        why: 'Needed to introduce two unrelated tabs.',
+        run: async () => {
+          if (typeof SharedWorker === 'undefined') throw new Error('no SharedWorker');
+          return 'yes';
+        },
+      },
+    ]);
+  }
+</script>
+</body>
+</html>
