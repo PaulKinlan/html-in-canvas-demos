@@ -99,6 +99,7 @@
     <li><strong>The <code>&lt;slot&gt;</code> itself can't be the drawable.</strong> It is <code>display: contents</code>, so it has no box and no paint record ("No cached paint record for element"). Put <code>drawable</code> on the slotted element, or on a real wrapper element in the shadow tree around the slot.</li>
     <li><strong>A shadow wrapper works too.</strong> <code>&lt;div drawable&gt;&lt;slot&gt;&lt;/slot&gt;&lt;/div&gt;</code> inside the canvas draws everything slotted into it as one image, which is handy when you don't want to touch the author's markup.</li>
     <li><strong>The limit is the host's children.</strong> A slot can only reproject children of its shadow host. It does not let you pull an arbitrary element from elsewhere in the page into the canvas; for that, see the OffscreenCanvas and cross-tab demos.</li>
+    <li><strong>Always pass a size to <code>drawElementImage()</code>.</strong> Without one the element is drawn in canvas pixels. On a canvas sized for a high-density screen with <code>ctx.scale(dpr, dpr)</code>, that makes it <code>dpr</code> times too big, and its hit-testing box grows with it. <code>&lt;canvas-slot&gt;</code>'s <code>draw()</code> helper passes the size for you.</li>
     <li><strong>Hit testing, focus and selection follow the drawn position</strong>, because <code>drawElementImage</code> updates the element's geometry automatically.</li>
   </ul>
 </main>
@@ -290,6 +291,28 @@
           window.scrollTo(0, 0);
           if (hit !== v.host.firstElementChild) throw new Error(`elementFromPoint returned ${hit?.tagName ?? null}`);
           return `elementFromPoint → the slotted <div> (drawn offset 40,40)`;
+        },
+      },
+      {
+        name: 'On a sharp canvas, drawElementImage(el, x, y) without a size keeps the element at its own size',
+        why: 'The usual setup: canvas.width = CSS width × devicePixelRatio, then ctx.scale(dpr, dpr). Compares the drawn width with and without an explicit size.',
+        run: async () => {
+          const dpr = Math.max(devicePixelRatio, 1.5); // also shows the problem on a 1× screen
+          const v = makeHost('<slot name="a"></slot>', `<div slot="a" drawable ${box}>size</div>`);
+          v.canvas.width = Math.round(210 * dpr); v.canvas.height = Math.round(70 * dpr);
+          const el = v.host.firstElementChild;
+          const measure = async (sized) => {
+            v.canvas.requestPaint();
+            await nextPaint(v.canvas);
+            v.ctx.reset(); v.ctx.scale(dpr, dpr);
+            if (sized) v.ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight); else v.ctx.drawElementImage(el, 0, 0);
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+            return Math.round(el.getBoundingClientRect().width);
+          };
+          const bare = await measure(false), sized = await measure(true);
+          if (sized !== el.offsetWidth) throw new Error(`even with a size the hit box is ${sized}px wide, expected ${el.offsetWidth}px`);
+          if (bare !== el.offsetWidth) throw new Error(`a ${el.offsetWidth}px element is drawn and hit-tested ${bare}px wide (${(bare / el.offsetWidth).toFixed(2)}×). The default size is in canvas pixels, so the scale is applied twice. Passing el.offsetWidth, el.offsetHeight gives ${sized}px.`);
+          return `${bare}px both ways`;
         },
       },
       {
