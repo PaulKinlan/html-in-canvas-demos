@@ -124,8 +124,8 @@ function replay(el, msg) {
   }
 }
 
-/** <slot-view name="…">: shows a remote slot and sends input back. */
-export class SlotView extends HTMLElement {
+/** <slot-mirror name="…">: shows a remote slot and sends input back. */
+export class SlotMirror extends HTMLElement {
   #canvas;
   #ctx;
   #port = null;
@@ -197,7 +197,7 @@ export class SlotView extends HTMLElement {
     this.#port?.postMessage({ type: 'pointer', name: this.name, kind, x: e.clientX - r.x, y: e.clientY - r.y });
   }
 }
-if (!customElements.get('slot-view')) customElements.define('slot-view', SlotView);
+if (!customElements.get('slot-mirror')) customElements.define('slot-mirror', SlotMirror);
 
 /**
  * Same-origin tabs that don't know about each other can't postMessage
