@@ -63,6 +63,7 @@ export function directLinkPair() {
 
 export class LiveView extends HTMLElement {
   #link = null;
+  #mode = null;
   #canvas;
   #ctx;
   #video;
@@ -87,6 +88,8 @@ export class LiveView extends HTMLElement {
         .screen { position: relative; border-radius: inherit; }
         [hidden] { display: none !important; }
         .empty { font: 13px system-ui; color: GrayText; padding: 10px; }
+        .notice { position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; justify-items: center; text-align: center; padding: 10px; font: 13px/1.35 system-ui; color: #fff; background: #1d1c1acc; border-radius: inherit; }
+        .notice button { font: inherit; padding: 4px 12px; border-radius: 999px; border: 1px solid #fff; background: transparent; color: #fff; }
         /* Off-screen but focusable: brings up the on-screen keyboard on phones. */
         textarea { position: absolute; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; resize: none; font-size: 16px; }
         dialog { border: 1px solid #8884; border-radius: 12px; padding: 14px; font: 15px system-ui; }
@@ -96,6 +99,7 @@ export class LiveView extends HTMLElement {
       <div class="screen" part="screen">
         <div class="empty" part="empty">waiting for frames…</div>
         <canvas hidden></canvas><video hidden muted playsinline autoplay></video>
+        <div class="notice" part="notice" role="status" hidden><span></span><button type="button">Try again</button></div>
         <textarea aria-label="Keyboard input for the remote element" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
       </div>
       <dialog><form method="dialog"><label><span id="sel-name"></span><select></select></label><button value="ok">OK</button> <button value="cancel">Cancel</button></form></dialog>`;
@@ -177,6 +181,13 @@ export class LiveView extends HTMLElement {
     });
     this.#keys.value = ' ';
 
+    root.querySelector('.notice button').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.refresh();
+    });
+    root.querySelector('.notice').addEventListener('pointerdown', (e) => e.stopPropagation());
+    // Coming back from the background: whatever was on screen may be stale or gone.
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && this.isConnected && this.refresh());
     const dialog = root.querySelector('dialog');
     dialog.addEventListener('close', () => {
       if (dialog.returnValue === 'ok') this.#send({ t: 'choose', id: dialog.dataset.id, value: dialog.querySelector('select').value });
@@ -219,9 +230,11 @@ export class LiveView extends HTMLElement {
    */
   connect(link, { frames = link.transfers ? 'bitmap' : 'blob', stream = null, fps } = {}) {
     this.#link = link;
+    this.#mode = { frames: stream ? 'none' : frames, fps };
     link.onmessage = (msg) => this.receive(msg);
     if (stream) this.setStream(stream);
-    link.send({ t: 'hello', frames: stream ? 'none' : frames, fps });
+    this.notice(null);
+    link.send({ t: 'hello', ...this.#mode });
   }
 
   disconnect() {
@@ -243,6 +256,23 @@ export class LiveView extends HTMLElement {
       this.#video.requestVideoFrameCallback?.(count);
     };
     this.#video.requestVideoFrameCallback?.(count);
+  }
+
+  /** Ask the source for a fresh description and picture. */
+  refresh() {
+    if (!this.#link || !this.#mode) return;
+    try {
+      this.#link.send({ t: 'hello', ...this.#mode });
+    } catch {}
+  }
+
+  /** Say something over the picture (null clears it). Used when the picture is lost, paused or over. */
+  notice(text, retry = true) {
+    const n = this.shadowRoot.querySelector('.notice');
+    n.hidden = !text;
+    n.querySelector('span').textContent = text ?? '';
+    n.querySelector('button').hidden = !retry;
+    this.toggleAttribute('trouble', !!text);
   }
 
   /** Handle one message from the source (public so relays can feed it). */
@@ -268,8 +298,13 @@ export class LiveView extends HTMLElement {
       this.dispatchEvent(new CustomEvent('refused', { detail: msg }));
     } else if (msg.t === 'visibility') {
       this.toggleAttribute('stalled', msg.state !== 'visible');
+      this.notice(msg.state === 'visible' ? null : 'Paused: the page this comes from is in the background.', false);
       this.dispatchEvent(new CustomEvent('sourcevisibility', { detail: msg.state }));
+    } else if (msg.t === 'trouble') {
+      this.notice(msg.what === 'lost' ? 'The browser dropped this picture at its source. Waiting for it to come back.' : msg.what === 'blank' ? 'The picture is arriving blank. Asking for it again.' : null);
+      this.dispatchEvent(new CustomEvent('trouble', { detail: msg.what }));
     } else if (msg.t === 'bye') {
+      this.notice('The other side stopped sharing this.', false);
       this.dispatchEvent(new CustomEvent('bye'));
     } else {
       this.dispatchEvent(new CustomEvent('message', { detail: msg }));

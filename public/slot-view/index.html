@@ -90,6 +90,7 @@
   <h2>What holds (live)</h2>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
   <p class="note" id="waiting"></p>
+  <p class="note">The three checks that press buttons and restyle the card run on a hidden second copy of this page once you have allowed the card, so the one you are using is left alone.</p>
 
   <h2>Takeaways</h2>
   <ul class="findings">
@@ -104,11 +105,12 @@
 <script type="module">
   import '/lib/slot-view.js';
   import { otherOrigin } from '/lib/live-origins.js';
-  import { banner, runTests } from '/shared/support.js';
+  import { banner, isBench, runTests } from '/shared/support.js';
   banner();
 
   const REMOTE = otherOrigin() ?? location.origin;
-  const SRC = REMOTE + '/slot-view/provider.html';
+  // The hidden copy that runs the pressing-and-typing checks gets its own shop state.
+  const SRC = REMOTE + '/slot-view/provider.html' + (isBench ? '?bench=1' : '');
   const $ = (id) => document.getElementById(id);
   $('o1').textContent = location.host;
   $('o2').textContent = new URL(REMOTE).host + (REMOTE === location.origin ? ' (no second origin on this host, so the same one)' : '');
@@ -185,6 +187,13 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const incoming = (name, from, test) => log[name].slice(from).find((d) => d.dir === 'in' && test(d.msg));
   const item = (name) => prod.meta?.map.find((m) => m.name.startsWith(name));
+  // In the hidden copy the grant you gave is remembered by the shop, so its card goes live without asking.
+  const live = async () => {
+    if (!(await until(() => prod.state === 'plain' || (prod.state === 'live' && prod.frames > 0 && prod.meta), 8000))) throw new Error(`the hidden copy's card is "${prod.state}" (the shop did not remember the permission)`);
+  };
+  const granted = new Promise((resolve) => {
+    const t = setInterval(() => ['live', 'plain'].includes(prod.state) && (clearInterval(t), resolve()), 300);
+  });
 
   runTests($('results'), [
     {
@@ -277,8 +286,11 @@
     },
     {
       name: 'Pressing its button here presses the real one there',
+      apart: true,
+      timeout: 15000,
       why: 'A forwarded click on "One more"; the shop reports its own state back.',
       run: async () => {
+        await live();
         if (prod.state === 'plain') throw new Error('plain frame: nothing is forwarded');
         if (!prod.scopes.includes('input')) return 'you allowed viewing only, so input is (correctly) refused';
         await until(() => app, 3000);
@@ -291,8 +303,11 @@
     },
     {
       name: 'A guarded button is not pressed by forwarded input',
+      apart: true,
+      timeout: 15000,
       why: '"Buy now" is marked data-trusted: the shop asks you itself instead.',
       run: async () => {
+        await live();
         if (prod.state === 'plain') throw new Error('plain frame: nothing is forwarded');
         if (!prod.scopes.includes('input')) return 'viewing only: nothing can be pressed at all';
         const orders = app?.orders ?? 0;
@@ -310,8 +325,11 @@
     },
     {
       name: 'Restyling is a contract',
+      apart: true,
+      timeout: 15000,
       why: 'This page asks for an accent colour, and for two things the shop does not offer.',
       run: async () => {
+        await live();
         if (prod.state === 'plain') throw new Error('plain frame: no contract to test');
         const from = log.prod.length;
         prod.theme = { '--kb-accent': '#0a7d5a', '--kb-fg': 'red; background: url(//evil.example/x)', '--not-offered': '1px' };
@@ -332,7 +350,7 @@
         return `shape-outside image of ${Math.round(prod.style.shapeOutside.length / 1024)} kB applied to the floated card`;
       },
     },
-  ]);
+  ], { when: granted });
 </script>
 </body>
 </html>

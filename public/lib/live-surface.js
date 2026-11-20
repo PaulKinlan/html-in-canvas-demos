@@ -75,6 +75,14 @@ export class LiveSurface extends EventTarget {
   #highlights = [];
   #pressed = null;
   #consumers = 0;
+  #onShow = null;
+  #blankAt = 0;
+  #blankRuns = 0;
+  #probe = null;
+  /** True while the browser has dropped this canvas's pixels. */
+  lost = false;
+  /** True when the last few pictures were one flat colour although the element has content. */
+  blank = false;
 
   constructor(host, root) {
     super();
@@ -113,6 +121,20 @@ export class LiveSurface extends EventTarget {
       this.#ro.observe(this.canvas);
     }
     this.canvas.addEventListener('paint', () => this.#paint());
+    // A phone can throw a canvas's pixels away (memory pressure, a long time
+    // in the background). Nothing repaints it by itself, so say so and ask.
+    this.canvas.addEventListener('contextlost', () => {
+      this.lost = true;
+      this.dispatchEvent(new CustomEvent('trouble', { detail: 'lost' }));
+    });
+    this.canvas.addEventListener('contextrestored', () => {
+      this.lost = false;
+      this.requestPaint();
+      this.dispatchEvent(new CustomEvent('trouble', { detail: null }));
+    });
+    this.#onShow = () => document.visibilityState === 'visible' && this.requestPaint();
+    document.addEventListener('visibilitychange', this.#onShow);
+    addEventListener('pageshow', this.#onShow);
     this.requestPaint();
   }
 
@@ -172,7 +194,40 @@ export class LiveSurface extends EventTarget {
     }
     this.#drawOverlays(ctx, time);
     this.#frames++;
+    this.#watchBlank(time);
     this.dispatchEvent(new CustomEvent('frame', { detail: { width: this.width, height: this.height } }));
+  }
+
+  /** Is the shareable copy one flat colour (64 samples)? */
+  isBlank() {
+    const probe = (this.#probe ??= Object.assign(document.createElement('canvas'), { width: 8, height: 8 }).getContext('2d', { willReadFrequently: true }));
+    try {
+      probe.clearRect(0, 0, 8, 8);
+      probe.drawImage(this.mirror, 0, 0, 8, 8);
+      const d = probe.getImageData(0, 0, 8, 8).data;
+      for (let i = 4; i < d.length; i += 4) {
+        if (Math.abs(d[i] - d[0]) > 6 || Math.abs(d[i + 1] - d[1]) > 6 || Math.abs(d[i + 2] - d[2]) > 6 || Math.abs(d[i + 3] - d[3]) > 6) return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // At most once a second while consumers are watching: if the picture is
+  // flat although the element has text or controls in it, the paint was
+  // lost. Ask again, and after three in a row tell the viewers.
+  #watchBlank(time) {
+    if (!this.#consumers || time - this.#blankAt < 1000) return;
+    this.#blankAt = time;
+    const flat = this.isBlank() && (this.host.textContent.trim().length > 0 || !!this.host.querySelector('img, svg, canvas, video, input, button'));
+    this.#blankRuns = flat ? this.#blankRuns + 1 : 0;
+    const blank = this.#blankRuns >= 3;
+    if (flat) setTimeout(() => this.requestPaint(), 300);
+    if (blank !== this.blank) {
+      this.blank = blank;
+      this.dispatchEvent(new CustomEvent('trouble', { detail: blank ? 'blank' : null }));
+    }
   }
 
   // The clean, shareable copy. drawImage(canvas) is synchronous, so the copy
@@ -537,6 +592,8 @@ export class LiveSurface extends EventTarget {
   destroy() {
     this.animate = false;
     this.#ro.disconnect();
+    document.removeEventListener('visibilitychange', this.#onShow);
+    removeEventListener('pageshow', this.#onShow);
   }
 
   // Called by serve().
@@ -646,6 +703,8 @@ if (!customElements.get('live-region')) customElements.define('live-region', Liv
  *   viewer -> source  pointer / key / text / choose / act (see LiveSurface.input)
  *   viewer -> source  { t:'cursor', x, y, label } | { t:'cursor', off:true }
  *   source -> viewer  { t:'focus', … } | { t:'select', … } | { t:'refused', what }
+ *   source -> viewer  { t:'trouble', what:'lost'|'blank'|null }   the picture was lost / is back
+ *   viewer -> source  { t:'hello' } again at any time asks for a fresh meta and frame
  *   either            { t:'bye' }
  *
  * Returns a function that stops serving.
@@ -735,6 +794,9 @@ export function serve(surface, link, { title = document.title, peer = 'viewer', 
     }
   };
   surface.addEventListener('frame', onFrame);
+  // { t:'trouble', what:'lost'|'blank'|null }: the viewer shows a message instead of a dead picture.
+  const onTrouble = (e) => mode && link.send({ t: 'trouble', what: e.detail });
+  surface.addEventListener('trouble', onTrouble);
   // `paint` only fires while this document is being rendered. Tell viewers
   // when it stops, so a frozen picture is explained.
   const onVisibility = () => mode && link.send({ t: 'visibility', state: document.visibilityState });
@@ -745,6 +807,7 @@ export function serve(surface, link, { title = document.title, peer = 'viewer', 
     stopped = true;
     document.removeEventListener('visibilitychange', onVisibility);
     surface.removeEventListener('frame', onFrame);
+    surface.removeEventListener('trouble', onTrouble);
     surface.setCursor(peer, null);
     if (mode) surface._consumer(-1);
     try {

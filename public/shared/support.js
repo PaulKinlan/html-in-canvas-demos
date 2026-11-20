@@ -20,9 +20,24 @@ export function banner() {
 }
 
 /**
+ * True in the hidden copy of a page that runs its `apart` tests (see runTests).
+ * Pages can use it to keep the copy from sharing named channels or storage
+ * with the page the person is looking at.
+ */
+export const isBench = new URLSearchParams(location.search).has('bench');
+
+/**
  * Run a list of live tests and render them into a <tbody>.
  * Each test: { name, expect: 'pass'|'fail', why, run: async () => detailString }
  * A test "passes" if run() resolves, "fails" if it throws.
+ *
+ * A test marked `apart: true` presses buttons, types, resizes or scrolls. It
+ * must not do that to the demo someone is looking at, so it runs in a second
+ * copy of the page: an invisible, non-interactive frame of the same URL plus
+ * ?bench, which is removed when its tests are done. The rows here are filled
+ * in from its reports. Tests without the mark only look, and run in place.
+ * `when` (a promise) delays loading the copy, for checks that only make sense
+ * after the person has done something.
  */
 /**
  * Where test fixtures live while their test runs: a small fixed box in the
@@ -73,13 +88,9 @@ function fixturePictures(stage) {
   return pics;
 }
 
-/**
- * Put the rows for a list of tests on the page without running them, so that a page which starts its
- * checks later (see onScreen) does not grow, and scroll under the visitor, when they start.
- * runTests() reuses the rows.
- */
-export function listTests(tbody, tests) {
-  if (tbody.__rows?.tests === tests) return tbody.__rows.rows;
+export async function runTests(tbody, tests, { when = null } = {}) {
+  const apart = tests.map((t, i) => (t.apart ? i : -1)).filter((i) => i >= 0);
+  if (isBench) return runBench(tests, apart);
   const rows = tests.map((t) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td class="status pending">… waiting</td><td><strong></strong><div class="note"></div></td><td class="note detail"></td>`;
@@ -88,62 +99,101 @@ export function listTests(tbody, tests) {
     tbody.append(tr);
     return tr;
   });
-  tbody.__rows = { tests, rows };
-  return rows;
-}
-
-/**
- * Keep on-load checks away from the demo the visitor is looking at: run them on a fixture that sits in
- * the page's own "Live tests" section, and only while that fixture is on screen (canvases that are off
- * screen are not painted, so their checks would time out).
- *
- *   const rig = onScreen(document.getElementById('rigbox'));
- *   await rig.seen;                                    // first time it scrolls into view
- *   await runTests(tbody, tests, { ready: rig.wait }); // pauses between checks while it is out of view
- *
- * Add ?checks to the URL to scroll to the fixture and start at once (handy for automation).
- */
-export function onScreen(el) {
-  let visible = false, waiters = [];
-  const io = new IntersectionObserver((entries) => {
-    visible = entries.at(-1).isIntersecting;
-    if (visible) { for (const w of waiters) w(); waiters = []; }
-  }, { threshold: 0.6 });
-  io.observe(el);
-  const wait = () => (visible ? Promise.resolve() : new Promise((r) => waiters.push(r)));
-  if (new URLSearchParams(location.search).has('checks')) el.scrollIntoView({ block: 'center' });
-  return { seen: wait(), wait, get visible() { return visible; }, stop: () => io.disconnect() };
-}
-
-export async function runTests(tbody, tests, { ready } = {}) {
-  const rows = listTests(tbody, tests);
-  const results = [];
-  for (const [i, t] of tests.entries()) {
-    const tr = rows[i];
-    const status = tr.querySelector('.status');
-    status.textContent = '… running';
-    let ok, detail;
-    try {
-      if (ready) { status.textContent = '… waiting'; await ready(); status.textContent = '… running'; }   // e.g. until the fixture is on screen again; not counted against the timeout
-      detail = await withTimeout(t.run(), t.timeout ?? 4000);
-      ok = true;
-    } catch (err) {
-      ok = false;
-      detail = `${err?.name ?? 'Error'}: ${err?.message ?? err}`;
-    }
+  const results = new Array(tests.length);
+  const show = (i, ok, detail) => {
+    const status = rows[i].querySelector('.status');
     status.className = `status ${ok ? 'pass' : 'fail'}`;
     status.textContent = ok ? '✓ works' : '✗ fails';
-    const cell = tr.querySelector('.detail');
-    cell.textContent = detail ?? '';
+    rows[i].querySelector('.detail').textContent = detail ?? '';
+    results[i] = { name: tests[i].name, ok, detail };
+  };
+  const bench = apart.length ? Promise.resolve(when).then(() => openBench(apart, tests, show)) : Promise.resolve();
+  for (const [i, t] of tests.entries()) {
+    if (t.apart) continue;
+    rows[i].querySelector('.status').textContent = '… running';
+    const r = await runOne(t);
+    show(i, r.ok, r.detail);
     const stage = document.getElementById('test-stage');
     if (stage) {
       const pics = fixturePictures(stage);
-      if (pics.length) { const div = document.createElement('div'); div.append(...pics); cell.append(div); }
+      if (pics.length) { const div = document.createElement('div'); div.append(...pics); rows[i].querySelector('.detail').append(div); }
       stage.replaceChildren();
     }
-    results.push({ name: t.name, ok, detail });
   }
   document.getElementById('test-stage')?.remove();
+  await bench;
+  window.__results = results;
+  return results;
+}
+
+async function runOne(t) {
+  try {
+    return { ok: true, detail: await withTimeout(t.run(), t.timeout ?? 4000) };
+  } catch (err) {
+    return { ok: false, detail: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
+  }
+}
+
+// In the page: load the copy, wait for its reports.
+function openBench(apart, tests, show) {
+  return new Promise((resolve) => {
+    const frame = document.createElement('iframe');
+    const url = new URL(location.href);
+    url.searchParams.set('bench', '1');
+    url.hash = '';
+    frame.src = url.href;
+    frame.title = 'Hidden copy of this page that runs its live checks';
+    frame.setAttribute('aria-hidden', 'true');
+    frame.tabIndex = -1;
+    // In the viewport (so it paints) and the size of the screen (so layout
+    // is the same), but never seen and never in the way.
+    frame.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1;';
+    const left = new Set(apart);
+    const budget = apart.reduce((ms, i) => ms + (tests[i].timeout ?? 4000), 20000);
+    // Checks in the copy focus things, and focus inside a frame takes it away
+    // from this page. They need it while they run, so hand it back to
+    // whatever had it as each check ends.
+    let had = document.activeElement;
+    const onFocus = (e) => (had = e.target);
+    const giveBack = () => {
+      if (document.activeElement !== frame) return;
+      if (had && had !== document.body && had.isConnected) had.focus({ preventScroll: true });
+      else frame.blur();
+    };
+    addEventListener('focusin', onFocus);
+    const finish = (why) => {
+      giveBack();
+      removeEventListener('focusin', onFocus);
+      removeEventListener('message', on);
+      clearTimeout(timer);
+      for (const i of left) show(i, false, why);
+      frame.remove();
+      resolve();
+    };
+    const on = (e) => {
+      if (e.source !== frame.contentWindow || e.origin !== location.origin || !e.data?.bench) return;
+      if (e.data.bench === 'result' && left.has(e.data.i)) {
+        left.delete(e.data.i);
+        show(e.data.i, e.data.ok, e.data.detail);
+        giveBack();
+      }
+      if (e.data.bench === 'done' || !left.size) finish('the hidden copy finished without running this check');
+    };
+    addEventListener('message', on);
+    const timer = setTimeout(() => finish('the hidden copy of the page did not report in time'), budget);
+    document.body.append(frame);
+  });
+}
+
+// In the copy: run only the tests that need it, and report each one.
+async function runBench(tests, apart) {
+  const results = [];
+  for (const i of apart) {
+    const r = await runOne(tests[i]);
+    results.push({ name: tests[i].name, ...r });
+    parent.postMessage({ bench: 'result', i, ...r, detail: r.detail == null ? '' : String(r.detail) }, location.origin);
+  }
+  parent.postMessage({ bench: 'done' }, location.origin);
   window.__results = results;
   return results;
 }
@@ -177,6 +227,12 @@ export function nav() {
   s.src = '/shared/nav.js';
   document.head.append(s);
 }
+
+/**
+ * Mark every test `apart` (see runTests) except those that say `apart: false`.
+ * For pages whose checks nearly all press or type.
+ */
+export const apart = (tests) => tests.map((t) => (t.apart === false ? t : { ...t, apart: true }));
 
 /**
  * A place for live checks to build their fixtures. It is a small panel fixed

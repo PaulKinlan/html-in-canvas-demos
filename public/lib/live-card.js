@@ -92,6 +92,8 @@ export class LiveCard extends HTMLElement {
   #theme = {};
   #origin = '*';
   #hasTexture = false;
+  #flat = 0;
+  #noticeWhy = null;
 
   constructor() {
     super();
@@ -103,12 +105,35 @@ export class LiveCard extends HTMLElement {
         canvas:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
         :host([fallback]) iframe { position: static; opacity: 1; pointer-events: auto; }
         :host([fallback]) canvas { display: none; }
-      </style><iframe title="Embedded card" loading="eager"></iframe><canvas tabindex="0" role="group"></canvas>`;
+        .notice { position: absolute; inset: 0; z-index: 1; display: grid; place-content: center; justify-items: center; gap: 8px; text-align: center; padding: 12px; font: 13px/1.35 system-ui, sans-serif; color: #fff; background: #1d1c1ad9; border-radius: 12px; }
+        .notice[hidden] { display: none; }
+        .notice button { font: inherit; padding: 4px 12px; border-radius: 999px; border: 1px solid #fff; background: transparent; color: #fff; }
+      </style><iframe title="Embedded card" loading="eager"></iframe><canvas tabindex="0" role="group"></canvas><div class="notice" role="status" hidden><span></span><button type="button">Try again</button></div>`;
     this.#frame = root.querySelector('iframe');
     this.#canvas = root.querySelector('canvas');
     this.#outline = this.#canvas;
     addEventListener('message', this.#onMessage);
     const c = this.#canvas;
+    // A phone may take the WebGL context away. Without this the card would
+    // just turn into an empty box.
+    c.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault(); // allows it to be restored
+      cancelAnimationFrame(this.#raf);
+      this.#hasTexture = false;
+      this.#notice('The browser took this card\'s graphics away. It will come back when there is room, or try again.');
+    });
+    c.addEventListener('webglcontextrestored', () => this.refresh());
+    root.querySelector('.notice button').addEventListener('click', () => this.refresh());
+    document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && this.isConnected && this.#link && this.refresh());
+    // Once a second: is what we are showing one flat colour? Then say so and ask again.
+    setInterval(() => {
+      if (!this.isConnected || !this.#hasTexture || document.visibilityState !== 'visible' || this.#gl?.isContextLost()) return;
+      this.#flat = this.isBlank() ? this.#flat + 1 : 0;
+      if (this.#flat === 3) {
+        this.#notice('This card is arriving blank. Asking the other site for it again.');
+        this.#link?.send({ t: 'hello', frames: 'bitmap' });
+      } else if (!this.#flat && this.#noticeWhy === 'blank') this.#notice(null);
+    }, 1000);
     c.addEventListener('pointerdown', (e) => {
       if (e.target !== c) return;
       this.#down = true;
@@ -182,6 +207,47 @@ export class LiveCard extends HTMLElement {
     return this.#frame;
   }
 
+  /** Start the drawing side again and ask the card for a fresh picture. */
+  refresh() {
+    this.#notice(null);
+    this.#flat = 0;
+    if (this.#gl && !this.#gl.isContextLost()) {
+      this.#gl = null; // programs and textures died with the old context
+      this.#uniforms = {};
+    }
+    this.#hasTexture = false;
+    this.#link?.send({ t: 'hello', frames: 'bitmap' });
+  }
+
+  /** Is the canvas showing one flat colour (64 samples)? */
+  isBlank() {
+    const gl = this.#gl;
+    if (!gl || gl.isContextLost()) return true;
+    const px = new Uint8Array(4);
+    let first = null;
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        gl.readPixels(Math.floor(((x + 0.5) / 8) * this.#canvas.width), Math.floor(((y + 0.5) / 8) * this.#canvas.height), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        if (!first) first = [...px];
+        else if (px.some((v, i) => Math.abs(v - first[i]) > 6)) return false;
+      }
+    }
+    return true;
+  }
+
+  /** The message shown over the card, or null. */
+  get trouble() {
+    return this.shadowRoot.querySelector('.notice').hidden ? null : this.shadowRoot.querySelector('.notice span').textContent;
+  }
+
+  #notice(text) {
+    const n = this.shadowRoot.querySelector('.notice');
+    n.hidden = !text;
+    n.querySelector('span').textContent = text ?? '';
+    this.#noticeWhy = text ? (/blank/.test(text) ? 'blank' : 'lost') : null;
+    if (text) this.dispatchEvent(new CustomEvent('trouble', { detail: text }));
+  }
+
   /** Card coordinates (0..1) under a point of this element's canvas (0..1), through the current effect. */
   toCard(x, y) {
     return sourcePoint(EFFECTS.indexOf(this.effect), x, y, this.#time, this.#angle);
@@ -230,6 +296,8 @@ export class LiveCard extends HTMLElement {
       this.#frames++;
       this.#draw();
       this.dispatchEvent(new CustomEvent('frame'));
+    } else if (m.t === 'trouble') {
+      this.#notice(m.what === 'lost' ? 'The other site\'s browser dropped this card\'s picture. Waiting for it to come back.' : m.what === 'blank' ? 'This card is arriving blank. Asking the other site for it again.' : null);
     } else if (m.t === 'app') {
       this.dispatchEvent(new CustomEvent('app', { detail: m }));
     }
@@ -266,7 +334,7 @@ export class LiveCard extends HTMLElement {
   #upload(bitmap) {
     if (!this.#gl) this.#initGl();
     const gl = this.#gl;
-    if (!gl) return;
+    if (!gl || gl.isContextLost()) return;
     if (this.#canvas.width !== bitmap.width || this.#canvas.height !== bitmap.height) {
       this.#canvas.width = bitmap.width;
       this.#canvas.height = bitmap.height;

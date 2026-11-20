@@ -143,7 +143,7 @@ Things that bit:
 | A transition written as one fragment shader (gl-transitions convention) over the two live states | works | The two textures are the two DOM states, refreshed only when they repaint. Shaders from gl-transitions.com paste in unchanged. A bad shader is refused with the compiler's log before the transition starts. |
 | Hit testing inside an arbitrary shader | partly | The browser cannot know which state a pixel came from. A shader can ship a small `pick(x, y, p)` mirror (ripple does); without one the pointer goes to the old state before half way and the new one after. Shaders that move pixels (swirl) leave hit boxes at their flat positions. |
 | Read the time scrubber's history back out as pictures (`frames()`) | works | Each past frame is redrawn from its ElementImages and copied with `createImageBitmap`; 13 frames of a 320 px rig at 2× came back in order, and live drawing resumed after. Not yet fed to a real encoder. |
-| Live checks that run on load, on a phone | disturbing | A rig pinned over the page covers the demo, checks on the visible demo rebuild it under the reader, and a table that fills in later makes scroll anchoring jump the page. On these three pages the checks now wait until their own section is on screen (`onScreen` in `shared/support.js`), run only on fixtures inside that section, list their rows up front, and never focus with scrolling or open a modal. `?checks` starts them at once. |
+| Live checks that run on load, on a phone | disturbing | A rig pinned over the page covers the demo, checks on the visible demo rebuild it under the reader, and a table that fills in later makes scroll anchoring jump the page. On these three pages the checks now wait until their own section is on screen (`onScreen` in `shared/on-screen.js`), run only on fixtures inside that section, list their rows up front, and never focus with scrolling or open a modal. `?checks` starts them at once. |
 | Lost WebGL or 2D context | handled | A canvas with a lost context is an empty box with live, invisible controls. The elements move their slotted children out of the canvas and show them as plain HTML, then move them back on restore. The pages also read the canvas back and do the same if it comes out blank or one solid block. Tested with `WEBGL_lose_context`; a real phone losing a context has not been observed. |
 | Upload a state that has never been painted (`visibility: hidden`) | fails | "No cached paint record for element." The first frame has to wait for a paint. |
 | A modal `<dialog>` or popover inside a state travels with it | fails | The top layer is not part of the canvas child's picture. |
@@ -248,6 +248,18 @@ Not tested: real cross-site storage partitioning (headless Chromium on two local
 | Opening without a click | refused | `NotAllowedError`, as it should be. |
 
 Device pixels: every `drawElementImage()` call in these pages passes a width and height. Checked at a real `--force-device-scale-factor=1.5`: all live checks pass and a click on a streamed picture lands on the right button.
+
+### Live checks and lost pictures on a real phone
+
+Reported on Chrome for Android: `/embed/` drew correctly, then the page jumped about, and it ended as a white box. Not reproducible in emulation, so these are the causes found by reading and what was done about each.
+
+- **The checks drove the visible demo.** They changed its effect, restyled it, shrank it to 62% (the page reflowed), scrolled to the second demo and scrolled back. If the last check timed out, the scroll back never ran. Checks that press, type, restyle, resize or scroll now run in a hidden second copy of the page (`apart: true` in `runTests`, an invisible frame of the same URL plus `?bench`, removed when done). Applied to `/embed/`, `/tear-off/`, `/remote/`, `/support/`, `/pip/` and `/slot-view/`. Measured in Chromium: no scroll, focus or DOM change on the visible page while the checks run.
+- **Nothing handled a lost graphics context.** `<live-card>` had no `webglcontextlost` handler, so a dropped context left a transparent canvas, which on the pale backdrop is a white box. It now says so over the card, restores itself on `webglcontextrestored`, and has a Try again button. Simulated with `WEBGL_lose_context`: message shown, picture back after restore.
+- **A blank picture looked like a working one.** `LiveSurface` now repaints on `contextrestored` and when the page becomes visible again, checks once a second whether the outgoing picture is one flat colour, and tells viewers (`{ t: 'trouble' }`). `<live-view>` and `<live-card>` show a message instead of the dead picture. Each page has a check that fails on a blank result.
+- **One failed draw in the lent-canvas demo stopped it for good.** It now asks the frame for a new snapshot and keeps going.
+- Found while moving the checks: a remembered `<slot-view>` grant never sent the provider's `app` messages (an early return skipped the line that set it up).
+
+Not confirmed without the phone: which of these Paul actually hit, and whether a 2D drawable canvas on Android fires `contextlost` at all when its pixels are dropped. The hidden copy doubles the page's canvases for the few seconds the checks run, which on a small GPU could itself cause a context loss; the visible demo now recovers from one.
 
 ## Accessibility (`/a11y/`)
 
