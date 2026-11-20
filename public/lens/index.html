@@ -103,8 +103,10 @@
     <label>Radius <input type="range" id="radius" min="40" max="220" step="2" value="120"> <output id="radiusOut">120</output></label>
     <label><input type="checkbox" id="pin"> Pin the lens</label>
     <label><input type="checkbox" id="on" checked> Lens on</label>
+    <label>Drawn with <select id="route"><option value="">Best available</option><option value="webgpu">WebGPU</option><option value="webgl">WebGL</option><option value="2d">2D canvas only</option></select></label>
     <span id="stats"></span>
   </div>
+  <p class="note" id="routeNote"></p>
   <p class="note">
     Click the button through the lens, type in the field, or press <kbd>Tab</kbd> and the lens follows focus. On a touch screen the lens
     rides above your finger and the page does not scroll from the card (switch the lens off, or pin it, to scroll from the card).
@@ -118,7 +120,7 @@
 
   <h2>How fast is it here?</h2>
   <p>The fisheye used to be a mesh of clipped triangles: the element's paint record was replayed once per triangle, up to 199 times a frame.
-    Now every lens is two replays and one shader pass. This sweeps the lens across the card each way and times the frames on this device.
+    Now every lens is two replays and one shader pass, on WebGPU where it works and WebGL where it does not. This sweeps the lens across the card each way and times the frames on this device.
     “Patch px” is the side of the square drawn for the lens: if frames come slowly while the lens moves it is drawn smaller, then sharpened when the lens rests.</p>
   <div id="bench">
     <button type="button" id="benchGo">Measure on this device</button>
@@ -131,22 +133,22 @@
       <li data-code="#markup"><b>Wrap any markup in <code>&lt;dom-lens&gt;</code>.</b> The markup is not changed.</li>
       <li data-code="#page"><b>Load the element and set attributes.</b> <code>mode</code>, <code>zoom</code>, <code>radius</code>, <code>off</code>, and <code>x</code>, <code>y</code> with <code>pinned</code> to hold the lens still. <code>$</code> is <code>getElementById</code>.</li>
       <li data-code="/lib/surface.js#wrap"><b>Inside: the markup is slotted into a drawable canvas</b> by this shadow root.</li>
-      <li data-code="/lib/dom-lens.js#shader"><b>Inside: draw the patch of page under the lens, magnified, then run it through a shader.</b> <code>drawElementImage()</code> under a scale makes the browser draw the text again at that size, so it is sharp. That square goes to WebGL as a texture, the lens shader bends it, and the result is drawn back over the page.</li>
-      <li data-code="/lib/lens-gl.js#upload"><b>Inside: the patch becomes a texture.</b> It is copied straight out of the 2D canvas.</li>
+      <li data-code="/lib/dom-lens.js#shader"><b>Inside: draw the patch of page under the lens, magnified, then run it through a shader.</b> <code>drawElementImage()</code> under a scale makes the browser draw the text again at that size, so it is sharp. That square goes to WebGPU as a texture, or to WebGL where WebGPU is missing, the lens shader bends it, and the result is drawn back over the page.</li>
+      <li data-code="/lib/lens-gl.js#upload"><b>Inside: the patch becomes a texture.</b> It is copied straight out of the 2D canvas. This is the WebGL route; the WebGPU one is <code>upload()</code> in <a href="/lib/lens-gpu.js">/lib/lens-gpu.js</a>.</li>
       <li data-code="/lib/lens-gl.js#magnify"><b>A lens is one GLSL function.</b> This is the plain magnifier; the glass, fisheye and other lenses are in the same file.</li>
-      <li data-code="/lib/dom-lens.js"><b>The whole element.</b> The shaders are in <a href="/lib/lens-gl.js">/lib/lens-gl.js</a>.</li>
+      <li data-code="/lib/dom-lens.js"><b>The whole element.</b> The shaders are in <a href="/lib/lens-gl.js">/lib/lens-gl.js</a> (GLSL) and <a href="/lib/lens-gpu.js">/lib/lens-gpu.js</a> (WGSL).</li>
     </ol>
   </details>
   <h2>How it works</h2>
   <ul class="findings">
     <li><strong>The content is slotted, not moved.</strong> Your markup stays a child of <code>&lt;dom-lens&gt;</code>. A shadow root holds a canvas with one drawable wrapper around a <code>&lt;slot&gt;</code>, sized to the content.</li>
     <li><strong>One magnified draw.</strong> <code>drawElementImage()</code> replays the element's paint record, so drawing it scaled re-rasterizes text and vectors. Each frame the square of page under the lens is drawn once, clipped, at the lens's magnification, into a patch of the same canvas.</li>
-    <li><strong>One shader.</strong> The patch is copied into a WebGL texture and a fragment shader decides, for every pixel of the lens, which point of the patch to show and what to do to its colour. The result is drawn back with <code>drawImage()</code>. All the lenses share one WebGL context. Then the patch is painted over with the page at rest, clipped to that neighbourhood, so the rest of the canvas is never redrawn while the lens moves.</li>
+    <li><strong>One shader.</strong> The patch is copied into a texture (<code>copyExternalImageToTexture()</code> on WebGPU, <code>texImage2D()</code> on WebGL) and a fragment shader, written in both WGSL and GLSL, decides, for every pixel of the lens, which point of the patch to show and what to do to its colour. The result is drawn back with <code>drawImage()</code>. All the lenses share one device or context. Then the patch is painted over with the page at rest, clipped to that neighbourhood, so the rest of the canvas is never redrawn while the lens moves.</li>
     <li><strong>Real glass</strong> is ray traced: a ray enters the top spherical face, bends by Snell's law, crosses the glass, bends again leaving the bottom face and runs on to the page. Red, green and blue use slightly different refractive indices, which gives the colour fringes, and the edge distortion is the spherical aberration every simple lens has. The zoom slider moves the lens nearer to or further from the page.</li>
     <li><strong>Fisheye</strong> is the same pipeline with a smooth radial mapping. <strong>Black hole</strong> uses the point-mass lens equation, so the page really does form an Einstein ring. <strong>Water drop</strong> refracts through a spherical cap with a travelling ripple.</li>
     <li><strong>X-ray:</strong> the layout box of every element is outlined onto the patch (interactive ones in amber) before the shader runs. It is a devtools overlay you can aim.</li>
     <li><strong>Hit testing:</strong> the pointer is the fixed point of the magnification, so the element under the cursor is the one you see there. For a pinned lens the element's geometry is switched to the magnified transform while the pointer is inside it.</li>
-    <li><strong>Without WebGL</strong> (or with <code>pipeline="2d"</code>) the magnifier and x-ray are two plain draws and the fisheye falls back to the triangle mesh.</li>
+    <li><strong>Routes.</strong> WebGPU is used when it has a real (not software) adapter and passes a self-test, then WebGL 2, then plain 2D. <code>pipeline="webgpu|webgl|2d"</code> names one by hand. On the 2D route the magnifier and x-ray are two plain draws and the fisheye falls back to the triangle mesh.</li>
   </ul>
 
   <h2>Live checks</h2>
@@ -200,6 +202,7 @@
   $('radius').oninput = (e) => { lens.setAttribute('radius', e.target.value); $('radiusOut').textContent = e.target.value; };
   // #endregion page
   pick(new URLSearchParams(location.search).get('lens') in LENSES ? new URLSearchParams(location.search).get('lens') : 'glass');
+  $('route').onchange = (e) => (e.target.value ? lens.setAttribute('pipeline', e.target.value) : lens.removeAttribute('pipeline'));
   // #region page
   $('on').onchange = (e) => lens.toggleAttribute('off', !e.target.checked);
   $('pin').onchange = (e) => {
@@ -212,6 +215,11 @@
   // #endregion page
   if (innerWidth < 600) { $('radius').value = 80; $('radius').oninput({ target: $('radius') }); }
   setInterval(() => {
+    if (!lens.live) return;
+    const names3 = { webgpu: 'WebGPU', webgl: 'WebGL', '2d': '2D canvas' };
+    const why = lens.webgpuNote && $('route').value !== 'webgl' && $('route').value !== '2d' ? ` WebGPU is not in use: ${lens.webgpuNote}.` : '';
+    const note = lens.lens ? `The lens was last drawn with ${names3[lens.pipeline]}.${lens.pipeline === 'webgpu' ? '' : why}` : `Routes are tried in the order WebGPU, WebGL, 2D canvas.${why}`;
+    if ($('routeNote').textContent !== note) $('routeNote').textContent = note;
     if (lens.live) $('stats').textContent = `${lens.pipeline} · ${lens.drawCalls} draw${lens.drawCalls === 1 ? '' : 's'} / frame · ${(lens.frameMs ?? 0).toFixed(1)}ms script · hit testing: ${lens.hitTesting ?? 'rest'}`;
   }, 250);
 
@@ -221,7 +229,7 @@
     const r = lens.getBoundingClientRect();
     const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
     const gaps = [];
-    let draws = 0, patch = 0;
+    let draws = 0, patch = 0, route = '';
     let last = await frame();
     for (let i = 0; i < frames; i++) {
       const a = (i / frames) * Math.PI * 4;
@@ -230,12 +238,13 @@
       if (i >= 10) gaps.push(t - last);
       last = t;
       draws = Math.max(draws, lens.drawCalls);
-      patch = lens.pipeline === 'shader' ? lens.patchSize : 0;
+      patch = lens.pipeline !== '2d' ? lens.patchSize : 0;
+      route = lens.pipeline;
     }
     lens.pointTo(null);
     gaps.sort((x, y) => x - y);
     const mean = gaps.reduce((x, y) => x + y, 0) / gaps.length;
-    return { mean, worst: gaps[Math.floor(gaps.length * 0.95)], draws, patch };
+    return { mean, worst: gaps[Math.floor(gaps.length * 0.95)], draws, patch, route };
   }
   $('benchGo').onclick = async () => {
     if (!lens.live) return;
@@ -245,14 +254,19 @@
     $('benchOut').hidden = false;
     body.textContent = '';
     lens.removeAttribute('pinned');
-    const runs = [['fisheye', '', 'Fisheye, shader'], ['fisheye', 'scratch', 'Fisheye, shader, copy via a 2D canvas'], ['fisheye', '2d', 'Fisheye, old triangle mesh'], ['magnify', '', 'Magnifier, shader'], ['magnify', '2d', 'Magnifier, plain 2D'], ['glass', '', 'Real glass, shader'], ['blackhole', '', 'Black hole, shader']];
+    const runs = [['fisheye', 'webgpu', 'Fisheye, WebGPU'], ['fisheye', 'webgl', 'Fisheye, WebGL'], ['fisheye', 'scratch', 'Fisheye, WebGL, copy via a 2D canvas'], ['fisheye', '2d', 'Fisheye, old triangle mesh'], ['magnify', 'webgpu', 'Magnifier, WebGPU'], ['magnify', 'webgl', 'Magnifier, WebGL'], ['magnify', '2d', 'Magnifier, plain 2D'], ['glass', 'webgpu', 'Real glass, WebGPU'], ['glass', 'webgl', 'Real glass, WebGL'], ['eye', 'webgpu', 'Fiery eye, WebGPU'], ['eye', 'webgl', 'Fiery eye, WebGL']];
+    lens.setAttribute('pipeline', 'webgpu');
+    await sweep(6);
+    const noGPU = lens.pipeline !== 'webgpu';
+    if (noGPU) body.insertRow().innerHTML = `<td colspan="6">WebGPU is not available here (${lens.webgpuNote || 'it did not start'}), so its rows are left out.</td>`;
     for (const [mode, route, label] of runs) {
+      if (noGPU && route === 'webgpu') continue;
       lens.setAttribute('mode', mode);
       lens.setAttribute('zoom', 3);
       lens.removeAttribute('pipeline');
       lens.removeAttribute('copy');
-      if (route === '2d') lens.setAttribute('pipeline', '2d');
-      else if (route) lens.setAttribute('copy', route);
+      if (route === 'scratch') (lens.setAttribute('pipeline', 'webgl'), lens.setAttribute('copy', route));
+      else lens.setAttribute('pipeline', route);
       const row = body.insertRow();
       row.insertCell().textContent = label;
       const cell = row.insertCell();
@@ -262,10 +276,10 @@
       const m = await sweep(route === '2d' ? 40 : 90);
       cell.remove();
       for (const v of [(1000 / m.mean).toFixed(0), m.mean.toFixed(1), m.worst.toFixed(1), m.draws, m.patch || '–']) row.insertCell().textContent = v;
-      if (lens.pipeline === '2d' && route !== '2d') row.cells[0].textContent += ' (no WebGL: ran as 2D)';
+      if (m.route !== (route === 'scratch' ? 'webgl' : route)) row.cells[0].textContent += ` (not available: ran as ${m.route})`;
     }
-    lens.removeAttribute('pipeline');
     lens.removeAttribute('copy');
+    $('route').onchange({ target: $('route') });
     lens.toggleAttribute('pinned', before.pinned);
     pick(LENSES[before.mode] ? before.mode : 'glass', true);
     setZoom(before.zoom);
@@ -354,9 +368,9 @@
         why: 'The patch under the lens is drawn once at the lens zoom, copied to a texture and bent by a fragment shader. The centre is magnified, the rim is not.',
         run: async () => {
           if (!lensRenderer()) throw new Error('WebGL 2 is not available, so the lens fell back to 2D');
-          const el = await fixture({ mode: 'fisheye', pinned: '', x: 55, y: 55, zoom: 4, radius: 45 }, dot);
+          const el = await fixture({ mode: 'fisheye', pipeline: 'webgl', pinned: '', x: 55, y: 55, zoom: 4, radius: 45 }, dot);
           const centre = px(el, 66, 55), rim = px(el, 55 + 40, 55);
-          if (el.pipeline !== 'shader') throw new Error(`drawn by the ${el.pipeline} route`);
+          if (el.pipeline === '2d') throw new Error(`drawn by the ${el.pipeline} route`);
           if (!isYellow(centre)) throw new Error(`pixel 11px from centre is ${centre}`);
           if (isYellow(rim)) throw new Error('the rim is magnified too');
           if (el.drawCalls > 2) throw new Error(`${el.drawCalls} draw calls`);
@@ -380,10 +394,23 @@
             let changed = 0;
             for (let i = 0; i < now.length; i += 4) if (Math.abs(now[i] - rest[i]) + Math.abs(now[i + 1] - rest[i + 1]) + Math.abs(now[i + 2] - rest[i + 2]) > 24) changed++;
             const mid = px(el, 60, 60);
-            if (el.pipeline !== 'shader' || mid[3] < 250 || changed < 20) bad.push(`${name} (${el.pipeline}, ${changed} px changed)`);
+            if (el.pipeline === '2d' || mid[3] < 250 || changed < 20) bad.push(`${name} (${el.pipeline}, ${changed} px changed)`);
           }
           if (bad.length) throw new Error('failed: ' + bad.join(', '));
           return `${names.length} lenses: ${names.join(', ')}`;
+        },
+      },
+      {
+        name: 'WebGPU draws the lens when the browser has a real adapter',
+        why: 'The same lenses in WGSL: copyExternalImageToTexture() takes the patch from the 2D canvas, one render pass draws it. Fails where WebGPU is missing or software only; the lens then uses WebGL.',
+        run: async () => {
+          const el = await fixture({ mode: 'fisheye', pipeline: 'webgpu', pinned: '', x: 55, y: 55, zoom: 4, radius: 45 }, dot);
+          for (let i = 0; i < 60 && /starting|not tried/.test(el.webgpuNote); i++) await sleep(50);
+          await sleep(120);
+          if (el.pipeline !== 'webgpu') throw new Error(`not used here: ${el.webgpuNote || 'the lens did not compile'}. Drawn with ${el.pipeline} instead`);
+          const centre = px(el, 66, 55);
+          if (!isYellow(centre)) throw new Error(`WebGPU drew the wrong picture: pixel 11px from centre is ${centre}`);
+          return `fisheye drawn by WebGPU, ${el.drawCalls} drawElementImage() calls per frame`;
         },
       },
       {
