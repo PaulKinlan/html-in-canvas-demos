@@ -86,7 +86,7 @@ const CVD = {
 // GLASS_RC (in lens radii) meeting at the rim. Rays are traced through both
 // surfaces with Snell's law and on down to the page.
 const GLASS_RC = 3.2;
-const GLASS_N = [1.508, 1.52, 1.534]; // red, green, blue: more dispersion than real crown glass, so the fringes show
+export const GLASS_N = [1.508, 1.52, 1.534]; // red, green, blue: more dispersion than real crown glass, so the fringes show
 
 /** Distance from the lens's mid plane to the page that gives `zoom` on the axis. */
 export function glassDistance(zoom, rc = GLASS_RC, n = GLASS_N[1]) {
