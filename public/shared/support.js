@@ -24,10 +24,59 @@ export function banner() {
  * Each test: { name, expect: 'pass'|'fail', why, run: async () => detailString }
  * A test "passes" if run() resolves, "fails" if it throws.
  */
+/**
+ * Where test fixtures live while their test runs: a small fixed box in the
+ * corner of the viewport, all but invisible. Fixtures are always on screen
+ * there, so they paint and hit-test wherever the reader has scrolled to, and
+ * the tests never have to scroll the page. runTests() empties it after each
+ * test and puts a picture of what the fixture drew into that test's row.
+ */
+export function testStage() {
+  let el = document.getElementById('test-stage');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'test-stage';
+    el.setAttribute('aria-hidden', 'true');
+    el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483600;opacity:.02;display:flex;flex-direction:column;align-items:flex-start;max-width:calc(100vw - 16px);overflow:hidden';
+    document.body.append(el);
+  }
+  return el;
+}
+
+function canvasesIn(root, out = []) {
+  for (const el of root.querySelectorAll('*')) {
+    if (el.localName === 'canvas') out.push(el);
+    if (el.shadowRoot) canvasesIn(el.shadowRoot, out);
+  }
+  return out;
+}
+
+// A still picture of what each fixture canvas drew, or nothing if it is blank.
+function fixturePictures(stage) {
+  const pics = [];
+  for (const c of canvasesIn(stage)) {
+    try {
+      const ctx = c.getContext('2d');
+      if (!ctx || !c.width || !c.height) continue;
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      let any = false;
+      for (let i = 3; i < d.length; i += 16) if (d[i]) { any = true; break; }
+      if (!any) continue;
+      const img = new Image();
+      img.src = c.toDataURL();
+      img.alt = 'What this test drew';
+      img.className = 'fixture-shot';
+      img.style.width = (c.clientWidth || c.width) + 'px';
+      pics.push(img);
+    } catch {}
+  }
+  return pics;
+}
+
 export async function runTests(tbody, tests) {
   const rows = tests.map((t) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="status pending">…</td><td><strong></strong><div class="note"></div></td><td class="note detail"></td>`;
+    tr.innerHTML = `<td class="status pending">… waiting</td><td><strong></strong><div class="note"></div></td><td class="note detail"></td>`;
     tr.querySelector('strong').textContent = t.name;
     tr.querySelector('div.note').textContent = t.why ?? '';
     tbody.append(tr);
@@ -36,6 +85,8 @@ export async function runTests(tbody, tests) {
   const results = [];
   for (const [i, t] of tests.entries()) {
     const tr = rows[i];
+    const status = tr.querySelector('.status');
+    status.textContent = '… running';
     let ok, detail;
     try {
       detail = await withTimeout(t.run(), t.timeout ?? 4000);
@@ -44,12 +95,19 @@ export async function runTests(tbody, tests) {
       ok = false;
       detail = `${err?.name ?? 'Error'}: ${err?.message ?? err}`;
     }
-    const status = tr.querySelector('.status');
     status.className = `status ${ok ? 'pass' : 'fail'}`;
     status.textContent = ok ? '✓ works' : '✗ fails';
-    tr.querySelector('.detail').textContent = detail ?? '';
+    const cell = tr.querySelector('.detail');
+    cell.textContent = detail ?? '';
+    const stage = document.getElementById('test-stage');
+    if (stage) {
+      const pics = fixturePictures(stage);
+      if (pics.length) { const div = document.createElement('div'); div.append(...pics); cell.append(div); }
+      stage.replaceChildren();
+    }
     results.push({ name: t.name, ok, detail });
   }
+  document.getElementById('test-stage')?.remove();
   window.__results = results;
   return results;
 }
