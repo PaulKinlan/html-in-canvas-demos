@@ -524,6 +524,9 @@ class SlotEffects {
       try {
         backend.draw(el, effect, uniforms);
       } catch (err) {
+        // The context went away mid-frame: the lost handler starts over on a fresh canvas.
+        // Ask again shortly in case nothing else would repaint a still slot.
+        if (/context lost/i.test(err.message)) return void setTimeout(() => canvas.isConnected && canvas.requestPaint(), 120);
         // A broken shader should not hide the slot: show it unshaded.
         if (this.error?.message !== err.message) console.warn(`effect "${effect}": ${err.message}`);
         this.error = err;

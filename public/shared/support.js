@@ -141,3 +141,80 @@ export function nav() {
   s.src = '/shared/nav.js';
   document.head.append(s);
 }
+
+/**
+ * A place for live checks to build their fixtures. It is a small panel fixed
+ * to the bottom of the window, so a check can hit test its fixture with
+ * elementFromPoint() without scrolling the page, taking focus or touching the
+ * demo the visitor is looking at. Call bench.done() after runTests().
+ */
+export function checkBench({ padding = '8px' } = {}) {
+  const panel = document.createElement('div');
+  panel.id = 'check-bench';
+  panel.setAttribute('aria-hidden', 'true');
+  panel.style.cssText =
+    'position:fixed;left:0;right:0;bottom:0;z-index:2147483000;max-height:45vh;overflow:hidden;box-sizing:border-box;' +
+    'background:var(--bg,#fff);color:var(--fg,#000);border-top:1px solid var(--line,#ccc);box-shadow:0 -6px 24px rgb(0 0 0 / .18);' +
+    'padding:4px 10px 10px;font:13px system-ui';
+  const label = document.createElement('div');
+  label.style.cssText = 'font:11px var(--mono,monospace);color:var(--muted,#666);margin-bottom:4px';
+  label.textContent = 'Running live checks on test fixtures. This panel goes away when they finish.';
+  const bench = document.createElement('div');
+  bench.id = 'fixtures';
+  bench.style.padding = padding;
+  panel.append(label, bench);
+  document.body.append(panel);
+  bench.done = () => panel.remove();
+  return bench;
+}
+
+/** Wrap each test so it starts with an empty bench: finished fixtures give their canvases and GPU contexts back. */
+export function onBench(bench, tests) {
+  for (const t of tests) {
+    const run = t.run;
+    if (!t.keepBench) t.run = () => { bench.replaceChildren(); return run(); };
+  }
+  return tests;
+}
+
+/** Fraction of pixels in an ImageData (or a 2D context's whole canvas) that are not fully transparent. */
+export function inkFraction(source) {
+  const data = source.data ?? source.getImageData(0, 0, source.canvas.width, source.canvas.height).data;
+  let ink = 0;
+  const step = Math.max(1, Math.floor(data.length / 4 / 40000));
+  let seen = 0;
+  for (let i = 3; i < data.length; i += 4 * step) { seen++; if (data[i] > 8) ink++; }
+  return seen ? ink / seen : 0;
+}
+
+/**
+ * The last check on a page: every demo the visitor can see must still have a
+ * picture after the fixtures came and went. `demos` is a list of
+ * { name, ink: async () => fraction 0..1 or null to skip, rescue?: () => void }.
+ * A blank demo is rescued (usually by switching it to plain HTML) and reported.
+ */
+export function stillDrawn(demos) {
+  return {
+    name: 'The demos above still have a picture',
+    why: 'Run last, after every fixture was built and thrown away. A canvas that lost its context or ended up blank fails here, and is switched to plain HTML with a note instead of staying an empty box.',
+    timeout: 20000,
+    run: async () => {
+      const blank = [], seen = [];
+      for (const d of demos()) {
+        // A canvas that just lost its context may be on its way back: look three times before calling it blank.
+        let f;
+        for (let tries = 0; tries < 3; tries++) {
+          if (tries) await new Promise((r) => setTimeout(r, 1200));
+          d.error = '';
+          try { f = await d.ink(); } catch (err) { f = 0; d.error = err.message; }
+          if (f === null || f >= 0.002) break;
+        }
+        if (f === null) { seen.push(`${d.name}: ${d.note ?? 'skipped'}`); continue; }
+        if (f < 0.002) { blank.push(d.name + (d.error ? ` (${d.error})` : '')); try { d.rescue?.(); } catch {} }
+        else seen.push(`${d.name} ${(f * 100).toFixed(1)}%`);
+      }
+      if (blank.length) throw new Error(`blank: ${blank.join(', ')}. Drawn: ${seen.join(', ') || 'none'}`);
+      return `pixels drawn: ${seen.join(', ')}`;
+    },
+  };
+}
