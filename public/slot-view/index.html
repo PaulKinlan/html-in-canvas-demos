@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portable widgets: &lt;slot-view&gt;</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .post { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; font: 17px/1.65 Georgia, serif; overflow: hidden; }
+  .post h3 { margin: 0 0 4px; font-size: 22px; }
+  .post .bar { font: 13px/1.6 system-ui, sans-serif; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 10px; }
+  .post p { margin: 0 0 12px; }
+  #prod { float: right; width: min(370px, 100%); margin: 4px 0 8px 14px; shape-margin: 12px; }
+  #prod.shadow { filter: drop-shadow(0 6px 10px #0006); }
+  #prod.fade { opacity: 0.55; }
+  @media (max-width: 560px) { #prod { float: none; margin: 0 0 12px; } .post { padding: 14px; font-size: 16px; } }
+  .bench { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+  @media (max-width: 820px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+  .controls { display: grid; gap: 10px; font-size: 14px; }
+  .controls fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; margin: 0; display: grid; gap: 6px; min-width: 0; }
+  .controls legend { font: 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 0 4px; }
+  .controls label { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  .controls label.check { justify-content: flex-start; }
+  .controls button { font: inherit; padding: 5px 10px; min-height: 32px; }
+  #state { font: 12px/1.5 var(--mono); color: var(--muted); margin: 0; overflow-wrap: anywhere; }
+  #trace { font: 11.5px/1.5 var(--mono); margin: 0; padding: 8px 10px; list-style: none; max-height: 260px; overflow: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  #trace li { overflow-wrap: anywhere; }
+  #trace .out { color: var(--muted); }
+  #trace b { font-weight: 600; }
+  pre.code { font: 12.5px/1.5 var(--mono); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; overflow: auto; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Portable widgets: <code>&lt;slot-view&gt;</code></h1>
+  <p class="lede">
+    The blog post below is on <code id="o1"></code>. The price in its second sentence, the basket in its header and the product card its text wraps round are
+    live pieces of a page on <code id="o2"></code>, embedded with <code>&lt;slot-view&gt;</code>. No iframe boxes: each piece is exactly as big as it is,
+    sits on the text baseline or floats with its real outline, and you can use it. The shop decides what may leave, and asks <em>you</em> first.
+  </p>
+
+  <div class="bench">
+    <div>
+      <article class="post" id="post">
+        <h3>Pour-over notes, week 12</h3>
+        <div class="bar">Your basket at Kettle &amp; Bean: <slot-view id="basket" name="basket" inline aria-label="Your basket at Kettle and Bean"></slot-view></div>
+        <slot-view id="prod" name="product" shape aria-label="Product card from Kettle and Bean"></slot-view>
+        <p>
+          This week's bag is the washed Ethiopian from Kettle &amp; Bean, currently <slot-view id="price" name="price" scopes="view" inline aria-label="Live price"></slot-view> and worth
+          every penny. That price is not a screenshot and not my number: it is their element, updating as their page updates, laid out in my sentence like a word.
+        </p>
+        <p>
+          The card beside this paragraph is theirs too. I can float it, wrap text round its round edge, give it a shadow that follows its outline, and ask it to
+          use my accent colour. What I can't do is read it, press its buttons behind your back, or see it at all before you tell the shop that's fine.
+        </p>
+        <p>
+          Brew it at 1:16, 94°C, three pours. Add a couple of bags with the card, watch the basket in the header follow, then press <em>Buy now</em>: the shop
+          takes that one back and asks you itself.
+        </p>
+      </article>
+      <p id="state" role="status"></p>
+    </div>
+    <div class="controls card">
+      <fieldset><legend>Permission</legend>
+        <button id="forget" type="button">Forget this site's permission</button>
+        <label>Ask <select id="mode"><option value="auto">in place (the shop's frame)</option><option value="popup">in the shop's own window</option></select></label>
+      </fieldset>
+      <fieldset><legend>Host asks (theme contract)</legend>
+        <label>Accent <input type="color" id="accent" value="#b4451f"></label>
+        <label>Background <input type="color" id="bg" value="#fffaf0"></label>
+        <label>Corners <input type="range" id="radius" min="0" max="30" value="22" aria-label="Corner radius"></label>
+      </fieldset>
+      <fieldset><legend>Host styles (like an image)</legend>
+        <label class="check"><input type="checkbox" id="shadow"> Shadow that follows its outline</label>
+        <label class="check"><input type="checkbox" id="fade"> Fade it</label>
+        <span class="note">With either on, press Forget: the shop's prompt notices it is filtered or faded and switches Allow off.</span>
+      </fieldset>
+    </div>
+  </div>
+
+  <h2>The markup</h2>
+  <pre class="code" id="markup"></pre>
+
+  <h2>The conversation (live)</h2>
+  <ol id="trace" aria-label="Protocol messages"></ol>
+  <p class="note">Every message between this page and the product card's frame, newest last. <span class="out">Grey</span> lines are this page speaking. Pictures and pointer moves are left out. The full protocol is in <a href="/slot-view/PROTOCOL.md">PROTOCOL.md</a>.</p>
+
+  <h2>What holds (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+  <p class="note" id="waiting"></p>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>The box was the iframe's, not the content's.</strong> Once the provider sends pictures, the embed has the size, baseline and outline of the thing itself. It can be inline text, a float with <code>shape-outside</code>, or anything an image can be.</li>
+    <li><strong>Consent has to happen where the embedder can't reach.</strong> Anything drawn from forwarded pixels and answered by forwarded clicks could be faked by the embedding page. So the question is asked in the provider's real frame, and its Allow button only works while the browser vouches the frame is uncovered and unfaded (<code>IntersectionObserver</code> v2). Small or inline embeds use a window on the provider's origin instead.</li>
+    <li><strong>View and input are different things to agree to.</strong> A public price needs neither prompt nor input. A product card needs both. A purchase needs a real click every time, whatever was agreed.</li>
+    <li><strong>The embedder can only say no.</strong> It can dismiss a question, give up its permission and ask again. It cannot answer yes.</li>
+    <li><strong>Only the providing page needs HTML-in-canvas.</strong> The embedding page uses a canvas and a hidden frame. Where the provider lacks the API, the same element shows the frame as it is.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/slot-view.js';
+  import { otherOrigin } from '/lib/live-origins.js';
+  import { banner, runTests } from '/shared/support.js';
+  banner();
+
+  const REMOTE = otherOrigin() ?? location.origin;
+  const SRC = REMOTE + '/slot-view/provider.html';
+  const $ = (id) => document.getElementById(id);
+  $('o1').textContent = location.host;
+  $('o2').textContent = new URL(REMOTE).host + (REMOTE === location.origin ? ' (no second origin on this host, so the same one)' : '');
+  $('markup').textContent = `<slot-view src="${SRC}" name="basket" inline></slot-view>\n<slot-view src="${SRC}" name="product" shape style="float: right"></slot-view>\n<slot-view src="${SRC}" name="price" scopes="view" inline></slot-view>`;
+
+  const prod = $('prod');
+  const price = $('price');
+  const basket = $('basket');
+  const views = { prod, price, basket };
+  Object.assign(window, views);
+
+  // ---- trace and state ----
+  const log = { prod: [], price: [], basket: [] };
+  let app = null;
+  const brief = (m) => {
+    const { t, type, note, ...rest } = m;
+    const body = JSON.stringify(rest, (k, v) => (k === 'popup' && typeof v === 'string' ? v.replace(/=[0-9a-f-]{36}$/, '=…') : v));
+    return [t ?? type ?? note, body === '{}' ? '' : body.slice(0, 150)];
+  };
+  for (const [name, view] of Object.entries(views)) {
+    view.addEventListener('protocol', (e) => {
+      log[name].push(e.detail);
+      if (name !== 'prod') return;
+      const [head, body] = brief(e.detail.msg);
+      const li = document.createElement('li');
+      li.className = e.detail.dir;
+      li.append(e.detail.dir === 'out' ? '→ ' : '← ', Object.assign(document.createElement('b'), { textContent: head }), ' ' + body);
+      $('trace').append(li);
+      while ($('trace').children.length > 60) $('trace').firstElementChild.remove();
+      $('trace').scrollTop = 1e6;
+    });
+    for (const type of ['consent', 'attention', 'layout']) view.addEventListener(type, showState);
+    view.addEventListener('app', (e) => ((app = e.detail), showState()));
+  }
+  const words = { loading: 'loading', asking: 'the shop is asking you, in its frame', gate: 'waiting for you (opens the shop\'s window)', live: 'live', denied: 'not shared', plain: 'plain frame (the shop\'s browser has no HTML-in-canvas)' };
+  function showState() {
+    const one = (label, v) => `${label}: ${words[v.state] ?? v.state}${v.state === 'live' ? ` (${v.scopes.join(' + ')})` : ''}`;
+    $('state').textContent = [one('card', prod), one('price', price), one('basket', basket)].join(' · ') + (app ? ` · the shop says: ${app.basket} in basket, ${app.orders} order${app.orders === 1 ? '' : 's'}` : '');
+  }
+
+  for (const v of Object.values(views)) v.setAttribute('src', SRC);
+  showState();
+
+  // ---- controls ----
+  $('forget').onclick = () => {
+    prod.forget();
+    basket.forget();
+  };
+  $('mode').onchange = (e) => {
+    prod.setAttribute('consent', e.target.value);
+    if (prod.state !== 'live') {
+      prod.dismiss();
+      setTimeout(() => prod.ask(), 100);
+    }
+  };
+  const theme = () => {
+    const vars = { '--kb-accent': $('accent').value, '--kb-bg': $('bg').value, '--kb-radius': $('radius').value + 'px' };
+    for (const v of Object.values(views)) v.theme = vars;
+  };
+  for (const id of ['accent', 'bg', 'radius']) $(id).oninput = theme;
+  $('shadow').onchange = (e) => prod.classList.toggle('shadow', e.target.checked);
+  $('fade').onchange = (e) => prod.classList.toggle('fade', e.target.checked);
+
+  // ---- live checks ----
+  const until = async (fn, ms = 4000) => {
+    const end = performance.now() + ms;
+    for (;;) {
+      const v = fn();
+      if (v) return v;
+      if (performance.now() > end) return null;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const incoming = (name, from, test) => log[name].slice(from).find((d) => d.dir === 'in' && test(d.msg));
+  const item = (name) => prod.meta?.map.find((m) => m.name.startsWith(name));
+
+  runTests($('results'), [
+    {
+      name: 'The provider announces what it offers',
+      why: 'One message from the frame: its slot names, and whether it can send pictures at all.',
+      run: async () => {
+        if (!(await until(() => prod.slots.length, 6000))) throw new Error('no announcement from ' + SRC);
+        return prod.slots.map((s) => `${s.name} (${s.consent === 'none' ? 'public' : 'asks'})`).join(', ');
+      },
+      timeout: 8000,
+    },
+    {
+      name: 'A public slot arrives with no prompt',
+      why: 'The price is marked slot-consent="none": view only, like an image.',
+      run: async () => {
+        if (!(await until(() => price.state === 'live' && price.frames > 0, 6000))) throw new Error(`price is "${price.state}"`);
+        return `granted as ${incoming('price', 0, (m) => m.t === 'consent')?.msg.how}; scopes: ${price.scopes.join(', ')}; ${price.frames} frame(s)`;
+      },
+      timeout: 8000,
+    },
+    {
+      name: 'It sits in the sentence like a word',
+      why: 'Sized by its content and placed on the text baseline: no 300×150 box.',
+      run: async () => {
+        await until(() => price.layout && price.meta, 3000);
+        const line = parseFloat(getComputedStyle($('post')).lineHeight) || 28;
+        const fits = () => ((r = price.getBoundingClientRect()), r.height <= line * 1.4 && r.width <= 320);
+        let r;
+        if (!(await until(fits, 3000))) throw new Error(`it is ${Math.round(r.width)}×${Math.round(r.height)} px`);
+        return `${Math.round(r.width)}×${Math.round(r.height)} px in a ${Math.round(line)} px line, baseline ${price.layout.below} px above its bottom edge`;
+      },
+    },
+    {
+      name: 'A view-only slot refuses input',
+      why: 'This page sends the price a click message anyway.',
+      run: async () => {
+        const from = log.price.length;
+        price.send({ t: 'act', kind: 'click', id: price.meta?.map[0]?.id ?? 'e1' });
+        price.send({ t: 'pointer', kind: 'down', x: 0.5, y: 0.5 });
+        const hit = await until(() => incoming('price', from, (m) => m.t === 'refused'), 2000);
+        if (!hit) throw new Error('nothing was refused');
+        return `refused: ${hit.msg.why}`;
+      },
+    },
+    {
+      name: 'Nothing personal arrives before you agree',
+      why: 'The product card has sent no picture and no element map while its question is open.',
+      run: async () => {
+        await until(() => ['asking', 'gate', 'live', 'denied', 'plain'].includes(prod.state), 6000);
+        if (prod.state === 'live') return `already allowed (${incoming('prod', 0, (m) => m.t === 'consent')?.msg.how}). Press "Forget this site's permission" and reload to see the question`;
+        if (prod.frames || prod.meta) throw new Error('frames arrived early');
+        return `state "${prod.state}", 0 frames, no element map`;
+      },
+      timeout: 8000,
+    },
+    {
+      name: 'This page cannot answer the question for you',
+      why: 'It sends clicks, key presses and a hello over the protocol while the question is open.',
+      run: async () => {
+        if (prod.state === 'live') return 'already allowed, so there is no open question to attack';
+        const from = log.prod.length;
+        prod.send({ t: 'hello', frames: 'bitmap' });
+        prod.send({ t: 'pointer', kind: 'down', x: 0.3, y: 0.7 });
+        prod.send({ t: 'pointer', kind: 'up', x: 0.3, y: 0.7 });
+        prod.send({ t: 'key', key: 'Enter' });
+        await sleep(500);
+        const refused = log.prod.slice(from).filter((d) => d.dir === 'in' && d.msg.t === 'refused').length;
+        if (prod.state === 'live' || prod.frames) throw new Error('the question was answered');
+        let dom = 'unreachable';
+        try {
+          if (REMOTE !== location.origin && prod.frameElement.contentDocument) dom = 'REACHABLE';
+          else if (REMOTE === location.origin) dom = 'same origin on this host';
+        } catch {}
+        if (dom === 'REACHABLE') throw new Error('the frame\'s DOM is reachable');
+        return `${refused} of 4 messages refused, still "${prod.state}"; the frame's DOM: ${dom}`;
+      },
+    },
+    {
+      name: 'After you agree, the card is live here',
+      why: 'Waits for you: press Allow in the card\'s place (or in the shop\'s window).',
+      run: async () => {
+        $('waiting').textContent = prod.state === 'live' ? '' : 'The remaining checks are waiting for you to allow the product card.';
+        if (!(await until(() => prod.state === 'plain' || (prod.state === 'live' && prod.frames > 0 && prod.meta), 590000))) throw new Error(`still "${prod.state}"`);
+        $('waiting').textContent = '';
+        if (prod.state === 'plain') throw new Error('the shop\'s page has no HTML-in-canvas in this browser, so the card is shown as a plain frame');
+        const c = [...log.prod].reverse().find((d) => d.dir === 'in' && d.msg.t === 'consent').msg;
+        return `granted by: ${c.how}; scopes: ${c.scopes.join(' + ')}; ${Math.round(prod.meta.w)}×${Math.round(prod.meta.h)} px, ${prod.meta.map.length} controls described`;
+      },
+      timeout: 600000,
+    },
+    {
+      name: 'Pressing its button here presses the real one there',
+      why: 'A forwarded click on "One more"; the shop reports its own state back.',
+      run: async () => {
+        if (prod.state === 'plain') throw new Error('plain frame: nothing is forwarded');
+        if (!prod.scopes.includes('input')) return 'you allowed viewing only, so input is (correctly) refused';
+        await until(() => app, 3000);
+        const before = app?.qty;
+        const target = before >= 9 ? item('One fewer') : item('One more');
+        prod.send({ t: 'act', kind: 'click', id: target.id });
+        if (!(await until(() => app && app.qty !== before, 3000))) throw new Error('quantity did not change');
+        return `quantity ${before} → ${app.qty}`;
+      },
+    },
+    {
+      name: 'A guarded button is not pressed by forwarded input',
+      why: '"Buy now" is marked data-trusted: the shop asks you itself instead.',
+      run: async () => {
+        if (prod.state === 'plain') throw new Error('plain frame: nothing is forwarded');
+        if (!prod.scopes.includes('input')) return 'viewing only: nothing can be pressed at all';
+        const orders = app?.orders ?? 0;
+        const from = log.prod.length;
+        prod.send({ t: 'act', kind: 'click', id: item('Buy now').id });
+        const asked = await until(() => incoming('prod', from, (m) => m.t === 'attention' && m.on), 2000);
+        await sleep(300);
+        const placed = (app?.orders ?? 0) !== orders;
+        prod.dismiss(); // an embedder may always say no
+        await until(() => incoming('prod', from, (m) => m.t === 'attention' && !m.on), 2000);
+        if (placed) throw new Error('an order was placed');
+        if (!asked) throw new Error('the shop did not ask');
+        return `the shop asked "${asked.msg.label}?"; no order placed; this page dismissed the question`;
+      },
+    },
+    {
+      name: 'Restyling is a contract',
+      why: 'This page asks for an accent colour, and for two things the shop does not offer.',
+      run: async () => {
+        if (prod.state === 'plain') throw new Error('plain frame: no contract to test');
+        const from = log.prod.length;
+        prod.theme = { '--kb-accent': '#0a7d5a', '--kb-fg': 'red; background: url(//evil.example/x)', '--not-offered': '1px' };
+        const hit = await until(() => incoming('prod', from, (m) => m.t === 'themed'), 2000);
+        prod.theme = { '--kb-accent': $('accent').value, '--kb-fg': '#2a1f17', '--not-offered': undefined };
+        if (!hit) throw new Error('no answer');
+        if (!hit.msg.applied.includes('--kb-accent') || hit.msg.ignored.length !== 2) throw new Error(JSON.stringify(hit.msg));
+        return `applied ${hit.msg.applied.join(', ')}; ignored ${hit.msg.ignored.join(', ')}`;
+      },
+    },
+    {
+      name: 'Text wraps round its outline, not its box',
+      why: 'shape-outside is built from the transparency of the pictures.',
+      run: async () => {
+        if (prod.state === 'plain') throw new Error('plain frame: it has an iframe\'s box');
+        if (!(await until(() => prod.style.shapeOutside.startsWith('url('), 3000))) throw new Error('no shape');
+        if (getComputedStyle(prod).float === 'none') return 'shape built; on a screen this narrow the card is not floated';
+        return `shape-outside image of ${Math.round(prod.style.shapeOutside.length / 1024)} kB applied to the floated card`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

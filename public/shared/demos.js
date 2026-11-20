@@ -37,6 +37,8 @@ window.DEMOS = [
   { group: 'contexts', href: '/remote/', title: 'Remote component', blurb: 'Scan a code and one element of the page is live on your phone over WebRTC. Taps, typing and native pickers come back to the real DOM.', tags: ['WebRTC', 'Durable Objects', 'captureStream'] },
   { group: 'contexts', href: '/embed/', title: 'Embeddable live cards', blurb: 'A card from another origin that the host page bends with a shader, recolours and resizes without ever touching its DOM. Its buttons still work.', tags: ['cross-origin', 'WebGL', 'ElementImage'] },
   { group: 'contexts', href: '/support/', title: 'Support widget', blurb: 'Share one panel of a page, not your screen, with a support agent or an AI model. Private fields are blacked out and actions need your approval.', tags: ['co-browsing', 'Workers AI', 'redaction'] },
+  { group: 'contexts', href: '/slot-view/', title: '<slot-view>: portable widgets', blurb: 'A live piece of another site in a line of your text, with no iframe box. The other site asks you before a pixel leaves, and takes "Buy now" back to confirm it itself.', tags: ['cross-origin', 'consent', 'shape-outside'] },
+  { group: 'contexts', href: '/pip/', title: 'Picture-in-picture for any element', blurb: 'One call floats any element above your other windows: moved for real, as a live picture that takes input, or as a video.', tags: ['Document PiP', 'captureStream', 'Media Session'] },
 
   // --- primitives ---
   { group: 'primitives', href: '/portal/', title: '<dom-portal>', blurb: 'A drop-in element that shows any live element a second time, anywhere on the page. One element, drawn twice: click and type in either copy.', tags: ['custom element', 'updateElementGeometry'] },

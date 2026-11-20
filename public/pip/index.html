@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Picture-in-picture for any element</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/shared/live-widgets.css">
+<style>
+  .bar { display: flex; gap: 10px 16px; flex-wrap: wrap; align-items: center; position: sticky; top: var(--nav-h, 52px); z-index: 5; background: var(--bg); padding: 8px 0; font-size: 14px; }
+  .bar fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px 6px; margin: 0; display: flex; gap: 4px 12px; flex-wrap: wrap; }
+  .bar legend { font: 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 0 4px; }
+  .bar label { white-space: nowrap; }
+  .bar button, .spec > header button { font: inherit; padding: 5px 12px; min-height: 34px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: inherit; cursor: pointer; }
+  .bar button[aria-pressed=true] { background: var(--fg); color: var(--bg); }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; margin: 4px 0 10px; }
+  .specimens { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 14px; }
+  .spec { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 14px; background: var(--card); min-width: 0; }
+  .spec > header { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; font: 12px var(--mono); color: var(--muted); }
+  .spec > header button { font-size: 12px; min-height: 30px; padding: 2px 10px; }
+  table.board { border-collapse: collapse; font: 14px system-ui; width: 100%; }
+  table.board td, table.board th { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+  table.board td:last-child { font: 600 15px var(--mono); text-align: right; }
+  #tap { font: 600 16px system-ui; padding: 10px 18px; border-radius: 12px; border: 2px solid var(--fg); background: var(--card); color: inherit; cursor: pointer; }
+  #clock { display: block; width: 130px; height: 130px; }
+  #verse { margin: 0; font: italic 16px/1.5 Georgia, serif; }
+  body.picking main * { cursor: crosshair !important; }
+  #ring { position: fixed; pointer-events: none; z-index: 50; border: 2px solid #d2491f; border-radius: 6px; background: #d2491f22; display: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Picture-in-picture for any element</h1>
+  <p class="lede">
+    One call, <code>pipElement(el)</code>, floats any element above your other windows: a timer, a table, a single button. Choose how, then press
+    <em>Float</em> on a specimen, or <em>Pick any element</em> and click anything on this page.
+  </p>
+
+  <div class="bar">
+    <fieldset><legend>How</legend>
+      <label><input type="radio" name="mode" value="move" checked> Move the real element</label>
+      <label><input type="radio" name="mode" value="stream"> Live picture, input comes back</label>
+      <label><input type="radio" name="mode" value="video"> As a video</label>
+    </fieldset>
+    <button type="button" id="pick" aria-pressed="false">Pick any element</button>
+    <button type="button" id="close" hidden>Bring it back</button>
+  </div>
+  <p id="status" role="status">Nothing is floating.</p>
+
+  <div class="specimens" id="specimens">
+    <section class="spec"><header><span>&lt;div&gt; widget</span><button type="button" data-float="#timer">Float</button></header><div id="timer"></div></section>
+    <section class="spec"><header><span>&lt;form&gt;</span><button type="button" data-float="#notes">Float</button></header><div id="notes-slot"></div></section>
+    <section class="spec"><header><span>&lt;table&gt;</span><button type="button" data-float="#board">Float</button></header>
+      <table class="board" id="board" aria-label="Lap times"><tbody>
+        <tr><th>Lap</th><td id="lap">1</td></tr><tr><th>This lap</th><td id="laptime">0.0 s</td></tr><tr><th>Best</th><td id="best">–</td></tr>
+      </tbody></table></section>
+    <section class="spec"><header><span>&lt;button&gt;</span><button type="button" data-float="#tap">Float</button></header><button type="button" id="tap">Tapped 0 times</button></section>
+    <section class="spec"><header><span>&lt;svg&gt;</span><button type="button" data-float="#clock">Float</button></header>
+      <svg id="clock" viewBox="-50 -50 100 100" role="img" aria-label="Clock"><circle r="46" fill="none" stroke="currentColor" stroke-width="3"/><line id="hm" y2="-26" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><line id="mm" y2="-36" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line id="sm" y2="-40" stroke="#d2491f" stroke-width="1.5" stroke-linecap="round"/></svg></section>
+    <section class="spec"><header><span>&lt;p&gt;</span><button type="button" data-float="#verse">Float</button></header><p id="verse">The fog comes on little cat feet. It sits looking over harbor and city on silent haunches and then moves on.</p></section>
+  </div>
+
+  <h2>The three ways</h2>
+  <ul class="findings">
+    <li><strong>Move the real element</strong> (Document Picture-in-Picture). The node is adopted by the floating window's document and put back when it closes. It is real DOM there: native input, selection, accessibility, and it keeps running when this tab is hidden. The page gets a placeholder of the same size. Needs no HTML-in-canvas at all.</li>
+    <li><strong>Live picture</strong> (Document Picture-in-Picture and HTML-in-canvas). The element never leaves the page, so nothing reflows and no stylesheet has to be copied. The window shows its pixels and sends pointer and keyboard input back. The picture stops updating while this tab is hidden, because <code>paint</code> stops.</li>
+    <li><strong>As a video</strong> (<code>captureStream()</code> and classic Picture-in-Picture). View only, with media keys mapped to the element's buttons where you say so. This is the route for browsers without Document Picture-in-Picture, and it also stops while the tab is hidden.</li>
+  </ul>
+  <pre class="note" style="white-space: pre-wrap; font: 12.5px/1.5 var(--mono)">import { pipElement } from '/lib/element-pip.js';
+const pip = await pipElement(el, { mode: 'move' | 'stream' | 'video' | 'auto' });
+pip.close();  await pip.closed;   // el also fires 'enterpip' and 'leavepip'</pre>
+
+  <h2>What works here (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+</main>
+<div id="ring"></div>
+
+<script type="module">
+  import { pipElement, pipSupport, surfaceFor } from '/lib/element-pip.js';
+  import { WIDGETS, wireWidgets } from '/shared/live-widgets.js';
+  import { banner, runTests, supported } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  $('timer').outerHTML = WIDGETS.timer.replace('class="lw lw-timer"', 'class="lw lw-timer" id="timer"');
+  $('notes-slot').outerHTML = WIDGETS.notes.replace('class="lw lw-notes"', 'class="lw lw-notes" id="notes"');
+  wireWidgets();
+
+  // Specimens that change by themselves, so a frozen picture is obvious.
+  // Hold on to the elements: document.getElementById() stops finding one
+  // while it is away in a floating window's document.
+  const el = Object.fromEntries(['tap', 'lap', 'laptime', 'best', 'sm', 'mm', 'hm'].map((id) => [id, $(id)]));
+  let taps = 0;
+  el.tap.onclick = () => (el.tap.textContent = `Tapped ${++taps} time${taps === 1 ? '' : 's'}`);
+  const t0 = performance.now();
+  let best = Infinity;
+  setInterval(() => {
+    const t = (performance.now() - t0) / 1000;
+    const lap = Math.floor(t / 7.3) + 1;
+    const cur = t % 7.3;
+    if (el.lap.textContent !== String(lap) && lap > 1) {
+      best = Math.min(best, 6.5 + ((lap * 37) % 9) / 10);
+      el.best.textContent = best.toFixed(1) + ' s';
+    }
+    el.lap.textContent = lap;
+    el.laptime.textContent = cur.toFixed(1) + ' s';
+    const d = new Date();
+    const s = d.getSeconds() + d.getMilliseconds() / 1000;
+    el.sm.setAttribute('transform', `rotate(${s * 6})`);
+    el.mm.setAttribute('transform', `rotate(${d.getMinutes() * 6 + s / 10})`);
+    el.hm.setAttribute('transform', `rotate(${(d.getHours() % 12) * 30 + d.getMinutes() / 2})`);
+  }, 100);
+
+  // ---- floating ----
+  const can = pipSupport();
+  for (const input of document.querySelectorAll('input[name=mode]')) {
+    if (!can[input.value]) {
+      input.disabled = true;
+      input.parentElement.title = 'Not available in this browser';
+      input.parentElement.style.opacity = 0.5;
+    }
+  }
+  const firstOk = [...document.querySelectorAll('input[name=mode]')].find((i) => !i.disabled);
+  if (firstOk) firstOk.checked = true;
+  const mode = () => document.querySelector('input[name=mode]:checked')?.value;
+  const label = (el) => (el.id ? `#${el.id}` : `<${el.localName}>`);
+  let current = null;
+
+  async function float(el) {
+    current?.close();
+    if (!mode()) return ($('status').textContent = 'This browser has no picture-in-picture that can do this.');
+    try {
+      $('status').textContent = `Floating ${label(el)}…`;
+      const media = el.id === 'timer' ? { play: '[data-act=toggle]', pause: '[data-act=toggle]', nexttrack: '[data-act=plus]', previoustrack: '[data-act=reset]' } : {};
+      const pip = (current = await pipElement(el, { mode: mode(), media }));
+      const how = { move: 'the real element is in the floating window', stream: 'a live picture; clicks and typing come back here', video: `a video${pip.actions?.length ? `; media keys: ${pip.actions.join(', ')}` : ', view only'}` }[pip.mode];
+      $('status').textContent = `${label(el)} is floating: ${how}.`;
+      $('close').hidden = false;
+      pip.closed.then(() => {
+        if (current !== pip) return;
+        current = null;
+        $('close').hidden = true;
+        $('status').textContent = `${label(el)} is back. Nothing is floating.`;
+      });
+    } catch (err) {
+      $('status').textContent = `Could not float ${label(el)}: ${err.message}`;
+    }
+  }
+  window.float = float;
+  $('close').onclick = () => current?.close();
+  for (const b of document.querySelectorAll('[data-float]')) b.onclick = () => float(document.querySelector(b.dataset.float));
+
+  // ---- pick any element ----
+  const ring = $('ring');
+  let picking = false;
+  const pickable = (t) => (t instanceof Element && t.closest('main') && !t.closest('.bar') ? t : null);
+  const setPicking = (on) => {
+    picking = on;
+    document.body.classList.toggle('picking', on);
+    $('pick').setAttribute('aria-pressed', on);
+    $('pick').textContent = on ? 'Click an element (Esc to cancel)' : 'Pick any element';
+    if (!on) ring.style.display = 'none';
+  };
+  $('pick').onclick = () => setPicking(!picking);
+  addEventListener('keydown', (e) => e.key === 'Escape' && setPicking(false));
+  addEventListener('pointermove', (e) => {
+    if (!picking) return;
+    const t = pickable(e.target);
+    if (!t) return (ring.style.display = 'none');
+    const r = t.getBoundingClientRect();
+    Object.assign(ring.style, { display: 'block', left: r.left - 3 + 'px', top: r.top - 3 + 'px', width: r.width + 2 + 'px', height: r.height + 2 + 'px' });
+  });
+  addEventListener(
+    'click',
+    (e) => {
+      if (!picking) return;
+      const t = pickable(e.target);
+      if (!t) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPicking(false);
+      float(t);
+    },
+    true,
+  );
+
+  // ---- live checks ----
+  const until = async (fn, ms = 3000) => {
+    const end = performance.now() + ms;
+    for (;;) {
+      const v = fn();
+      if (v) return v;
+      if (performance.now() > end) return null;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  };
+  const near = (el) => [el, el.closest('.spec'), el.closest('.spec').nextElementSibling].filter(Boolean).map((n) => n.getBoundingClientRect()).map((r) => [r.left, r.top, r.width, r.height]);
+  const shift = (a, b) => Math.max(...a.flatMap((r, i) => r.map((v, j) => Math.abs(v - b[i][j]))));
+
+  runTests($('results'), [
+    {
+      name: 'Document Picture-in-Picture is here',
+      why: 'Needed to move the real element, or to show a live picture that takes input.',
+      run: async () => {
+        if (!can.move) throw new Error('not in this browser (video mode is the fallback)');
+        return 'documentPictureInPicture.requestWindow() exists';
+      },
+    },
+    {
+      name: 'A script cannot float anything by itself',
+      why: 'Opening needs a click or key press. This check calls it without one.',
+      run: async () => {
+        if (!can.move) return 'no Document Picture-in-Picture to try';
+        if (navigator.userActivation?.isActive) return 'you clicked just as this ran, so it could not be tried';
+        let win = null;
+        try {
+          win = await documentPictureInPicture.requestWindow({ width: 200, height: 100 });
+        } catch (err) {
+          return `refused: ${err.name}`;
+        }
+        win.close();
+        throw new Error('a window opened without a gesture');
+      },
+    },
+    {
+      name: 'Any element becomes a video stream',
+      why: 'A paragraph is painted through a canvas and captureStream() gives a track.',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas is not available');
+        const held = surfaceFor($('verse'));
+        await until(() => (held.surface.requestPaint(), held.surface.frames > 0), 2000);
+        const video = Object.assign(document.createElement('video'), { muted: true, srcObject: held.surface.stream(30) });
+        video.play().catch(() => {});
+        const ok = await until(() => (held.surface.requestPaint(), video.videoWidth > 0), 3000);
+        const size = `${video.videoWidth}×${video.videoHeight}`;
+        for (const t of video.srcObject.getTracks()) t.stop();
+        if (!ok) throw new Error('the stream produced no frame');
+        return `${size} video from a <p>; video Picture-in-Picture ${can.video ? 'available' : 'missing'}`;
+      },
+      timeout: 5000,
+    },
+    {
+      name: 'Elements that cannot take a shadow root are wrapped without moving the page',
+      why: 'A <button>, a <table>, a <form> and an <svg> each get a wrapper, then lose it again.',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas is not available');
+        const out = [];
+        for (const id of ['tap', 'board', 'notes', 'clock']) {
+          const el = $(id);
+          const before = near(el);
+          const held = surfaceFor(el);
+          if (!held.wrapped) throw new Error(`${id} was not wrapped`);
+          const painted = await until(() => held.surface.frames > 0, 2000);
+          const during = shift(before, near(el));
+          held.release();
+          const after = shift(before, near(el));
+          if (!painted) throw new Error(`${id}: no paint`);
+          if (during > 1 || after > 0.5) throw new Error(`${id} moved by ${during.toFixed(1)} px wrapped, ${after.toFixed(1)} px after`);
+          out.push(`${id} ${during.toFixed(1)} px`);
+        }
+        return `largest movement while wrapped: ${out.join(', ')}; all back in place after`;
+      },
+      timeout: 12000,
+    },
+    {
+      name: 'A wrapped button still clicks, and its picture shows the change',
+      why: 'The picture comes from the live element, not a copy.',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas is not available');
+        const held = surfaceFor($('tap'));
+        await until(() => held.surface.frames > 0, 2000);
+        const n = held.surface.frames;
+        const before = taps;
+        $('tap').click();
+        const repainted = await until(() => held.surface.frames > n, 2000);
+        held.release();
+        if (taps !== before + 1) throw new Error('the click did not register');
+        if (!repainted) throw new Error('no new frame after the change');
+        return `tapped ${taps}; a new frame followed`;
+      },
+      timeout: 6000,
+    },
+    {
+      name: 'Moving an element to another document and back keeps it working',
+      why: 'What "move the real element" relies on. Tried with a hidden frame instead of a floating window.',
+      run: async () => {
+        const frame = Object.assign(document.createElement('iframe'), { hidden: true });
+        document.body.append(frame);
+        const node = $('tap');
+        const hole = document.createComment('hole');
+        const before = taps;
+        node.replaceWith(hole);
+        frame.contentDocument.body.append(node);
+        const there = node.ownerDocument === frame.contentDocument;
+        const lost = document.getElementById('tap') === null;
+        node.click();
+        hole.replaceWith(node);
+        frame.remove();
+        if (!there) throw new Error('the element was not adopted');
+        if (taps !== before + 1 || node.ownerDocument !== document || $('tap') !== node) throw new Error('state was lost');
+        return `same node, same listener: clicked while in the other document, counted here${lost ? '. While away, getElementById() here could not find it' : ''}`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kettle &amp; Bean (a shop that offers slots)</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  /* What an embedding page may restyle: these custom properties and nothing else. */
+  :root { --kb-accent: #b4451f; --kb-bg: #fffaf0; --kb-fg: #2a1f17; --kb-radius: 22px; --kb-font: Georgia, serif; }
+  .shelf { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); max-width: 520px; }
+  live-region[slot-name=price], live-region[slot-name=basket] { display: inline-block; vertical-align: middle; }
+  live-region[slot-name=price] { width: 12.5em; }
+  live-region[slot-name=basket] { width: 9em; }
+
+  .kb { font-family: var(--kb-font); color: var(--kb-fg); }
+  .product { position: relative; padding: 8px 0 8px 46px; }
+  .product .art { position: absolute; left: 0; top: 50%; translate: 0 -50%; width: 96px; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; font-size: 46px;
+    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--kb-accent) 55%, #fff), var(--kb-accent)); box-shadow: 0 0 0 5px var(--kb-bg); }
+  .product .body { background: var(--kb-bg); border-radius: var(--kb-radius); padding: 14px 16px 14px 64px; font-size: 15px; line-height: 1.4; border: 1px solid color-mix(in srgb, var(--kb-fg) 20%, transparent); }
+  .product h3 { margin: 0; font-size: 18px; }
+  .product .by { margin: 0 0 6px; font-size: 12px; opacity: 0.7; }
+  .product .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .kb button, .kb input { font: inherit; color: inherit; }
+  .kb button { border: 1px solid color-mix(in srgb, var(--kb-fg) 40%, transparent); background: transparent; border-radius: 999px; padding: 4px 12px; cursor: pointer; min-height: 32px; }
+  .kb button.primary { background: var(--kb-accent); border-color: var(--kb-accent); color: #fff; font-weight: 600; }
+  .kb button.step { width: 34px; padding: 4px 0; }
+  .kb output { min-width: 2ch; text-align: center; font-weight: 700; }
+  .kb input[type=text] { flex: 1; min-width: 100px; padding: 4px 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--kb-fg) 35%, transparent); background: #fff; }
+  .product .said { font-size: 13px; opacity: 0.8; min-height: 1.4em; margin-top: 6px; }
+  .chip { display: inline-block; white-space: nowrap; font: 600 0.9em/1.5 var(--kb-font); color: var(--kb-fg); background: var(--kb-bg); border: 1px solid color-mix(in srgb, var(--kb-accent) 60%, transparent); border-radius: 999px; padding: 0 9px; }
+  .chip .dot { display: inline-block; width: 0.55em; height: 0.55em; border-radius: 50%; background: #2d9d4f; margin-right: 5px; animation: kb-pulse 1.6s infinite; }
+  .chip button { border: 0; min-height: 0; padding: 0 0 0 6px; text-decoration: underline; font-weight: 400; }
+  @keyframes kb-pulse { 50% { opacity: 0.25; } }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Kettle &amp; Bean</h1>
+  <p class="lede">This is the <em>providing</em> site of the <a id="back" href="/slot-view/">slot-view demo</a>: an ordinary shop page that offers three named pieces of itself to other sites. Opened like this, it is just a page.</p>
+  <div class="shelf">
+    <live-region slot-name="product" slot-title="Product card" class="kb">
+      <div class="product">
+        <div class="art" aria-hidden="true">☕</div>
+        <div class="body">
+          <h3>Single-origin filter coffee</h3>
+          <p class="by">Sold by <span class="seller"></span></p>
+          <div class="row">
+            <button class="step" id="less" type="button" aria-label="One fewer">−</button>
+            <output id="qty" aria-label="Quantity">1</output>
+            <button class="step" id="more" type="button" aria-label="One more">+</button>
+            <button class="primary" id="add" type="button">Add to basket</button>
+          </div>
+          <div class="row">
+            <input type="text" id="note" placeholder="Gift note" aria-label="Gift note" autocomplete="off">
+            <button id="buy" type="button" data-trusted="Buy now">Buy now</button>
+          </div>
+          <div class="said" id="said" role="status">Basket is empty.</div>
+        </div>
+      </div>
+    </live-region>
+    <p>Today's price is <live-region slot-name="price" slot-title="Live price" slot-consent="none" class="kb"><span class="chip"><span class="dot"></span>£<span id="price">9.50</span> · <span id="stock">12</span> left</span></live-region>
+      and your basket is <live-region slot-name="basket" slot-title="Your basket" class="kb"><span class="chip">🛒 <span id="count">0</span> bags<button type="button" id="clear">clear</button></span></live-region>.</p>
+  </div>
+  <p class="note">The price slot is public (<code>slot-consent="none"</code>): any page may show it, view only, like an image. The product card and the basket are personal, so an embedding page gets nothing until you say yes here, on <code class="seller"></code>.</p>
+</main>
+<script type="module">
+  import '/lib/live-surface.js';
+  import { provideSlots } from '/lib/slot-provider.js';
+
+  const $ = (id) => document.getElementById(id);
+  for (const el of document.querySelectorAll('.seller')) el.textContent = location.host;
+
+  // Shop state, shared by every copy of this page under the same embedding
+  // site (each slot-view loads its own copy).
+  const KEY = 'kb-shop';
+  const load = () => {
+    try {
+      return { qty: 1, basket: 0, orders: 0, note: '', ...JSON.parse(localStorage.getItem(KEY)) };
+    } catch {
+      return { qty: 1, basket: 0, orders: 0, note: '' };
+    }
+  };
+  let state = load();
+  let bc = null;
+  try {
+    bc = new BroadcastChannel(KEY);
+    bc.onmessage = (e) => ((state = e.data), show(false));
+  } catch {}
+
+  const PRICES = [9.5, 9.5, 9.2, 9.8, 9.5, 10.1];
+  const price = () => PRICES[Math.floor(Date.now() / 6000) % PRICES.length];
+
+  const slots = provideSlots({
+    themeable: { '--kb-accent': /^#[0-9a-f]{3,8}$/i, '--kb-bg': /^#[0-9a-f]{3,8}$/i, '--kb-fg': /^#[0-9a-f]{3,8}$/i, '--kb-radius': /^\d{1,2}px$/, '--kb-font': /^[\w ,'"-]{1,80}$/ },
+  });
+  slots.onstate = () => show(false);
+
+  function show(mine = true) {
+    $('qty').value = state.qty;
+    if (document.activeElement !== $('note')) $('note').value = state.note;
+    const total = (state.qty * price()).toFixed(2);
+    $('buy').dataset.trusted = `Buy ${state.qty} bag${state.qty > 1 ? 's' : ''} for £${total}`;
+    $('said').textContent = state.orders ? `Order placed (${state.orders} so far). ${state.basket} in basket.` : state.basket ? `${state.basket} bag${state.basket > 1 ? 's' : ''} in your basket.` : 'Basket is empty.';
+    $('count').textContent = state.basket;
+    $('price').textContent = price().toFixed(2);
+    $('stock').textContent = 12 - (Math.floor(Date.now() / 6000) % 5);
+    if (mine) {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(state));
+      } catch {}
+      bc?.postMessage(state);
+    }
+    slots.tell({ ...state, price: price() });
+  }
+  const change = (patch) => ((state = { ...state, ...patch }), show());
+  $('less').onclick = () => change({ qty: Math.max(1, state.qty - 1) });
+  $('more').onclick = () => change({ qty: Math.min(9, state.qty + 1) });
+  $('add').onclick = () => change({ basket: state.basket + state.qty });
+  $('clear').onclick = () => change({ basket: 0 });
+  $('buy').onclick = () => change({ orders: state.orders + 1 });
+  $('note').oninput = () => change({ note: $('note').value });
+  setInterval(() => show(false), 2000);
+  show(false);
+  window.shop = { get state() { return state; }, slots };
+</script>
+</body>
+</html>
