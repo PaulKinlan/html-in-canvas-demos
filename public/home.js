@@ -40,26 +40,30 @@ const grids = [];
   }
 }
 
-// The learning path, from /shared/learn.js. Same number of rows at every width, so filling it moves nothing below it by much;
-// it runs before the first paint (nav.js holds the page until the scripts have built it).
+// The table of API calls and the experiments that use them, from /shared/learn.js.
+// It runs before the first paint (nav.js holds the page until the scripts have built it).
 {
-  const path = document.getElementById('path');
-  const steps = window.LEARN?.path ?? [];
+  const body = document.getElementById('uses');
   const titles = new Map((window.DEMOS ?? []).map((d) => [d.href, d.title]));
-  if (path && steps.length) {
-    path.replaceChildren(...steps.map((s) => {
-      const li = document.createElement('li');
+  const rows = (window.LEARN?.uses ?? []).map((u) => {
+    const tr = document.createElement('tr');
+    const call = document.createElement('td');
+    const code = document.createElement('code');
+    code.textContent = u.call;
+    call.append(code);
+    const what = document.createElement('td');
+    what.innerHTML = u.what;
+    const pages = document.createElement('td');
+    for (const href of u.pages) {
       const a = document.createElement('a');
-      a.href = s.href;
-      const b = document.createElement('b');
-      b.textContent = titles.get(s.href) ?? s.href;
-      const span = document.createElement('span');
-      span.textContent = s.idea;
-      a.append(b, span);
-      li.append(a);
-      return li;
-    }));
-  }
+      a.href = href;
+      a.textContent = titles.get(href) ?? href;
+      pages.append(a, ' ');
+    }
+    tr.append(call, what, pages);
+    return tr;
+  });
+  if (body && rows.length) body.replaceChildren(...rows);
 }
 
 if (!supported) {

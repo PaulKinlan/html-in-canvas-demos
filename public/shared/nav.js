@@ -61,7 +61,7 @@ html.page-loading body>:not(#site-nav){opacity:0}\
         var h = root.scrollHeight;
         same = h === last ? same + 1 : 0;
         last = h;
-        // Also wait for the "what you will learn" box (learnBox below), which adds height under the introduction.
+        // Also wait for the "About this experiment" box (learnBox below), which adds height under the introduction.
         if ((same >= 3 && learnDone) || performance.now() - t0 > 800) reveal();
         else requestAnimationFrame(settle);
       })();
