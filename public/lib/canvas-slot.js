@@ -17,6 +17,13 @@
 // Worker mode: <canvas-slot worker="./my-worker.js"> transfers the canvas to
 // an OffscreenCanvas in that worker and, on every paint, sends it the changed
 // elements as transferable ElementImage snapshots. See /offscreen/.
+//
+// Effects: <canvas-slot effect="tilt"> needs no onrender at all. Each slot
+// becomes a WebGL texture and is drawn through the named fragment shader
+// (tilt, ripple, dissolve, page-curl, glass, haze, crt, or your own), driven
+// by CSS custom properties. effect="#script-id" or effect="url(x.frag)" points
+// at a shader; backend="webgpu" uses WGSL. See slot-effects.js and
+// /slot-effects/. That file is only loaded when the attribute is used.
 
 const SUPPORTED =
   typeof CanvasRenderingContext2D !== 'undefined' &&
@@ -32,9 +39,109 @@ export class CanvasSlot extends HTMLElement {
   #raf = 0;
   #dpr = devicePixelRatio;
   onrender = null;
+  #fx = null; // the shader renderer from slot-effects.js, when effect="…" is set
+  #mode = null; // '2d' | 'worker' | 'webgl' | 'shared' | 'webgpu'
+  #avoid = new Set(); // backends that failed here
+  #loading = 0;
+  #tries = new Map();
+  #backendAttr = null;
+
+  static observedAttributes = ['effect', 'backend'];
 
   static get supported() {
     return SUPPORTED;
+  }
+
+  /** The shader renderer while an effect is active (frames, error, kind, pixel(), poke()), else null. */
+  get effects() {
+    return this.#fx;
+  }
+
+  /**
+   * How this element is drawing: '2d', 'worker', 'webgl' (its own context),
+   * 'shared' (a 2D canvas borrowing the page's shared WebGL context) or 'webgpu'.
+   */
+  get mode() {
+    return this.#fx?.kind ?? this.#mode;
+  }
+
+  attributeChangedCallback() {
+    if (!this.isConnected || !this.#mode || this.#mode === 'worker') return;
+    if (this.#wantedMode() !== this.#mode || this.#backendAttr !== this.getAttribute('backend')) this.#start(true);
+    else this.#fx?.changed();
+  }
+
+  #wantedMode() {
+    if (!this.hasAttribute('effect')) return '2d';
+    const gl = typeof WebGL2RenderingContext !== 'undefined' && 'texElementSubImage2D' in WebGL2RenderingContext.prototype;
+    const gpu = typeof GPUQueue !== 'undefined' && 'drawElementImageToTexture' in GPUQueue.prototype;
+    const want = this.getAttribute('backend');
+    if (want === 'webgpu' && gpu && !this.#avoid.has('webgpu')) return 'webgpu';
+    if (gl && want !== 'shared' && !this.#avoid.has('webgl')) return 'webgl';
+    return SUPPORTED && typeof WebGL2RenderingContext !== 'undefined' && !this.#avoid.has('shared') ? 'shared' : '2d';
+  }
+
+  // A canvas keeps the first kind of context it is given, so changing between
+  // 2D, WebGL and WebGPU means a new canvas. The slots move across.
+  #freshCanvas() {
+    const old = this.#canvas;
+    const canvas = old.cloneNode(false);
+    canvas.append(...old.childNodes);
+    this.#ro?.unobserve(old);
+    old.replaceWith(canvas);
+    this.#canvas = canvas;
+    this.#observeSize();
+    canvas.addEventListener('paint', this.#paint);
+    canvas.addEventListener('contextrestored', () => this.requestPaint());
+  }
+
+  #start(replace = false) {
+    this.#fx?.destroy();
+    this.#fx = null;
+    this.#ctx = null;
+    if (replace) this.#freshCanvas();
+    const mode = (this.#mode = this.#wantedMode());
+    this.#backendAttr = this.getAttribute('backend');
+    if (mode === '2d') {
+      this.#ctx = this.#canvas.getContext('2d');
+      this.requestPaint();
+      return;
+    }
+    const token = ++this.#loading;
+    import('./slot-effects.js').then((m) => {
+      if (token !== this.#loading || !this.isConnected) return;
+      try {
+        this.#fx = m.attach(this, this.#canvas, mode, (reason) => this.#fallBack(mode, reason), { present: !this.hasAttribute('offscreen'), force: this.getAttribute('backend') === 'webgl' });
+      } catch (err) {
+        this.#fallBack(mode, err.message);
+      }
+      this.requestPaint();
+    });
+  }
+
+  // A lost context gets one fresh canvas of the same kind before that kind is
+  // given up on; a kind that cannot start at all is dropped at once.
+  #fallBack(mode, reason) {
+    if (this.#mode !== mode) return;
+    const tries = (this.#tries.get(mode) ?? 0) + 1;
+    this.#tries.set(mode, tries);
+    const retry = /lost/i.test(reason) && mode !== 'webgpu' && tries <= 2;
+    if (!retry) {
+      console.warn(`<canvas-slot effect>: ${mode} failed (${reason}); falling back`);
+      this.#avoid.add(mode);
+    }
+    this.dispatchEvent(new CustomEvent('effectfallback', { detail: { from: mode, reason } }));
+    this.#start(true);
+  }
+
+  #paint = (e) => this.#onPaint(e);
+
+  #observeSize() {
+    try {
+      this.#ro.observe(this.#canvas, { box: 'device-pixel-content-box' });
+    } catch {
+      this.#ro.observe(this.#canvas);
+    }
   }
 
   constructor() {
@@ -44,6 +151,10 @@ export class CanvasSlot extends HTMLElement {
       <style>
         :host { display: block; position: relative; contain: layout; }
         canvas { display: block; width: 100%; height: 100%; }
+        /* No HTML-in-canvas: the slots sit outside the canvas, so the
+           content is ordinary HTML instead of hidden fallback content. */
+        :host([plain]) { height: auto !important; }
+        :host([plain]) canvas { display: none; }
         /* Slots are display: contents, so slotted elements become the
            canvas's layout children. */
       </style>
@@ -82,13 +193,12 @@ export class CanvasSlot extends HTMLElement {
       }
       this.requestPaint();
     });
-    try {
-      this.#ro.observe(this.#canvas, { box: 'device-pixel-content-box' });
-    } catch {
-      this.#ro.observe(this.#canvas);
-    }
+    this.#observeSize();
 
-    if (!SUPPORTED) return;
+    if (!SUPPORTED) {
+      this.toggleAttribute('plain', true);
+      return;
+    }
 
     const workerUrl = this.getAttribute('worker');
     if (workerUrl) {
@@ -96,10 +206,13 @@ export class CanvasSlot extends HTMLElement {
       this.#worker.onmessage = (e) => this.dispatchEvent(new CustomEvent('workermessage', { detail: e.data }));
       const offscreen = this.#canvas.transferControlToOffscreen();
       this.#worker.postMessage({ type: 'init', canvas: offscreen }, [offscreen]);
+      this.#mode = 'worker';
     } else {
-      this.#ctx = this.#canvas.getContext('2d');
+      // A canvas that already has a context (the element was moved in the
+      // document) cannot take another kind, so start from a new one.
+      this.#start(this.#mode !== null);
     }
-    this.#canvas.addEventListener('paint', (e) => this.#onPaint(e));
+    this.#canvas.addEventListener('paint', this.#paint);
   }
 
   #mo;
@@ -111,6 +224,9 @@ export class CanvasSlot extends HTMLElement {
     cancelAnimationFrame(this.#raf);
     this.#worker?.terminate();
     this.#worker = null;
+    this.#fx?.destroy();
+    this.#fx = null;
+    this.#loading++;
   }
 
   /** Post an arbitrary message to the worker (worker mode only). */
@@ -147,7 +263,7 @@ export class CanvasSlot extends HTMLElement {
       const slot = document.createElement('slot');
       slot.name = name;
       slot.addEventListener('slotchange', () => this.requestPaint());
-      this.#canvas.append(slot);
+      (SUPPORTED ? this.#canvas : this.#root).append(slot);
       this.#slots.set(name, slot);
     }
     for (const [name, slot] of this.#slots) {
@@ -184,7 +300,14 @@ export class CanvasSlot extends HTMLElement {
       return;
     }
 
+    if (this.#fx) {
+      // Shader mode: same renderer contract, but draw() shades each slot.
+      this.#fx.paint({ elements, renderer: this.onrender ?? defaultRenderer, event, dpr: this.#dpr });
+      this.dispatchEvent(new CustomEvent('render', { detail: { elements, changed: new Set(event.changedElements ?? []), dpr: this.#dpr } }));
+      return;
+    }
     const ctx = this.#ctx;
+    if (!ctx) return; // the effect renderer is still loading
     const dpr = this.#dpr;
     const width = this.#canvas.width / dpr;
     const height = this.#canvas.height / dpr;
