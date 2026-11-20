@@ -49,6 +49,15 @@
   </div>
   <p id="now">Not run yet.</p>
   <p id="blankNote" class="note fail" hidden></p>
+  <details class="show-code">
+    <summary>Show the code <small>the three scenes being timed</small></summary>
+    <ol>
+      <li data-code="#canvas"><b>The canvas rows: every card is a child of one drawable canvas.</b> <code>html</code> is the markup of <code>n</code> cards.</li>
+      <li data-code="#draw2d"><b>2D row: draw every element on each <code>paint</code>.</b> A frame loop changes some text and calls <code>canvas.requestPaint()</code>.</li>
+      <li data-code="#worker"><b>Worker row: the canvas goes to a worker, and only elements that changed get a new snapshot.</b></li>
+      <li data-code="/perf/worker.js"><b>The worker.</b> It keeps the newest snapshot of each element and draws them all every frame, whatever the main thread is doing.</li>
+    </ol>
+  </details>
 
   <div style="overflow-x:auto">
     <table id="wall">
@@ -124,6 +133,7 @@
       stage.innerHTML = html;
       els = [...stage.children];
     } else {
+      // #region canvas
       canvas = document.createElement('canvas');
       canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
       canvas.innerHTML = html;
@@ -131,6 +141,7 @@
       for (const el of els) el.setAttribute('drawable', '');
       canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
       stage.replaceChildren(canvas);
+      // #endregion canvas
     }
     const values = els.map((el) => el.querySelector('.v'));
     return { els, values, canvas, w, h, sw, sh, dpr };
@@ -161,6 +172,7 @@
       };
       requestAnimationFrame(loop);
     } else if (kind === '2d') {
+      // #region draw2d
       ctx = canvas.getContext('2d');
       canvas.addEventListener('paint', () => {
         const t = performance.now();
@@ -171,6 +183,7 @@
         }
         drawMs += performance.now() - t; drawN++;
       });
+      // #endregion draw2d
       const loop = (t) => {
         if (!running) return;
         requestAnimationFrame(loop);
@@ -181,6 +194,7 @@
       };
       requestAnimationFrame(loop);
     } else if (kind === 'worker') {
+      // #region worker
       worker = new Worker('/perf/worker.js');
       const off = canvas.transferControlToOffscreen();
       worker.postMessage({ type: 'init', canvas: off, dpr }, [off]);
@@ -196,6 +210,7 @@
         if (images.length) worker.postMessage({ type: 'images', images, sizes }, transfer);
         drawMs += performance.now() - t0; drawN++;
       });
+      // #endregion worker
       canvas.requestPaint();
       const loop = (t) => {
         if (!running) return;

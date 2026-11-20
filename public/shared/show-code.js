@@ -155,6 +155,49 @@
     return e;
   }
 
+  // One listing box: file label, Wrap and Copy buttons, the code.
+  function frame(label, href) {
+    var box = el('figure', 'sc-block');
+    var bar = el('figcaption');
+    var where = el(href ? 'a' : 'span', 'sc-file', label);
+    if (href) {
+      where.href = href;
+      where.target = '_blank';
+      where.rel = 'noopener';
+    }
+    // Long lines scroll sideways by default; Wrap folds them, which reads better on a phone.
+    var wrap = el('button', 'sc-wrap', 'Wrap');
+    wrap.type = 'button';
+    wrap.setAttribute('aria-pressed', 'false');
+    wrap.onclick = function () { wrap.setAttribute('aria-pressed', String(box.classList.toggle('sc-wrapped'))); };
+    var button = el('button', 'sc-copy', 'Copy');
+    button.type = 'button';
+    button.disabled = true;
+    bar.append(where, wrap, button);
+    var pre = el('pre'), code = el('code', '', 'Loading…');
+    pre.tabIndex = 0;
+    pre.append(code);
+    box.append(bar, pre);
+    return {
+      box: box, where: where, code: code,
+      show: function (text, lang, full) {
+        var count = text.split('\n').length;
+        code.className = 'sc-' + lang;
+        code.innerHTML = (paint[lang] || esc)(text);
+        button.disabled = false;
+        button.onclick = function () { copy(text, button); };
+        if (count > LONG && !full) {
+          box.classList.add('sc-short');
+          var more = el('button', 'sc-more', 'Show all ' + count + ' lines');
+          more.type = 'button';
+          more.onclick = function () { box.classList.remove('sc-short'); more.remove(); };
+          box.append(more);
+        }
+        return count;
+      },
+    };
+  }
+
   function fill(item) {
     if (item.__code) return;
     item.__code = true;
@@ -163,48 +206,32 @@
     var path = (hash < 0 ? spec : spec.slice(0, hash)) || location.pathname;
     var name = hash < 0 ? '' : spec.slice(hash + 1);
     var file = path.replace(/\/$/, '/index.html');
-    var box = el('figure', 'sc-block');
-    var bar = el('figcaption');
-    var where = el('a', 'sc-file', file);
-    where.href = REPO + file;
-    where.target = '_blank';
-    where.rel = 'noopener';
-    var button = el('button', 'sc-copy', 'Copy');
-    button.type = 'button';
-    button.disabled = true;
-    // Long lines scroll sideways by default; Wrap folds them, which reads better on a phone.
-    var wrap = el('button', 'sc-wrap', 'Wrap');
-    wrap.type = 'button';
-    wrap.setAttribute('aria-pressed', 'false');
-    wrap.onclick = function () { wrap.setAttribute('aria-pressed', String(box.classList.toggle('sc-wrapped'))); };
-    bar.append(where, wrap, button);
-    var pre = el('pre'), code = el('code', '', 'Loading…');
-    pre.tabIndex = 0;
-    pre.append(code);
-    box.append(bar, pre);
-    item.append(box);
-
+    var f = frame(file, REPO + file);
+    item.append(f.box);
     load(path).then(function (source) {
       var got = cut(source, name, file);
       if (!got) throw new Error('No region "' + name + '" in ' + file);
-      var count = got.text.split('\n').length;
-      where.textContent = file + (name ? ' · from line ' + got.first : ' · ' + count + ' lines');
-      where.href = REPO + file + (name ? '#L' + got.first + '-L' + got.last : '');
-      var lang = item.getAttribute('data-lang') || got.lang;
-      code.className = 'sc-' + lang;
-      code.innerHTML = (paint[lang] || esc)(got.text);
-      button.disabled = false;
-      button.onclick = function () { copy(got.text, button); };
-      if (count > LONG && !item.hasAttribute('data-code-full')) {
-        box.classList.add('sc-short');
-        var more = el('button', 'sc-more', 'Show all ' + count + ' lines');
-        more.type = 'button';
-        more.onclick = function () { box.classList.remove('sc-short'); more.remove(); };
-        box.append(more);
-      }
+      var count = f.show(got.text, item.getAttribute('data-lang') || got.lang, item.hasAttribute('data-code-full'));
+      f.where.textContent = file + (name ? ' · from line ' + got.first : ' · ' + count + ' lines');
+      f.where.href = REPO + file + (name ? '#L' + got.first + '-L' + got.last : '');
     }).catch(function (err) {
-      code.textContent = 'Could not load this listing (' + err.message + '). The file is linked above.';
+      f.code.textContent = 'Could not load this listing (' + err.message + '). The file is linked above.';
     });
+  }
+
+  // A listing for code the page already holds, such as a test's own function:
+  //   details.append(showCode.block(String(fn), 'js', 'this test'))
+  // A function's text starts unindented and continues at its indentation in
+  // the file, so the rest is pulled back to line up with the first line.
+  function block(text, lang, label) {
+    var lines = String(text).split('\n'), min = Infinity;
+    for (var i = 1; i < lines.length; i++) if (lines[i].trim()) min = Math.min(min, lines[i].match(/^[ \t]*/)[0].length);
+    if (min !== Infinity && min > 0) for (var j = 1; j < lines.length; j++) lines[j] = lines[j].slice(min);
+    var f = frame(label || 'the code that runs');
+    f.box.classList.add('sc-wrapped');
+    f.box.querySelector('.sc-wrap').setAttribute('aria-pressed', 'true');
+    f.show(lines.join('\n'), lang || 'js', true);
+    return f.box;
   }
 
   function open(details) {
@@ -220,5 +247,5 @@
   function already() { document.querySelectorAll('details.show-code[open]').forEach(open); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', already); else already();
 
-  window.showCode = { cut: cut, highlight: paint };
+  window.showCode = { cut: cut, highlight: paint, block: block };
 })();

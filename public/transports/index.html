@@ -35,6 +35,16 @@
   <p id="score">running…</p>
   <iframe id="echo" title="Remote origin echo"></iframe>
 
+  <details class="show-code">
+    <summary>Show the code <small>what every route starts from</small></summary>
+    <p>Every row below has its own <b>Show the code</b> link with the exact function that row ran. They all use these two helpers.</p>
+    <ol>
+      <li data-code="#source"><b><code>source()</code>: a drawable canvas with one element in it.</b> <code>s.el</code> is the element, <code>s.c</code> the canvas, <code>s.ctx</code> its 2D context and <code>s.snap()</code> a fresh <code>ElementImage</code> from <code>captureElementImage()</code>.</li>
+      <li data-code="#arrive"><b><code>arrive()</code>: draw whatever came out the other end and check one pixel.</b></li>
+      <li data-code="/transports/worker.js"><b>The worker some routes send things to.</b></li>
+      <li data-code="/transports/echo.html"><b>The page on the other origin.</b></li>
+    </ol>
+  </details>
   <h2>A · Moving the snapshot <small>ElementImage and friends, DOM stays live</small></h2>
   <table class="lab"><tbody id="tA"></tbody></table>
 
@@ -75,8 +85,11 @@
   // ---------- helpers ----------
   const near = (px, want = YELLOW, tol = 3) => px && want.every((v, i) => Math.abs(px[i] - v) <= tol) && px[3] > 250;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // #region source
   const paintOf = (canvas) => new Promise((r) => { canvas.addEventListener('paint', r, { once: true }); canvas.requestPaint(); });
+  // #endregion source
 
+  // #region source
   /** A drawable canvas with one yellow element, painted and (optionally) drawn. */
   async function source({ draw = true, type = '2d', keepLive = false } = {}) {
     const c = document.createElement('canvas');
@@ -100,7 +113,9 @@
     }
     return { c, el, ctx, gl, snap: () => c.captureElementImage(el) };
   }
+  // #endregion source
 
+  // #region arrive
   /** Draw what arrived into the row's output canvas and verify the pixel. */
   function arrive(out, drawable, { tol = 3, sx = 0, sy = 0, sw, sh } = {}) {
     const ctx = out.getContext('2d', { willReadFrequently: true });
@@ -110,6 +125,7 @@
     if (!near(px, YELLOW, tol)) throw new Error(`arrived but pixel is ${px.join(',')}, expected the element's 255,204,0`);
     return px;
   }
+  // #endregion arrive
 
   // Cross-origin echo frame.
   function otherOrigin() {
@@ -643,6 +659,14 @@
   }
 
   // ---------- runner ----------
+  // Each row can show the function it ran. The text comes from the function itself.
+  const rowCode = (fn, label) => {
+    const d = document.createElement('details');
+    d.className = 'row-code';
+    d.innerHTML = '<summary>Show the code</summary>';
+    d.addEventListener('toggle', () => { if (d.open && !d.querySelector('figure') && window.showCode) d.append(window.showCode.block(fn, 'js', label)); });
+    return d;
+  };
   const tally = { pass: 0, fail: 0, skip: 0 };
   const results = [];
   const score = document.getElementById('score');
@@ -655,6 +679,7 @@
         tr.innerHTML = `<td class="status pending">…</td><td><div class="route"></div><div class="via"></div></td><td class="out"><canvas width="${W}" height="${H}"></canvas></td><td class="detail"></td>`;
         tr.querySelector('.route').textContent = name;
         tr.querySelector('.via').textContent = via;
+        tr.querySelector('.via').after(rowCode(run, 'this route'));
         document.getElementById(tbody).append(tr);
         const status = tr.querySelector('.status');
         let state, detail;
