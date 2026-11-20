@@ -17,6 +17,7 @@ Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-ca
 | `/portal/` | `<dom-portal for="id">`: one live element drawn twice, interactive in both places |
 | `/lens/` | `<dom-lens>`: magnifier, fisheye and x-ray over live DOM, sharp at any zoom |
 | `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
+| `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
 | `/a11y/` | Accessibility audit: API probes, the same audit run over every demo, and a by-hand checklist |
 | `/capture/` | Any element or a whole page to PNG, video or print with one call |
@@ -46,6 +47,8 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/dom-portal.js`: `<dom-portal for="id" scale="0.5">` mirrors any element; `<dom-portal-source layer="top">` for sources inside clipping ancestors.
 - `public/lib/dom-lens.js`: `<dom-lens mode="magnify|fisheye|xray" zoom radius>` around any markup.
 - `public/lib/shader-fx.js`: the `fx` attribute (`ripple`, `glass`, `haze`, `crt`, `dissolve`, `curl`) and `defineEffect(name, { glsl })`.
+- `public/lib/effects.js`: the effect registry shared by `fx` and `<canvas-slot effect>`. `defineEffect(name, { glsl, wgsl, geometry })`; CSS properties `--fx-progress`, `--fx-amount`, `--fx-x`, `--fx-y`.
+- `public/lib/slot-effects.js`: the shader renderer `<canvas-slot effect>` loads on demand (`backend="webgl|shared|webgpu"`).
 - `public/lib/physical-ui.js`: `<physical-ui material="jelly|cloth|paper" wind pin>`.
 - `public/lib/surface.js`: the shared base that slots any markup into a canvas; `SurfaceElement.adopt(el)` wraps an element in place.
 

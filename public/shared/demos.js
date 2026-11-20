@@ -42,6 +42,7 @@ window.DEMOS = [
   { group: 'primitives', href: '/portal/', title: '<dom-portal>', blurb: 'A drop-in element that shows any live element a second time, anywhere on the page. One element, drawn twice: click and type in either copy.', tags: ['custom element', 'updateElementGeometry'] },
   { group: 'primitives', href: '/lens/', title: 'A lens over live DOM', blurb: 'Magnifier, fisheye and x-ray loupes over real markup. Text is re-rasterized sharp at any zoom, and you can click and type through the glass.', tags: ['drawElementImage', 'mesh warp', 'touch'] },
   { group: 'primitives', href: '/shader-css/', title: 'Shader CSS', blurb: 'Add <code>fx="ripple"</code> to any element to run it through a fragment shader. CSS custom properties are the uniforms, so transitions animate it.', tags: ['texElementSubImage2D', 'WebGL', 'WebGPU', '@property'] },
+  { group: 'primitives', href: '/slot-effects/', title: 'Named effects and shader slots', blurb: '<code>&lt;canvas-slot effect="tilt"&gt;</code>: no render loop. Each slot is a texture drawn through a named or hand-written fragment shader, driven by CSS custom properties.', tags: ['custom element', 'WebGL', 'WebGPU', '@property'] },
   { group: 'primitives', href: '/physical/', title: 'Physical UI', blurb: 'Working forms on jelly, cloth and paper. Drag them about: clicks still land on what you see, because hit testing follows the mesh.', tags: ['WebGL', 'Verlet', 'hit testing'] },
 
   // --- motion ---
