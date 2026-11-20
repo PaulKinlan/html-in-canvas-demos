@@ -653,6 +653,7 @@ if (!customElements.get('live-region')) customElements.define('live-region', Liv
 export function serve(surface, link, { title = document.title, peer = 'viewer', sendBinary = null, persistent = false } = {}) {
   let mode = null;
   let busy = false;
+  let again = false;
   let last = 0;
   let minGap = 0;
   let lastMeta = '';
@@ -670,7 +671,15 @@ export function serve(surface, link, { title = document.title, peer = 'viewer', 
   const onFrame = async () => {
     if (stopped || !mode) return;
     meta();
-    if (mode === 'none' || busy) return;
+    if (mode === 'none') return;
+    // Nothing painted yet: the mirror is still a blank default-sized canvas.
+    if (!surface.frames) return;
+    if (busy) {
+      // A paint arrived while the last frame was being packed. Don't lose
+      // it: it may be the final state.
+      again = true;
+      return;
+    }
     const now = performance.now();
     if (now - last < minGap) {
       // Make sure the final state is sent even if it arrived inside the gap.
@@ -693,6 +702,10 @@ export function serve(surface, link, { title = document.title, peer = 'viewer', 
       link.send({ t: 'error', message: String(err) });
     }
     busy = false;
+    if (again) {
+      again = false;
+      onFrame();
+    }
   };
 
   link.onmessage = (msg) => {

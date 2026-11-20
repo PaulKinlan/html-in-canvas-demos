@@ -32,6 +32,8 @@ Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-ca
 | `/three-form/` | A live form on a laptop screen, a billboard and a curved wall in three.js (WebGL or `?renderer=webgpu`), via `lib/html3d.js` |
 | `/board/` | An infinite zoomable board whose tiles are live notes and iframes |
 | `/xr/` | WebXR panels made of HTML, with controller rays, an on-panel keyboard and a built-in headset emulator (`?emulate=1`) |
+| `/slot-view/` | `<slot-view src name>`: a live piece of another site with no iframe box, consent on the providing side, input forwarded ([protocol](public/slot-view/PROTOCOL.md)) |
+| `/pip/` | `pipElement(el)`: picture-in-picture for any element, moved for real, as a live picture, or as a video |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
@@ -56,6 +58,8 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/live-view.js`: `<live-view>`, the receiving end. Needs no HTML-in-canvas.
 - `public/lib/live-link.js`: `shareInRoom()` / `watchRoom()` over a relay room, WebRTC with a relayed-JPEG fallback.
 - `public/lib/live-card.js`: `<live-card src effect>` embeds a cross-origin card through a WebGL shader.
+- `public/lib/slot-view.js` and `public/lib/slot-provider.js`: the cross-site `<slot-view src name>` element and `provideSlots()` for the site being embedded. Note that `slot-share.js` also registers a `<slot-view name>` (the same-origin cross-tab viewer); whichever module loads first wins, so don't load both on one page.
+- `public/lib/element-pip.js`: `pipElement(el, { mode })` and `surfaceFor(el)`.
 
 ## Worker
 
