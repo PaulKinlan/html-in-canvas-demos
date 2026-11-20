@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dom-portal: one element, drawn twice</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .shop { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
+  @media (max-width: 760px) { .shop { grid-template-columns: 1fr; } }
+  .products { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .product { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 6px; }
+  .product .art { height: 64px; border-radius: 6px; }
+  .product b { font-size: 15px; }
+  .product span { color: var(--muted); font-size: 13px; }
+  .product button { justify-self: start; font-size: 13px; padding: 4px 10px; }
+
+  #cart { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; font-size: 14px; }
+  #cart h3 { margin: 0 0 8px; font-size: 16px; display: flex; justify-content: space-between; }
+  #cart ul { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+  #cart li { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; align-items: center; }
+  #cart li button { padding: 0 7px; font-size: 13px; line-height: 20px; }
+  #cart .empty { color: var(--muted); }
+  #cart input { font: inherit; padding: 4px 8px; width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  #cart .total { display: flex; justify-content: space-between; font-weight: 600; margin: 10px 0; }
+  #cart .go { width: 100%; background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+
+  .dock { position: sticky; bottom: 12px; margin-top: 20px; display: flex; justify-content: flex-end; pointer-events: none; }
+  .dock .tray { pointer-events: auto; background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(6px); border: 1px dashed var(--line); border-radius: 12px; padding: 8px; }
+  .dock small, .peek small { display: block; font: 11px var(--mono); color: var(--muted); margin-bottom: 6px; }
+  dom-portal[active] { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+  #stats { font: 12px var(--mono); color: var(--muted); }
+
+  .mapdemo { display: grid; grid-template-columns: minmax(0, 1fr) clamp(110px, 30%, 240px); gap: 16px; }
+  #scroller { height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  #doc { padding: 14px 18px; font-size: 14px; }
+  #doc h4 { margin: 14px 0 4px; }
+  #doc label { display: block; }
+  .mapbox { position: relative; height: 300px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
+  .mapbox dom-portal { height: 100%; }
+  #viewport { position: absolute; left: 0; right: 0; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; border-radius: 4px; }
+
+  #fixtures { display: grid; gap: 8px; margin-bottom: 12px; font: 13px system-ui; }
+  #fixtures .fx { display: flex; gap: 12px; align-items: flex-start; padding: 6px; border: 1px solid var(--line); border-radius: 8px; min-height: 40px; }
+  .chip { background: rgb(255, 204, 0); color: #000; padding: 6px 10px; width: 120px; box-sizing: border-box; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>&lt;dom-portal&gt;: one element, drawn twice</h1>
+  <p class="lede">
+    The basket on the right is one ordinary <code>&lt;aside id="cart"&gt;</code>. The half-size copy docked at the bottom of the
+    window is <code>&lt;dom-portal for="cart" scale="0.5"&gt;</code>. It is not a clone or a screenshot: it is the same element
+    drawn a second time. Add something, then change a quantity or type a promo code in <em>either</em> one.
+  </p>
+
+  <div class="shop">
+    <div>
+      <div class="products" id="products"></div>
+      <p class="peek" style="margin-top:18px">
+        Portals are inline boxes, so one can sit in running text. Here is the basket again at 70%:
+      </p>
+      <dom-portal for="cart" scale="0.7" id="inlinePortal"></dom-portal>
+    </div>
+    <aside id="cart" aria-label="Basket">
+      <h3>Basket <span id="count">0 items</span></h3>
+      <ul id="lines"><li class="empty">Nothing yet. Add a fruit.</li></ul>
+      <label for="promo">Promo code</label>
+      <input id="promo" placeholder="Try FRUIT10" autocomplete="off">
+      <div class="total"><span>Total</span><span id="total">£0.00</span></div>
+      <button class="go" id="checkout" type="button">Check out</button>
+    </aside>
+  </div>
+
+  <div class="dock">
+    <div class="tray">
+      <small>&lt;dom-portal for="cart" scale="0.5"&gt;</small>
+      <dom-portal for="cart" scale="0.5" id="dockPortal"></dom-portal>
+    </div>
+  </div>
+  <p id="stats"></p>
+
+<pre><code>&lt;script type="module" src="/lib/dom-portal.js"&gt;&lt;/script&gt;
+
+&lt;aside id="cart"&gt;…&lt;/aside&gt;
+
+&lt;dom-portal for="cart" scale="0.5"&gt;&lt;/dom-portal&gt;</code></pre>
+
+  <h2>A live minimap</h2>
+  <p>
+    The document on the left scrolls inside a box. The strip on the right is <code>&lt;dom-portal for="doc" fit&gt;</code>: the whole
+    document, scaled to fit, and still live. Tick a checkbox in the minimap. Because the source is inside a scrolling box, this one
+    uses <code>layer="top"</code>, which draws through a canvas in the top layer so the copy is not clipped by the scroller.
+  </p>
+  <div class="mapdemo">
+    <div id="scroller">
+      <dom-portal-source layer="top" id="docSource">
+        <div id="doc"></div>
+      </dom-portal-source>
+    </div>
+    <div class="mapbox">
+      <dom-portal for="doc" fit id="mapPortal"></dom-portal>
+      <div id="viewport"></div>
+    </div>
+  </div>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li><strong>The element is wrapped, not copied.</strong> The first portal that points at <code>#cart</code> wraps it in a <code>&lt;dom-portal-source&gt;</code> whose shadow root slots it into a canvas. Your element, its listeners and its state are untouched; only its parent changes. You can also write the wrapper yourself.</li>
+    <li><strong>One canvas spans home and every portal.</strong> An element can only be drawn into its own canvas, so that canvas is stretched over the union of all the places the element appears. It is transparent and ignores pointer events everywhere else. Because it is positioned in the page, scrolling costs nothing.</li>
+    <li><strong>One element, one geometry.</strong> Hit testing can only be in one place at a time, so it follows the pointer: whichever copy you are over is the real one. Focus, typing, selection and the accessibility tree all belong to the single element.</li>
+    <li><strong>When the union is too big</strong> (a fixed portal far from its source on a long page), the canvas becomes viewport-sized and is redrawn as you scroll. <code>layer="top"</code> puts it in the top layer to escape <code>overflow</code> clipping.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <div id="fixtures"></div>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+</main>
+
+<script type="module">
+  import { DomPortalSource } from '/lib/dom-portal.js';
+  import { banner, nav, runTests, supported } from '/shared/support.js';
+  nav('/portal/');
+  banner();
+  const $ = (id) => document.getElementById(id);
+
+  // ---- The shop: plain DOM code that knows nothing about portals ----
+  const fruit = [
+    ['Strawberries', 2.5, '#d2491f'], ['Kiwis', 1.2, '#7fb069'], ['Blueberries', 3.1, '#2f4b7c'],
+    ['Lemons', 0.8, '#f3d36b'], ['Plums', 1.9, '#665191'], ['Oranges', 1.1, '#e8a33d'],
+  ];
+  const basket = new Map();
+  for (const [name, price, color] of fruit) {
+    const card = document.createElement('div');
+    card.className = 'product';
+    card.innerHTML = `<div class="art" style="background:${color}"></div><b>${name}</b><span>£${price.toFixed(2)}</span><button type="button">Add</button>`;
+    card.querySelector('button').onclick = () => { basket.set(name, (basket.get(name) ?? 0) + 1); renderCart(); };
+    $('products').append(card);
+  }
+  function renderCart() {
+    const lines = $('lines');
+    lines.replaceChildren();
+    let total = 0, count = 0;
+    for (const [name, qty] of basket) {
+      const price = fruit.find((f) => f[0] === name)[1];
+      total += price * qty; count += qty;
+      const li = document.createElement('li');
+      li.innerHTML = `<span></span><button type="button" aria-label="One fewer">−</button><b>${qty}</b><button type="button" aria-label="One more">+</button>`;
+      li.firstChild.textContent = name;
+      const [minus, plus] = li.querySelectorAll('button');
+      minus.onclick = () => { qty > 1 ? basket.set(name, qty - 1) : basket.delete(name); renderCart(); };
+      plus.onclick = () => { basket.set(name, qty + 1); renderCart(); };
+      lines.append(li);
+    }
+    if (!basket.size) lines.innerHTML = '<li class="empty">Nothing yet. Add a fruit.</li>';
+    if ($('promo').value.trim().toUpperCase() === 'FRUIT10') total *= 0.9;
+    $('count').textContent = `${count} item${count === 1 ? '' : 's'}`;
+    $('total').textContent = '£' + total.toFixed(2);
+  }
+  $('promo').oninput = renderCart;
+  $('checkout').onclick = (e) => { e.target.textContent = basket.size ? 'Thanks!' : 'Basket is empty'; setTimeout(() => (e.target.textContent = 'Check out'), 1200); };
+  basket.set('Kiwis', 2);
+  renderCart();
+
+  setInterval(() => {
+    const src = $('dockPortal').source;
+    if (!src) return;
+    const s = src.stats;
+    const where = src.active ? (src.active.id === 'dockPortal' ? 'the docked copy' : 'the inline copy') : 'home';
+    $('stats').textContent = `canvas ${s.canvas[0]}×${s.canvas[1]} (${s.mode}) · ${s.draws} draws per frame · ${s.frames} frames drawn · #cart elements in the document: ${document.querySelectorAll('#cart').length} · hit testing at: ${where}`;
+  }, 250);
+
+  // ---- Minimap ----
+  const doc = $('doc');
+  let html = '';
+  for (let i = 1; i <= 9; i++) {
+    html += `<h4>Section ${i}</h4><p>Paragraph text for section ${i}. The minimap on the right is this same element, drawn again at a size that fits.</p><label><input type="checkbox" ${i % 3 === 0 ? 'checked' : ''}> Mark section ${i} as read</label>`;
+  }
+  doc.innerHTML = html;
+  const scroller = $('scroller');
+  function syncViewport() {
+    const map = $('mapPortal').getBoundingClientRect();
+    const k = Math.min(map.width / doc.offsetWidth, map.height / doc.offsetHeight);
+    $('viewport').style.top = (map.height - doc.offsetHeight * k) / 2 + scroller.scrollTop * k + 'px';
+    $('viewport').style.height = scroller.clientHeight * k + 'px';
+    const w = doc.offsetWidth * k;
+    $('viewport').style.left = (map.width - w) / 2 + 'px';
+    $('viewport').style.right = (map.width - w) / 2 + 'px';
+  }
+  scroller.addEventListener('scroll', syncViewport, { passive: true });
+  new ResizeObserver(syncViewport).observe(doc);
+
+  // ---- Live checks ----
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const frames = (n = 3) => new Promise((r) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : r()); f(); });
+  const fixtures = $('fixtures');
+  let n = 0;
+  function fx(html) {
+    const row = document.createElement('div');
+    row.className = 'fx';
+    row.innerHTML = html.replaceAll('$', 't' + ++n);
+    fixtures.append(row);
+    return row;
+  }
+  async function ready(row) {
+    const portal = row.querySelector('dom-portal');
+    for (let i = 0; i < 60 && !(portal.source && portal.source.stats.frames > 0); i++) await sleep(25);
+    if (!portal.source) throw new Error('portal never resolved its source');
+    if (!portal.source.stats.frames) throw new Error('source never drew');
+    row.scrollIntoView({ block: 'center' });
+    await frames(4);
+    return portal;
+  }
+  const move = (x, y) => dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y }));
+  const pixelAt = (source, clientX, clientY) => {
+    const c = source.canvas, r = c.getBoundingClientRect(), k = c.width / r.width;
+    return Array.from(c.getContext('2d').getImageData(Math.round((clientX - r.left) * k), Math.round((clientY - r.top) * k), 1, 1).data);
+  };
+  const isYellow = (p) => p[0] > 240 && p[1] > 190 && p[1] < 220 && p[2] < 20 && p[3] > 250;
+  const rel = (el, row) => { const a = el.getBoundingClientRect(), b = row.getBoundingClientRect(); return { left: a.left - b.left, top: a.top - b.top, width: a.width, height: a.height }; };
+  const mid = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+
+  if (supported) {
+    runTests($('results'), [
+      {
+        name: 'The portal draws the element a second time',
+        why: 'A yellow chip at home; the portal 200px away shows the same pixels.',
+        run: async () => {
+          const row = fx('<div class="chip" id="$">chip <button>b</button></div><span style="width:120px"></span><dom-portal for="$"></dom-portal>');
+          const portal = await ready(row);
+          const [x, y] = [portal.getBoundingClientRect().left + 4, portal.getBoundingClientRect().top + 4];
+          const p = pixelAt(portal.source, x, y);
+          if (!isYellow(p)) throw new Error(`pixel inside the portal is ${p}`);
+          const s = portal.source.stats;
+          return `canvas ${s.canvas.join('×')} (${s.mode}), ${s.draws} draws; portal pixel ${p.slice(0, 3)}`;
+        },
+      },
+      {
+        name: 'Still one element: no clone in the DOM',
+        why: 'The id resolves to one node, and the portal has no children.',
+        run: async () => {
+          const row = fx('<div class="chip" id="$">chip</div><dom-portal for="$"></dom-portal>');
+          const portal = await ready(row);
+          const id = row.querySelector('.chip').id;
+          const count = document.querySelectorAll('#' + id).length;
+          if (count !== 1 || portal.childNodes.length) throw new Error(`${count} elements, portal has ${portal.childNodes.length} children`);
+          return `querySelectorAll('#${id}').length === 1`;
+        },
+      },
+      {
+        name: 'Hit testing follows the pointer: home, then the portal',
+        why: 'elementFromPoint at the button in each copy, with the pointer over that copy.',
+        run: async () => {
+          const row = fx('<div class="chip" id="$">chip <button>b</button></div><span style="width:80px"></span><dom-portal for="$"></dom-portal>');
+          const portal = await ready(row);
+          const b = row.querySelector('button');
+          move(0, 0); await frames();
+          const [hx, hy] = mid(b);
+          const atHome = document.elementFromPoint(hx, hy);
+          const home = portal.source.getBoundingClientRect(), pr = portal.getBoundingClientRect();
+          const px = hx - home.left + pr.left, py = hy - home.top + pr.top;
+          const cold = document.elementFromPoint(px, py);
+          move(px, py); await frames();
+          const atPortal = document.elementFromPoint(px, py);
+          move(0, 0); await frames();
+          if (atHome !== b) throw new Error(`at home found ${atHome?.localName}`);
+          if (atPortal !== b) throw new Error(`in the portal found ${atPortal?.localName}`);
+          return `home → button; portal with the pointer elsewhere → ${cold?.localName}; portal under the pointer → button`;
+        },
+      },
+      {
+        name: 'A real click in a half-size portal reaches the element',
+        why: 'scale="0.5": geometry is scaled too, so the small button is the real target.',
+        run: async () => {
+          const row = fx('<div class="chip" id="$" style="width:200px;padding:16px">chip <button style="font-size:20px">press</button></div><span style="width:40px"></span><dom-portal for="$" scale="0.5"></dom-portal>');
+          const portal = await ready(row);
+          const b = row.querySelector('button');
+          let clicked = 0;
+          b.onclick = () => clicked++;
+          move(0, 0); await frames();
+          const [hx, hy] = mid(b);
+          const home = portal.source.getBoundingClientRect(), pr = portal.getBoundingClientRect();
+          const px = (hx - home.left) * 0.5 + pr.left, py = (hy - home.top) * 0.5 + pr.top;
+          move(px, py); await frames();
+          const target = document.elementFromPoint(px, py);
+          target?.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: px, clientY: py }));
+          const size = `${pr.width.toFixed(0)}×${pr.height.toFixed(0)}`;
+          move(0, 0);
+          if (target !== b || !clicked) throw new Error(`target was ${target?.localName}`);
+          return `portal is ${size}; the element under the pointer there is the real button`;
+        },
+      },
+      {
+        name: 'A tap with no hover first (touch)',
+        why: 'pointerdown retargets the geometry synchronously, before the click is hit tested.',
+        run: async () => {
+          const row = fx('<div class="chip" id="$">chip <button>b</button></div><span style="width:80px"></span><dom-portal for="$"></dom-portal>');
+          const portal = await ready(row);
+          const b = row.querySelector('button');
+          move(0, 0); await frames();
+          const [hx, hy] = mid(b);
+          const home = portal.source.getBoundingClientRect(), pr = portal.getBoundingClientRect();
+          const px = hx - home.left + pr.left, py = hy - home.top + pr.top;
+          const downTarget = document.elementFromPoint(px, py);
+          dispatchEvent(new PointerEvent('pointerdown', { clientX: px, clientY: py, pointerType: 'touch' }));
+          const upTarget = document.elementFromPoint(px, py); // same task, no frame in between
+          move(0, 0);
+          if (upTarget !== b) throw new Error(`after pointerdown the point still hits ${upTarget?.localName}`);
+          return `pointerdown lands on ${downTarget?.localName ?? 'nothing'}, but by pointerup the point hits the button, so only the down event is missed`;
+        },
+      },
+      {
+        name: 'Typing at home repaints the portal',
+        why: 'A DOM change fires paint on the shared canvas; both copies redraw in that frame.',
+        run: async () => {
+          const row = fx('<div class="chip" id="$" style="width:180px"><input style="width:150px" value=""></div><span style="width:40px"></span><dom-portal for="$"></dom-portal>');
+          const portal = await ready(row);
+          const input = row.querySelector('input');
+          const before = portal.source.stats.frames;
+          input.value = 'hello';
+          await frames(4);
+          const after = portal.source.stats.frames;
+          if (after <= before) throw new Error('no redraw after the value changed');
+          return `${after - before} redraw(s) after input.value changed`;
+        },
+      },
+      {
+        name: 'Scrolling the page costs no redraws',
+        why: 'The canvas spans home and portal in page coordinates, so the compositor scrolls it.',
+        run: async () => {
+          const row = fx('<div class="chip" id="$">chip</div><dom-portal for="$"></dom-portal>');
+          const portal = await ready(row);
+          const before = portal.source.stats.frames;
+          scrollBy(0, -60); await frames(4); scrollBy(0, 60); await frames(4);
+          const after = portal.source.stats.frames;
+          if (portal.source.stats.mode !== 'union') throw new Error(`mode is ${portal.source.stats.mode}`);
+          if (after !== before) throw new Error(`${after - before} redraws during scroll`);
+          return 'two scrolls, zero redraws';
+        },
+      },
+      {
+        name: 'Adopting a flex item keeps its box',
+        why: 'for= on an arbitrary element wraps it. Its box before and after should match.',
+        run: async () => {
+          const row = fx('<div style="display:flex;gap:10px;align-items:center"><span>a</span><button id="$" style="padding:8px 14px">flex item</button><span>z</span></div><dom-portal data-for="$"></dom-portal>');
+          const b = row.querySelector('button');
+          const before = rel(b, row.firstElementChild);
+          { const p = row.querySelector('dom-portal'); p.setAttribute('for', p.dataset.for); }
+          await ready(row);
+          move(0, 0); await frames();
+          const after = rel(b, row.firstElementChild);
+          const d = Math.max(Math.abs(before.left - after.left), Math.abs(before.top - after.top), Math.abs(before.width - after.width), Math.abs(before.height - after.height));
+          if (d > 1) throw new Error(`box moved by ${d.toFixed(1)}px (${before.width.toFixed(0)}×${before.height.toFixed(0)} → ${after.width.toFixed(0)}×${after.height.toFixed(0)})`);
+          return `box unchanged (max difference ${d.toFixed(2)}px)`;
+        },
+      },
+      {
+        name: 'Adopting a block element keeps its box',
+        why: 'A full-width block with margins, wrapped in place.',
+        run: async () => {
+          const row = fx('<div style="width:300px"><p>before</p><section id="$" style="margin:10px 0;padding:8px;background:rgb(255,204,0);color:#000">block <a href="#x">link</a></section><p>after</p></div><dom-portal data-for="$" scale="0.6"></dom-portal>');
+          const el = row.querySelector('section'), last = row.querySelector('p:last-of-type');
+          const box = row.firstElementChild;
+          const before = [rel(el, box), rel(last, box)];
+          { const p = row.querySelector('dom-portal'); p.setAttribute('for', p.dataset.for); }
+          await ready(row);
+          move(0, 0); await frames();
+          const after = [rel(el, box), rel(last, box)];
+          const d = Math.max(Math.abs(before[0].top - after[0].top), Math.abs(before[0].width - after[0].width), Math.abs(before[0].height - after[0].height));
+          const shift = after[1].top - before[1].top;
+          if (d > 1) throw new Error(`box changed by ${d.toFixed(1)}px (${JSON.stringify(before[0])} → ${JSON.stringify(after[0])})`);
+          if (Math.abs(shift) > 1) throw new Error(`element kept its box, but the next paragraph moved ${shift.toFixed(1)}px: margins no longer collapse through the wrapper`);
+          return 'box unchanged, following content did not move';
+        },
+      },
+      {
+        name: 'Adopting a table row',
+        why: 'A wrapper between <tbody> and <tr> is not valid HTML, but script can put one there. Does the row keep its place?',
+        run: async () => {
+          const row = fx('<table style="border-collapse:collapse"><tbody><tr><td>r1</td><td>one</td></tr><tr id="$"><td style="background:rgb(255,204,0);color:#000">r2</td><td>two</td></tr></tbody></table><dom-portal data-for="$"></dom-portal>');
+          const tr = row.querySelector('tr[id]');
+          const before = rel(tr, row);
+          { const p = row.querySelector('dom-portal'); p.setAttribute('for', p.dataset.for); }
+          await ready(row);
+          move(0, 0); await frames();
+          const after = rel(tr, row);
+          const d = Math.max(Math.abs(before.left - after.left), Math.abs(before.top - after.top), Math.abs(before.width - after.width));
+          if (d > 1) throw new Error(`row box changed by ${d.toFixed(1)}px: the row left its table`);
+          return 'row kept its box';
+        },
+      },
+      {
+        name: 'Source inside overflow: hidden, default layer',
+        why: 'The shared canvas is a child of the source, so a clipping ancestor cuts off the portal.',
+        run: async () => {
+          const row = fx('<div style="overflow:hidden;width:140px;height:40px"><dom-portal-source><div class="chip" id="$">clipped</div></dom-portal-source></div><span style="width:40px"></span><dom-portal for="$"></dom-portal>');
+          const portal = await ready(row);
+          const r = portal.getBoundingClientRect();
+          const drawn = pixelAt(portal.source, r.left + 4, r.top + 4);
+          // The canvas has the pixels, but is the canvas itself visible there?
+          const visible = portal.source.canvas.checkVisibility?.() && document.elementsFromPoint(r.left + 4, r.top + 4).length > 0;
+          const clip = row.firstElementChild.getBoundingClientRect();
+          if (r.left > clip.right) throw new Error(`canvas has the pixels (${drawn.slice(0, 3)}), but the portal at x=${r.left.toFixed(0)} is outside the ancestor's clip (ends at ${clip.right.toFixed(0)}), so nothing shows`);
+          return String(visible);
+        },
+      },
+      {
+        name: 'Source inside overflow: hidden, layer="top"',
+        why: 'A popover canvas in the top layer is not clipped by any ancestor.',
+        run: async () => {
+          const row = fx('<div style="overflow:hidden;width:140px;height:40px"><dom-portal-source layer="top"><div class="chip" id="$">top <button>b</button></div></dom-portal-source></div><span style="width:40px"></span><dom-portal for="$"></dom-portal>');
+          const portal = await ready(row);
+          const b = row.querySelector('button');
+          move(0, 0); await frames();
+          const [hx, hy] = mid(b);
+          const home = portal.source.getBoundingClientRect(), pr = portal.getBoundingClientRect();
+          const px = hx - home.left + pr.left, py = hy - home.top + pr.top;
+          move(px, py); await frames();
+          const hit = document.elementFromPoint(px, py);
+          const p = pixelAt(portal.source, pr.left + 4, pr.top + 4);
+          const inTop = portal.source.canvas.matches(':popover-open');
+          move(0, 0);
+          if (!inTop) throw new Error('canvas is not in the top layer');
+          if (!isYellow(p)) throw new Error(`portal pixel ${p}`);
+          if (hit !== b) throw new Error(`hit ${hit?.localName}`);
+          return `canvas is :popover-open, ${portal.source.stats.canvas.join('×')}; portal drawn and clickable outside the clip`;
+        },
+      },
+      {
+        name: 'A portal of something that contains a portal source',
+        why: 'Nested canvases: does the outer copy include the inner source?',
+        run: async () => {
+          const row = fx('<div id="$" style="padding:6px;background:#eee;color:#000;width:200px"><div class="chip" id="$i">inner</div></div><dom-portal for="$i" hidden></dom-portal><span style="width:20px"></span><dom-portal for="$" id="$o"></dom-portal>'.replace('$i', 'inner' + n).replace('$i', 'inner' + n));
+          const inner = row.querySelector('dom-portal[hidden]');
+          inner.hidden = false;
+          const outer = row.querySelector('dom-portal:not([hidden]):last-of-type');
+          for (let i = 0; i < 60 && !(outer.source?.stats.frames && inner.source?.stats.frames); i++) await sleep(25);
+          row.scrollIntoView({ block: 'center' });
+          await frames(6);
+          const r = outer.getBoundingClientRect();
+          const p = pixelAt(outer.source, r.left + 12, r.top + 12);
+          if (!isYellow(p)) throw new Error(`outer copy shows ${p.slice(0, 4)} where the inner element should be`);
+          return 'the outer copy includes the inner source';
+        },
+      },
+    ]).then(() => scrollTo(0, 0));
+  }
+</script>
+</body>
+</html>
