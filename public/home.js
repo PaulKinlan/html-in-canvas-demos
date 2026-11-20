@@ -92,8 +92,9 @@ function enhance(nav) {
     layout();
     const r = canvas.getBoundingClientRect();
     dpr = box ? box.inlineSize / Math.max(1, entry.contentRect.width) : devicePixelRatio;
-    canvas.width = Math.round(r.width * dpr);
-    canvas.height = Math.round(r.height * dpr);
+    const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
     kick();
   }).observe(nav, { box: 'device-pixel-content-box' });
 

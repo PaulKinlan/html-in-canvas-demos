@@ -88,6 +88,55 @@ function fixturePictures(stage) {
   return pics;
 }
 
+// Pages whose checks still drive the visible demo: they scroll the page, move
+// focus or flicker while they run (measured by `npm run check:jank`). On these
+// pages the checks wait for a tap instead of starting on load, so opening the
+// page never moves it. To take a page off this list, make its checks run on
+// their own fixtures, then confirm with
+//   npm run check:jank -- --checks /your-page/
+// and delete its line. Keep one page per line so branches merge cleanly.
+// (/transitions/, /time-scrubber/ and /particles/ have their own rule: their
+// checks start when the reader scrolls to them, see shared/on-screen.js.)
+export const CHECKS_WAIT_FOR_TAP = [
+  '/cross-origin/',
+  '/remote/',
+  '/portal/',
+  '/lens/',
+  '/shader-css/',
+  '/slot-effects/',
+  '/physical/',
+];
+
+/** Should this page's checks start by themselves? ?autochecks=1 and ?autochecks=0 override the list. */
+export function checksAutoRun() {
+  const mode = new URLSearchParams(location.search).get('autochecks');
+  if (mode === '1') return true;
+  if (mode === '0') return false;
+  if (window.top !== window) return true; // framed by the audit: nobody is reading this page
+  return !CHECKS_WAIT_FOR_TAP.includes(location.pathname.replace(/index\.html$/, ''));
+}
+
+function waitForTap(tbody, rows) {
+  const table = tbody.closest('table') ?? tbody;
+  const gate = document.createElement('p');
+  gate.className = 'checks-gate';
+  gate.innerHTML = `<button type="button">Run these ${rows.length} checks</button> <span class="note">They drive the demo on this page, so it will scroll and flicker while they run.</span>`;
+  table.before(gate);
+  for (const tr of rows) { const s = tr.querySelector('.status'); s.className = 'status idle'; s.textContent = 'not run'; }
+  // A fixture panel the page already pinned to the window stays out of sight until the checks start.
+  const bench = document.getElementById('check-bench');
+  if (bench) bench.hidden = true;
+  window.__checkState = 'waiting';
+  return new Promise((resolve) => {
+    gate.querySelector('button').addEventListener('click', () => {
+      gate.remove();
+      if (bench) bench.hidden = false;
+      for (const tr of rows) { const s = tr.querySelector('.status'); s.className = 'status pending'; s.textContent = '… waiting'; }
+      resolve();
+    }, { once: true });
+  });
+}
+
 export async function runTests(tbody, tests, { when = null } = {}) {
   const apart = tests.map((t, i) => (t.apart ? i : -1)).filter((i) => i >= 0);
   if (isBench) return runBench(tests, apart);
@@ -99,6 +148,9 @@ export async function runTests(tbody, tests, { when = null } = {}) {
     tbody.append(tr);
     return tr;
   });
+  if (!checksAutoRun()) await waitForTap(tbody, rows);
+  window.__checkState = 'running';
+  const calm = keepCalm();
   const results = new Array(tests.length);
   const show = (i, ok, detail) => {
     const status = rows[i].querySelector('.status');
@@ -111,6 +163,7 @@ export async function runTests(tbody, tests, { when = null } = {}) {
   for (const [i, t] of tests.entries()) {
     if (t.apart) continue;
     rows[i].querySelector('.status').textContent = '… running';
+    await calm.wait();
     const r = await runOne(t);
     show(i, r.ok, r.detail);
     const stage = document.getElementById('test-stage');
@@ -122,8 +175,42 @@ export async function runTests(tbody, tests, { when = null } = {}) {
   }
   document.getElementById('test-stage')?.remove();
   await bench;
+  calm.restore();
+  window.__checkState = 'done';
   window.__results = results;
   return results;
+}
+
+// A safety net, not a licence: checks should run on their own fixtures and
+// never scroll or focus the page (npm run check:jank fails a page that does).
+// If one does anyway, and the person has not touched the page meanwhile, put
+// the scroll position and focus back where they were when the checks started.
+function keepCalm() {
+  const start = { x: scrollX, y: scrollY, active: document.activeElement };
+  let touched = false;
+  const types = ['pointerdown', 'touchstart', 'wheel', 'keydown'];
+  let last = -1e9;
+  const on = (e) => { if (e.isTrusted) { touched = true; last = performance.now(); } };
+  const moving = (e) => { if (touched) last = performance.now(); };
+  for (const t of types) addEventListener(t, on, { capture: true, passive: true });
+  for (const t of ['scroll', 'pointermove', 'touchmove']) addEventListener(t, moving, { capture: true, passive: true });
+  return {
+    // The person comes first: while they are scrolling, dragging or typing,
+    // the next check waits (up to 10 seconds) instead of fighting them for the
+    // main thread. With nobody touching the page it does not wait at all.
+    async wait() {
+      const t0 = performance.now();
+      while (performance.now() - last < 700 && performance.now() - t0 < 10000) await new Promise((r) => setTimeout(r, 250));
+    },
+    restore() {
+      for (const t of types) removeEventListener(t, on, { capture: true });
+      for (const t of ['scroll', 'pointermove', 'touchmove']) removeEventListener(t, moving, { capture: true });
+      if (touched) return;
+      if (scrollX !== start.x || scrollY !== start.y) scrollTo({ left: start.x, top: start.y, behavior: 'instant' });
+      const a = document.activeElement;
+      if (a && a !== start.active && a !== document.body) a.blur?.();
+    },
+  };
 }
 
 async function runOne(t) {
