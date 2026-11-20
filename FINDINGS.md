@@ -4,6 +4,37 @@ Verified in Chromium 153 and 157 (headless, API on by default in those builds) o
 
 The API surface used here is the current WICG explainer shape: `<canvas content="drawable">` (older builds: `layoutsubtree`), the `drawable` attribute on drawn elements, the `paint` event, `drawElementImage()`, `captureElementImage()` and `ElementImage`.
 
+## Summary
+
+The main results. Each is backed by the tables in the sections below.
+
+- The slot pattern is a real answer to "the DOM has to live inside the canvas": the markup stays in the light DOM and only the canvas moves into a shadow root.
+- Reprojection across documents is a pixel stream plus input forwarding, not a shared snapshot. Semantics (selection, accessibility tree, find-in-page) stay in the source document.
+- The primitives all rest on the same wrapper and the same two workarounds: stretch one canvas over everywhere the element must appear, and move the single hit-test geometry to wherever the pointer is. A way to draw one element into several canvases, and a per-region geometry, would remove both.
+- One element has one hit box. Effects that show an element in many pieces (shards, glyphs) can route one pointer correctly but not two, and a way to give `updateElementGeometry` several regions, or a hit-test callback, would close that gap.
+- Accessibility largely survives, with one sharp edge: whatever is in the canvas but not drawn is still focusable. An opt-in such as "undrawn means inert" would remove the main hazard.
+- Any element can be exported with one call today, and a whole ordinary page can be wrapped in a canvas for a single frame without the user seeing it.
+- A native "draw this element by reference" hook for canvas (an id reference rather than DOM containment) would remove the need for the shadow root. An ElementImage that could be drawn into a second canvas would make cross-document reprojection first class; today it is deliberately bound to one canvas.
+- For 3D, the texture half of the API is ready and the method names are the only obstacle in three.js today. The input half rests entirely on `updateElementGeometry()`: it accepts a perspective matrix, which covers every flat surface, and anything curved or occluded needs the app to re-place the element under the pointer.
+- In XR there is no pointer for the browser to hit test, so input is synthetic and loses everything a trusted event does for free. A way to hand the browser a ray hit (element plus point) and have it dispatch a trusted event would remove most of `RayPointer`.
+
+## Contents
+
+- [Slots](#slots)
+- [ElementImage and OffscreenCanvas](#elementimage-and-offscreencanvas)
+- [Tabs and origins](#tabs-and-origins)
+- [Transport lab (/transports/)](#transport-lab-transports)
+- [UI primitives (/portal/, /lens/, /shader-css/, /physical/)](#ui-primitives-portal-lens-shader-css-physical)
+- [Lens pipeline (/lens/, lib/lens-gl.js)](#lens-pipeline-lens-liblens-gljs)
+- [Transitions and motion (/transitions/, /time-scrubber/, /particles/)](#transitions-and-motion-transitions-time-scrubber-particles)
+- [Cross-context: tear-off, remote, embed, support](#cross-context-tear-off-remote-embed-support)
+- [Accessibility (/a11y/)](#accessibility-a11y)
+- [Capture (/capture/, public/lib/element-capture.js)](#capture-capture-publiclibelement-capturejs)
+- [Performance (/perf/)](#performance-perf)
+- [3D and spatial (/three-form/, /board/, /xr/)](#3d-and-spatial-three-form-board-xr)
+- [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
+- [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
+
 ## Slots
 
 | Experiment | Result | Why |
@@ -481,18 +512,6 @@ After: all 28 pages hold still on load (this includes the per-page fixes that la
 With their checks forced to run on load (`--checks`), the seven gated pages still fail: `/cross-origin/` scrolls 990 px, `/remote/` moves focus four times, `/portal/`, `/lens/`, `/shader-css/` and `/physical/` shift by 0.25 to 1.03 as the fixture panel `#check-bench` grows and shrinks, and `/slot-effects/` shifts by 1.40 and covers more than 40% of the screen with that panel.
 
 Not measured here, because it needs a real phone: the URL bar is simulated by changing the window height, which also changes `vh` (a phone does not), there is no real GPU so a lost-context white box cannot happen, and touch scrolling while checks run is not exercised.
-
-## What this means
-
-- The slot pattern is a real answer to "the DOM has to live inside the canvas": the markup stays in the light DOM and only the canvas moves into a shadow root.
-- Reprojection across documents is a pixel stream plus input forwarding, not a shared snapshot. Semantics (selection, accessibility tree, find-in-page) stay in the source document.
-- The primitives all rest on the same wrapper and the same two workarounds: stretch one canvas over everywhere the element must appear, and move the single hit-test geometry to wherever the pointer is. A way to draw one element into several canvases, and a per-region geometry, would remove both.
-- One element has one hit box. Effects that show an element in many pieces (shards, glyphs) can route one pointer correctly but not two, and a way to give `updateElementGeometry` several regions, or a hit-test callback, would close that gap.
-- Accessibility largely survives, with one sharp edge: whatever is in the canvas but not drawn is still focusable. An opt-in such as "undrawn means inert" would remove the main hazard.
-- Any element can be exported with one call today, and a whole ordinary page can be wrapped in a canvas for a single frame without the user seeing it.
-- A native "draw this element by reference" hook for canvas (an id reference rather than DOM containment) would remove the need for the shadow root. An ElementImage that could be drawn into a second canvas would make cross-document reprojection first class; today it is deliberately bound to one canvas.
-- For 3D, the texture half of the API is ready and the method names are the only obstacle in three.js today. The input half rests entirely on `updateElementGeometry()`: it accepts a perspective matrix, which covers every flat surface, and anything curved or occluded needs the app to re-place the element under the pointer.
-- In XR there is no pointer for the browser to hit test, so input is synthetic and loses everything a trusted event does for free. A way to hand the browser a ray hit (element plus point) and have it dispatch a trusted event would remove most of `RayPointer`.
 
 ## Remote across real networks: the custom domain, STUN and TURN
 
