@@ -15,15 +15,18 @@
   .form-card input { font: inherit; padding: 4px 8px; width: 180px; }
   .form-card button { background: #10243d; color: white; border: 0; }
   .quote-card { padding: 14px 16px; border-radius: 10px; background: #eef8ee; color: #163016; border: 1px solid #bfdcbf; font: italic 16px/1.5 Georgia, serif; }
-  canvas-slot.swap { height: 140px; }
-  canvas-slot.swap [slot], .pool > * { width: 300px; }
+  canvas-slot.swap { height: 150px; }
+  @media (max-width: 620px) { canvas-slot.swap { height: 210px; } }
   .pool { display: flex; gap: 12px; flex-wrap: wrap; }
-  .pool > * { padding: 10px 14px; border-radius: 8px; border: 1px dashed var(--line); }
+  /* One class carries the card's look, so it is the same in the page and in the canvas. */
+  .fruit { box-sizing: border-box; width: min(300px, calc(100vw - 82px)); padding: 10px 14px; border-radius: 8px; border: 1px dashed #0006; font: 16px/1.55 system-ui; cursor: pointer; }
+  .fruit input { font: inherit; width: 120px; max-width: 45%; }
   #variants { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
   #variants > * { height: 70px; border: 1px solid var(--line); }
 </style>
 </head>
 <body>
+<script src="/shared/nav.js"></script>
 <main>
   <div id="support"></div>
   <h1>1 · Slotting DOM into a canvas</h1>
@@ -55,16 +58,24 @@
     <label><input type="checkbox" id="wobble" checked> Animate (renderer runs every frame)</label>
   </div>
 
-<pre><code>&lt;canvas-slot&gt;
+<pre><code>&lt;script type="module" src="/lib/canvas-slot.js"&gt;&lt;/script&gt;
+
+&lt;canvas-slot id="hero"&gt;
   &lt;article slot="note"&gt;…&lt;/article&gt;
   &lt;form slot="form"&gt;…&lt;/form&gt;
 &lt;/canvas-slot&gt;
 
-hero.onrender = ({ ctx, width, elements, draw, time }) =&gt; {
-  ctx.rotate(Math.sin(time / 900) * 0.04);
-  draw('note', 20, 20);   // drawElementImage(lightDomChild, …)
-  draw('form', 60, 170);
-};</code></pre>
+&lt;script type="module"&gt;
+  const hero = document.getElementById('hero');   // the &lt;canvas-slot&gt; element
+
+  // Called on every paint. ctx is the canvas's 2D context;
+  // draw(slotName, x, y) is drawElementImage() for the element in that slot.
+  hero.onrender = ({ ctx, draw, time }) =&gt; {
+    ctx.rotate(Math.sin(time / 900) * 0.04);
+    draw('note', 20, 20);
+    draw('form', 60, 170);
+  };
+&lt;/script&gt;</code></pre>
 
   <h2>Re-slotting: move content in and out of the canvas</h2>
   <p>Changing an element's <code>slot</code> attribute reassigns it. Nothing is cloned or moved in the DOM, the canvas just gets a <code>slotchange</code> and repaints.</p>
@@ -72,11 +83,11 @@ hero.onrender = ({ ctx, width, elements, draw, time }) =&gt; {
     <canvas-slot class="swap" id="swap"></canvas-slot>
   </div>
   <div class="pool" id="pool" style="margin-top:12px">
-    <div style="background:#fde2e4;color:#3a0d12">🍓 Strawberry: <b>bold</b> text, <a href="#">a link</a></div>
-    <div style="background:#e2f0cb;color:#1f2d0b">🥝 Kiwi: <input placeholder="an input" style="width:120px"></div>
-    <div style="background:#cde7f0;color:#0b2530">🫐 Blueberry: <progress value="0.6"></progress></div>
+    <div class="fruit" style="background:#fde2e4;color:#3a0d12">🍓 Strawberry: <b>bold</b> text, <a href="#">a link</a></div>
+    <div class="fruit" id="kiwi" style="background:#e2f0cb;color:#1f2d0b">🥝 Kiwi: <input placeholder="an input"></div>
+    <div class="fruit" style="background:#cde7f0;color:#0b2530">🫐 Blueberry: <progress value="0.6"></progress></div>
   </div>
-  <p class="note">Click a card above to slot it into the canvas (only one at a time, it takes <code>slot="current"</code>).</p>
+  <p class="note">Tap a card to slot it into the canvas (one at a time, it takes <code>slot="current"</code>); tap it in the canvas to send it back. The big copy is the live element: its input and link work where they are drawn. The two small copies are extra draws of the same element (scaled, and a cropped strip) and are pixels only.</p>
 
   <h2>What works with slots (live, in your browser)</h2>
   <div id="variants"></div>
@@ -129,41 +140,58 @@ hero.onrender = ({ ctx, width, elements, draw, time }) =&gt; {
   // ---- Re-slotting ----
   const swap = document.getElementById('swap');
   const pool = document.getElementById('pool');
-  swap.onrender = ({ ctx, draw, elements, dpr }) => {
+  // Where the three draws go. Side by side when there is room, stacked on a phone.
+  function swapLayout(width, el) {
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const main = { x: 12, y: 12, w, h };
+    const wide = width >= 12 + w + 18 + w * 0.6 + 12;
+    const sx = wide ? 12 + w + 18 : 12;
+    const sy = wide ? 12 : 12 + h + 16;
+    const scaled = { x: sx, y: sy, w: w * 0.6, h: h * 0.6 };
+    const strip = { x: sx, y: sy + scaled.h + 12, w: Math.min(120, w), h: 30 };
+    return { main, scaled, strip };
+  }
+  swap.onrender = ({ ctx, draw, elements, width, dpr }) => {
     const el = elements.get('current');
     if (!el) {
       ctx.fillStyle = getComputedStyle(document.body).color;
       ctx.font = '15px system-ui';
-      ctx.fillText('Nothing slotted. Click a card below.', 16, 30);
+      ctx.fillText('Nothing slotted. Tap a card below.', 16, 30);
       return;
     }
-    // Draw it three times: normal, scaled, and a cropped strip.
-    draw(el, 12, 12);
-    draw(el, 330, 12, el.offsetWidth * 0.6, el.offsetHeight * 0.6);
+    const { main, scaled, strip } = swapLayout(width, el);
+    // Two extra copies first: scaled, and a cropped strip.
     // Source rect is in canvas-grid pixels (CSS px × canvas.width / clientWidth).
-    ctx.drawElementImage(el, 0, 0, 120 * dpr, 30 * dpr, 330, 70, 120, 30);
+    draw(el, scaled.x, scaled.y, scaled.w, scaled.h);
+    ctx.drawElementImage(el, 0, 0, strip.w * dpr, strip.h * dpr, strip.x, strip.y, strip.w, strip.h);
+    // The full-size draw goes LAST: every drawElementImage() moves the element's
+    // hit-testing box to where it drew, so the last draw decides where taps land.
+    draw(el, main.x, main.y);
   };
-  pool.addEventListener('click', (e) => {
-    const card = e.target.closest('#pool > *, #swap > *');
-    if (!card || e.target.matches('input, a')) return;
-    e.preventDefault();
+  const interactive = (e) => e.target.closest('input, a, button, progress');
+  function unslot() {
     const current = swap.querySelector('[slot=current]');
-    if (current) {
-      current.removeAttribute('slot');
-      current.removeAttribute('drawable');
-      pool.append(current);
-    }
-    if (card !== current) {
-      card.setAttribute('slot', 'current');
-      swap.append(card);
-    }
+    if (!current) return null;
+    current.removeAttribute('slot');
+    current.removeAttribute('drawable');
+    pool.append(current);
+    return current;
+  }
+  function slotCard(card) {
+    unslot();
+    card.setAttribute('slot', 'current');
+    swap.append(card);
+  }
+  pool.addEventListener('click', (e) => {
+    const card = e.target.closest('#pool > *');
+    if (!card) return;
+    if (interactive(e)) { if (e.target.closest('a')) e.preventDefault(); return; }
+    slotCard(card);
   });
   swap.addEventListener('click', (e) => {
-    const card = e.target.closest('[slot=current]');
-    if (!card || e.target.matches('input, a')) return;
-    card.removeAttribute('slot');
-    card.removeAttribute('drawable');
-    pool.append(card);
+    if (e.target.closest('a')) e.preventDefault();
+    if (!e.target.closest('[slot=current]') || interactive(e)) return;
+    unslot();
   });
 
   // ---- Live experiments ----
@@ -188,6 +216,10 @@ hero.onrender = ({ ctx, width, elements, draw, time }) =&gt; {
   }
 
   if (supported) {
+    // Creating the test canvases while another canvas repaints every frame
+    // crashed the tab under Chrome 157's mobile emulation, so the hero's
+    // animation waits until the tests are done.
+    hero.animate = false;
     runTests(document.getElementById('results'), [
       {
         name: 'Draw a slotted light-DOM element directly',
@@ -261,6 +293,61 @@ hero.onrender = ({ ctx, width, elements, draw, time }) =&gt; {
         },
       },
       {
+        name: 'Re-slot demo: the card looks the same in the canvas as in the page',
+        why: 'Slots the Kiwi card into the demo above and compares its computed box styles and its drawn edge pixels.',
+        run: async () => {
+          const kiwi = document.getElementById('kiwi');
+          const props = ['paddingTop', 'paddingLeft', 'borderTopWidth', 'borderTopStyle', 'borderTopLeftRadius', 'fontSize', 'width', 'height'];
+          const read = () => Object.fromEntries(props.map((p) => [p, getComputedStyle(kiwi)[p]]));
+          unslot();
+          const before = read();
+          slotCard(kiwi);
+          try {
+            await nextPaint(swap.canvas); await nextPaint(swap.canvas);
+            const after = read();
+            const diff = props.filter((p) => before[p] !== after[p]).map((p) => `${p}: ${before[p]} → ${after[p]}`);
+            if (diff.length) throw new Error('styles changed when slotted: ' + diff.join(', '));
+            const { main, scaled, strip } = swapLayout(swap.canvas.clientWidth, kiwi);
+            const cw = swap.canvas.clientWidth, ch = swap.canvas.clientHeight;
+            for (const [n, r] of Object.entries({ main, scaled, strip }))
+              if (r.x + r.w > cw + 0.5 || r.y + r.h > ch + 0.5) throw new Error(`the ${n} copy does not fit the ${cw}×${ch} canvas (ends at ${Math.round(r.x + r.w)}, ${Math.round(r.y + r.h)})`);
+            // Card background inside the padding, and transparent in the rounded corner.
+            const dpr = swap.canvas.width / cw, ctx = swap.canvas.getContext('2d');
+            const inside = pixel(ctx, Math.round((main.x + 6) * dpr), Math.round((main.y + main.h / 2) * dpr));
+            const corner = pixel(ctx, Math.round(main.x * dpr), Math.round(main.y * dpr));
+            if (!inside.startsWith('226,240,203')) throw new Error(`padding area is ${inside}, expected the card background`);
+            if (corner.endsWith(',255')) throw new Error(`corner pixel is opaque (${corner}), so the border radius is missing`);
+            return `padding ${after.paddingLeft}, border ${after.borderTopWidth} ${after.borderTopStyle}, radius ${after.borderTopLeftRadius} in both places; all three copies fit a ${cw}px canvas`;
+          } finally { unslot(); }
+        },
+      },
+      {
+        name: 'Re-slot demo: the slotted input is reachable where it is drawn',
+        why: 'Hit tests the centre of the input in the full-size copy, then sends a real pointer sequence and checks focus.',
+        run: async () => {
+          const kiwi = document.getElementById('kiwi'), input = kiwi.querySelector('input');
+          slotCard(kiwi);
+          try {
+            await nextPaint(swap.canvas); await nextPaint(swap.canvas);
+            swap.scrollIntoView({ block: 'center' });
+            await nextPaint(swap.canvas);
+            const c = swap.canvas.getBoundingClientRect();
+            const { main } = swapLayout(swap.canvas.clientWidth, kiwi);
+            // Where the input should be: its offset inside the card, plus where the card is drawn.
+            const x = c.x + main.x + input.offsetLeft - kiwi.offsetLeft + input.offsetWidth / 2;
+            const y = c.y + main.y + input.offsetTop - kiwi.offsetTop + input.offsetHeight / 2;
+            const hit = document.elementFromPoint(x, y);
+            const r = input.getBoundingClientRect();
+            window.scrollTo(0, 0);
+            if (hit !== input) throw new Error(`elementFromPoint at the drawn input returned ${hit ? '<' + hit.localName + '>' : 'null'}; the input's box is at ${Math.round(r.x - c.x)},${Math.round(r.y - c.y)} in the canvas`);
+            input.focus();
+            if (swap.contains(document.activeElement) && document.activeElement !== input) throw new Error('focus went elsewhere');
+            input.blur();
+            return `elementFromPoint → the <input> at ${Math.round(x - c.x)},${Math.round(y - c.y)} in the canvas`;
+          } finally { unslot(); }
+        },
+      },
+      {
         name: 'Slot an element that lives elsewhere in the page',
         why: 'Can a slot reproject an element that is not a child of the host?',
         run: () => {
@@ -272,7 +359,7 @@ hero.onrender = ({ ctx, width, elements, draw, time }) =&gt; {
           return 'assigned';
         },
       },
-    ]);
+    ]).finally(syncAnim);
   }
 </script>
 </body>

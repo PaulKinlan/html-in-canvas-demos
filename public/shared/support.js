@@ -74,25 +74,12 @@ export function pixel(ctx, x, y) {
   return Array.from(ctx.getImageData(x, y, 1, 1).data).join(',');
 }
 
-export function nav(current) {
-  const links = [
-    ['/', 'Home', 'home'],
-    ['/slot/', '1 · Slots'],
-    ['/slot-bare/', '1b · Bare slot'],
-    ['/offscreen/', '2 · OffscreenCanvas'],
-    ['/cross-tab/', '3 · Cross-tab'],
-    ['/cross-origin/', '4 · Cross-origin'],
-    ['/transports/', '5 · Transport lab'],
-  ];
-  const header = document.createElement('header');
-  header.className = 'site';
-  for (const [href, label, cls] of links) {
-    const a = document.createElement('a');
-    a.href = href;
-    a.textContent = cls === 'home' ? 'HTML-in-canvas experiments' : label;
-    if (cls) a.className = cls;
-    if (href === current) a.setAttribute('aria-current', 'page');
-    header.append(a);
-  }
-  document.querySelector('main').prepend(header);
+// The top menu is /shared/nav.js (list of demos: /shared/demos.js). Pages
+// should include it with a script tag; this keeps older pages that call nav()
+// working by loading it for them.
+export function nav() {
+  if (window.__siteNav || document.getElementById('site-nav')) return;
+  const s = document.createElement('script');
+  s.src = '/shared/nav.js';
+  document.head.append(s);
 }
