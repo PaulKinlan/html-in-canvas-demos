@@ -65,6 +65,25 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
 `src/index.js` routes `/api/*`; everything else is static. `src/cross-context.js` serves `/api/x/room/<id>` (WebSocket relay rooms in a Durable Object), `/api/x/ice` and `/api/x/vision` (Workers AI). Bindings are in `wrangler.jsonc`. Optional secrets `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` (a Cloudflare Realtime TURN key) add TURN servers for networks where WebRTC can't connect directly; without them the demos fall back to relayed frames.
 
+## Pages must hold still
+
+Opening a demo must not move it. `npm run check:jank` opens every page in `public/shared/demos.js` as a phone (412 px wide, device scale factor 2.625, touch, CPU slowed 4x), touches nothing, and fails if the page shifts its layout, scrolls itself, moves focus, covers itself, blanks a canvas or flashes, from navigation until its live checks finish and through a change of viewport height like the URL bar hiding. It needs Playwright with Chromium (`npm i -D playwright`).
+
+```
+npm run check:jank                      # every page
+npm run check:jank -- /board/ /slot/    # some pages
+npm run check:jank -- --checks /lens/   # make checks that wait for a tap run on load
+npm run check:jank -- --json out.json --shots frames/   # full numbers and every frame
+```
+
+For a new demo page:
+
+- Put `<script src="/shared/nav.js"></script>` first in `<body>`. It reserves the menu's space and holds the first paint until your module scripts have built the page.
+- Live checks run on their own fixtures, out of flow (fixed or absolute, or a hidden copy of the page with `lib/check-fixture.js`). They never call `scrollIntoView()`, `scrollTo()` or `focus()` on the page the reader is looking at, and never insert or remove anything in the flow above the results.
+- Do not size a canvas stage with `dvh`: it changes every time a phone's URL bar moves. Use `svh`.
+- Only assign `canvas.width` and `canvas.height` when the size really changed. Assigning clears the canvas.
+- A page whose checks cannot meet this yet goes in `CHECKS_WAIT_FOR_TAP` in `public/shared/support.js`; its checks then wait for a button. Known exceptions with their reasons are in `tools/jank/allow.json`.
+
 ## Develop and deploy
 
 Static files in `public/`, served by Workers static assets.

@@ -108,8 +108,9 @@ export class LiveSurface extends EventTarget {
             h = Math.round(entry.contentRect.height * scale);
           }
           this.#dpr = w / entry.contentRect.width;
-          this.canvas.width = w;
-          this.canvas.height = h;
+          // Assigning either side clears the canvas, even to the same value.
+          if (this.canvas.width !== w) this.canvas.width = w;
+          if (this.canvas.height !== h) this.canvas.height = h;
         }
       }
       this.requestPaint();

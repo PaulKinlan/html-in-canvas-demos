@@ -181,8 +181,9 @@ export class SlotMirror extends HTMLElement {
       this.#canvas.style.width = width + 'px';
       this.#canvas.style.height = height + 'px';
     }
-    this.#canvas.width = bitmap.width;
-    this.#canvas.height = bitmap.height;
+    if (this.#canvas.width !== bitmap.width) this.#canvas.width = bitmap.width;
+    if (this.#canvas.height !== bitmap.height) this.#canvas.height = bitmap.height;
+    this.#ctx.clearRect(0, 0, bitmap.width, bitmap.height);
     this.#ctx.drawImage(bitmap, 0, 0);
     bitmap.close();
     this.#canvas.hidden = false;

@@ -86,7 +86,11 @@ function makeTile(t) {
     const frame = document.createElement('iframe');
     frame.title = title;
     frame.loading = 'eager';
-    const src = t.src.startsWith('/board/?embed') ? `${t.src}&depth=${depth + 1}` : t.src;
+    let src = t.src.startsWith('/board/?embed') ? `${t.src}&depth=${depth + 1}` : t.src;
+    // A demo page shown as a tile does not run its own live checks: they are that page's
+    // business, they cost seconds of main thread here, and /slot/'s crashed the tab when run
+    // inside a canvas-drawn iframe (Chromium 157).
+    if (!src.startsWith('/board/')) src += (src.includes('?') ? '&' : '?') + 'autochecks=0';
     if (src.startsWith('/board/?embed') && depth >= 2) frame.srcdoc = '<body style="font:16px system-ui;display:grid;place-items:center;height:100vh;margin:0">Three boards deep is deep enough.</body>';
     else frame.src = src;
     frame.tabIndex = -1; // reached through the cover until the tile is active
@@ -528,8 +532,9 @@ if (!supported) {
     const box = entry.devicePixelContentBoxSize?.[0];
     const cw = entry.contentRect.width, ch = entry.contentRect.height;
     if (!cw || !ch) return;
-    canvas.width = box ? box.inlineSize : Math.round(cw * devicePixelRatio);
-    canvas.height = box ? box.blockSize : Math.round(ch * devicePixelRatio);
+    const pw = box ? box.inlineSize : Math.round(cw * devicePixelRatio), ph = box ? box.blockSize : Math.round(ch * devicePixelRatio);
+    if (canvas.width !== pw) canvas.width = pw; // assigning clears the canvas, even to the same value
+    if (canvas.height !== ph) canvas.height = ph;
     const first = !size.w;
     size = { w: cw, h: ch, dpr: canvas.width / cw };
     if (first) {
