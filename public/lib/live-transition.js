@@ -104,6 +104,28 @@ void main() {
   o = c * vFx.y;
 }`;
 
+// A shader effect is the body of a fragment shader that defines
+//   vec4 transition(vec2 uv)
+// using getFromColor(uv), getToColor(uv), progress (0..1) and ratio (width / height),
+// with uv running from 0,0 at the bottom left. That is the gl-transitions convention,
+// so shaders written for it drop in. Colours are premultiplied.
+const shaderFS = (body) => `#version 300 es
+precision highp float;
+in vec4 vUV;
+in vec4 vFx;
+uniform sampler2D uA;
+uniform sampler2D uB;
+uniform float progress;
+uniform float ratio;
+uniform vec2 uSize;
+uniform vec2 origin;   // where the transition was started from, same space as uv
+out vec4 o;
+vec4 getFromColor(vec2 uv) { return texture(uA, vec2(uv.x, 1.0 - uv.y)); }
+vec4 getToColor(vec2 uv) { return texture(uB, vec2(uv.x, 1.0 - uv.y)); }
+#define texture2D texture
+${body}
+void main() { o = transition(vec2(vUV.x, 1.0 - vUV.y)); }`;
+
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const smooth = (a, b, v) => { const t = clamp((v - a) / (b - a)); return t * t * (3 - 2 * t); };
@@ -274,6 +296,13 @@ export class LiveTransition extends HTMLElement {
   static supported = SUPPORTED;
   /** Mesh effects by name. Add your own: LiveTransition.effects.swirl = (p, env) => { … }. */
   static effects = { fade, shatter, fold, morph, burn: 'shader' };
+  /**
+   * Fragment shader effects by name: LiveTransition.shaders.wipe = { glsl, pick }.
+   * `glsl` defines vec4 transition(vec2 uv) (see shaderFS above). `pick(x, y, p, { W, H })` is optional and
+   * returns true where the new state should take the pointer; without it the states swap at 50%.
+   */
+  static shaders = {};
+  #custom = new Map();     // glsl source -> { prog, uni } or { error }
 
   #canvas; #gl; #prog; #uni = {}; #vbo;
   #layers = [];            // { el, wrap, tex, tw, th }
@@ -354,7 +383,8 @@ export class LiveTransition extends HTMLElement {
     if (this.#anim) this.#finish(true);
     if (to === this.#current) return;
     let effect = opts.effect ?? this.getAttribute('effect') ?? 'fade';
-    if (!(effect in LiveTransition.effects)) throw new RangeError(`Unknown effect "${effect}"`);
+    if (!(effect in LiveTransition.effects) && !(effect in LiveTransition.shaders)) throw new RangeError(`Unknown effect "${effect}"`);
+    if (SUPPORTED && effect in LiveTransition.shaders) this.#shader(LiveTransition.shaders[effect].glsl);   // throws the compile log if the shader is wrong
     const duration = Number(opts.duration ?? this.getAttribute('duration') ?? 900);
     if (!opts.force && matchMedia('(prefers-reduced-motion: reduce)').matches) effect = 'fade';
 
@@ -411,6 +441,12 @@ export class LiveTransition extends HTMLElement {
     if (a.effect === 'burn') {
       if (x < 0 || y < 0 || x > this.#W || y > this.#H) return null;
       return { state: this.#burnEdge(a, x, y) > 0 ? a.to : a.from, matrix: new DOMMatrix() };
+    }
+    const custom = LiveTransition.shaders[a.effect];
+    if (custom) {
+      if (x < 0 || y < 0 || x > this.#W || y > this.#H) return null;
+      const toNew = custom.pick ? !!custom.pick(x, y, a.p, { W: this.#W, H: this.#H, origin: a.origin }) : a.p >= 0.5;
+      return { state: toNew ? a.to : a.from, matrix: new DOMMatrix() };
     }
     for (let i = this.#tris.length - 1; i >= 0; i--) {
       const t = this.#tris[i];
@@ -492,6 +528,39 @@ export class LiveTransition extends HTMLElement {
     this.#W = W; this.#H = H; this.#dpr = dpr;
     void r;
     this.#requestFrame();
+  }
+
+  /** Compile (once) the program for a shader effect. */
+  #shader(glsl) {
+    let entry = this.#custom.get(glsl);
+    if (!entry) {
+      const gl = this.#gl;
+      entry = {};
+      try {
+        const sh = (type, src) => {
+          const s = gl.createShader(type);
+          gl.shaderSource(s, src);
+          gl.compileShader(s);
+          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { const log = gl.getShaderInfoLog(s); gl.deleteShader(s); throw new Error(log || 'shader did not compile'); }
+          return s;
+        };
+        const prog = gl.createProgram();
+        gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+        gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, shaderFS(glsl)));
+        gl.bindAttribLocation(prog, 0, 'aPos');
+        gl.bindAttribLocation(prog, 1, 'aUV');
+        gl.bindAttribLocation(prog, 2, 'aFx');
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog) || 'shader did not link');
+        entry.prog = prog;
+        entry.uni = Object.fromEntries(['uView', 'uOff', 'uA', 'uB', 'uSize', 'progress', 'ratio', 'origin'].map((n) => [n, gl.getUniformLocation(prog, n)]));
+      } catch (err) {
+        entry.error = err;
+      }
+      this.#custom.set(glsl, entry);
+    }
+    if (entry.error) throw entry.error;
+    return entry;
   }
 
   #initGL() {
@@ -685,6 +754,9 @@ export class LiveTransition extends HTMLElement {
     } else if (a.effect === 'burn') {
       mode = 1;
       quad(corners({ x: 0, y: 0, w: W, h: H }), { x: 0, y: 0, w: W, h: H }, { mix: 0 });
+    } else if (a.effect in LiveTransition.shaders) {
+      mode = 2;
+      quad(corners({ x: 0, y: 0, w: W, h: H }), { x: 0, y: 0, w: W, h: H }, { mix: 0 });
     } else {
       LiveTransition.effects[a.effect](a.p, { W, H, quad, tri, origin: a.origin, rand: a.rand, state: a.state, pairs: a.pairs });
     }
@@ -692,12 +764,22 @@ export class LiveTransition extends HTMLElement {
     gl.viewport(0, 0, this.#canvas.width, this.#canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.useProgram(this.#prog);
-    const u = this.#uni;
+    let u = this.#uni;
+    if (mode === 2) {
+      const entry = this.#shader(LiveTransition.shaders[a.effect].glsl);
+      gl.useProgram(entry.prog);
+      u = entry.uni;
+      gl.uniform1i(u.uA, 0); gl.uniform1i(u.uB, 1);
+      gl.uniform1f(u.progress, a.p);
+      gl.uniform1f(u.ratio, W / H);
+      gl.uniform2f(u.origin, a.origin.x / W, 1 - a.origin.y / H);
+    } else {
+      gl.useProgram(this.#prog);
+      gl.uniform1i(u.uMode, mode);
+    }
     gl.uniform2f(u.uView, W + 2 * this.#bleed, H + 2 * this.#bleed);
     gl.uniform2f(u.uOff, this.#bleed, this.#bleed);
     gl.uniform2f(u.uSize, W, H);
-    gl.uniform1i(u.uMode, mode);
     if (mode === 1) {
       gl.uniform1f(u.uFront, this.#burnFront(a));
       gl.uniform2f(u.uOrigin, a.origin.x, a.origin.y);
@@ -709,10 +791,12 @@ export class LiveTransition extends HTMLElement {
       return out;
     };
     const nPairs = a?.effect === 'morph' ? a.pairs.length : 0;
-    gl.uniform4fv(u.uHolesA, holes('a'));
-    gl.uniform4fv(u.uHolesB, holes('b'));
-    gl.uniform1i(u.uNA, nPairs);
-    gl.uniform1i(u.uNB, nPairs);
+    if (mode !== 2) {
+      gl.uniform4fv(u.uHolesA, holes('a'));
+      gl.uniform4fv(u.uHolesB, holes('b'));
+      gl.uniform1i(u.uNA, nPairs);
+      gl.uniform1i(u.uNB, nPairs);
+    }
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, from.tex);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, to.tex);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo);
@@ -776,5 +860,39 @@ function affine(s, d) {
   const [b, dd, f] = solve(d[1], d[3], d[5]);
   return new DOMMatrix([a, b, c, dd, e, f]);
 }
+
+// Three shader effects to start from.
+LiveTransition.shaders.ripple = {
+  glsl: `
+vec4 transition(vec2 uv) {
+  vec2 d = uv - origin; d.x *= ratio;
+  float dist = length(d), front = progress * 1.7;
+  float wave = sin((dist - front) * 42.0) * 0.03 * smoothstep(0.25, 0.0, abs(dist - front)) * (1.0 - progress);
+  vec2 off = normalize(d + 1e-5) * wave; off.x /= ratio;
+  float old = smoothstep(front - 0.04, front + 0.04, dist);
+  return mix(getToColor(uv + off), getFromColor(uv + off), old);
+}`,
+  pick: (x, y, p, { H, origin }) => Math.hypot(x - origin.x, y - origin.y) / H < p * 1.7,
+};
+LiveTransition.shaders.pixelate = {
+  glsl: `
+vec4 transition(vec2 uv) {
+  float k = 1.0 - abs(1.0 - 2.0 * progress);
+  float cells = mix(uSize.y, 10.0, pow(k, 0.4));
+  vec2 grid = vec2(cells * ratio, cells);
+  vec2 q = k < 0.01 ? uv : (floor(uv * grid) + 0.5) / grid;
+  return mix(getFromColor(q), getToColor(q), smoothstep(0.4, 0.6, progress));
+}`,
+};
+LiveTransition.shaders.swirl = {
+  glsl: `
+vec4 transition(vec2 uv) {
+  vec2 c = uv - 0.5; c.x *= ratio;
+  float a = sin(progress * 3.14159) * 7.0 * (1.0 - smoothstep(0.0, 0.9, length(c)));
+  vec2 q = vec2(c.x * cos(a) - c.y * sin(a), c.x * sin(a) + c.y * cos(a));
+  q.x /= ratio; q += 0.5;
+  return mix(getFromColor(q), getToColor(q), smoothstep(0.3, 0.7, progress));
+}`,
+};
 
 if (!customElements.get('live-transition')) customElements.define('live-transition', LiveTransition);

@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A real form in a three.js scene</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/three-form/ui.css">
+<script>
+  // Pick the three.js build before any module loads: ?renderer=webgpu swaps the whole renderer.
+  window.__gpu = new URLSearchParams(location.search).get('renderer') === 'webgpu';
+  const map = document.createElement('script');
+  map.type = 'importmap';
+  map.textContent = JSON.stringify({ imports: { three: window.__gpu ? '/vendor/three/three.webgpu.js' : '/vendor/three/three.module.js' } });
+  document.currentScript.after(map);
+</script>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A real form in a three.js scene</h1>
+  <p class="lede">
+    Three live HTML documents on three kinds of surface: a laptop screen, a far-away billboard and a curved wall. Type, tab, select text,
+    drag the slider, scroll the list. They are ordinary DOM elements inside the <code>&lt;canvas&gt;</code>, uploaded as textures on every
+    <code>paint</code>, and the browser's own hit testing follows them around the scene.
+  </p>
+
+  <div class="row toolbar">
+    <span class="seg" role="group" aria-label="Camera">
+      <button data-view="overview" aria-pressed="true">Overview</button>
+      <button data-view="laptop">Laptop</button>
+      <button data-view="billboard">Billboard</button>
+      <button data-view="wall">Curved wall</button>
+    </span>
+    <label class="ctl">Lid <input id="lid" type="range" min="20" max="135" value="108"></label>
+    <label class="ctl"><input id="drone" type="checkbox"> Fly a drone past the screen</label>
+    <label class="ctl"><input id="spin" type="checkbox"> Slow orbit</label>
+    <span class="seg" role="group" aria-label="Renderer">
+      <a id="r-webgl" href="?renderer=webgl">WebGL</a>
+      <a id="r-webgpu" href="?renderer=webgpu">WebGPU</a>
+    </span>
+  </div>
+
+  <div class="stage3d" id="stage">
+    <canvas id="scene" content="drawable" layoutsubtree aria-label="3D scene with a laptop, a billboard and a curved wall"></canvas>
+    <div id="hud" class="hud"></div>
+  </div>
+  <p class="note">Drag empty space to orbit, wheel or pinch to zoom. Everything on a screen is live: hover states, the caret and the clock repaint the texture.</p>
+
+  <!-- The three documents. They start as plain HTML so the page works without the API;
+       html3d.js moves them into the canvas when it can. -->
+  <section id="uis" class="uis" aria-label="The documents shown in the scene">
+    <form id="laptop-ui" class="ui laptop" autocomplete="off">
+      <header><span class="dots"><i></i><i></i><i></i></span><b>Postcard to the billboard</b><time id="clock"></time></header>
+      <div class="cols">
+        <div>
+          <label for="f-name">Your name</label>
+          <input id="f-name" name="name" type="text" value="Ada" maxlength="24">
+          <label for="f-msg">Message</label>
+          <textarea id="f-msg" name="msg" rows="3" maxlength="90">The DOM can go anywhere a pixel can.</textarea>
+        </div>
+        <div>
+          <label for="f-color">Ink</label>
+          <select id="f-color" name="color">
+            <option value="#ff7a4d">Ember</option>
+            <option value="#7ad7ff">Glacier</option>
+            <option value="#b6f36a">Lime</option>
+            <option value="#ffffff">Chalk</option>
+          </select>
+          <label for="f-size">Size <output id="f-size-out">64</output></label>
+          <input id="f-size" name="size" type="range" min="36" max="96" value="64">
+          <label class="check"><input id="f-glow" name="glow" type="checkbox" checked> Neon glow</label>
+          <button id="f-post" type="submit">Post it</button>
+        </div>
+      </div>
+      <footer>A plain <code>&lt;form&gt;</code>. Tab between fields, select text, press Enter to post.</footer>
+    </form>
+
+    <article id="billboard-ui" class="ui billboard">
+      <p class="kicker">Now showing · live DOM, 9 metres away</p>
+      <h2 id="b-msg">The DOM can go anywhere a pixel can.</h2>
+      <footer>
+        <span>from <b id="b-name">Ada</b></span>
+        <button id="b-like" type="button">♥ <span id="b-likes">0</span></button>
+      </footer>
+    </article>
+
+    <section id="wall-ui" class="ui wall">
+      <div class="pane">
+        <h3>Guest book</h3>
+        <input id="w-filter" type="search" placeholder="Filter posts" aria-label="Filter posts">
+        <div class="scroll" id="w-scroll" tabindex="0">
+          <table>
+            <thead><tr><th>#</th><th>From</th><th>Message</th><th>When</th></tr></thead>
+            <tbody id="w-rows"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="pane">
+        <h3>Notes <small>contenteditable</small></h3>
+        <div id="w-notes" class="notes" contenteditable="true" spellcheck="false">This wall is a 100° arc of a cylinder. No single matrix maps a rectangle onto it, so the element's geometry <b>follows your pointer</b> instead. Select this text, edit it, paste into it.</div>
+        <details id="w-details"><summary>How is this hit tested?</summary><p>On every pointer move the scene is raycast. The triangle and UV under the pointer give a small affine map that is exact at that spot, and <code>updateElementGeometry()</code> puts the element there.</p></details>
+      </div>
+      <div class="pane">
+        <h3>Controls</h3>
+        <label>Hue <input id="w-hue" type="range" min="0" max="360" value="18"></label>
+        <div class="swatch" id="w-swatch"></div>
+        <label class="check"><input id="w-anim" type="checkbox" checked> Animate</label>
+        <div class="bars" id="w-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <a id="w-link" href="/" target="_blank" rel="noopener">A real link: all experiments ↗</a>
+      </div>
+    </section>
+  </section>
+
+  <h2>What works here (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>How it is put together</h2>
+<pre><code>import * as THREE from 'three';
+import { HTMLSurfaces } from '/lib/html3d.js';
+
+const renderer = new THREE.WebGLRenderer({ canvas });   // &lt;canvas content="drawable"&gt;
+const surfaces = new HTMLSurfaces(renderer, camera, { scene });
+
+surfaces.add(form,  laptopScreen);                 // flat: one projective matrix
+surfaces.add(guest, curvedWall, { hit: 'mesh' });  // curved: geometry follows the pointer
+
+renderer.setAnimationLoop(() =&gt; { surfaces.update(); renderer.render(scene, camera); });</code></pre>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>The method names moved.</strong> three.js r187 ships <code>HTMLTexture</code>, but it calls <code>gl.texElementImage2D</code> and <code>queue.copyElementImageToTexture</code>. Chromium 157 has <code>texElementSubImage2D</code> and <code>drawElementImageToTexture</code>, so stock three draws nothing until a small shim is installed. <a href="/lib/html3d.js"><code>html3d.js</code></a> feature-detects both spellings.</li>
+    <li><strong>Hit testing needs <code>updateElementGeometry()</code>.</strong> three's <code>InteractionManager</code> positions elements with a CSS <code>matrix3d</code>. In this build a CSS transform on a WebGL-drawn element does not make it hit-testable; a perspective <code>DOMMatrix</code> passed to <code>updateElementGeometry()</code> does, and bounding rects, focus rings and the caret follow it.</li>
+    <li><strong>Curved surfaces work if the geometry follows the pointer.</strong> A rectangle cannot be mapped onto a cylinder with one matrix, but a mouse hit test only looks at one point. Raycast, take the triangle's UV Jacobian, and re-place the element on every pointer move.</li>
+    <li><strong>Occlusion is yours to handle.</strong> The DOM has no idea a drone is in front of the screen. The same raycast parks a hidden surface's geometry off-canvas so clicks cannot pass through scene objects.</li>
+    <li><strong>Touch is the weak spot for curved surfaces.</strong> A tap has no pointer move before it, so the hit test runs against the flat fallback placement. Flat surfaces are exact for touch.</li>
+    <li><strong>Mipmaps matter.</strong> Uploading into our own immutable sRGB texture and calling <code>generateMipmap()</code> keeps the billboard readable from across the scene. three's stock path uses a single level.</li>
+  </ul>
+</main>
+
+<script type="module" src="/three-form/main.js"></script>
+</body>
+</html>

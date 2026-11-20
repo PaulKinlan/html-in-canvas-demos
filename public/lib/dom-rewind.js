@@ -47,7 +47,7 @@ export class DomRewind extends HTMLElement {
   #dirty = true;
   #lastState = null;
   #replaying = null;
-  #ro; #mo; #seq = 0;
+  #ro; #mo; #seq = 0; #exporting = false;
 
   constructor() {
     super();
@@ -155,6 +155,31 @@ export class DomRewind extends HTMLElement {
     this.#dirty = true;
     this.dispatchEvent(new CustomEvent('rewindrestore'));
     return true;
+  }
+
+  /**
+   * The recorded history as pictures, oldest first, for recording or export:
+   *   for await (const { time, bitmap } of rw.frames({ seconds: 5, fps: 30 })) { … bitmap.close(); }
+   * `time` is seconds from the start of the clip. Each bitmap is the whole canvas at that moment
+   * (ImageBitmap, so it can go to a VideoFrame, a worker or another canvas). Live drawing pauses meanwhile.
+   */
+  async *frames({ seconds = this.duration, fps = 30 } = {}) {
+    if (!SUPPORTED || !this.#frames.length) return;
+    const span = Math.min(seconds, this.duration), end = this.#clock;
+    this.#exporting = true;
+    try {
+      for (let t = 0; t <= span + 1e-6; t += 1 / fps) {
+        const frame = this.#frameAt(end - span + t);
+        const ctx = this.#ctx;
+        ctx.reset();
+        ctx.scale(this.#dpr, this.#dpr);
+        if (frame) for (const f of frame.items) this.#drawItem(ctx, f.img, f.w, f.h, f.x, f.y, f.rotate);
+        yield { time: t, bitmap: await createImageBitmap(this.#canvas) };
+      }
+    } finally {
+      this.#exporting = false;
+      this.#dirty = true;
+    }
   }
 
   /** Forget the history. */
@@ -265,6 +290,7 @@ export class DomRewind extends HTMLElement {
   }
 
   #paint(event) {
+    if (this.#exporting) return;
     const now = performance.now();
     const dt = Math.min(0.1, (now - (this.#last || now)) / 1000);
     this.#last = now;

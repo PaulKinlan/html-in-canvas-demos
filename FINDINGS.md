@@ -98,6 +98,24 @@ Things that bit:
 - Anything outside the drawable element's box (a pseudo-element poking out, a shadow) is not in its image.
 - One canvas means one place in z-order. A portal inside a later stacking context is covered unless the canvas is raised (`--dom-portal-z`) or moved to the top layer.
 
+### Named effects and shader slots (`/slot-effects/`)
+
+`<canvas-slot effect="tilt">` extends the existing element: without the attribute nothing changes. 15 live checks.
+
+| Experiment | Result | Why |
+|---|---|---|
+| Several slots as textures in one WebGL canvas, each through its own shader | Works | `texElementSubImage2D` per slot, one blended full-canvas quad each. |
+| Hit testing in shader mode | Works | Nothing moves the element for you (there is no `drawElementImage`), so the renderer calls `updateElementGeometry()` per slot. |
+| `canvasTransform` with perspective (a 3D `DOMMatrix`) | Works | A tilted card's box narrows from 140px to 79px and `elementFromPoint` finds its button where the shader drew it. The shader samples through the inverse homography of the same matrix. |
+| CSS transitions and keyframes driving uniforms | Works | Registered `--fx-*` properties are sampled each frame while on screen; a paint is requested only when one changed. |
+| Switching between 2D, WebGL and WebGPU on a live element | Works, by swapping canvases | A canvas keeps its first context type. Moving the `<slot>`s to a new canvas keeps content, focus and typed values. |
+| More shaded elements than WebGL contexts | Works | After six, elements keep a 2D canvas and borrow one shared context (draw slot, upload canvas, shade, copy back). Twenty on one page all draw. |
+| WebGPU backend with WGSL effects | Works off-screen | `drawElementImageToTexture` into a texture per slot, read back correctly. |
+| WebGPU presenting to the canvas | Fails in headless software Chrome | The device is lost on present. The element falls back to WebGL. Not yet tried on a real GPU. |
+
+- Losing the WebGPU device took every WebGL context **and every large 2D canvas context** on the page with it. Restored contexts came back, but slots drawn into them stayed blank, so the element replaces its canvas instead of waiting for `contextrestored`.
+- `fx` and `<canvas-slot effect>` are one system: `effects.js` holds the registry, the GLSL/WGSL contract and the CSS properties. `fx` wraps one element where it sits; `<canvas-slot>` composes several slots on one canvas.
+
 ## Transitions and motion (`/transitions/`, `/time-scrubber/`, `/particles/`)
 
 | Experiment | Result | Why |
@@ -106,6 +124,9 @@ Things that bit:
 | Press a button on a flying shard | works | WebGL draws don't move hit boxes, so the triangle under the pointer is found on the CPU and its affine matrix is given to `updateElementGeometry`. |
 | Per-pixel routing through a burn mask | works | The shader's noise is mirrored on the CPU; `pointer-events` flips between the two states under the pointer. |
 | Shared-element morph from sub-rectangles of the two state textures | works | No extra snapshots. The hole an element leaves is filled by smearing the pixels just outside it. |
+| A transition written as one fragment shader (gl-transitions convention) over the two live states | works | The two textures are the two DOM states, refreshed only when they repaint. Shaders from gl-transitions.com paste in unchanged. A bad shader is refused with the compiler's log before the transition starts. |
+| Hit testing inside an arbitrary shader | partly | The browser cannot know which state a pixel came from. A shader can ship a small `pick(x, y, p)` mirror (ripple does); without one the pointer goes to the old state before half way and the new one after. Shaders that move pixels (swirl) leave hit boxes at their flat positions. |
+| Read the time scrubber's history back out as pictures (`frames()`) | works | Each past frame is redrawn from its ElementImages and copied with `createImageBitmap`; 13 frames of a 320 px rig at 2× came back in order, and live drawing resumed after. Not yet fed to a real encoder. |
 | Upload a state that has never been painted (`visibility: hidden`) | fails | "No cached paint record for element." The first frame has to wait for a paint. |
 | A modal `<dialog>` or popover inside a state travels with it | fails | The top layer is not part of the canvas child's picture. |
 | Hold 600 ElementImages and draw the oldest | works | About 0.014 ms per capture here, against 0.26 ms and 33 MB for the same frames as ImageBitmaps. |
@@ -255,6 +276,36 @@ The page ramps 10 to 1,600 moving elements per renderer and reports where the fr
 - A worker holding `ElementImage` snapshots costs the main thread nothing per frame when content is static. With the main thread blocked 40 ms per frame, a main-thread canvas drops to 23 fps and the worker stays at 60 fps (content updates at the main thread's rate, motion stays smooth).
 - The worker has no advantage when every element changes every frame: each one needs a fresh snapshot captured on the main thread.
 
+## 3D and spatial (`/three-form/`, `/board/`, `/xr/`)
+
+Measured in headless Chromium 157 with software rendering, three.js r187 (vendored in `public/vendor/three/`). The shared helper is `public/lib/html3d.js`.
+
+| Experiment | Result | Detail |
+| --- | --- | --- |
+| three.js `HTMLTexture` as shipped in r187 | fails | three calls `gl.texElementImage2D` and `queue.copyElementImageToTexture`. Chromium 157 has `texElementSubImage2D` and `drawElementImageToTexture`, so nothing is drawn. |
+| The same `HTMLTexture` with a 20-line shim for the new names | works | `installThreeShims()` in `html3d.js`. three asks for RGBA8, which washes out sRGB colours; the shim stores SRGB8_ALPHA8. |
+| `texElementSubImage2D` into immutable sRGB storage, `UNPACK_FLIP_Y_WEBGL`, `generateMipmap` | works | Mipmaps keep a far-away billboard readable. The element image is CSS size × (canvas backing px ÷ canvas CSS px), and a fractional size is rounded up. |
+| Hit testing a WebGL-drawn element via a CSS `matrix3d` (three's `InteractionManager` route) | fails | The element is not hit-testable where it is drawn. |
+| Hit testing via `updateElementGeometry()` with a perspective `DOMMatrix` | works | Clicks, focus rings, caret, selection and bounding rects follow a quad at any angle. |
+| Curved surface (100° cylinder arc), mouse | works | No single matrix fits, so the geometry is re-placed on every pointer move from the raycast triangle's UV Jacobian. Selection, slider drags and wheel scrolling work. |
+| Curved surface, touch | partly | Geometry is placed on `pointerdown`. A first tap can land about 10px off (touch adjustment); the next is right. |
+| Scene objects occluding a surface | app's job | The DOM does not know about the drone in front of the screen. Raycast, and park the element off-canvas. `clearElementGeometry()` did not remove the old hit region. |
+| Moving the geometry of a focused text field | scrolls the page | Scroll anchoring follows the field. `overflow-anchor: none` on the canvas stops it. |
+| Element of a WebGL canvas copied into a `GPUTexture` on a separate device | works | Checked by reading the texture back. Top-left origin, unscaled. |
+| three `WebGPURenderer` drawing those textures | not verified | Any WebGPU render pass loses the device in this software GPU. Needs real hardware: `/three-form/?renderer=webgpu`. |
+| `drawElementImage` under a zoom transform, 40% to 800% | works | Text is re-rasterised (no in-between pixels at 800%) and hit testing follows the transform. |
+| Same-origin iframes as canvas children | works | They paint, take clicks, typing and wheel at any zoom, and a change inside one fires the board's `paint` naming that tile. Other HTML-in-canvas pages, a WebGL scene and the board itself nest. |
+| Pointer and wheel events over an iframe tile | swallowed | They never reach the parent, so pan and zoom need a cover element until the tile is activated. |
+| A tile that is no longer drawn | still clickable | It keeps the hit region of its last draw until it is parked with `updateElementGeometry()`. |
+| Overlapping tiles | last drawn wins | `z-index` on the elements changes nothing. Bring-to-front is draw order, so iframes never move in the DOM (and never reload). |
+| `elementFromPoint` on canvas children | viewport only | Like any element. Live checks have to scroll the canvas into view first. |
+| WebXR session with HTML panels (emulated Quest 3, IWER) | works | Paint events keep arriving, a DOM change re-uploads in session, and `elementFromPoint` still answers for a flat layout of the elements. |
+| Controller ray to DOM input | works, by hand | Raycast, UV to element pixels, `elementFromPoint`, synthetic pointer and mouse events. Untrusted events do not focus, place a caret, drag a range or open a `<select>`, so `RayPointer` in `html3d.js` does each of those itself. |
+| On-panel keyboard | works | Keys cancel `mousedown` so focus stays put; `setRangeText()` plus an `input` event types at the caret; Enter calls `requestSubmit()`. |
+| The form as an `XRQuadLayer` (sharp text, composited by the headset) | not verified | Written, opt-in, and reports its result on the page. The emulator has no `createQuadLayer`. |
+
+Not tested here: a real headset or Android AR session. Whether `paint` keeps firing while the page is hidden behind an immersive session is the open question; `/xr/` counts paint events in session, shows the result on a panel inside the headset, and falls back to uploading from the last paint record if they stop.
+
 ## What this means
 
 - The slot pattern is a real answer to "the DOM has to live inside the canvas": the markup stays in the light DOM and only the canvas moves into a shadow root.
@@ -264,3 +315,5 @@ The page ramps 10 to 1,600 moving elements per renderer and reports where the fr
 - Accessibility largely survives, with one sharp edge: whatever is in the canvas but not drawn is still focusable. An opt-in such as "undrawn means inert" would remove the main hazard.
 - Any element can be exported with one call today, and a whole ordinary page can be wrapped in a canvas for a single frame without the user seeing it.
 - A native "draw this element by reference" hook for canvas (an id reference rather than DOM containment) would remove the need for the shadow root. An ElementImage that could be drawn into a second canvas would make cross-document reprojection first class; today it is deliberately bound to one canvas.
+- For 3D, the texture half of the API is ready and the method names are the only obstacle in three.js today. The input half rests entirely on `updateElementGeometry()`: it accepts a perspective matrix, which covers every flat surface, and anything curved or occluded needs the app to re-place the element under the pointer.
+- In XR there is no pointer for the browser to hit test, so input is synthetic and loses everything a trusted event does for free. A way to hand the browser a ray hit (element plus point) and have it dispatch a trusted event would remove most of `RayPointer`.

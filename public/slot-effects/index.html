@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Named effects and shader slots</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  canvas-slot { touch-action: pan-y; }
+  canvas-slot [slot] { box-sizing: border-box; width: min(320px, calc(100vw - 64px)); }
+  .hero { height: 470px; }
+  .card { font: 15px/1.5 system-ui; padding: 14px 16px; border-radius: 12px; }
+  .card h3 { margin: 0 0 4px; font-size: 18px; }
+  .card p { margin: 0 0 8px; }
+  .note { background: #fff7e6; color: #2a2116; border: 1px solid #e8d7b5; }
+  .form { background: linear-gradient(160deg, #1d6fa5, #0f3d5c); color: #eaf6ff; }
+  .form label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .form input { font: inherit; padding: 4px 8px; width: 60%; border-radius: 6px; border: 0; }
+  .form button { background: #eaf6ff; color: #0f3d5c; border: 0; font-weight: 600; }
+  .quote { background: #eef8ee; color: #163016; border: 1px solid #bfdcbf; font: italic 16px/1.5 Georgia, serif; }
+
+  .picker { height: 230px; }
+  .ticket { background: #fff7e6; color: #2a2116; border: 1px dashed #c9a868; }
+  .seg { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  .seg button[aria-pressed=true] { background: var(--fg); color: var(--bg); }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 14px; }
+  .controls input[type=range] { width: 180px; vertical-align: middle; }
+
+  /* CSS drives the shader: a transition on a registered custom property. */
+  .hover-burn { height: 150px; }
+  .hover-burn [slot] { transition: --fx-progress 800ms ease-in-out; }
+  .hover-burn:hover [slot], .hover-burn.on [slot] { --fx-progress: 1; }
+  /* …and a keyframe animation leans a card with no pointer at all. */
+  .sway { height: 170px; }
+  .sway [slot] { animation: sway 4s ease-in-out infinite alternate; }
+  @keyframes sway { from { --fx-x: -0.9; --fx-y: -0.3; } to { --fx-x: 0.9; --fx-y: 0.3; } }
+  @media (prefers-reduced-motion: reduce) { .sway [slot] { animation: none; --fx-x: 0.5; } }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 720px) { .two { grid-template-columns: 1fr; } }
+  .stage { overflow: hidden; }
+  #glsl { width: 100%; height: 190px; font: 12.5px/1.5 var(--mono); padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); resize: vertical; tab-size: 2; box-sizing: border-box; }
+  #glslError, .status { font: 12px var(--mono); color: var(--muted); white-space: pre-wrap; min-height: 1.5em; }
+  #glslError { color: var(--bad); }
+  .small { height: 150px; }
+  #fixtures { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  #fixtures canvas-slot { width: 200px; height: 150px; outline: 1px solid var(--line); }
+  .chip { background: rgb(255, 204, 0); color: #000; padding: 10px; width: 140px !important; height: 60px; box-sizing: border-box; font: 13px system-ui; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Named effects and shader slots</h1>
+  <p class="lede">
+    <code>&lt;canvas-slot effect="tilt"&gt;</code> and you are done: no render loop, no canvas code. Each slot becomes a GPU
+    texture and is drawn through the fragment shader the effect names, while the content stays real DOM. Move the pointer over
+    the cards, click the blue one, type in the field.
+  </p>
+
+  <div class="stage">
+    <canvas-slot class="hero" id="hero" effect="tilt">
+      <article slot="note" class="card note">
+        <h3>No JavaScript here</h3>
+        <p>This card leans toward your pointer because its parent says <code>effect="tilt"</code>. Clicks land where the tilted card is drawn.</p>
+        <button type="button" id="count">Pressed 0×</button>
+      </article>
+      <form slot="form" class="card form" effect="ripple" onsubmit="event.preventDefault()">
+        <label for="name">A slot can pick its own effect</label>
+        <p>This one says <code>effect="ripple"</code>. Click or tap it.</p>
+        <input id="name" placeholder="Still a text field">
+        <button type="button">OK</button>
+      </form>
+      <blockquote slot="quote" class="card quote">
+        “Select this sentence. It is text in the page, drawn through a shader.”
+      </blockquote>
+    </canvas-slot>
+  </div>
+
+<pre><code>&lt;script type="module" src="/lib/canvas-slot.js"&gt;&lt;/script&gt;
+
+&lt;canvas-slot effect="tilt"&gt;
+  &lt;article slot="note"&gt;…&lt;/article&gt;
+  &lt;form slot="form" effect="ripple"&gt;…&lt;/form&gt;
+  &lt;blockquote slot="quote"&gt;…&lt;/blockquote&gt;
+&lt;/canvas-slot&gt;</code></pre>
+
+  <h2>Pick an effect, drive it from CSS</h2>
+  <p>The attribute can change at any time. <code>--fx-progress</code>, <code>--fx-amount</code>, <code>--fx-x</code> and <code>--fx-y</code> are registered custom properties, so sliders, transitions, keyframes and <code>:hover</code> all drive the shader.</p>
+  <div class="seg" id="seg" role="group" aria-label="Effect"></div>
+  <div class="stage">
+    <canvas-slot class="picker" id="picker" effect="page-curl">
+      <div slot="ticket" class="card ticket" style="--fx-progress: 0.3">
+        <h3>Admit one</h3>
+        <p>Change the effect above, then drag the sliders. The value goes straight into a CSS variable on this element.</p>
+        <label><input type="checkbox" checked> A real checkbox</label>
+      </div>
+    </canvas-slot>
+  </div>
+  <div class="controls">
+    <label>--fx-progress <input type="range" id="progress" min="0" max="1" step="0.005" value="0.3"></label>
+    <label>--fx-amount <input type="range" id="amount" min="0" max="3" step="0.05" value="1"></label>
+    <span class="status" id="pickerStatus"></span>
+  </div>
+
+  <div class="two" style="margin-top:16px">
+    <div>
+      <div class="stage">
+        <canvas-slot class="hover-burn" id="hoverBurn" effect="dissolve">
+          <div slot="a" class="card note"><h3>Hover to burn</h3><p>A CSS transition on <code>--fx-progress</code>. On a phone, use the button.</p></div>
+        </canvas-slot>
+      </div>
+      <button type="button" id="burnBtn">Burn and restore</button>
+<pre><code>[slot] { transition: --fx-progress 800ms; }
+canvas-slot:hover [slot] { --fx-progress: 1; }</code></pre>
+    </div>
+    <div>
+      <div class="stage">
+        <canvas-slot class="sway" effect="tilt">
+          <div slot="a" class="card quote"><b>Keyframes tilt this card.</b> <a href="#how">The link</a> is clickable wherever it swings to.</div>
+        </canvas-slot>
+      </div>
+<pre><code>@keyframes sway {
+  from { --fx-x: -0.9 } to { --fx-x: 0.9 }
+}</code></pre>
+    </div>
+  </div>
+
+  <h2>Shader slots: point the attribute at a fragment shader</h2>
+  <p>
+    <code>effect</code> also takes <code>#id</code> of a <code>&lt;script&gt;</code> or <code>url(file.frag)</code>. The shader is one function:
+    <code>p</code> is in CSS pixels from the slot's top-left and <code>tex(p)</code> samples the slot. CSS filters you can write yourself.
+    Edit the one on the left.
+  </p>
+  <div class="two">
+    <div>
+      <textarea id="glsl" spellcheck="false" aria-label="GLSL for the #wobble shader"></textarea>
+      <div id="glslError"></div>
+    </div>
+    <div>
+      <div class="stage">
+        <canvas-slot class="small" id="wobbleSlot" effect="#wobble">
+          <div slot="a" class="card form"><h3>effect="#wobble"</h3><p>Real text and a real <a href="#how" style="color:inherit">link</a>.</p><input placeholder="Type here" aria-label="Type here"></div>
+        </canvas-slot>
+      </div>
+      <div class="stage" style="margin-top:12px">
+        <canvas-slot class="small" effect="url(scanlines.frag)">
+          <div slot="a" class="card note"><h3>effect="url(scanlines.frag)"</h3><p>This shader is a file next to the page.</p></div>
+        </canvas-slot>
+      </div>
+    </div>
+  </div>
+<script type="x-shader/x-fragment" id="wobble">vec4 fx(vec2 p) {
+  // slide each row sideways on a sine wave
+  float wave = sin(p.y * 0.08 + u_time * 3.0) * 6.0 * u_amount;
+  vec4 col = tex(p + vec2(wave, 0.0));
+  // warm glow under the pointer
+  float glow = exp(-distance(p, u_pointer) / 60.0) * u_hover;
+  col.rgb += col.a * glow * vec3(0.3, 0.1, 0.0);
+  return col;
+}</script>
+<pre><code>&lt;script type="x-shader/x-fragment" id="wobble"&gt;
+  vec4 fx(vec2 p) { return tex(p + vec2(sin(p.y * 0.08 + u_time * 3.0) * 6.0, 0.0)); }
+&lt;/script&gt;
+
+&lt;canvas-slot effect="#wobble"&gt;…&lt;/canvas-slot&gt;
+&lt;canvas-slot effect="url(scanlines.frag)"&gt;…&lt;/canvas-slot&gt;</code></pre>
+
+  <h2>One registry, two ways in</h2>
+  <p>
+    <code>&lt;canvas-slot effect&gt;</code> and the <a href="/shader-css/"><code>fx</code> attribute</a> share one list of effects, one shader contract
+    and the same CSS properties. Use <code>fx</code> to shade one element where it already sits in your layout; use
+    <code>&lt;canvas-slot&gt;</code> when several pieces share a canvas and you want to place them. An effect defined once works in both.
+  </p>
+  <div class="two">
+    <div>
+      <div class="stage"><canvas-slot class="small" effect="shared-tint"><div slot="a" class="card note"><h3>&lt;canvas-slot effect="shared-tint"&gt;</h3><p>Defined once with <code>defineEffect()</code>.</p></div></canvas-slot></div>
+    </div>
+    <div>
+      <div class="stage" style="padding:16px"><div class="card note" fx="shared-tint" style="width:min(320px, 100%); box-sizing:border-box"><h3>&lt;div fx="shared-tint"&gt;</h3><p>The same effect on a plain element.</p></div></div>
+    </div>
+  </div>
+<pre><code>import { defineEffect } from '/lib/effects.js';
+defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
+
+  <h2>WebGPU backend</h2>
+  <p>
+    <code>backend="webgpu"</code> draws each slot with <code>queue.drawElementImageToTexture()</code> and a WGSL version of the effect
+    (<code>fn fx(p: vec2f) -&gt; vec4f</code>). Built-in WGSL: tilt, ripple, dissolve. If WebGPU cannot start or the device is lost, the element
+    falls back to WebGL by itself.
+  </p>
+  <div class="stage">
+    <canvas-slot class="small" id="gpuSlot" effect="ripple" backend="webgpu">
+      <div slot="a" class="card form"><h3>backend="webgpu"</h3><p>Click for ripples.</p><button type="button">A button</button></div>
+    </canvas-slot>
+  </div>
+  <div class="status" id="gpuStatus"></div>
+
+  <h2 id="how">How it works</h2>
+  <ul class="findings">
+    <li><strong>Same element, same markup.</strong> <code>&lt;canvas-slot&gt;</code> without <code>effect</code> behaves exactly as before (2D context, <code>onrender</code>). With it, the canvas gets a WebGL2 context instead and the shader code is loaded on demand.</li>
+    <li><strong>Each slot is a texture.</strong> <code>texElementSubImage2D()</code> uploads a slot only when the browser says it repainted. One full-canvas quad per slot runs the effect's fragment shader and is blended over the last.</li>
+    <li><strong>No render loop to write.</strong> Slots stack as they do without an effect; set <code>onrender</code> only if you want to place them. The element repaints itself while an effect is moving and sleeps when nothing changes.</li>
+    <li><strong>CSS is the control surface.</strong> The four <code>--fx-*</code> properties are read from each slotted element every frame while it is on screen. A paint happens only when one changed.</li>
+    <li><strong>Hit testing follows tilt.</strong> An effect can say where it moves the element (<code>geometry</code>, a <code>DOMMatrix</code>). The shader gets the inverse to sample with, and <code>updateElementGeometry()</code> gets the matrix so clicks, focus rings and selection land on the tilted card. Displacement effects (ripple, curl) are visual only, like a CSS filter.</li>
+    <li><strong>A canvas keeps its first context type.</strong> Adding or removing <code>effect</code> later swaps in a new canvas and moves the slots across. Content, focus and form state are untouched because they never lived in the canvas.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <div id="fixtures"></div>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+</main>
+
+<script type="module">
+  import '/lib/canvas-slot.js';
+  import '/lib/shader-fx.js';
+  import { defineEffect, effects } from '/lib/effects.js';
+  import { banner, nav, runTests, supported } from '/shared/support.js';
+  nav('/slot-effects/');
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  defineEffect('shared-tint', {
+    glsl: `vec4 fx(vec2 p) {
+      vec4 c = tex(p);
+      float band = 0.5 + 0.5 * sin((p.x + p.y) * 0.05 + u_time * 2.0);
+      c.rgb = mix(c.rgb, c.a * vec3(0.55, 0.3, 0.95), 0.35 * band);
+      return c;
+    }`,
+  });
+
+  let presses = 0;
+  $('count').onclick = (e) => (e.target.textContent = `Pressed ${++presses}×`);
+
+  // Effect picker
+  const picker = $('picker');
+  const ticket = picker.querySelector('[slot]');
+  for (const name of ['tilt', 'ripple', 'dissolve', 'page-curl', 'glass', 'haze', 'crt', 'none']) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = name;
+    b.setAttribute('aria-pressed', name === 'page-curl');
+    b.onclick = () => {
+      picker.setAttribute('effect', name);
+      for (const o of $('seg').children) o.setAttribute('aria-pressed', o === b);
+    };
+    $('seg').append(b);
+  }
+  $('progress').oninput = (e) => ticket.style.setProperty('--fx-progress', e.target.value);
+  $('amount').oninput = (e) => ticket.style.setProperty('--fx-amount', e.target.value);
+  $('burnBtn').onclick = () => {
+    $('hoverBurn').classList.add('on');
+    setTimeout(() => $('hoverBurn').classList.remove('on'), 1600);
+  };
+
+  // Shader editor: the <script> is the source of truth; re-register on edit.
+  const glsl = $('glsl');
+  glsl.value = $('wobble').textContent;
+  glsl.oninput = () => {
+    defineEffect('#wobble', { glsl: glsl.value });
+    setTimeout(() => {
+      const err = $('wobbleSlot').effects?.error;
+      $('glslError').textContent = err ? String(err.message).replace('shader compile failed: ', '') : '';
+    }, 150);
+  };
+  glsl.addEventListener('input', () => { if ($('wobbleSlot').effects) $('wobbleSlot').effects.error = null; }, true);
+
+  $('gpuSlot').addEventListener('effectfallback', (e) => ($('gpuStatus').dataset.fallback = `${e.detail.from} gave up (${e.detail.reason})`));
+  setInterval(() => {
+    const g = $('gpuSlot');
+    $('gpuStatus').textContent = `drawing with: ${g.mode ?? 'nothing yet'}` + ($('gpuStatus').dataset.fallback ? ` · ${$('gpuStatus').dataset.fallback}` : '') + (g.effects ? ` · ${g.effects.frames} frames` : '');
+    $('pickerStatus').textContent = picker.effects ? `${picker.mode} · ${picker.effects.frames} frames painted` : picker.mode ?? '';
+  }, 400);
+
+  // ---- Live checks ----
+  const fixtures = $('fixtures');
+  async function fixture(attrs = '', inner = '<div slot="a" class="chip">chip <button>b</button></div>', { wait = true } = {}) {
+    const holder = document.createElement('div');
+    holder.innerHTML = `<canvas-slot ${attrs}>${inner}</canvas-slot>`;
+    const cs = holder.firstElementChild;
+    fixtures.append(cs);
+    if (wait) await painted(cs);
+    return cs;
+  }
+  async function painted(cs, more = 1) {
+    const start = cs.effects?.frames ?? 0;
+    for (let i = 0; i < 120; i++) {
+      if (cs.effects && cs.effects.frames >= start + more) return;
+      await sleep(25);
+    }
+    throw new Error(`no frame painted (mode ${cs.mode})`);
+  }
+  // The chip is 140 wide in a 200 wide canvas: stacked from the top, centred → x 30..170, y 0..60.
+  const X = 30;
+  const isYellow = (p) => p[0] > 235 && p[1] > 185 && p[1] < 225 && p[2] < 30 && p[3] > 245;
+  const hit = (el, dx = 3, dy = 3) => {
+    el.scrollIntoView({ block: 'center' });
+    const r = el.getBoundingClientRect();
+    return document.elementFromPoint(r.left + dx, r.top + dy);
+  };
+  defineEffect('test-invert', {
+    glsl: 'vec4 fx(vec2 p) { vec4 c = tex(p); return vec4(c.a - c.rgb, c.a); }',
+    wgsl: 'fn fx(p: vec2f) -> vec4f { let c = tex(p); return vec4f(c.a - c.rgb, c.a); }',
+  });
+
+  if (supported) {
+    const tests = [
+      {
+        name: 'effect="none": a slot through a shader, no script',
+        why: 'The slot is uploaded with texElementSubImage2D and drawn by the identity effect with the default stacking. No onrender.',
+        run: async () => {
+          const cs = await fixture('effect="none" backend="webgl"');
+          const p = await cs.effects.pixel(X + 4, 4);
+          const out = await cs.effects.pixel(4, 100);
+          if (cs.mode !== 'webgl') throw new Error(`mode is ${cs.mode}`);
+          if (!isYellow(p) || out[3] !== 0) throw new Error(`pixel ${p}, outside ${out}`);
+          return `mode ${cs.mode}; slot pixel ${p.slice(0, 3)}, clear outside it`;
+        },
+      },
+      {
+        name: 'Shared backend: no WebGL context of its own',
+        why: 'A page gets about 16 WebGL contexts. backend="shared" keeps a 2D canvas and borrows one page-wide context: drawElementImage → texture → shader → drawImage back.',
+        run: async () => {
+          const cs = await fixture('effect="test-invert" backend="shared"', '<div slot="a" class="chip">a <button>b</button></div><div slot="b" class="chip" effect="none">b</div>');
+          const a = await cs.effects.pixel(X + 130, 50), b = await cs.effects.pixel(X + 130, 68 + 50);
+          const btn = cs.querySelector('button');
+          if (cs.mode !== 'shared') throw new Error(`mode is ${cs.mode}`);
+          if (!(a[0] < 20 && a[2] > 235) || !isYellow(b)) throw new Error(`a ${a}, b ${b}`);
+          if (hit(btn) !== btn) throw new Error('elementFromPoint misses the button');
+          return `two slots, two effects, one borrowed context: ${a.slice(0, 3)} and ${b.slice(0, 3)}; the button is still hit`;
+        },
+      },
+      {
+        name: 'Twenty shaded elements on one page',
+        why: 'More than the browser allows WebGL contexts. The first few get their own, the rest share, and none may lose its picture.',
+        timeout: 15000,
+        run: async () => {
+          const all = [];
+          for (let i = 0; i < 20; i++) all.push(await fixture('effect="test-invert" style="width:150px;height:64px"', '<div slot="a" class="chip">' + i + '</div>'));
+          await sleep(300);
+          const modes = {};
+          let bad = 0;
+          for (const cs of all) {
+            modes[cs.mode] = (modes[cs.mode] ?? 0) + 1;
+            const p = await cs.effects.pixel(5 + 130, 50);
+            if (!(p[0] < 20 && p[2] > 235)) bad++;
+          }
+          const hero = document.getElementById('hero');
+          if (bad || !hero.effects) throw new Error(`${bad} of 20 lost their picture; modes ${JSON.stringify(modes)}; hero ${hero.mode}`);
+          return `all 20 drawn: ${Object.entries(modes).map(([k, v]) => `${v} ${k}`).join(', ')}; the demos above kept their contexts`;
+        },
+      },
+      {
+        name: 'Hit testing lands where the slot is drawn',
+        why: 'There is no drawElementImage() in shader mode to move the element, so the renderer calls updateElementGeometry() itself.',
+        run: async () => {
+          const cs = await fixture('effect="none"');
+          const chip = cs.firstElementChild, b = chip.querySelector('button');
+          cs.scrollIntoView({ block: 'center' });
+          const c = cs.getBoundingClientRect(), r = chip.getBoundingClientRect();
+          const dx = Math.round(r.left - c.left), dy = Math.round(r.top - c.top);
+          if (Math.abs(dx - X) > 1 || Math.abs(dy) > 1) throw new Error(`chip reports ${dx},${dy}, drawn at ${X},0`);
+          if (hit(b) !== b) throw new Error(`elementFromPoint gave ${hit(b)?.localName}`);
+          return `chip box at ${dx},${dy} in the canvas; elementFromPoint finds its button`;
+        },
+      },
+      {
+        name: 'It repaints by itself only while something moves',
+        why: 'An animated effect (haze) keeps painting with no script; a still one (none) stops.',
+        run: async () => {
+          const moving = await fixture('effect="haze"');
+          const still = await fixture('effect="none"');
+          await sleep(200);
+          const m0 = moving.effects.frames, s0 = still.effects.frames;
+          await sleep(500);
+          const m = moving.effects.frames - m0, s = still.effects.frames - s0;
+          if (m < 3) throw new Error(`haze painted ${m} frames in 500ms`);
+          if (s > 1) throw new Error(`the still slot painted ${s} frames`);
+          return `haze: ${m} frames in 500ms; none: ${s}`;
+        },
+      },
+      {
+        name: 'CSS custom properties drive the shader',
+        why: '--fx-progress: 1 on the slotted element dissolves it, and a CSS transition is picked up with no script telling the canvas.',
+        run: async () => {
+          const cs = await fixture('effect="dissolve"', '<div slot="a" class="chip"></div>');
+          const chip = cs.firstElementChild;
+          const before = await cs.effects.pixel(X + 70, 30);
+          chip.style.transition = '--fx-progress 200ms linear';
+          chip.style.setProperty('--fx-progress', '1');
+          await sleep(120);
+          const midFrames = cs.effects.frames;
+          await sleep(400);
+          const after = await cs.effects.pixel(X + 70, 30);
+          if (!isYellow(before)) throw new Error(`before: ${before}`);
+          if (after[3] !== 0) throw new Error(`after: ${after}`);
+          return `alpha ${before[3]} → ${after[3]} over a 200ms transition (${midFrames} frames in)`;
+        },
+      },
+      {
+        name: 'Tilt: hit testing follows the perspective',
+        why: 'The tilt effect returns a DOMMatrix with perspective. The shader samples through its inverse and updateElementGeometry() gets the matrix.',
+        run: async () => {
+          const cs = await fixture('effect="none"');
+          const chip = cs.firstElementChild, b = chip.querySelector('button');
+          const flat = chip.getBoundingClientRect();
+          cs.setAttribute('effect', 'tilt');
+          chip.style.setProperty('--fx-x', '1.4');
+          chip.style.setProperty('--fx-amount', '2.5');
+          await painted(cs);
+          await sleep(120);
+          const tilted = chip.getBoundingClientRect();
+          if (!(tilted.width < flat.width - 8)) throw new Error(`box did not narrow: ${flat.width.toFixed(1)} → ${tilted.width.toFixed(1)}`);
+          // Where the shader drew the button's corner: something not yellow must be there.
+          cs.scrollIntoView({ block: 'center' });
+          const c = cs.getBoundingClientRect(), br = b.getBoundingClientRect();
+          const mid = await cs.effects.pixel(br.left - c.left + br.width / 2, br.top - c.top + br.height / 2);
+          const corner = await cs.effects.pixel(X + 1, 1);
+          if (hit(b, br.width / 2, br.height / 2) !== b) throw new Error('elementFromPoint misses the tilted button');
+          if (isYellow(mid)) throw new Error(`pixel where the button box is reported is plain yellow: ${mid}`);
+          return `box ${flat.width.toFixed(0)}px → ${tilted.width.toFixed(0)}px wide; button found at its tilted position (pixel ${mid.slice(0, 3)}); old corner alpha ${corner[3]}`;
+        },
+      },
+      {
+        name: 'A slot can override the effect',
+        why: 'Two slots in one canvas: the host says none, one child says test-invert.',
+        run: async () => {
+          const cs = await fixture('effect="none"', '<div slot="a" class="chip">a</div><div slot="b" class="chip" effect="test-invert">b</div>');
+          const a = await cs.effects.pixel(X + 130, 50), b = await cs.effects.pixel(X + 130, 68 + 50);
+          if (!isYellow(a) || !(b[0] < 20 && b[2] > 235)) throw new Error(`a ${a}, b ${b}`);
+          return `first slot ${a.slice(0, 3)}, second (inverted) ${b.slice(0, 3)}`;
+        },
+      },
+      {
+        name: 'effect="#id" points at a shader in the page',
+        why: 'A <script type="x-shader/x-fragment"> holding the fx() function.',
+        run: async () => {
+          const s = document.createElement('script');
+          s.type = 'x-shader/x-fragment';
+          s.id = 'test-swap';
+          s.textContent = 'vec4 fx(vec2 p) { return tex(p).bgra; }';
+          document.body.append(s);
+          const cs = await fixture('effect="#test-swap"');
+          const p = await cs.effects.pixel(X + 130, 50);
+          if (!(p[0] < 20 && p[1] > 185 && p[2] > 235)) throw new Error(`pixel ${p}`);
+          return `yellow came out ${p.slice(0, 3)} (red and blue swapped)`;
+        },
+      },
+      {
+        name: 'effect="url(…)" loads a shader file',
+        why: 'The slot draws unshaded until the file arrives, then through it.',
+        timeout: 8000,
+        run: async () => {
+          const url = URL.createObjectURL(new Blob(['vec4 fx(vec2 p) { vec4 c = tex(p); return vec4(0.0, c.g, 0.0, c.a); }'], { type: 'text/plain' }));
+          const cs = await fixture(`effect="url(${url})"`);
+          let p;
+          for (let i = 0; i < 80; i++) {
+            p = await cs.effects.pixel(X + 130, 50);
+            if (p[0] < 20) break;
+            await sleep(50);
+          }
+          if (!(p[0] < 20 && p[1] > 185 && p[2] < 30)) throw new Error(`pixel ${p}`);
+          return `pixel ${p.slice(0, 3)} after the fetched shader replaced the plain drawing`;
+        },
+      },
+      {
+        name: 'One registry: the fx attribute and <canvas-slot effect> agree',
+        why: 'defineEffect() once, used by both. The same pixel is read from each.',
+        run: async () => {
+          defineEffect('test-half', { glsl: 'vec4 fx(vec2 p) { vec4 c = tex(p); c.rgb *= 0.5 + 0.5 * step(70.0, p.x); return c; }' });
+          const cs = await fixture('effect="test-half"', '<div slot="a" class="chip"></div>');
+          const el = document.createElement('div');
+          el.className = 'chip';
+          el.setAttribute('fx', 'test-half');
+          fixtures.append(el);
+          let s;
+          for (let i = 0; i < 60 && !(s = el.closest('fx-surface'))?.ready; i++) await sleep(25);
+          if (!s?.ready) throw new Error('fx surface never became ready');
+          const read = (x) => Array.from(s.snapshot().getImageData(Math.round(x * s.scale), Math.round(30 * s.scale), 1, 1).data);
+          const a = [await cs.effects.pixel(X + 20, 30), await cs.effects.pixel(X + 120, 30)];
+          const b = [read(20), read(120)];
+          const close = (p, q) => p.every((v, i) => Math.abs(v - q[i]) <= 3);
+          if (!close(a[0], b[0]) || !close(a[1], b[1]) || a[0][0] > 140) throw new Error(`slot ${a.join(' / ')} vs fx ${b.join(' / ')}`);
+          return `dark half ${a[0].slice(0, 3)} = ${b[0].slice(0, 3)}, light half ${a[1].slice(0, 3)} = ${b[1].slice(0, 3)}`;
+        },
+      },
+      {
+        name: 'Adding and removing the attribute at run time',
+        why: 'A canvas keeps its first context type, so the element swaps canvases. onrender, content and focus must survive.',
+        run: async () => {
+          const cs = await fixture('', '<div slot="a" class="chip"><input style="width:60px"></div>', { wait: false });
+          let calls = 0;
+          cs.onrender = ({ draw }) => { calls++; draw('a', 20, 40); };
+          await sleep(120);
+          const input = cs.querySelector('input');
+          input.focus(); input.value = 'kept';
+          const first = cs.canvas, mode0 = cs.mode;
+          cs.setAttribute('effect', 'test-invert');
+          await painted(cs);
+          const p = await cs.effects.pixel(20 + 130, 40 + 50);
+          const mode1 = cs.mode, swapped = cs.canvas !== first;
+          const focused = document.activeElement === input;
+          cs.removeAttribute('effect');
+          await sleep(150);
+          const before = calls;
+          cs.requestPaint();
+          await sleep(100);
+          if (mode0 !== '2d' || !/webgl|shared/.test(mode1) || cs.mode !== '2d') throw new Error(`modes ${mode0} → ${mode1} → ${cs.mode}`);
+          if (!(p[0] < 20 && p[2] > 235)) throw new Error(`shaded pixel at the onrender position is ${p}`);
+          if (!swapped || !focused || input.value !== 'kept') throw new Error(`swapped ${swapped}, focus kept ${focused}, value "${input.value}"`);
+          if (calls <= before) throw new Error('onrender stopped being called after going back to 2D');
+          return `2d → ${mode1} → 2d; onrender placed the shaded slot at 20,40; focus and the typed value survived both swaps`;
+        },
+      },
+      {
+        name: 'A broken shader does not hide the slot',
+        why: 'Invalid GLSL: the error is reported on element.effects.error and the slot is drawn unshaded.',
+        run: async () => {
+          defineEffect('test-broken', { glsl: 'vec4 fx(vec2 p) { return nonsense; }' });
+          const cs = await fixture('effect="test-broken"');
+          const p = await cs.effects.pixel(X + 130, 50);
+          if (!cs.effects.error || !isYellow(p)) throw new Error(`error=${!!cs.effects.error}, pixel ${p}`);
+          return `error reported ("${String(cs.effects.error.message).slice(0, 40)}…"), slot still drawn`;
+        },
+      },
+      {
+        name: 'WebGPU backend: slot → GPUTexture → WGSL effect',
+        why: 'backend="webgpu" with drawElementImageToTexture and the WGSL version of an effect. Rendered off-screen and read back, so it does not depend on this machine presenting a WebGPU canvas.',
+        timeout: 10000,
+        run: async () => {
+          if (!navigator.gpu) throw new Error('navigator.gpu is not available in this browser');
+          const cs = await fixture('effect="test-invert" backend="webgpu" offscreen', undefined, { wait: false });
+          let reason = '';
+          cs.addEventListener('effectfallback', (e) => (reason = e.detail.reason));
+          for (let i = 0; i < 200 && !(cs.effects?.frames > 0) && !reason; i++) await sleep(25);
+          if (reason || cs.mode !== 'webgpu') throw new Error(`fell back: ${reason || cs.mode}`);
+          const p = await cs.effects.pixel(X + 130, 50);
+          const top = await cs.effects.pixel(X + 8, 8), out = await cs.effects.pixel(4, 100);
+          if (!(p[0] < 20 && p[2] > 235)) throw new Error(`pixel ${p} (expected about 0,51,255)`);
+          return `inverted through WGSL: ${p.slice(0, 3)}; near the top-left ${top.slice(0, 3)}; outside alpha ${out[3]}`;
+        },
+      },
+      {
+        name: 'WebGPU backend presenting to the canvas',
+        why: 'The same thing drawn to the visible canvas for 20 frames without losing the device. Known to fail on software-rendered headless Chrome, where presenting destroys the device; the element then falls back to WebGL.',
+        timeout: 10000,
+        run: async () => {
+          if (!navigator.gpu) throw new Error('navigator.gpu is not available in this browser');
+          defineEffect('test-pulse', { glsl: 'vec4 fx(vec2 p) { return tex(p) * (0.75 + 0.25 * sin(u_time * 6.0)); }', wgsl: 'fn fx(p: vec2f) -> vec4f { return tex(p) * (0.75 + 0.25 * sin(u.time * 6.0)); }' });
+          const cs = await fixture('effect="test-pulse" backend="webgpu"', undefined, { wait: false });
+          let reason = '';
+          cs.addEventListener('effectfallback', (e) => (reason = e.detail.reason));
+          for (let i = 0; i < 200 && !(cs.mode === 'webgpu' && cs.effects?.frames >= 20) && !reason; i++) await sleep(25);
+          if (reason) throw new Error(`${reason}. Now drawing with ${cs.mode}`);
+          if (cs.mode !== 'webgpu') throw new Error(`mode is ${cs.mode}`);
+          return `${cs.effects.frames} frames presented by WebGPU`;
+        },
+      },
+    ];
+    // Each check starts with an empty bench, so finished fixtures give their GPU context back.
+    for (const t of tests) {
+      const run = t.run;
+      t.run = () => { fixtures.replaceChildren(); return run(); };
+    }
+    runTests($('results'), tests).then(() => scrollTo(0, 0));
+  }
+</script>
+</body>
+</html>
