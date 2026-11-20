@@ -351,6 +351,7 @@ function upgradableLink(signal, peerId) {
  * Returns { signal, viewers: Map(id -> { state, pc, link }), stop(), on(type, fn) }.
  *   events: 'viewer' (id, info), 'state' (id, state), 'gone' (id)
  */
+// #region share
 export async function shareInRoom(surface, room, { kind = 'auto', transport = 'auto', title, serve, role = 'source' } = {}) {
   if (!serve) ({ serve } = await import('./live-surface.js'));
   const signal = await joinRoom(room, { role, kind });
@@ -443,6 +444,7 @@ export async function shareInRoom(surface, room, { kind = 'auto', transport = 'a
     },
   };
 }
+// #endregion share
 
 /**
  * Watch the surface shared in a room, in a <live-view>.

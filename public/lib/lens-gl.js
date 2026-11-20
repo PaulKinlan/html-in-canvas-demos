@@ -112,6 +112,7 @@ export function glassDistance(zoom, rc = GLASS_RC, n = GLASS_N[1]) {
 }
 
 export const LENSES = {
+  // #region magnify
   magnify: {
     label: 'Magnifier',
     blurb: 'A flat loupe: one scale, sharp to the rim.',
@@ -120,6 +121,7 @@ export const LENSES = {
     density: (z) => z,
     glsl: `vec4 lens(vec2 p) { return ring(src(p / u_zoom).rgb, p, DARK); }`,
   },
+  // #endregion magnify
 
   glass: {
     label: 'Real glass',
@@ -617,6 +619,7 @@ class LensRenderer {
    * `via` picks the route (for measuring): 'direct' asks WebGL for the
    * sub-rectangle, 'scratch' goes through a small 2D canvas first.
    */
+  // #region upload
   upload(source, x, y, size, mip, owner, via = 'direct') {
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.#texture);
@@ -639,6 +642,7 @@ class LensRenderer {
     if (mip) gl.generateMipmap(gl.TEXTURE_2D);
     this.owner = owner;
   }
+  // #endregion upload
 
   /**
    * Run a lens. Returns the rectangle of this.canvas to drawImage() from.

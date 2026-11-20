@@ -57,6 +57,7 @@ function save() {
 }
 
 // ------------------------------------------------------------------ tiles
+// #region tile
 function makeTile(t) {
   t.id ??= nextId++;
   nextId = Math.max(nextId, t.id + 1);
@@ -118,6 +119,7 @@ function makeTile(t) {
   tiles.push(t);
   return t;
 }
+// #endregion tile
 
 function layoutTile(t) {
   t.el.style.width = `${t.w}px`;
@@ -243,11 +245,14 @@ function reveal(t, ms = 300) {
 function requestPaint() {
   canvas.requestPaint?.();
 }
+// #region paint
 function park(t) {
   if (t.parked) return;
   t.parked = true;
   canvas.updateElementGeometry(t.el, { canvasTransform: OFFSTAGE });
 }
+// #endregion paint
+// #region paint
 function paint() {
   const t0 = performance.now();
   const { w, h, dpr } = size;
@@ -315,6 +320,7 @@ function paint() {
   stats.ms = stats.ms * 0.9 + (performance.now() - t0) * 0.1;
   hud.textContent = `${Math.round(cam.k * 100)}%  ${tiles.length} tiles: ${stats.drawn} live, ${stats.placeholders} placeholders, ${stats.culled} culled  ${stats.ms.toFixed(1)} ms/paint`;
 }
+// #endregion paint
 
 // Minimap, bottom right. Click or drag it to move the camera.
 const MAP = { w: 150, h: 100, pad: 10 };
@@ -527,7 +533,9 @@ if (!supported) {
   $('hint').textContent = 'HTML-in-canvas is not available, so the tiles are laid out as an ordinary page. They work the same; they just cannot be zoomed.';
   $('results').innerHTML = '<tr><td class="status fail">✗</td><td colspan="2">Needs HTML-in-canvas. See the note at the top of the page.</td></tr>';
 } else {
+  // #region paint
   canvas.addEventListener('paint', paint);
+  // #endregion paint
   const ro = new ResizeObserver(([entry]) => {
     const box = entry.devicePixelContentBoxSize?.[0];
     const cw = entry.contentRect.width, ch = entry.contentRect.height;

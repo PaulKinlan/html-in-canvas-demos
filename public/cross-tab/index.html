@@ -39,6 +39,7 @@
   </div>
 
   <div class="stage">
+    <!-- #region markup -->
     <canvas-slot id="source">
       <section slot="counter" class="w counter">
         <h3>slot="counter"</h3>
@@ -56,8 +57,22 @@
         <time id="clock"></time>
       </section>
     </canvas-slot>
+    <!-- #endregion markup -->
   </div>
 
+  <details class="show-code">
+    <summary>Show the code <small>a slot in another tab</small></summary>
+    <ol>
+      <li data-code="#markup"><b>This page: real DOM, slotted into a canvas.</b> Each <code>slot</code> name is something a viewer can ask for.</li>
+      <li data-code="#publish"><b>This page: draw the slots, publish them, and give each viewer a port.</b> A popup is handed a <code>MessagePort</code> directly. An unrelated tab gets one through a SharedWorker.</li>
+      <li data-code="/cross-tab/viewer.html#markup"><b>The other tab: one <code>&lt;slot-mirror&gt;</code> per slot.</b></li>
+      <li data-code="/cross-tab/viewer.html#connect"><b>The other tab: get the port and attach the mirrors to it.</b></li>
+      <li data-code="/lib/slot-share.js#send-frames"><b>What <code>publish()</code> does: cut each drawn element out of the canvas and transfer it.</b> After <code>drawElementImage()</code> the element's client rect says where it sits in the canvas, so <code>createImageBitmap(canvas, x, y, w, h)</code> gets exactly that element.</li>
+      <li data-code="/lib/slot-share.js#replay"><b>What <code>publish()</code> does with input: replay it on the real element.</b> The viewer sends element-local coordinates and keys.</li>
+      <li data-code="/lib/broker.js"><b>The SharedWorker that introduces two tabs.</b></li>
+      <li data-code="/lib/slot-share.js"><b>The whole library</b>, including <code>&lt;slot-mirror&gt;</code>.</li>
+    </ol>
+  </details>
   <h2>How it travels</h2>
   <ol>
     <li><strong>Introductions.</strong> A popup gets a port directly: <code>popup.postMessage({…}, '*', [port2])</code>. An unrelated tab has no window reference, so both tabs connect to a <code>SharedWorker</code> that creates a <code>MessageChannel</code> and hands one end to each. After that they talk port to port.</li>
@@ -79,8 +94,10 @@
 </main>
 
 <script type="module">
+  // #region publish
   import '/lib/canvas-slot.js';
   import { publish, connectBroker } from '/lib/slot-share.js';
+  // #endregion publish
   import { banner, nav, runTests, nextPaint, supported } from '/shared/support.js';
   nav('/cross-tab/');
   banner();
@@ -105,6 +122,7 @@
   setInterval(tick, 1000);
 
   // ---- Canvas: lay the slots out flat so each one is a clean rectangle ----
+  // #region publish
   const source = document.getElementById('source');
   source.onrender = ({ ctx, width, draw, elements }) => {
     ctx.fillStyle = 'rgba(127,127,127,0.08)';
@@ -116,10 +134,12 @@
 
   // ---- Sharing ----
   const pub = publish(source);
+  // #endregion publish
   const status = document.getElementById('status');
   const setStatus = () => (status.textContent = `${pub.viewerCount} viewer${pub.viewerCount === 1 ? '' : 's'}`);
   setInterval(setStatus, 500);
 
+  // #region publish
   // Unrelated tabs find us through the SharedWorker broker.
   try {
     connectBroker({ role: 'publisher', channel: 'cross-tab-demo', onPort: (port) => pub.add(port) });
@@ -138,6 +158,7 @@
       w.postMessage({ type: 'port' }, location.origin, [port2]);
     });
   };
+  // #endregion publish
 
   // ---- Live tests ----
   if (supported) {

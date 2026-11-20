@@ -248,6 +248,7 @@ function restoreAnimations(el, saved, again = 2) {
  * @param {string} [opts.background] CSS colour painted behind the element (default transparent).
  * @param {'auto'|'move'|'inplace'|'clone'} [opts.strategy='auto']
  */
+// #region entry
 export async function captureElement(el, opts = {}) {
   need();
   if (!(el instanceof Element) || !el.isConnected) throw new TypeError('captureElement needs a connected element');
@@ -270,7 +271,9 @@ export async function captureElement(el, opts = {}) {
   meta.ms = Math.round(performance.now() - t0);
   return finish(out, meta, opts);
 }
+// #endregion entry
 
+// #region hold
 /** Put `el` inside a temporary drawable canvas that takes its place. Returns a handle. */
 function hold(el, scale) {
   const [w, h] = boxSize(el);
@@ -323,6 +326,7 @@ function hold(el, scale) {
   };
   return { canvas, ctx, draw, release, notes, scale: s, width: w, height: h, atomic };
 }
+// #endregion hold
 
 async function captureMove(el, { scale = devicePixelRatio } = {}) {
   const h = hold(el, scale);

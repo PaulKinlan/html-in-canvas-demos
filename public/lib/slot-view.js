@@ -156,6 +156,7 @@ export class SlotView extends HTMLElement {
     this.#frame.src = url.href;
   }
 
+  // #region connect
   #onWindowMessage = (e) => {
     if (e.source !== this.#frame.contentWindow || e.origin !== this.#origin || e.data?.slotview !== PROTOCOL) return;
     if (e.data.type !== 'ready') return;
@@ -169,6 +170,7 @@ export class SlotView extends HTMLElement {
     this.#trace('out', { type: 'request', ...want });
     if (Object.keys(this.#theme).length) this.theme = {};
   };
+  // #endregion connect
 
   #post(msg, transfer) {
     if (!this.#link) return;

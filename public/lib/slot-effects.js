@@ -69,6 +69,7 @@ class GLBackend {
     return true;
   }
 
+  // #region texture
   /** Upload the element if needed. Returns the texture size in device px. */
   texture(el, dirty) {
     let t = this.#textures.get(el);
@@ -77,6 +78,7 @@ class GLBackend {
     if (dirty || !t.width || Math.ceil(size.width) !== t.width || Math.ceil(size.height) !== t.height) t.update();
     return t;
   }
+  // #endregion texture
 
   has(name) {
     return true;
@@ -236,12 +238,16 @@ class GPUBackend {
     let t = this.#textures.get(el);
     if (!t || t.width !== w || t.height !== h) {
       t?.texture.destroy();
+      // #region texture-gpu
       const texture = this.device.createTexture({ size: [w, h], format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+      // #endregion texture-gpu
       t = { texture, view: texture.createView(), width: w, height: h, fresh: true };
       this.#textures.set(el, t);
     }
     if (dirty || t.fresh) {
+      // #region texture-gpu
       this.device.queue.drawElementImageToTexture({ source: el }, { texture: t.texture });
+      // #endregion texture-gpu
       t.fresh = false;
     }
     return t;
@@ -532,11 +538,13 @@ class SlotEffects {
         this.error = err;
         backend.draw(el, 'none', uniforms);
       }
+      // #region geometry
       // Tell the browser where the slot is now, so clicks, focus rings and
       // getBoundingClientRect() follow what was drawn.
       unit ||= geometryUnit(canvas, el, w);
       const place = new DOMMatrix().scale(unit).translate(x, y);
       canvas.updateElementGeometry(el, { canvasTransform: matrix ? place.multiply(matrix) : place });
+      // #endregion geometry
       drawn.push(el);
     };
 

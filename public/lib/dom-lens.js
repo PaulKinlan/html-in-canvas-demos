@@ -220,6 +220,7 @@ export class DomLens extends SurfaceElement {
     return this.#render2d(lens);
   }
 
+  // #region shader
   // One magnified draw of the patch under the lens, then a shader. See lens-gl.js.
   #renderShader(time, gl, lens, name, route) {
     const { ctx, content, canvas, scale: s, width: w, height: h, bleed: b } = this;
@@ -323,6 +324,7 @@ export class DomLens extends SurfaceElement {
     this.#finish(lens, calls, t0);
     return !!def.animated && !still && this.#onScreen();
   }
+  // #endregion shader
 
   // The cost of a frame is mostly the number of pixels in the patch. If frames
   // come slowly while the lens is moving, draw the patch smaller (softer in
