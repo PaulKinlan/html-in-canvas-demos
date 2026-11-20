@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Repro: adoptNode of a drawable canvas</title>
+<body style="font:15px system-ui;max-width:640px;margin:24px auto">
+<h1 style="font-size:20px">Repro: adopting a <code>content=drawable</code> canvas into another document</h1>
+<p>Each button moves a drawable canvas (with one drawable child) into a same-origin iframe, then draws the child. In Chrome 157, A works (the live DOM and its canvas move to the other document) and B crashes the tab.</p>
+<button data-v="fresh">A: canvas never attached here, adopted into a new iframe</button>
+<button data-v="attached">B: canvas painted here first, then adopted</button>
+<pre id="log"></pre>
+<div id="host"></div>
+<script>
+const log = (s) => (document.getElementById('log').textContent += s + '\n');
+const paintOf = (c) => new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
+for (const b of document.querySelectorAll('button')) b.onclick = async () => {
+  const v = b.dataset.v;
+  const c = document.createElement('canvas');
+  c.setAttribute('content', 'drawable'); c.width = 240; c.height = 80;
+  c.innerHTML = '<div drawable style="width:240px;height:80px;background:gold">adopted</div>';
+  if (v === 'attached') { host.append(c); await paintOf(c); c.getContext('2d').drawElementImage(c.firstElementChild, 0, 0); log('painted in the first document'); }
+  const f = document.createElement('iframe'); f.style.cssText = 'width:240px;height:80px;border:0';
+  host.append(f);
+  await new Promise((r) => { f.onload = r; f.srcdoc = '<body style="margin:0">'; });
+  f.contentDocument.body.append(f.contentDocument.adoptNode(c));
+  log(v + ': adopted, requesting paint');
+  await paintOf(c);
+  log(v + ': paint event fired');
+  c.getContext('2d').drawElementImage(c.firstElementChild, 0, 0, 240, 80);
+  log(v + ': drawn, no crash');
+};
+</script>

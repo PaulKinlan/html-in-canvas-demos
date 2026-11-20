@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transport lab</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1100px; }
+  table.lab { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.lab td, table.lab th { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+  table.lab td.status { white-space: nowrap; font-weight: 600; width: 80px; }
+  table.lab td.out { width: 130px; }
+  table.lab td.out canvas { display: block; width: 120px; height: 40px; border: 1px solid var(--line); border-radius: 4px; background: repeating-conic-gradient(#0001 0 25%, transparent 0 50%) 0 0 / 10px 10px; }
+  table.lab .route { font-weight: 600; }
+  table.lab .via { font: 12px var(--mono); color: var(--muted); }
+  table.lab .detail { font: 12px var(--mono); color: var(--muted); word-break: break-word; max-width: 360px; }
+  .skip { color: var(--warn); }
+  #score { font: 14px var(--mono); }
+  #sources { position: fixed; left: 8px; bottom: 8px; display: flex; gap: 4px; flex-wrap: wrap; max-width: 60vw; opacity: 0.25; pointer-events: none; z-index: -1; }
+  #sources canvas, #sources iframe { width: 60px; height: 20px; }
+  iframe#echo { width: 100%; height: 24px; border: 0; border-radius: 4px; }
+  h2 small { font: 13px var(--mono); color: var(--muted); font-weight: 400; margin-left: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>5 · Transport lab</h1>
+  <p class="lede">
+    Every route we can think of for getting DOM out of its canvas and into another context: another canvas, a worker, a cross-origin document.
+    Each row is a live test. The small canvas shows what actually arrived at the far end; a row only passes if the pixel read there matches the source element.
+  </p>
+  <p id="score">running…</p>
+  <iframe id="echo" title="Remote origin echo"></iframe>
+
+  <h2>A · Moving the snapshot <small>ElementImage and friends, DOM stays live</small></h2>
+  <table class="lab"><tbody id="tA"></tbody></table>
+
+  <h2>B · Getting around the one-canvas rule <small>ways to keep it DOM</small></h2>
+  <table class="lab"><tbody id="tB"></tbody></table>
+
+  <h2>C · Moving pixels <small>after drawElementImage, anything goes</small></h2>
+  <table class="lab"><tbody id="tC"></tbody></table>
+
+  <h2>D · Streams and codecs <small>continuous transport</small></h2>
+  <table class="lab"><tbody id="tD"></tbody></table>
+
+  <h2>E · GPU <small>WebGL and WebGPU</small></h2>
+  <table class="lab"><tbody id="tE"></tbody></table>
+
+  <h2>What the failures point to</h2>
+  <ul class="findings">
+    <li><strong>An ElementImage is not an image.</strong> It is not a <code>CanvasImageSource</code>: <code>drawImage</code>, <code>createImageBitmap</code> and <code>VideoFrame</code> all reject it, and it only draws into its own canvas (2D or WebGL, main thread or worker). Every route out goes through that canvas first.</li>
+    <li><strong>Fastest way out: a worker that owns the canvas.</strong> Snapshot → worker → <code>drawElementImage</code> → <code>transferToImageBitmap()</code> gives a GPU-backed bitmap per frame with no main-thread rasterization, and from there it can go to any canvas, tab or origin.</li>
+    <li><strong>Ways to stay DOM instead of pixels:</strong> nest canvases (an inner drawable canvas is itself a drawable element of the outer one), put a same-origin iframe inside the canvas (a whole document reprojected live), or use one page-wide overlay canvas with <code>pointer-events: none</code> so any element can be drawn anywhere while the page stays clickable.</li>
+    <li><strong>Across origins, send bitmaps or bytes.</strong> <code>VideoFrame</code> and streams of them fail to deserialize in a cross-origin document (a silent <code>messageerror</code>), and <code>MediaStreamTrack</code> does not transfer at all. <code>ImageBitmap</code>, a <code>ReadableStream</code> of ImageBitmaps, Blobs, ArrayBuffers, encoded video chunks and WebRTC all get through.</li>
+    <li><strong>Hit testing stops at the canvas edge.</strong> <code>updateElementGeometry</code> accepts a transform outside the canvas box, but the element is not hit-testable there. Interactivity at a remote mirror means forwarding input (as in the cross-tab demo) or making the canvas bigger (the overlay).</li>
+    <li><strong>Not testable in every environment:</strong> WebGPU needs a GPU adapter, and SharedArrayBuffer needs cross-origin isolation headers, which this site does not send yet.</li>
+  </ul>
+
+  <div id="sources" aria-hidden="true"></div>
+</main>
+
+<script type="module">
+  import { banner, nav, supported, withTimeout } from '/shared/support.js';
+  nav('/transports/');
+  banner();
+
+  const W = 240, H = 80;
+  const YELLOW = [255, 204, 0];
+  const sources = document.getElementById('sources');
+
+  // ---------- helpers ----------
+  const near = (px, want = YELLOW, tol = 3) => px && want.every((v, i) => Math.abs(px[i] - v) <= tol) && px[3] > 250;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const paintOf = (canvas) => new Promise((r) => { canvas.addEventListener('paint', r, { once: true }); canvas.requestPaint(); });
+
+  /** A drawable canvas with one yellow element, painted and (optionally) drawn. */
+  async function source({ draw = true, type = '2d', keepLive = false } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = W; c.height = H;
+    c.innerHTML = `<div drawable style="width:${W}px;height:${H}px;box-sizing:border-box;background:rgb(255,204,0);color:#000;font:700 22px system-ui;padding:8px 12px 8px 60px">DOM <button style="font:inherit">btn</button></div>`;
+    sources.append(c);
+    const el = c.firstElementChild;
+    let ctx = null;
+    if (type === '2d' && draw !== 'none') ctx = c.getContext('2d', { willReadFrequently: true });
+    let gl = null;
+    if (type === 'webgl') gl = c.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true });
+    await paintOf(c);
+    if (draw === true) { ctx.reset(); ctx.drawElementImage(el, 0, 0, W, H); }
+    if (keepLive) {
+      // Keep producing frames for MediaStream-based routes.
+      let n = 0;
+      const id = setInterval(() => { ctx.reset(); ctx.drawElementImage(el, 0, 0, W, H); ctx.fillStyle = `rgb(${n++ % 255},0,0)`; ctx.fillRect(W - 2, H - 2, 2, 2); }, 50);
+      c.stop = () => clearInterval(id);
+    }
+    return { c, el, ctx, gl, snap: () => c.captureElementImage(el) };
+  }
+
+  /** Draw what arrived into the row's output canvas and verify the pixel. */
+  function arrive(out, drawable, { tol = 3, sx = 0, sy = 0, sw, sh } = {}) {
+    const ctx = out.getContext('2d', { willReadFrequently: true });
+    ctx.clearRect(0, 0, W, H);
+    if (sw) ctx.drawImage(drawable, sx, sy, sw, sh, 0, 0, W, H); else ctx.drawImage(drawable, 0, 0, W, H);
+    const px = Array.from(ctx.getImageData(14, 14, 1, 1).data);
+    if (!near(px, YELLOW, tol)) throw new Error(`arrived but pixel is ${px.join(',')}, expected the element's 255,204,0`);
+    return px;
+  }
+
+  // Cross-origin echo frame.
+  function otherOrigin() {
+    const u = new URL(location.href);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.port = u.port === '8001' ? '8002' : '8001';
+    else if (u.hostname.startsWith('html-in-canvas-demos.')) u.hostname = u.hostname.replace('html-in-canvas-demos.', 'html-in-canvas-remote.');
+    else if (u.hostname.startsWith('html-in-canvas-remote.')) u.hostname = u.hostname.replace('html-in-canvas-remote.', 'html-in-canvas-demos.');
+    return u.origin;
+  }
+  const REMOTE = otherOrigin();
+  const echoFrame = document.getElementById('echo');
+  const echoReady = new Promise((r) => addEventListener('message', (e) => { if (e.source === echoFrame.contentWindow && e.data?.type === 'echo-ready') r(); }));
+  echoFrame.src = REMOTE + '/transports/echo.html';
+  let seq = 1;
+  let echoWaiting = null;
+  addEventListener('message', (e) => {
+    if (e.source === echoFrame.contentWindow && e.data?.type === 'echo-messageerror' && echoWaiting) {
+      echoWaiting(new Error('remote: messageerror. The value was sent but the other origin could not deserialize it'));
+    }
+  });
+  async function echo(kind, payload, transfer = []) {
+    await echoReady;
+    const id = seq++;
+    return new Promise((resolve, reject) => {
+      const on = (e) => {
+        if (e.source !== echoFrame.contentWindow || e.data?.type !== 'echo-result' || e.data.id !== id) return;
+        removeEventListener('message', on);
+        e.data.ok ? resolve(e.data) : reject(new Error('remote: ' + e.data.detail));
+      };
+      addEventListener('message', on);
+      echoWaiting = (err) => { removeEventListener('message', on); reject(err); };
+      echoFrame.contentWindow.postMessage({ type: 'echo', id, kind, payload }, REMOTE, transfer);
+    });
+  }
+  const worker = new Worker('/transports/worker.js');
+  const pending = new Map();
+  worker.onmessage = ({ data }) => { const p = pending.get(data.id); pending.delete(data.id); data.ok ? p.resolve(data) : p.reject(new Error('worker: ' + data.detail)); };
+  const ask = (kind, extra = {}, transfer = []) => new Promise((resolve, reject) => { const id = seq++; pending.set(id, { resolve, reject }); worker.postMessage({ id, kind, ...extra }, transfer); });
+  const freshWorker = () => { const w = new Worker('/transports/worker.js'); const pend = new Map(); w.onmessage = ({ data }) => { const p = pend.get(data.id); pend.delete(data.id); data.ok ? p.resolve(data) : p.reject(new Error('worker: ' + data.detail)); }; return (kind, extra = {}, transfer = []) => new Promise((resolve, reject) => { const id = seq++; pend.set(id, { resolve, reject }); w.postMessage({ id, kind, ...extra }, transfer); }); };
+
+  async function videoOf(stream) {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.srcObject = stream;
+    await v.play();
+    await new Promise((r) => v.requestVideoFrameCallback(r));
+    return v;
+  }
+  const skip = (msg) => { const e = new Error(msg); e.skip = true; return e; };
+
+  // ---------- the routes ----------
+  const routes = {
+    tA: [
+      ['ElementImage → the canvas it came from', 'captureElementImage → drawElementImage', async (out) => {
+        const s = await source({ draw: false });
+        s.ctx.drawElementImage(s.snap(), 0, 0, W, H);
+        arrive(out, s.c);
+        return 'baseline';
+      }],
+      ['ElementImage → a different drawable canvas', 'drawElementImage on canvas B', async (out) => {
+        const s = await source();
+        const b = document.createElement('canvas'); b.setAttribute('content', 'drawable'); b.width = W; b.height = H; sources.append(b);
+        b.getContext('2d').drawElementImage(s.snap(), 0, 0);
+        arrive(out, b);
+      }],
+      ['Element → a canvas that is not its ancestor', 'drawElementImage(el) on canvas B', async (out) => {
+        const s = await source();
+        const b = document.createElement('canvas'); b.setAttribute('content', 'drawable'); b.width = W; b.height = H; sources.append(b);
+        b.getContext('2d').drawElementImage(s.el, 0, 0);
+        arrive(out, b);
+      }],
+      ['ElementImage → createImageBitmap()', 'skip the canvas entirely', async (out) => {
+        const s = await source({ draw: false });
+        arrive(out, await createImageBitmap(s.snap()));
+      }],
+      ['ElementImage → drawImage()', 'treat it as a CanvasImageSource', async (out) => {
+        const s = await source({ draw: false });
+        out.getContext('2d').drawImage(s.snap(), 0, 0);
+        arrive(out, out);
+      }],
+      ['ElementImage → new VideoFrame()', 'WebCodecs frame straight from a snapshot', async (out) => {
+        const s = await source({ draw: false });
+        const f = new VideoFrame(s.snap(), { timestamp: 0 });
+        arrive(out, f); f.close();
+      }],
+      ['ElementImage → structuredClone', 'serialize instead of transfer', async () => {
+        const s = await source({ draw: false });
+        structuredClone(s.snap());
+      }],
+      ['ElementImage → cross-origin frame → createImageBitmap', 'postMessage transfer, then rasterize there', async (out) => {
+        const s = await source({ draw: false });
+        const img = s.snap();
+        const r = await echo('elementimage-bitmap', img, [img]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['ElementImage → cross-origin frame → its own canvas', 'postMessage transfer, drawElementImage there', async (out) => {
+        const s = await source({ draw: false });
+        const img = s.snap();
+        const r = await echo('elementimage-draw', img, [img]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['ElementImage → worker with a fresh WebGL OffscreenCanvas', 'texElementSubImage2D in a worker, canvas unrelated to the source', async (out) => {
+        const s = await source({ draw: false });
+        const img = s.snap();
+        const r = await ask('ei-fresh-webgl', { img }, [img]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+    ],
+    tB: [
+      ['OffscreenCanvas + ElementImage → worker WebGL', 'worker owns the canvas as WebGL and uploads the snapshot as a texture', async (out) => {
+        const s = await source({ type: 'none', draw: 'none' });
+        const q = freshWorker();
+        const off = s.c.transferControlToOffscreen();
+        await q('own-webgl-init', { canvas: off }, [off]);
+        await paintOf(s.c);
+        const img = s.snap();
+        const r = await q('ei-own-webgl', { img }, [img]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['OffscreenCanvas + ElementImage → worker → transferToImageBitmap()', 'worker rasterizes the snapshot, hands back a GPU bitmap', async (out) => {
+        const s = await source({ draw: 'none' });
+        const q = freshWorker();
+        const off = s.c.transferControlToOffscreen();
+        await q('own-canvas', { canvas: off }, [off]);
+        const img = s.snap();
+        const r = await q('ei-transferToImageBitmap', { img }, [img]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['OffscreenCanvas + ElementImage → worker → createImageBitmap()', 'same, copying instead of transferring', async (out) => {
+        const s = await source({ draw: 'none' });
+        const q = freshWorker();
+        const off = s.c.transferControlToOffscreen();
+        await q('own-canvas', { canvas: off }, [off]);
+        const img = s.snap();
+        const r = await q('ei-createImageBitmap', { img }, [img]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['OffscreenCanvas + ElementImage → worker → VideoFrame', 'a worker turns snapshots into WebCodecs frames', async (out) => {
+        const s = await source({ draw: 'none' });
+        const q = freshWorker();
+        const off = s.c.transferControlToOffscreen();
+        await q('own-canvas', { canvas: off }, [off]);
+        const img = s.snap();
+        const r = await q('ei-videoframe', { img }, [img]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['OffscreenCanvas + ElementImage → cross-origin frame → pixels back', 'the other origin rasterizes our snapshot and returns a bitmap', async (out) => {
+        const s = await source({ draw: 'none' });
+        const off = s.c.transferControlToOffscreen();
+        const img = s.snap();
+        const r = await echo('offscreen+elementimage', { canvas: off, img }, [off, img]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['Nested canvases: draw a drawable canvas into its parent canvas', 'inner canvas draws DOM; outer canvas draws the inner canvas element', async (out) => {
+        const outer = document.createElement('canvas');
+        outer.setAttribute('content', 'drawable'); outer.width = W; outer.height = H;
+        outer.innerHTML = `<canvas drawable content="drawable" layoutsubtree width="${W}" height="${H}" style="width:${W}px;height:${H}px"><div drawable style="width:${W}px;height:${H}px;background:rgb(255,204,0);padding-left:60px;box-sizing:border-box">inner</div></canvas>`;
+        sources.append(outer);
+        const inner = outer.firstElementChild;
+        await paintOf(inner);
+        inner.getContext('2d').drawElementImage(inner.firstElementChild, 0, 0, W, H);
+        await paintOf(outer); await paintOf(outer);
+        outer.getContext('2d').drawElementImage(inner, 0, 0, W, H);
+        arrive(out, outer);
+        return 'DOM passed through two canvases';
+      }],
+      ['Same-origin iframe as a drawable child', 'another document\'s DOM, drawn live', async (out) => {
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable'); c.width = W; c.height = H;
+        c.innerHTML = `<iframe drawable style="width:${W}px;height:${H}px;border:0" srcdoc="<body style='margin:0;padding-left:60px;background:rgb(255,204,0)'>iframe DOM <button>btn</button>"></iframe>`;
+        sources.append(c);
+        await new Promise((r) => (c.firstElementChild.onload = r));
+        const ctx = c.getContext('2d');
+        for (let i = 0; i < 6; i++) { await paintOf(c); ctx.reset(); ctx.drawElementImage(c.firstElementChild, 0, 0, W, H); }
+        arrive(out, c);
+        return 'a whole document reprojected';
+      }],
+      ['Sandboxed (opaque-origin) iframe as a drawable child', 'sandbox="allow-scripts" srcdoc', async (out) => {
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable'); c.width = W; c.height = H;
+        c.innerHTML = `<iframe drawable sandbox="allow-scripts" style="width:${W}px;height:${H}px;border:0" srcdoc="<body style='margin:0;padding-left:60px;background:rgb(255,204,0)'>sandboxed"></iframe>`;
+        sources.append(c);
+        await new Promise((r) => (c.firstElementChild.onload = r));
+        const ctx = c.getContext('2d');
+        for (let i = 0; i < 6; i++) { await paintOf(c); ctx.reset(); ctx.drawElementImage(c.firstElementChild, 0, 0, W, H); }
+        arrive(out, c);
+      }],
+      ['adoptNode: move the canvas and its DOM into another document', 'same-origin iframe adopts the live canvas subtree', async () => {
+        if (!new URLSearchParams(location.search).has('crash')) throw skip('works when the canvas has never painted (try button A on /transports/crash-adopt.html), but crashed the tab in Chrome 157 inside this lab and when the canvas had already painted (button B). Add ?crash to run it here.');
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable'); c.width = W; c.height = H;
+        c.innerHTML = `<div drawable style="width:${W}px;height:${H}px;background:rgb(255,204,0)">adopted</div>`;
+        const f = document.createElement('iframe'); f.style.cssText = `width:${W}px;height:${H}px;border:0`;
+        sources.append(f);
+        await new Promise((r) => { f.onload = r; f.srcdoc = '<body style="margin:0">'; });
+        f.contentDocument.body.append(f.contentDocument.adoptNode(c));
+        await paintOf(c);
+        c.getContext('2d').drawElementImage(c.firstElementChild, 0, 0, W, H);
+        return 'survived';
+      }],
+      ['One page-wide overlay canvas: draw an element anywhere, page stays clickable', 'fixed full-viewport canvas with pointer-events: none; children opt back in', async (out) => {
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+        c.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:10';
+        c.width = innerWidth; c.height = innerHeight;
+        c.innerHTML = `<div drawable style="pointer-events:auto;width:${W}px;height:${H}px;box-sizing:border-box;padding-left:60px;background:rgb(255,204,0)">overlay <button>btn</button></div>`;
+        document.body.append(c);
+        try {
+          const ctx = c.getContext('2d');
+          await paintOf(c);
+          const x = Math.min(innerWidth - W - 10, 500), y = 300;
+          ctx.drawElementImage(c.firstElementChild, x, y, W, H);
+          await paintOf(c); await sleep(100);
+          const onEl = document.elementFromPoint(x + 5, y + 5);
+          const offEl = document.elementFromPoint(20, 20);
+          arrive(out, c, { sx: x, sy: y, sw: W, sh: H });
+          if (onEl !== c.firstElementChild) throw new Error(`drawn at (${x},${y}) but elementFromPoint found ${onEl?.tagName}`);
+          if (offEl === c || c.contains(offEl)) throw new Error('overlay swallows clicks on the rest of the page');
+          return `element hit-testable at (${x},${y}); the page underneath still gets clicks (${offEl?.tagName.toLowerCase()})`;
+        } finally { c.remove(); }
+      }],
+      ['Hit testing at a mirror outside the source canvas', 'updateElementGeometry with a transform that lands outside the canvas box', async (out) => {
+        const s = await source();
+        s.c.style.cssText = 'position:fixed;left:8px;top:8px;width:60px;height:20px;z-index:5';
+        document.body.append(s.c);
+        try {
+          // Ask for the element to be hit-testable 300px to the right of its canvas.
+          s.c.updateElementGeometry(s.el, { canvasTransform: new DOMMatrix().translate(300 * (W / 60), 0) });
+          await paintOf(s.c); await sleep(50);
+          const hit = document.elementFromPoint(8 + 300 + 5, 8 + 5);
+          arrive(out, s.c);
+          if (!hit || !s.el.contains(hit)) throw new Error(`geometry accepted, but elementFromPoint outside the canvas box found ${hit?.tagName ?? 'nothing'}: hit testing is clipped to the canvas`);
+          return 'element is hit-testable outside its canvas';
+        } finally { sources.append(s.c); s.c.style.cssText = ''; }
+      }],
+    ],
+    tC: [
+      ['drawImage(sourceCanvas) → another canvas', 'plain 2D copy', async (out) => { const s = await source(); arrive(out, s.c); }],
+      ['ImageBitmap → MessageChannel (transfer)', 'createImageBitmap(canvas)', async (out) => {
+        const s = await source();
+        const bmp = await createImageBitmap(s.c);
+        const { port1, port2 } = new MessageChannel();
+        const got = new Promise((r) => (port2.onmessage = (e) => r(e.data)));
+        port1.postMessage(bmp, [bmp]);
+        arrive(out, await got);
+      }],
+      ['ImageBitmap → BroadcastChannel (clone)', 'reaches every same-origin tab and worker', async (out) => {
+        const s = await source();
+        const a = new BroadcastChannel('lab-bmp'), b = new BroadcastChannel('lab-bmp');
+        const got = new Promise((r) => (b.onmessage = (e) => r(e.data)));
+        a.postMessage(await createImageBitmap(s.c));
+        arrive(out, await got); a.close(); b.close();
+      }],
+      ['ImageBitmap → cross-origin frame', 'window.postMessage transfer', async (out) => {
+        const s = await source();
+        const bmp = await createImageBitmap(s.c);
+        const r = await echo('bitmap', bmp, [bmp]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['ImageBitmap → bitmaprenderer canvas', 'transferFromImageBitmap, zero-copy display', async (out) => {
+        const s = await source();
+        const b = document.createElement('canvas'); b.width = W; b.height = H;
+        b.getContext('bitmaprenderer').transferFromImageBitmap(await createImageBitmap(s.c));
+        arrive(out, b);
+      }],
+      ['VideoFrame(canvas) → MessageChannel', 'WebCodecs frame, transferable', async (out) => {
+        const s = await source();
+        const f = new VideoFrame(s.c, { timestamp: 0 });
+        const { port1, port2 } = new MessageChannel();
+        const got = new Promise((r) => (port2.onmessage = (e) => r(e.data)));
+        port1.postMessage(f, [f]);
+        const g = await got; arrive(out, g); g.close();
+      }],
+      ['VideoFrame(canvas) → worker', 'transfer', async (out) => {
+        const s = await source();
+        const f = new VideoFrame(s.c, { timestamp: 0 });
+        const r = await ask('frame', { payload: f }, [f]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['VideoFrame(canvas) → cross-origin frame', 'window.postMessage transfer', async (out) => {
+        const s = await source();
+        const f = new VideoFrame(s.c, { timestamp: 0 });
+        const r = await echo('frame', f, [f]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['getImageData → ArrayBuffer transfer → cross-origin frame', 'raw RGBA bytes', async (out) => {
+        const s = await source();
+        const d = s.ctx.getImageData(0, 0, W, H);
+        const r = await echo('bytes', { buffer: d.data.buffer, width: W, height: H }, [d.data.buffer]);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['getImageData → SharedArrayBuffer', 'shared memory, no copies per frame', async (out) => {
+        if (!crossOriginIsolated) throw skip('needs cross-origin isolation (COOP/COEP headers); not set on this site yet');
+        const s = await source();
+        const sab = new SharedArrayBuffer(W * H * 4);
+        new Uint8ClampedArray(sab).set(s.ctx.getImageData(0, 0, W, H).data);
+        const copy = new Uint8ClampedArray(W * H * 4); copy.set(new Uint8ClampedArray(sab));
+        arrive(out, await createImageBitmap(new ImageData(copy, W, H)));
+      }],
+      ['toBlob (PNG) → BroadcastChannel → decode', 'works over anything that carries bytes', async (out) => {
+        const s = await source();
+        const blob = await new Promise((r) => s.c.toBlob(r));
+        const a = new BroadcastChannel('lab-blob'), b = new BroadcastChannel('lab-blob');
+        const got = new Promise((r) => (b.onmessage = (e) => r(e.data)));
+        a.postMessage(blob);
+        arrive(out, await createImageBitmap(await got)); a.close(); b.close();
+        return `${blob.size} byte PNG`;
+      }],
+      ['toBlob → cross-origin frame', 'Blob via postMessage', async (out) => {
+        const s = await source();
+        const blob = await new Promise((r) => s.c.toBlob(r));
+        const r = await echo('blob', blob);
+        arrive(out, r.bitmap); return r.detail;
+      }],
+      ['toDataURL → localStorage event', 'the oldest cross-tab trick', async (out) => {
+        const s = await source();
+        const url = s.c.toDataURL();
+        localStorage.setItem('lab-frame', url);
+        const img = new Image(); img.src = localStorage.getItem('lab-frame'); await img.decode();
+        localStorage.removeItem('lab-frame');
+        arrive(out, img);
+        return `${url.length} chars; other tabs get a storage event`;
+      }],
+    ],
+    tD: [
+      ['canvas.captureStream() → <video>', 'MediaStream of the DOM', async (out) => {
+        const s = await source({ keepLive: true });
+        try { const v = await videoOf(s.c.captureStream(30)); arrive(out, v, { tol: 14 }); return `${v.videoWidth}×${v.videoHeight} video`; } finally { s.c.stop(); }
+      }],
+      ['MediaStreamTrack → transfer to worker', 'postMessage(track, [track])', async (out) => {
+        const s = await source({ keepLive: true });
+        try {
+          const [track] = s.c.captureStream(30).getVideoTracks();
+          const r = await ask('track', { payload: track }, [track]);
+          arrive(out, r.bitmap, { tol: 14 }); return r.detail;
+        } finally { s.c.stop(); }
+      }],
+      ['MediaStreamTrack → transfer to cross-origin frame', 'postMessage(track, [track])', async (out) => {
+        const s = await source({ keepLive: true });
+        try {
+          const [track] = s.c.captureStream(30).getVideoTracks();
+          const r = await echo('track', track, [track]);
+          arrive(out, r.bitmap, { tol: 14 }); return r.detail;
+        } finally { s.c.stop(); }
+      }],
+      ['MediaStreamTrackProcessor → ReadableStream<VideoFrame>', 'frames as a stream', async (out) => {
+        if (typeof MediaStreamTrackProcessor === 'undefined') throw skip('MediaStreamTrackProcessor is not exposed on the main thread here');
+        const s = await source({ keepLive: true });
+        try {
+          const [track] = s.c.captureStream(30).getVideoTracks();
+          const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+          const { value } = await reader.read();
+          arrive(out, value, { tol: 14 }); value.close(); reader.cancel();
+        } finally { s.c.stop(); }
+      }],
+      ['ReadableStream<VideoFrame> → transfer to worker', 'transferable stream', async (out) => {
+        const s = await source({ keepLive: true });
+        try {
+          const readable = frameStream(s.c);
+          const r = await ask('stream', { payload: readable }, [readable]);
+          arrive(out, r.bitmap, { tol: 14 }); return r.detail;
+        } finally { s.c.stop(); }
+      }],
+      ['ReadableStream<VideoFrame> → transfer to cross-origin frame', 'transferable stream over window.postMessage', async (out) => {
+        const s = await source({ keepLive: true });
+        try {
+          const readable = frameStream(s.c);
+          const r = await echo('stream', readable, [readable]);
+          arrive(out, r.bitmap, { tol: 14 }); return r.detail;
+        } finally { s.c.stop(); }
+      }],
+      ['ReadableStream<ImageBitmap> → transfer to cross-origin frame', 'same stream, but chunks that can be cloned across origins', async (out) => {
+        const s = await source({ keepLive: true });
+        try {
+          const readable = new ReadableStream({ async pull(c) { await sleep(30); c.enqueue(await createImageBitmap(s.c)); } }, { highWaterMark: 1 });
+          const r = await echo('stream', readable, [readable]);
+          arrive(out, r.bitmap); return r.detail;
+        } finally { s.c.stop(); }
+      }],
+      ['VideoFrames → MediaStreamTrackGenerator → <video>', 'rebuild a real video track at the far end (unlocks Picture-in-Picture, recording, WebRTC)', async (out) => {
+        const Gen = globalThis.MediaStreamTrackGenerator;
+        if (!Gen) throw skip('MediaStreamTrackGenerator is not available on the main thread here');
+        const s = await source();
+        const gen = new Gen({ kind: 'video' });
+        const writer = gen.writable.getWriter();
+        let t = 0, on = true;
+        (async () => { while (on) { const f = new VideoFrame(s.c, { timestamp: (t += 33333) }); await writer.write(f).catch(() => {}); f.close(); await sleep(30); } })();
+        try {
+          const v = await videoOf(new MediaStream([gen]));
+          arrive(out, v, { tol: 14 });
+          return `${v.videoWidth}×${v.videoHeight} <video>; requestPictureInPicture ${'requestPictureInPicture' in v ? 'available' : 'missing'}`;
+        } finally { on = false; }
+      }],
+      ['WebRTC: RTCPeerConnection loopback', 'the route that reaches other devices', async (out) => {
+        const s = await source({ keepLive: true });
+        const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+        try {
+          a.onicecandidate = (e) => e.candidate && b.addIceCandidate(e.candidate);
+          b.onicecandidate = (e) => e.candidate && a.addIceCandidate(e.candidate);
+          const remote = new Promise((r) => (b.ontrack = (e) => r(e.streams[0] ?? new MediaStream([e.track]))));
+          const stream = s.c.captureStream(30);
+          stream.getTracks().forEach((t) => a.addTrack(t, stream));
+          await a.setLocalDescription(await a.createOffer());
+          await b.setRemoteDescription(a.localDescription);
+          await b.setLocalDescription(await b.createAnswer());
+          await a.setRemoteDescription(b.localDescription);
+          const v = await videoOf(await remote);
+          arrive(out, v, { tol: 40 });
+          return `decoded ${v.videoWidth}×${v.videoHeight} on the far peer`;
+        } finally { s.c.stop(); setTimeout(() => { a.close(); b.close(); }, 100); }
+      }, 15000],
+      ['WebCodecs: VideoEncoder → bytes → BroadcastChannel → VideoDecoder', 'compressed DOM frames over any byte pipe', async (out) => {
+        const s = await source();
+        const chunks = [];
+        let cfg;
+        const enc = new VideoEncoder({ output: (chunk, meta) => { const buf = new ArrayBuffer(chunk.byteLength); chunk.copyTo(buf); chunks.push({ buf, type: chunk.type, timestamp: chunk.timestamp }); if (meta?.decoderConfig) cfg = meta.decoderConfig; }, error: (e) => { throw e; } });
+        enc.configure({ codec: 'vp8', width: W, height: H, bitrate: 1_000_000 });
+        const f = new VideoFrame(s.c, { timestamp: 0 });
+        enc.encode(f, { keyFrame: true }); f.close();
+        await enc.flush(); enc.close();
+        const a = new BroadcastChannel('lab-codec'), b = new BroadcastChannel('lab-codec');
+        const got = new Promise((r) => (b.onmessage = (e) => r(e.data)));
+        a.postMessage(chunks[0]);
+        const c0 = await got; a.close(); b.close();
+        const frame = await new Promise((resolve, reject) => {
+          const dec = new VideoDecoder({ output: resolve, error: reject });
+          dec.configure({ codec: 'vp8', codedWidth: W, codedHeight: H });
+          dec.decode(new EncodedVideoChunk({ type: c0.type, timestamp: c0.timestamp, data: c0.buf }));
+          dec.flush().catch(reject);
+        });
+        arrive(out, frame, { tol: 40 }); frame.close();
+        return `one ${c0.buf.byteLength} byte VP8 keyframe for a ${W}×${H} element`;
+      }],
+    ],
+    tE: [
+      ['WebGL: texElementSubImage2D(element)', 'DOM straight into a texture on a WebGL canvas', async (out) => {
+        const s = await source({ type: 'webgl', draw: 'none' });
+        const gl = s.gl;
+        if (!gl.texElementSubImage2D) throw new Error('no texElementSubImage2D on this WebGL context');
+        const size = s.c.getElementImageDefaultSize(s.el);
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, size.width, size.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, s.el);
+        const err = gl.getError();
+        if (err) throw new Error('GL error 0x' + err.toString(16));
+        const fb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        const px = new Uint8Array(4);
+        gl.readPixels(14, 14, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fb); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+        gl.blitFramebuffer(0, 0, size.width, size.height, 0, H, W, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+        if (!near(Array.from(px))) throw new Error(`texture pixel is ${Array.from(px).join(',')}`);
+        arrive(out, s.c);
+        return `${size.width}×${size.height} texture, pixel ${Array.from(px).join(',')}`;
+      }],
+      ['WebGL: texElementSubImage2D(ElementImage)', 'snapshot object into the same WebGL canvas', async (out) => {
+        const s = await source({ type: 'webgl', draw: 'none' });
+        const gl = s.gl;
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        const img = s.snap();
+        const size = s.c.getElementImageDefaultSize(img);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, size.width, size.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, img);
+        const err = gl.getError(); if (err) throw new Error('GL error 0x' + err.toString(16));
+        const fb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+        gl.blitFramebuffer(0, 0, size.width, size.height, 0, H, W, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+        arrive(out, s.c);
+        return `${size.width}×${size.height} texture from an ElementImage`;
+      }],
+      ['WebGL: texImage2D(2D canvas with drawn DOM)', 'pixel route into any WebGL context', async (out) => {
+        const s = await source();
+        const b = document.createElement('canvas'); b.width = W; b.height = H;
+        const gl = b.getContext('webgl2');
+        const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, s.c);
+        const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        const px = new Uint8Array(4); gl.readPixels(14, 14, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        if (!near(Array.from(px))) throw new Error('texture pixel ' + Array.from(px).join(','));
+        arrive(out, s.c);
+        return 'texture pixel ' + Array.from(px).join(',');
+      }],
+      ['WebGPU: copyElementImageToTexture(element)', 'DOM straight into a GPUTexture', async () => {
+        if (!navigator.gpu) throw skip('WebGPU is not available in this browser');
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) throw skip('no WebGPU adapter on this machine');
+        const device = await adapter.requestDevice();
+        const fn = device.queue.copyElementImageToTexture ? 'copyElementImageToTexture' : device.queue.drawElementImageToTexture ? 'drawElementImageToTexture' : null;
+        if (!fn) throw new Error('GPUQueue has neither copyElementImageToTexture nor drawElementImageToTexture');
+        const s = await source({ type: 'webgpu', draw: 'none' });
+        const ctx = s.c.getContext('webgpu');
+        ctx.configure({ device, format: navigator.gpu.getPreferredCanvasFormat() });
+        const texture = device.createTexture({ size: [W, H], format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING });
+        device.pushErrorScope('validation');
+        if (fn === 'copyElementImageToTexture') device.queue.copyElementImageToTexture(s.el, { texture });
+        else device.queue.drawElementImageToTexture({ source: s.el }, { texture });
+        const e = await device.popErrorScope();
+        if (e) throw new Error(e.message);
+        return `${fn} accepted the element`;
+      }],
+      ['WebGPU: copyExternalImageToTexture(2D canvas with drawn DOM)', 'pixel route into WebGPU', async () => {
+        if (!navigator.gpu) throw skip('WebGPU is not available in this browser');
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) throw skip('no WebGPU adapter on this machine');
+        const device = await adapter.requestDevice();
+        const s = await source();
+        const texture = device.createTexture({ size: [W, H], format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+        device.pushErrorScope('validation');
+        device.queue.copyExternalImageToTexture({ source: s.c }, { texture }, [W, H]);
+        const e = await device.popErrorScope();
+        if (e) throw new Error(e.message);
+        return 'copied';
+      }],
+    ],
+  };
+
+  // A transferable ReadableStream of VideoFrames made from the canvas.
+  function frameStream(canvas) {
+    let t = 0;
+    return new ReadableStream({
+      async pull(controller) {
+        await sleep(30);
+        controller.enqueue(new VideoFrame(canvas, { timestamp: (t += 33333) }));
+      },
+    }, { highWaterMark: 1 });
+  }
+
+  // ---------- runner ----------
+  const tally = { pass: 0, fail: 0, skip: 0 };
+  const results = [];
+  const score = document.getElementById('score');
+  if (!supported) {
+    score.textContent = 'HTML-in-canvas is not available, so nothing can be tested here.';
+  } else {
+    for (const [tbody, list] of Object.entries(routes)) {
+      for (const [name, via, run, timeout] of list) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="status pending">…</td><td><div class="route"></div><div class="via"></div></td><td class="out"><canvas width="${W}" height="${H}"></canvas></td><td class="detail"></td>`;
+        tr.querySelector('.route').textContent = name;
+        tr.querySelector('.via').textContent = via;
+        document.getElementById(tbody).append(tr);
+        const status = tr.querySelector('.status');
+        let state, detail;
+        console.debug('lab:start ' + name);
+        try {
+          detail = await withTimeout(run(tr.querySelector('canvas')), timeout ?? 6000);
+          state = 'pass';
+        } catch (err) {
+          state = err.skip ? 'skip' : 'fail';
+          detail = err.skip ? err.message : `${err.name}: ${err.message}`;
+        }
+        tally[state]++;
+        status.className = 'status ' + state;
+        status.textContent = { pass: '✓ works', fail: '✗ fails', skip: '– n/a' }[state];
+        tr.querySelector('.detail').textContent = detail ?? '';
+        results.push({ name, ok: state === 'pass', state, detail });
+        console.debug(`lab:${state} ${name} | ${detail ?? ''}`);
+        score.textContent = `${tally.pass} routes work · ${tally.fail} fail · ${tally.skip} not testable here`;
+      }
+    }
+    window.__results = results;
+  }
+</script>
+</body>
+</html>
