@@ -18,6 +18,9 @@ Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-ca
 | `/lens/` | `<dom-lens>`: magnifier, fisheye and x-ray over live DOM, sharp at any zoom |
 | `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
+| `/transitions/` | `<live-transition>`: shatter, fold, burn and morph between two states that both stay live and clickable |
+| `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
+| `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
@@ -25,7 +28,9 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
 - `public/lib/canvas-slot.js`: the `<canvas-slot>` element. `onrender = ({ ctx, draw, elements, time }) => …`; `worker="url"` for OffscreenCanvas mode.
 - `public/lib/slot-share.js`: `publish(canvasSlot)` and `<slot-view name>` to share slots over a MessagePort; `connectBroker()` introduces same-origin tabs through a SharedWorker (`broker.js`).
-
+- `public/lib/live-transition.js`: `<live-transition>`. Children are states; `show(i, { effect, origin })`, or `begin(i)` then set `progress` to hold part way. Effects are functions in `LiveTransition.effects`.
+- `public/lib/dom-rewind.js`: `<dom-rewind seconds trails>`. `place(el, { x, y, rotate })`, `seek(secondsAgo)`, `replay()`, `restore()`, `oncapture` / `onrestore` for app state.
+- `public/lib/glyph-field.js`: `<glyph-field pointer="repel">`. `explode()`, `rain()`, `vortex()`, `scatter()`, `assemble()`, `highlight(text)`.
 - `public/lib/dom-portal.js`: `<dom-portal for="id" scale="0.5">` mirrors any element; `<dom-portal-source layer="top">` for sources inside clipping ancestors.
 - `public/lib/dom-lens.js`: `<dom-lens mode="magnify|fisheye|xray" zoom radius>` around any markup.
 - `public/lib/shader-fx.js`: the `fx` attribute (`ripple`, `glass`, `haze`, `crt`, `dissolve`, `curl`) and `defineEffect(name, { glsl })`.
