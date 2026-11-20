@@ -19,11 +19,11 @@
 // last. The menu, the homepage and the previous/next arrows follow the group
 // order below (see the sort at the end).
 window.DEMO_GROUPS = [
+  ['contexts', 'Experiments: workers, tabs and origins'],
   ['slots', 'Experiments: slots'],
   ['primitives', 'Experiments: UI primitives'],
   ['motion', 'Experiments: transitions and motion'],
   ['3d', 'Experiments: 3D and shaders'],
-  ['contexts', 'Experiments: workers, tabs and origins'],
   ['audit', 'Measurements: accessibility, capture and performance'],
   ['start', 'Learn the API'],
 ];
