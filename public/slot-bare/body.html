@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page-level canvas slots</title>
+<style>
+  body { margin: 0; font: 15px/1.5 system-ui; color: #222; background: #fff; }
+  body > * { max-width: 560px; margin: 12px 16px; }
+  body > [slot=stage] { width: 240px; padding: 10px 12px; border-radius: 10px; background: #ffe9ec; color: #3a0a12; border: 1px solid #f0b3bd; margin: 0; }
+  button { font: inherit; }
+</style>
+</head>
+<body>
+  <h3 style="margin-bottom:0">An ordinary page</h3>
+  <p>This paragraph is a normal child of <code>&lt;body&gt;</code> and flows as usual through the default slot.</p>
+
+  <aside slot="stage">I opted in with <code>slot="stage"</code>. <button type="button" onclick="this.textContent='Clicked!'">Click me</button></aside>
+  <aside slot="stage" style="background:#e6f4ea;color:#0d2f18;border-color:#a9d6b6">So did I. We're siblings of the paragraphs in the source.</aside>
+
+  <p>And this paragraph comes after the two asides in the markup. Remove the script and the page is plain HTML again.</p>
+
+  <script type="module">
+    const supported = 'drawElementImage' in CanvasRenderingContext2D.prototype;
+    if (supported) {
+      // The entire mechanism: a shadow root on <body>.
+      const root = document.body.attachShadow({ mode: 'open' });
+      root.innerHTML = `
+        <canvas content="drawable" layoutsubtree style="display:block;width:100%;height:130px;background:#f4f1ea">
+          <slot name="stage"></slot>
+        </canvas>
+        <slot></slot>`;
+      for (const el of document.querySelectorAll('body > [slot=stage]')) el.setAttribute('drawable', '');
+      const canvas = root.querySelector('canvas');
+      const ctx = canvas.getContext('2d');
+      new ResizeObserver(([e]) => {
+        canvas.width = e.devicePixelContentBoxSize[0].inlineSize;
+        canvas.height = e.devicePixelContentBoxSize[0].blockSize;
+        canvas.requestPaint();
+      }).observe(canvas, { box: 'device-pixel-content-box' });
+      const start = performance.now();
+      canvas.onpaint = () => {
+        const dpr = canvas.width / canvas.clientWidth;
+        const t = (performance.now() - start) / 1000;
+        ctx.reset();
+        ctx.scale(dpr, dpr);
+        let x = 20;
+        root.querySelector('slot[name=stage]').assignedElements().forEach((el, i) => {
+          ctx.save();
+          ctx.translate(x, 22 + Math.sin(t * 2 + i * 2) * 6);
+          ctx.rotate(Math.sin(t + i) * 0.03);
+          ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight);
+          ctx.restore();
+          x += el.offsetWidth + 20;
+        });
+      };
+      (function loop() { canvas.requestPaint(); requestAnimationFrame(loop); })();
+      window.__ok = true;
+    }
+  </script>
+</body>
+</html>

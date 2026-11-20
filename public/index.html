@@ -6,49 +6,128 @@
 <title>HTML-in-canvas experiments</title>
 <link rel="stylesheet" href="/shared/style.css">
 <style>
-  .demos { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 24px; }
-  .demos a { text-decoration: none; color: inherit; }
-  .demos .card:hover { border-color: var(--fg); }
-  .demos h3 { margin: 0 0 6px; }
-  .demos p { margin: 0; color: var(--muted); font-size: 15px; }
+  .hero h1 { font-size: clamp(34px, 7vw, 64px); letter-spacing: -0.035em; line-height: 1; margin: 28px 0 14px; text-wrap: balance; }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .mode { font: 13px var(--mono); color: var(--muted); margin: 18px 0 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .mode b { font-weight: 600; color: var(--fg); }
+  .mode button { font: 12px var(--mono); padding: 2px 8px; }
+
+  /* The demo index is a plain grid of links. Everything below works with no JS. */
+  .demos { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 16px; }
+  .demo {
+    display: block; box-sizing: border-box; text-decoration: none; color: var(--fg);
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 16px;
+  }
+  .demo:hover { border-color: var(--fg); }
+  .demo:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .demo .num { font: 12px var(--mono); color: var(--accent); letter-spacing: 0.08em; }
+  .demo h2 { font-size: 20px; margin: 6px 0 6px; letter-spacing: -0.015em; }
+  .demo p { margin: 0 0 12px; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+  .demo .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .demo .tags span { font: 11px var(--mono); padding: 2px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .demo.soon { border-style: dashed; background: transparent; }
+  .demo.soon .num { color: var(--muted); }
+
+  /* Enhanced mode: the same links, slotted into a canvas in a shadow root. */
+  .demos.enhanced { display: block; margin: 0 -28px; }
+  .demos.enhanced > .demo { width: var(--cw, 280px); }
+  /* The canvas draws its own hover state; keep snapshots stable. */
+  .demos.enhanced > .demo:hover { border-color: var(--line); }
+
+  .next { columns: 2 320px; column-gap: 32px; padding-left: 18px; }
+  .next li { break-inside: avoid; margin-bottom: 10px; }
 </style>
 </head>
 <body>
 <main>
-  <div id="support"></div>
-  <h1>HTML-in-canvas experiments</h1>
-  <p class="lede">
-    Exploring the experimental <a href="https://github.com/WICG/html-in-canvas">HTML-in-canvas</a> API
-    (<code>&lt;canvas content="drawable"&gt;</code>, <code>drawElementImage()</code>, <code>captureElementImage()</code>, the <code>paint</code> event):
-    can DOM be reprojected into a canvas without living inside it, and how far can those pixels and snapshots travel?
-    Every page runs live tests in your browser and reports what works and what doesn't.
+  <section class="hero">
+    <h1>What happens when the DOM can go <em>anywhere a pixel can</em>?</h1>
+    <p class="lede">
+      Experiments with the <a href="https://github.com/WICG/html-in-canvas">HTML-in-canvas</a> API: reprojecting real, interactive DOM
+      through slots, workers, tabs and origins. Each page runs live tests in your browser and says what works and what doesn't.
+    </p>
+  </section>
+
+  <div class="mode" id="mode" hidden></div>
+
+  <nav class="demos" id="demos" aria-label="Demos">
+    <a class="demo" href="/slot/">
+      <span class="num">01</span>
+      <h2>&lt;canvas-slot&gt;</h2>
+      <p>A custom element that slots its light-DOM children into a shadow canvas. They are drawn with effects and stay clickable, focusable and typeable.</p>
+      <span class="tags"><span>shadow DOM</span><span>drawElementImage</span></span>
+    </a>
+    <a class="demo" href="/slot-bare/">
+      <span class="num">02</span>
+      <h2>Just a slot in a canvas</h2>
+      <p>No library: <code>&lt;slot name&gt;</code> inside <code>&lt;canvas&gt;</code> with declarative shadow DOM, and a shadow root on <code>&lt;body&gt;</code> for page-level slots.</p>
+      <span class="tags"><span>declarative shadow DOM</span><span>slot</span></span>
+    </a>
+    <a class="demo" href="/offscreen/">
+      <span class="num">03</span>
+      <h2>OffscreenCanvas</h2>
+      <p>Transfer <code>ElementImage</code> snapshots to a worker that keeps animating while the main thread is blocked. Plus a DOM magnifier.</p>
+      <span class="tags"><span>worker</span><span>captureElementImage</span></span>
+    </a>
+    <a class="demo" href="/cross-tab/">
+      <span class="num">04</span>
+      <h2>Across tabs</h2>
+      <p>Stream a slot to another tab over a MessagePort brokered by a SharedWorker. Clicks and typing in the other tab come back to the real DOM.</p>
+      <span class="tags"><span>MessageChannel</span><span>SharedWorker</span><span>ImageBitmap</span></span>
+    </a>
+    <a class="demo" href="/cross-origin/">
+      <span class="num">05</span>
+      <h2>Across origins</h2>
+      <p>Borrow another origin's DOM as pixels, and lend yours: a cross-origin iframe renders this page's DOM into a transferred canvas.</p>
+      <span class="tags"><span>postMessage</span><span>transferControlToOffscreen</span></span>
+    </a>
+    <a class="demo soon" href="https://github.com/PaulKinlan/html-in-canvas-demos">
+      <span class="num">NEXT</span>
+      <h2>3D, shaders, accessibility</h2>
+      <p>WebGL and WebGPU textures from live DOM, three.js scenes, and a proper look at what assistive tech sees. Source and notes on GitHub.</p>
+      <span class="tags"><span>texElementImage2D</span><span>WebGPU</span><span>a11y</span></span>
+    </a>
+  </nav>
+
+  <h2>The building block</h2>
+  <p>
+    <a href="/lib/canvas-slot.js"><code>canvas-slot.js</code></a> is one dependency-free module. Children with a <code>slot</code> name are projected into a
+    canvas; you get a render callback with a <code>draw(name, x, y)</code> helper. Add <code>worker="…"</code> to render off the main thread, or pair it with
+    <a href="/lib/slot-share.js"><code>slot-share.js</code></a> to publish slots to other tabs and origins.
   </p>
+<pre><code>&lt;script type="module" src="https://html-in-canvas-demos.kinlan-test.workers.dev/lib/canvas-slot.js"&gt;&lt;/script&gt;
 
-  <div class="demos" id="demos">
-    <a href="/slot/"><div class="card"><h3>1 · Slots</h3><p>A <code>&lt;canvas-slot&gt;</code> element: light-DOM children are slotted into a shadow canvas and drawn, still interactive.</p></div></a>
-    <a href="/offscreen/"><div class="card"><h3>2 · OffscreenCanvas</h3><p>Transfer <code>ElementImage</code> snapshots to a worker, animate off the main thread, and reproject parts of the DOM.</p></div></a>
-    <a href="/cross-tab/"><div class="card"><h3>3 · Cross-tab</h3><p>Reproject a piece of one page into another tab, with clicks and typing sent back.</p></div></a>
-    <a href="/cross-origin/"><div class="card"><h3>4 · Cross-origin</h3><p>What survives <code>postMessage</code> across origins: ElementImages, transferred OffscreenCanvases, ImageBitmaps.</p></div></a>
-  </div>
-
-  <h2>Building block</h2>
-  <p>All demos use <a href="/lib/canvas-slot.js"><code>/lib/canvas-slot.js</code></a>, a small custom element: a slot name plus a canvas.</p>
-<pre><code>&lt;script type="module" src="/lib/canvas-slot.js"&gt;&lt;/script&gt;
-&lt;canvas-slot id="c"&gt;
+&lt;canvas-slot id="stage"&gt;
   &lt;h2 slot="title"&gt;Real DOM&lt;/h2&gt;
   &lt;button slot="cta"&gt;Still clickable&lt;/button&gt;
 &lt;/canvas-slot&gt;
-&lt;script&gt;
-  c.onrender = ({ ctx, draw }) =&gt; { ctx.rotate(0.05); draw('title', 20, 20); draw('cta', 20, 90); };
-&lt;/script&gt;</code></pre>
-  <p class="note">Add <code>worker="./renderer.js"</code> and the canvas is transferred to an OffscreenCanvas in that worker, which receives the slotted elements as <code>ElementImage</code> snapshots.</p>
 
-  <p class="note">Source: <a href="https://github.com/PaulKinlan/html-in-canvas-demos">github.com/PaulKinlan/html-in-canvas-demos</a>.</p>
+&lt;script&gt;
+  stage.onrender = ({ ctx, draw, time }) =&gt; {
+    ctx.rotate(Math.sin(time / 800) * 0.05);
+    draw('title', 20, 20);
+    draw('cta', 20, 90);
+  };
+&lt;/script&gt;</code></pre>
+
+  <h2>Where this could go</h2>
+  <ul class="next">
+    <li><strong>A drop-in element with named effects.</strong> <code>&lt;canvas-slot effect="tilt"&gt;</code> so nobody writes a render loop: ship a small set of effects (tilt, ripple, dissolve, page-curl) and let CSS custom properties drive them.</li>
+    <li><strong>Shader slots.</strong> The same element with a WebGL/WebGPU backend: each slot becomes a texture and <code>effect</code> points at a fragment shader. "CSS filters you can write yourself."</li>
+    <li><strong>View transitions you own.</strong> Capture the outgoing and incoming DOM as two slots and blend them in a shader, while both stay live.</li>
+    <li><strong>DOM in 3D.</strong> three.js <code>HTMLTexture</code> scenes where panels are real forms, with <code>updateElementGeometry</code> keeping hit testing right.</li>
+    <li><strong>Accessibility audit.</strong> What the accessibility tree, focus order, find-in-page, selection and zoom look like for slotted content, per pattern.</li>
+    <li><strong>Portable widgets.</strong> A <code>&lt;slot-view&gt;</code> protocol for embedding a live piece of another site without an iframe's layout box, with consent and input forwarding.</li>
+    <li><strong>Picture-in-picture for any element.</strong> Stream a slot into a Document PiP window or a <code>&lt;video&gt;</code> via <code>captureStream()</code>.</li>
+    <li><strong>Export.</strong> Record DOM animations straight to video with WebCodecs, or print-quality PNGs of any component.</li>
+  </ul>
+
+  <p class="note" style="margin-top:40px">
+    Needs Chrome 148+ with <code>chrome://flags/#canvas-draw-element</code> (or the <code>html-in-canvas</code> origin trial). Everything else, including this page, is plain HTML.
+    Source: <a href="https://github.com/PaulKinlan/html-in-canvas-demos">github.com/PaulKinlan/html-in-canvas-demos</a>.
+  </p>
 </main>
-<script type="module">
-  import { banner, nav } from '/shared/support.js';
-  nav('/');
-  banner();
-</script>
+
+<script type="module" src="/home.js"></script>
 </body>
 </html>
