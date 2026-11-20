@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { HTMLSurfaces, installThreeShims, support } from '/lib/html3d.js';
 import { banner, nav, runTests } from '/shared/support.js';
+import { isFixture, mirror, publish, sampleGL, watchContext } from '/lib/check-fixture.js';
 
 nav('/three-form/');
 banner();
@@ -24,7 +25,7 @@ if (useGPU) {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   backendName = 'three WebGLRenderer';
 }
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(isFixture ? 1 : Math.min(devicePixelRatio, 2)); // the hidden copy that runs the checks stays cheap
 let deviceLost = '';
 renderer.backend?.device?.lost.then((info) => (deviceLost = `WebGPU device lost: ${info.message || info.reason}`));
 
@@ -329,9 +330,15 @@ function frame(time) {
   scene.updateMatrixWorld();
   surfaces.update();
   renderer.render(scene, camera);
+  if (blankProbe) {
+    blankProbe(renderer.isWebGLRenderer ? sampleGL(renderer.getContext()) : -1);
+    blankProbe = null;
+  }
   const st = surfaces.stats;
   hud.textContent = `${backendName}\npaints ${st.paints}  uploads ${st.uploads}  geometry ${st.geometryUpdates}${hover ? `\nunder pointer: ${hover}` : ''}${st.lastError ? `\n${st.lastError}` : ''}${deviceLost ? `\n${deviceLost}` : ''}`;
 }
+let blankProbe = null;
+const context = watchContext(canvas, $('stage'));
 renderer.setAnimationLoop(frame);
 
 // ------------------------------------------------------------------ live tests
@@ -402,7 +409,24 @@ async function expectHit(key, el, fx, fy, { tracked = true } = {}) {
 window.__scene = { surfaces, S, camera, scene };
 window.__touchTargets = () => ['w-anim', 'w-link', 'w-filter'].map((id) => ({ name: id, ...clientPoint('wall', $(id), 0.5, 0.5) }));
 
-if (support.paint) {
+if (support.paint && !isFixture) {
+  // The checks fly the camera around and focus fields, so they run on a hidden copy of this page.
+  await mirror($('results'), runTests, {
+    query: useGPU ? '&renderer=webgpu' : '',
+    extra: [{
+      name: 'The scene on this page is not blank',
+      why: 'Read back from the canvas on this page, not the hidden copy. Fails if it is one flat colour or its graphics context is gone.',
+      run: async () => {
+        if (context.lost()) throw new Error('the WebGL context is lost');
+        if (deviceLost) throw new Error(deviceLost);
+        const n = await new Promise((resolve) => (blankProbe = resolve));
+        if (n < 0) return 'WebGPU: the device is alive (pixels are not read back on this renderer)';
+        if (n < 3) throw new Error(`only ${n} colour${n === 1 ? '' : 's'} across the whole canvas`);
+        return `${n} different colours across a 7×7 grid of samples`;
+      },
+    }],
+  });
+} else if (support.paint) {
   await until(() => surfaces.stats.uploads >= 3 || surfaces.stats.lastError, 5000).catch(() => {});
   auto = false;
   // elementFromPoint() only answers inside the viewport, so the scene has to be on screen.
@@ -627,7 +651,7 @@ if (support.paint) {
       },
     },
   ];
-  await runTests($('results'), tests);
+  await runTests($('results'), publish(tests));
   scrollTo(0, scrollBefore);
   view('overview', true);
   auto = true;

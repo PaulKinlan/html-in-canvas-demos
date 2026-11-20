@@ -1,6 +1,7 @@
 // An infinite, zoomable board whose tiles are live DOM: notes and same-origin iframes.
 // Everything is drawn with one 2D context: ctx.setTransform(zoom) + drawElementImage(tile).
 import { banner, nav, runTests, supported } from '/shared/support.js';
+import { isFixture, mirror, publish, sample2D, watchContext } from '/lib/check-fixture.js';
 
 const embed = new URLSearchParams(location.search).has('embed');
 const depth = Number(new URLSearchParams(location.search).get('depth') || 0);
@@ -38,6 +39,7 @@ let nextId = 1, topZ = 1, active = null;
 const stats = { paints: 0, drawn: 0, placeholders: 0, culled: 0, ms: 0 };
 
 function load() {
+  if (isFixture) return null; // the hidden copy that runs the checks never touches the saved board
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (saved?.tiles?.length) return saved;
@@ -46,6 +48,7 @@ function load() {
 }
 let saveTimer = 0;
 function save() {
+  if (isFixture) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     const data = { cam, tiles: tiles.filter((t) => !t.temp).map(({ el, parked, ...t }) => ({ ...t, text: t.type === 'note' ? el.querySelector('.text').innerText : undefined })) };
@@ -548,7 +551,23 @@ if (!supported) {
 window.__board = { get tiles() { return tiles; }, get cam() { return cam; }, get size() { return size; }, get active() { return active; }, stats, makeTile, removeTile, flyTo, frameRect, fitAll, reveal, activate, zoomAt };
 
 // ------------------------------------------------------------------ live tests
-if (supported && !embed) {
+const context = supported ? watchContext(canvas, stage, { onRestore: () => canvas.requestPaint() }) : null;
+if (supported && !embed && !isFixture) {
+  // The checks move the camera and add tiles, so they run on a hidden copy of this page.
+  await mirror($('results'), runTests, {
+    extra: [{
+      name: 'The board on this page is not blank',
+      why: 'Read back from the canvas on this page, not the hidden copy. Fails if it is one flat colour or its graphics context is gone.',
+      run: async () => {
+        if (context.lost()) throw new Error('the 2D context is lost');
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const n = sample2D(ctx);
+        if (n < 2) throw new Error('every sampled pixel is the same colour');
+        return `${n} different colours across a 7×7 grid of samples`;
+      },
+    }],
+  });
+} else if (supported && !embed) {
   const frames = (n = 2) => new Promise((resolve) => { const step = () => (n-- > 0 ? requestAnimationFrame(step) : resolve()); step(); });
   const painted = () => new Promise((resolve) => { canvas.addEventListener('paint', () => resolve(), { once: true }); canvas.requestPaint(); });
   const onScreen = () => { const r = stage.getBoundingClientRect(); if (r.top < 56 || r.bottom > innerHeight) stage.scrollIntoView({ block: 'nearest' }); };
@@ -565,7 +584,7 @@ if (supported && !embed) {
   // elementFromPoint() only answers inside the viewport, so the board has to be on screen.
   stage.scrollIntoView({ block: 'nearest' });
 
-  await runTests($('results'), [
+  await runTests($('results'), publish([
     {
       name: 'A tile is hit-testable where it is drawn, at 40%, 100% and 300%',
       why: 'drawElementImage() under a scale transform moves the element’s geometry with it.',
@@ -760,7 +779,7 @@ if (supported && !embed) {
         return `${live} live tiles, median ${times[6].toFixed(1)} ms from requestPaint() to painted, ${stats.ms.toFixed(1)} ms in the paint handler`;
       },
     },
-  ]);
+  ]));
   flyTo(before.cam, 0);
   scrollTo(0, before.scroll);
   save();
