@@ -15,7 +15,8 @@ export function banner() {
     el.className = 'bad';
     el.innerHTML =
       'HTML-in-canvas is not available here. Use Chrome 148+ with <code>chrome://flags/#canvas-draw-element</code> enabled ' +
-      '(the API is also in an origin trial named <code>html-in-canvas</code>). The live tests below will report failures.';
+      '(the API is also in an origin trial named <code>html-in-canvas</code>). The live tests below will report failures. ' +
+      '<a href="/start/#enable">How to turn it on</a>.';
   }
 }
 

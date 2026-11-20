@@ -50,6 +50,7 @@ html.page-loading body>:not(#site-nav){opacity:0}\
   // nobody watches it load, and an opacity effect around a drawable canvas inside
   // an iframe that is itself drawn into a canvas (a page tile on /board/) crashes
   // the tab in Chromium 157.
+  var learnDone = false;
   var hold = document.readyState === 'loading' && window.top === window && !/[?&]nohold\b/.test(location.search);
   function reveal() { root.classList.remove('page-loading'); }
   if (hold) {
@@ -60,7 +61,8 @@ html.page-loading body>:not(#site-nav){opacity:0}\
         var h = root.scrollHeight;
         same = h === last ? same + 1 : 0;
         last = h;
-        if (same >= 3 || performance.now() - t0 > 800) reveal();
+        // Also wait for the "what you will learn" box (learnBox below), which adds height under the introduction.
+        if ((same >= 3 && learnDone) || performance.now() - t0 > 800) reveal();
         else requestAnimationFrame(settle);
       })();
     });
@@ -126,13 +128,37 @@ html.page-loading body>:not(#site-nav){opacity:0}\
   }
   function start() { ready(fill); }
 
+  // The box that says what a demo teaches (/shared/learn.js). Top-level pages
+  // only: a framed page is a tile or a test fixture. It needs the page's
+  // introduction to exist and the demo titles, so it waits for both. If the
+  // page is already showing by then, it goes at the end of the page instead of
+  // under the introduction, so nothing the reader is looking at moves.
+  function learnBox() {
+    if (window.top !== window || /[?&](bench|embed|nolearn)\b/.test(location.search)) { learnDone = true; return; }
+    var place = function () {
+      ready(function () {
+        var go = function () {
+          try { if (window.LEARN) window.LEARN.mount(!root.classList.contains('page-loading')); } catch (e) {}
+          learnDone = true;
+        };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+      });
+    };
+    if (window.LEARN) return place();
+    var l = document.createElement('script');
+    l.src = base + 'learn.js';
+    l.onload = place;
+    l.onerror = function () { learnDone = true; };
+    document.head.appendChild(l);
+  }
+
   ready(mount);
-  if (window.DEMOS) start();
+  if (window.DEMOS) { start(); learnBox(); }
   else {
     var s = document.createElement('script');
     s.src = base + 'demos.js';
-    s.onload = start;
-    s.onerror = start; // still show the bar with a Home link
+    s.onload = function () { start(); learnBox(); };
+    s.onerror = function () { start(); learnBox(); }; // still show the bar with a Home link
     document.head.appendChild(s);
   }
 })();

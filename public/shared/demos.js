@@ -14,6 +14,7 @@
 // branches that add demos in parallel merge cleanly. New group? Add it to
 // GROUPS, then use its key.
 window.DEMO_GROUPS = [
+  ['start', 'Start here'],
   ['slots', 'Slots'],
   ['contexts', 'Workers, tabs and origins'],
   ['primitives', 'UI primitives'],
@@ -23,6 +24,9 @@ window.DEMO_GROUPS = [
 ];
 
 window.DEMOS = [
+  // --- start ---
+  { group: 'start', href: '/start/', title: 'Start here', blurb: 'The API in one small page you can copy: how to turn it on, the four moves that draw a live element, where it bites, a learning path through these demos and a glossary.', tags: ['content="drawable"', 'paint', 'drawElementImage'] },
+
   // --- slots ---
   { group: 'slots', href: '/slot/', title: '<canvas-slot>', blurb: 'A custom element that slots its light-DOM children into a shadow canvas. They are drawn with effects and stay clickable, focusable and typeable.', tags: ['shadow DOM', 'drawElementImage'] },
   { group: 'slots', href: '/slot-bare/', title: 'Just a slot in a canvas', blurb: 'No library: <code>&lt;slot name&gt;</code> inside <code>&lt;canvas&gt;</code> with declarative shadow DOM, and a shadow root on <code>&lt;body&gt;</code> for page-level slots.', tags: ['declarative shadow DOM', 'slot'] },
