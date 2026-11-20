@@ -188,8 +188,9 @@ export class CanvasSlot extends HTMLElement {
       if (this.#worker) {
         this.#worker.postMessage({ type: 'resize', width: w, height: h, dpr: this.#dpr });
       } else {
-        this.#canvas.width = w;
-        this.#canvas.height = h;
+        // Assigning either side clears the canvas, even to the same value.
+        if (this.#canvas.width !== w) this.#canvas.width = w;
+        if (this.#canvas.height !== h) this.#canvas.height = h;
       }
       this.requestPaint();
     });
