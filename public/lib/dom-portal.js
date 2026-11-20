@@ -199,6 +199,24 @@ export class DomPortalSource extends HTMLElement {
     });
   }
 
+  // canvasTransform works in CSS px on some canvases and canvas-buffer px on
+  // others (it only matters on high-DPI screens). Measure instead of guessing:
+  // apply the identity and see how wide the element reports itself.
+  #unitKey = '';
+  #unitValue = 1;
+  #unit(cssWidth) {
+    const c = this.#canvas;
+    const key = `${c.width}x${c.height}/${c.clientWidth}x${c.clientHeight}/${Math.round(cssWidth)}`;
+    if (key === this.#unitKey) return this.#unitValue;
+    c.updateElementGeometry(this.#content, { canvasTransform: new DOMMatrix() });
+    const measured = this.#content.getBoundingClientRect().width;
+    if (measured > 0) {
+      this.#unitValue = cssWidth / measured;
+      this.#unitKey = key;
+    }
+    return this.#unitValue;
+  }
+
   /** Recompute the canvas box and redraw if anything changed. */
   update(force = false) {
     if (!this.#painted || !this.width || !this.isConnected) return;
@@ -319,7 +337,7 @@ export class DomPortalSource extends HTMLElement {
     }
 
     // One element, one geometry: give it to the copy under the pointer.
-    const m = new DOMMatrix().scale(k);
+    const m = new DOMMatrix().scale(this.#unit(w));
     if (active) m.translateSelf(active.cx - x0, active.cy - y0).scaleSelf(active.s);
     else m.translateSelf(home.left - x0, home.top - y0);
     const geometry = { canvasTransform: m };

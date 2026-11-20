@@ -258,7 +258,7 @@ export class SurfaceElement extends HTMLElement {
    * CSS px to canvas CSS px (the content's rest position is translate(bleed, bleed)).
    */
   setGeometry(matrix) {
-    const m = new DOMMatrix().scale(this.scale).multiply(matrix ?? this.restMatrix);
+    const m = new DOMMatrix().scale(geometryUnit(this.canvas, this.content, this.width)).multiply(matrix ?? this.restMatrix);
     this.canvas.updateElementGeometry(this.content, { canvasTransform: m });
   }
 
@@ -271,6 +271,31 @@ export class SurfaceElement extends HTMLElement {
     const r = this.getBoundingClientRect();
     return { x: event.clientX - r.left, y: event.clientY - r.top };
   }
+}
+
+const units = new WeakMap();
+
+/**
+ * updateElementGeometry()'s canvasTransform has been seen to work in CSS pixels
+ * on some canvases and in canvas-buffer pixels on others, which only shows up
+ * when the two differ (any high-DPI screen). Rather than guess, measure: apply
+ * the identity, see how wide the element says it is, and return the factor
+ * that makes one unit one CSS pixel. Cached until the canvas changes size.
+ */
+export function geometryUnit(canvas, element, cssWidth) {
+  const key = `${canvas.width}x${canvas.height}/${canvas.clientWidth}x${canvas.clientHeight}/${Math.round(cssWidth)}`;
+  const cached = units.get(canvas);
+  if (cached?.key === key) return cached.unit;
+  let unit = cached?.unit ?? 1;
+  try {
+    canvas.updateElementGeometry(element, { canvasTransform: new DOMMatrix() });
+    const measured = element.getBoundingClientRect().width;
+    if (measured > 0 && cssWidth > 0) {
+      unit = cssWidth / measured;
+      units.set(canvas, { key, unit });
+    }
+  } catch {}
+  return unit;
 }
 
 /** Compile a WebGL2 program; throws with the shader log on failure. */
