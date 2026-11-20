@@ -142,6 +142,18 @@ export class SurfaceElement extends HTMLElement {
       this.#raf = 0;
       this.#frame(performance.now());
     });
+    // A 2D canvas can lose its context too (GPU reset, memory pressure on a
+    // phone). Give it a moment to come back, then show the plain element.
+    let lost = 0;
+    this.canvas.addEventListener('contextlost', () => {
+      lost = setTimeout(() => this.fallBackToPlain('canvas context lost'), 1500);
+    });
+    this.canvas.addEventListener('contextrestored', () => {
+      clearTimeout(lost);
+      this.contentDirty = true;
+      this.canvas.requestPaint();
+      this.invalidate();
+    });
   }
 
   /** Switch to the plain fallback at runtime (e.g. the GL context was lost for good). */
@@ -149,7 +161,10 @@ export class SurfaceElement extends HTMLElement {
     if (!this.live) return;
     this.live = false;
     this.#teardown();
-    this.#root.innerHTML = '<slot></slot>';
+    // Say so on the page: plain HTML with a note beats an empty box.
+    this.#root.innerHTML = '<slot></slot><small part="notice" style="display:block;font:11px system-ui;opacity:.7;margin-top:2px"></small>';
+    this.#root.querySelector('small').textContent = `Shown as plain HTML (${reason}).`;
+    this.setAttribute('plain', reason);
     this.dispatchEvent(new CustomEvent('surfacefallback', { detail: { reason }, bubbles: true }));
   }
 
@@ -318,6 +333,8 @@ export function program(gl, vertexSrc, fragmentSrc) {
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
       const log = gl.getShaderInfoLog(s);
       gl.deleteShader(s);
+      // A context on its way out fails with no log, sometimes before isContextLost() says so.
+      if (gl.isContextLost() || !log) throw new Error('WebGL context lost');
       throw new Error('shader compile failed: ' + log);
     }
     return s;

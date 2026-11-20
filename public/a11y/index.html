@@ -57,7 +57,10 @@
   <p id="env"></p>
 
   <h2>A · What the API gives you <small>probes on small fixtures</small></h2>
-  <p id="scoreA" class="note">running…</p>
+  <div class="tools">
+    <button id="runA" type="button">Run the probes</button>
+    <span id="scoreA" class="note"></span>
+  </div>
   <table class="lab"><tbody id="tA"></tbody></table>
 
   <h2>B · Pattern by pattern <small>the same card, put in a canvas thirteen ways</small></h2>
@@ -66,8 +69,8 @@
     The last column was recorded from outside the browser with the DevTools protocol, which can read the real accessibility tree and press a real Tab key. Select a cell for the detail.
   </p>
   <div class="tools">
-    <button id="rerunP" type="button">Run again</button>
-    <span id="scoreP" class="note">waiting…</span>
+    <button id="rerunP" type="button">Measure the patterns</button>
+    <span id="scoreP" class="note">About a minute. Runs in the frame further down; nothing starts until you ask.</span>
   </div>
   <div style="overflow-x:auto"><table id="patterns" class="grid"><thead></thead><tbody></tbody></table></div>
 
@@ -75,13 +78,14 @@
   <p>
     The demo list is read from the shared menu (<code>/shared/demos.js</code>), so a new demo is audited as soon as it is registered there.
     To audit any other same-origin page, enter its path. Select a cell for the detail.
+    The first two columns are about behaving on a phone: has the page scrolled, taken focus or jumped about by the time its own checks finish, and is every canvas showing a picture. <code>/a11y/?url=/slot/</code> checks one page straight away.
   </p>
   <div class="tools">
-    <button id="rerun" type="button">Run again</button>
+    <button id="rerun" type="button">Audit every demo</button>
     <label>Audit a path <input type="text" id="path" placeholder="/slot/" autocomplete="off"></label>
     <button id="add" type="button">Audit</button>
     <button id="copy" type="button">Copy results as JSON</button>
-    <span id="scoreB" class="note"></span>
+    <span id="scoreB" class="note">A few minutes: each demo is loaded, left to settle, then measured.</span>
   </div>
   <p class="legend"><span><b class="pass">✓</b> holds up</span><span><b class="warn">!</b> works with a caveat</span><span><b class="fail">✗</b> broken for some users</span><span><b class="info">–</b> nothing to test</span></p>
   <div style="overflow-x:auto"><table id="matrix" class="grid"><thead></thead><tbody></tbody></table></div>
@@ -105,6 +109,7 @@
       </form>
     </canvas>
   </div>
+  <p id="hcBlank" class="note" hidden></p>
   <ol class="manual" id="manual"></ol>
 
   <h2>E · Checked with the DevTools protocol <small>Chromium 157 headless, 2026-11-20</small></h2>
@@ -136,7 +141,7 @@
 
 <script type="module">
   import { banner, nav, supported, withTimeout } from '/shared/support.js';
-  import { auditDocument, auditPattern, CHECKS, PATTERN_CHECKS } from '/lib/a11y-audit.js';
+  import { auditDocument, auditPattern, canvasState, CHECKS, PATTERN_CHECKS } from '/lib/a11y-audit.js';
   import { PATTERNS } from '/a11y/patterns.js';
   nav('/a11y/');
   banner();
@@ -208,7 +213,7 @@
       return `pixels changed; paint event listed ${changed ? changed.length : 'no'} changed element(s)`;
     }],
     ['Typed text and caret are painted', 'Set the selection in an input and insert text.', async () => {
-      const { ctx, els } = await rig(`<div drawable style="${BOX}"><input value="abc" size="10" aria-label="t"></div>`, (x, [a]) => x.drawElementImage(a, 40, 40, a.offsetWidth, a.offsetHeight));
+      const { ctx, els } = await rig(`<div drawable style="${BOX}"><input value="abc" size="10" aria-label="t" inputmode="none"></div>`, (x, [a]) => x.drawElementImage(a, 40, 40, a.offsetWidth, a.offsetHeight));
       const i = els[0].querySelector('input');
       i.focus({ preventScroll: true }); await frames(3);
       const h0 = hash(ctx, i);
@@ -616,15 +621,45 @@
   }
 
   // ------------------------------------------------------------------ go
-  if (supported) {
-    window.__results = {};
+  // Nothing heavy starts by itself: the probes focus fields and scroll, and the pattern and demo runs
+  // load two dozen pages. The probes run on load only where there is a mouse and no on-screen keyboard.
+  // ?run=all starts everything (used by automated runs); ?run=probes|patterns|demos picks.
+  const Q = new URLSearchParams(location.search);
+  const want = (Q.get('run') ?? '').split(',');
+  const desktop = matchMedia('(hover: hover) and (pointer: fine)').matches;
+  window.__results = {};
+  const doProbes = async () => {
+    $('#runA').disabled = true;
+    const y = scrollY, a = document.activeElement;
     window.__results.probes = await runProbes();
-    if (!new URLSearchParams(location.search).has('nopatterns')) await runPatterns();
+    if (a && a !== document.activeElement) (document.activeElement)?.blur?.();
+    scrollTo(scrollX, y);
+    $('#runA').disabled = false; $('#runA').textContent = 'Run again';
+  };
+  $('#runA').onclick = doProbes;
+  $('#rerunP').addEventListener('click', () => ($('#rerunP').textContent = 'Run again'));
+  $('#rerun').addEventListener('click', () => ($('#rerun').textContent = 'Run again'));
+  if (supported) {
+    // Say so if the hands-on panel never appears, rather than leaving an empty box.
+    setTimeout(async () => {
+      const st = await canvasState(hc);
+      if (st.state === 'drawn') return;
+      const note = $('#hcBlank');
+      note.hidden = false;
+      note.textContent = `The panel above did not draw (canvas is ${st.state}). The form is shown as plain HTML instead.`;
+      hc.replaceWith(hp);
+    }, 2500);
+    const all = want.includes('all');
+    if (all || want.includes('probes') || (desktop && !Q.has('run'))) await doProbes();
+    else $('#scoreA').textContent = 'Fourteen quick checks. They focus fields and scroll a little, so they wait for you on a touch screen.';
+    if ((all && !Q.has('nopatterns')) || want.includes('patterns')) { await runPatterns(); $('#rerunP').textContent = 'Run again'; }
     window.__results.patterns = [...patternReports.values()];
-    if (!new URLSearchParams(location.search).has('nomatrix')) await runMatrix(await discover());
+    if ((all && !Q.has('nomatrix')) || want.includes('demos')) { await runMatrix(await discover()); $('#rerun').textContent = 'Run again'; }
+    else if (Q.has('url') && !Q.has('run')) await runMatrix(Q.getAll('url')); // /a11y/?url=/slot/ checks just that page
     window.__results.demos = [...reports.values()];
     window.__done = true;
   } else {
+    $('#runA').disabled = $('#rerunP').disabled = $('#rerun').disabled = true;
     $('#scoreA').textContent = 'HTML-in-canvas is not available here, so there is nothing drawn to audit. The by-hand panel below is plain HTML in this browser.';
     hc.replaceWith(hp);
     window.__done = true;

@@ -112,13 +112,12 @@
   </ul>
 
   <h2>Live checks</h2>
-  <div id="fixtures"></div>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
 </main>
 
 <script type="module">
   import '/lib/physical-ui.js';
-  import { banner, nav, runTests } from '/shared/support.js';
+  import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn } from '/shared/support.js';
   import { supportedGL } from '/lib/surface.js';
   nav('/physical/');
   banner();
@@ -141,7 +140,7 @@
 
   // ---- Live checks ----
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const fixtures = $('fixtures');
+  const fixtures = supportedGL ? checkBench() : null;
   async function fixture(material, attrs = '') {
     const wrap = document.createElement('div');
     wrap.innerHTML = `<physical-ui material="${material}" ${attrs} style="width:180px"><div class="chip">${material} <input aria-label="Test field" style="width:70px" value="abc"><button>b</button></div></physical-ui>`;
@@ -149,7 +148,6 @@
     fixtures.append(el);
     for (let i = 0; i < 60 && !el.ready; i++) await sleep(25);
     if (!el.ready) throw new Error('surface never became ready');
-    el.scrollIntoView({ block: 'center' });
     await sleep(150);
     return el;
   }
@@ -169,7 +167,7 @@
   }
 
   if (supportedGL) {
-    runTests($('results'), [
+    runTests($('results'), onBench(fixtures, [
       {
         name: 'At rest the mesh is exactly the layout box',
         why: 'The button\'s bounding box equals its layout position, and the pixels are where layout put them.',
@@ -295,7 +293,13 @@
           return `max displacement ${off.toFixed(1)}px in a 0.5 breeze`;
         },
       },
-    ]).then(() => scrollTo(0, 0));
+      stillDrawn(() => all.map((el) => ({
+        name: el.material,
+        note: 'plain HTML',
+        ink: () => (el.live ? inkFraction(el.snapshot()) : null),
+        rescue: () => el.fallBackToPlain('it drew nothing'),
+      }))),
+    ])).then(() => fixtures.done());
   }
 </script>
 </body>

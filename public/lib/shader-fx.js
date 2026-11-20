@@ -319,7 +319,11 @@ function adopt(el) {
   if (!supported) return; // plain HTML: leave the page alone
   const name = resolveEffect(el.getAttribute('fx'), el.ownerDocument);
   const bleed = el.getAttribute('fx-bleed') ?? effects.get(name)?.bleed ?? 0;
-  const host = FxSurface.adopt(el, { bleed });
+  // The host connects before the element is moved into it, so anything the
+  // context choice depends on has to be on the host already.
+  const attrs = { bleed };
+  if (el.hasAttribute('fx-backend')) attrs['fx-backend'] = el.getAttribute('fx-backend');
+  const host = FxSurface.adopt(el, attrs);
   host.adopted = true;
 }
 

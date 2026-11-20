@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { HTMLSurfaces, support } from '/lib/html3d.js';
 import { banner, runTests, supported } from '/shared/support.js';
+import { isFixture, mirror, publish, sampleGL, watchContext } from '/lib/check-fixture.js';
 
 banner();
 const $ = (id) => document.getElementById(id);
@@ -172,7 +173,7 @@ if (!live) {
 async function start() {
   // ---------------------------------------------------------------- renderer
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(isFixture ? 1 : Math.min(devicePixelRatio, 2)); // the hidden copy that runs the checks stays cheap
   renderer.xr.enabled = true;
   const SKY = new THREE.Color(0x0d0f14);
   const scene = new THREE.Scene();
@@ -636,6 +637,8 @@ async function start() {
     }));
   }
 
+  let blankProbe = null;
+  const context = watchContext(canvas, stage);
   window.__xr = { stereo, surfaces, P, panels, rays, info, camera, scene, renderer, device, enter, get session() { return session; } };
 
   renderer.setAnimationLoop((time, frame) => {
@@ -690,6 +693,10 @@ async function start() {
       hud.textContent = `${sess ? sess.mode : 'preview'} · ${surfaces.stats.paints} paints · ${surfaces.stats.uploads} uploads${surfaces.stats.lastError ? ' · ' + surfaces.stats.lastError : ''}`;
     }
     renderer.render(scene, camera);
+    if (blankProbe) {
+      blankProbe(sampleGL(renderer.getContext()));
+      blankProbe = null;
+    }
   });
 
   // ------------------------------------------------------------ live checks
@@ -731,6 +738,24 @@ async function start() {
   };
   const key = (k) => keys.querySelector(`[data-key="${k}"]`);
 
+  if (!isFixture) {
+    // The checks focus fields and type, so they run on a hidden copy of this page.
+    await mirror($('results'), runTests, {
+      query: params.has('emulate') ? '&emulate=1' : '',
+      extra: [{
+        name: 'The scene on this page is not blank',
+        why: 'Read back from the canvas on this page, not the hidden copy. Fails if it is one flat colour or its graphics context is gone.',
+        run: async () => {
+          if (context.lost()) throw new Error('the WebGL context is lost');
+          const n = await new Promise((resolve) => (blankProbe = resolve));
+          if (n < 3) throw new Error(`only ${n} colour${n === 1 ? '' : 's'} across the whole canvas`);
+          return `${n} different colours across a 7×7 grid of samples`;
+        },
+      }],
+    });
+    window.__ready = true;
+    return;
+  }
   await until(() => surfaces.stats.uploads >= panels.length);
   const tests = [
     {
@@ -861,7 +886,7 @@ async function start() {
       },
     },
   ];
-  await runTests($('results'), tests);
+  await runTests($('results'), publish(tests));
   rayAway();
   document.activeElement?.blur?.();
   window.__ready = true;
