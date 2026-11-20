@@ -28,12 +28,14 @@
 
   /* CSS drives the shader: a transition on a registered custom property. */
   .hover-burn { height: 150px; }
+  /* #region css */
   .hover-burn [slot] { transition: --fx-progress 800ms ease-in-out; }
   .hover-burn:hover [slot], .hover-burn.on [slot] { --fx-progress: 1; }
   /* …and a keyframe animation leans a card with no pointer at all. */
   .sway { height: 170px; }
   .sway [slot] { animation: sway 4s ease-in-out infinite alternate; }
   @keyframes sway { from { --fx-x: -0.9; --fx-y: -0.3; } to { --fx-x: 0.9; --fx-y: 0.3; } }
+  /* #endregion css */
   @media (prefers-reduced-motion: reduce) { .sway [slot] { animation: none; --fx-x: 0.5; } }
 
   .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
@@ -60,6 +62,7 @@
   </p>
 
   <div class="stage">
+    <!-- #region hero -->
     <canvas-slot class="hero" id="hero" effect="tilt">
       <article slot="note" class="card note">
         <h3>No JavaScript here</h3>
@@ -76,6 +79,7 @@
         “Select this sentence. It is text in the page, drawn through a shader.”
       </blockquote>
     </canvas-slot>
+    <!-- #endregion hero -->
   </div>
 
 <pre><code>&lt;script type="module" src="/lib/canvas-slot.js"&gt;&lt;/script&gt;
@@ -86,6 +90,19 @@
   &lt;blockquote slot="quote"&gt;…&lt;/blockquote&gt;
 &lt;/canvas-slot&gt;</code></pre>
 
+  <details class="show-code">
+    <summary>Show the code <small>effect="tilt", no render loop</small></summary>
+    <ol>
+      <li data-code="#hero"><b>Name an effect on the <code>&lt;canvas-slot&gt;</code>, or on one slot.</b></li>
+      <li data-code="#page"><b>Load the element.</b> That is the whole script.</li>
+      <li data-code="#css"><b>Drive it from CSS.</b> Transitions and keyframes on <code>--fx-progress</code>, <code>--fx-x</code> and <code>--fx-y</code> (used by the cards further down).</li>
+      <li data-code="#picker"><b>Or from script.</b> The attribute can change at any time, and the properties are ordinary CSS variables.</li>
+      <li data-code="/lib/slot-effects.js#texture"><b>Inside: each slot becomes a WebGL texture.</b></li>
+      <li data-code="/lib/slot-effects.js#texture-gpu"><b>Inside, with <code>backend="webgpu"</code>: the same thing for a GPU texture.</b> <code>device.queue.drawElementImageToTexture({ source: el }, { texture })</code>.</li>
+      <li data-code="/lib/slot-effects.js#geometry"><b>Inside: after drawing, tell the browser where the slot went.</b></li>
+      <li data-code="/lib/slot-effects.js"><b>The whole renderer.</b></li>
+    </ol>
+  </details>
   <h2>Pick an effect, drive it from CSS</h2>
   <p>The attribute can change at any time. <code>--fx-progress</code>, <code>--fx-amount</code>, <code>--fx-x</code> and <code>--fx-y</code> are registered custom properties, so sliders, transitions, keyframes and <code>:hover</code> all drive the shader.</p>
   <div class="seg" id="seg" role="group" aria-label="Effect"></div>
@@ -140,17 +157,22 @@ canvas-slot:hover [slot] { --fx-progress: 1; }</code></pre>
     </div>
     <div>
       <div class="stage">
+        <!-- #region shader -->
         <canvas-slot class="small" id="wobbleSlot" effect="#wobble">
           <div slot="a" class="card form"><h3>effect="#wobble"</h3><p>Real text and a real <a href="#how" style="color:inherit">link</a>.</p><input placeholder="Type here" aria-label="Type here"></div>
         </canvas-slot>
+        <!-- #endregion shader -->
       </div>
       <div class="stage" style="margin-top:12px">
+        <!-- #region shader -->
         <canvas-slot class="small" effect="url(scanlines.frag)">
           <div slot="a" class="card note"><h3>effect="url(scanlines.frag)"</h3><p>This shader is a file next to the page.</p></div>
         </canvas-slot>
+        <!-- #endregion shader -->
       </div>
     </div>
   </div>
+<!-- #region shader -->
 <script type="x-shader/x-fragment" id="wobble">vec4 fx(vec2 p) {
   // slide each row sideways on a sine wave
   float wave = sin(p.y * 0.08 + u_time * 3.0) * 6.0 * u_amount;
@@ -160,6 +182,7 @@ canvas-slot:hover [slot] { --fx-progress: 1; }</code></pre>
   col.rgb += col.a * glow * vec3(0.3, 0.1, 0.0);
   return col;
 }</script>
+<!-- #endregion shader -->
 <pre><code>&lt;script type="x-shader/x-fragment" id="wobble"&gt;
   vec4 fx(vec2 p) { return tex(p + vec2(sin(p.y * 0.08 + u_time * 3.0) * 6.0, 0.0)); }
 &lt;/script&gt;
@@ -167,6 +190,14 @@ canvas-slot:hover [slot] { --fx-progress: 1; }</code></pre>
 &lt;canvas-slot effect="#wobble"&gt;…&lt;/canvas-slot&gt;
 &lt;canvas-slot effect="url(scanlines.frag)"&gt;…&lt;/canvas-slot&gt;</code></pre>
 
+  <details class="show-code">
+    <summary>Show the code <small>your own shader</small></summary>
+    <ol>
+      <li data-code="#shader"><b>Point <code>effect</code> at a <code>&lt;script&gt;</code> by id, or at a file.</b> The shader is one function.</li>
+      <li data-code="/slot-effects/scanlines.frag" data-lang="glsl"><b>The file.</b></li>
+      <li data-code="#registry"><b>Or register it by name</b>, and both <code>effect="shared-tint"</code> and <code>fx="shared-tint"</code> can use it.</li>
+    </ol>
+  </details>
   <h2>One registry, two ways in</h2>
   <p>
     <code>&lt;canvas-slot effect&gt;</code> and the <a href="/shader-css/"><code>fx</code> attribute</a> share one list of effects, one shader contract
@@ -212,7 +243,9 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
 </main>
 
 <script type="module">
+  // #region page
   import '/lib/canvas-slot.js';
+  // #endregion page
   import '/lib/shader-fx.js';
   import { defineEffect, effects } from '/lib/effects.js';
   import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn, supported } from '/shared/support.js';
@@ -221,6 +254,7 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // #region registry
   defineEffect('shared-tint', {
     glsl: `vec4 fx(vec2 p) {
       vec4 c = tex(p);
@@ -229,6 +263,7 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
       return c;
     }`,
   });
+  // #endregion registry
 
   let presses = 0;
   $('count').onclick = (e) => (e.target.textContent = `Pressed ${++presses}×`);
@@ -242,13 +277,17 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
     b.textContent = name;
     b.setAttribute('aria-pressed', name === 'page-curl');
     b.onclick = () => {
+      // #region picker
       picker.setAttribute('effect', name);
+      // #endregion picker
       for (const o of $('seg').children) o.setAttribute('aria-pressed', o === b);
     };
     $('seg').append(b);
   }
+  // #region picker
   $('progress').oninput = (e) => ticket.style.setProperty('--fx-progress', e.target.value);
   $('amount').oninput = (e) => ticket.style.setProperty('--fx-amount', e.target.value);
+  // #endregion picker
   $('burnBtn').onclick = () => {
     $('hoverBurn').classList.add('on');
     setTimeout(() => $('hoverBurn').classList.remove('on'), 1600);

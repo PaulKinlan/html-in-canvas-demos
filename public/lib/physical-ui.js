@@ -471,6 +471,7 @@ export class PhysicalUI extends SurfaceElement {
     return { x: r[a * 2] * u + r[b * 2] * v + r[c * 2] * w, y: r[a * 2 + 1] * u + r[b * 2 + 1] * v + r[c * 2 + 1] * w };
   }
 
+  // #region geometry
   #updateGeometry() {
     const p = this.#pointer;
     let matrix = null;
@@ -490,6 +491,7 @@ export class PhysicalUI extends SurfaceElement {
       this.stats.hit = 'rest';
     }
   }
+  // #endregion geometry
 
   // ---- frame ----
 

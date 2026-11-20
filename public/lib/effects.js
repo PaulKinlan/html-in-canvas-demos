@@ -392,6 +392,7 @@ defineEffect('tilt', {
   }`,
 });
 
+// #region ripple
 defineEffect('ripple', {
   // Rings spread from each click or tap and bend the element like water.
   glsl: `vec4 fx(vec2 p) {
@@ -427,6 +428,7 @@ defineEffect('ripple', {
     return vec4f(col.rgb + col.a * length(d) * 0.012, col.a);
   }`,
 });
+// #endregion ripple
 
 defineEffect('glass', {
   // Liquid glass: the rim refracts what is inside it, with a little colour
