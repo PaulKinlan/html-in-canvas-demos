@@ -24,7 +24,8 @@
 //   srcLod(q, l) the same from mip level l (lenses with mip: true)
 //   ring(c, p, edge)  the standard glass rim and round mask around colour c
 //   u_zoom, u_time, u_px (lens radius, device px), u_css (device px per CSS px),
-//   u_k (per-lens numbers from params()), u_backdrop
+//   u_k (per-lens numbers from params()), u_backdrop,
+//   u_look (which way the lens is moving, or where the pointer is from a pinned lens; length 0 to 1)
 //
 // reach(zoom): how far from the centre, in lens radii, the lens can look.
 // density(zoom): how many times the screen's resolution the patch needs.
@@ -34,6 +35,7 @@ precision highp float;
 uniform sampler2D u_src;
 uniform float u_zoom, u_time, u_reach, u_px, u_css;
 uniform vec4 u_k;
+uniform vec2 u_look;
 uniform vec3 u_backdrop;
 in vec2 v_p;
 out vec4 o;
@@ -389,6 +391,65 @@ vec4 lens(vec2 p) {
 }`,
   },
 
+  eye: {
+    label: 'Fiery eye',
+    blurb: 'A lidless eye wreathed in flame. The page shows through the slit pupil, which looks where the lens is going (pin it and it watches your pointer).',
+    zoom: 1.8,
+    mip: true,
+    animated: true,
+    reach: () => 1.1,
+    density: (z) => Math.min(z, 3),
+    glsl: `
+float vnoise(vec2 x) {
+  vec2 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float fbm(vec2 x) {
+  float a = 0.5, s = 0.0;
+  for (int i = 0; i < 4; i++) { s += a * vnoise(x); x = x * 2.03 + 17.0; a *= 0.5; }
+  return s;
+}
+vec3 fire(float t) {
+  t = clamp(t, 0.0, 1.0);
+  return vec3(smoothstep(0.0, 0.4, t), smoothstep(0.22, 0.8, t) * 0.88, smoothstep(0.68, 1.0, t) * 0.75);
+}
+vec4 lens(vec2 p) {
+  float r = length(p), t = u_time;
+  vec2 dir = p / max(r, 1e-4);
+  // The eye is wider than it is tall: measure the fire in a squashed space.
+  vec2 e = p * vec2(0.82, 1.25);
+  float er = length(e);
+  // Heat haze: the page shimmers near the fire and is scorched towards it.
+  float grip = smoothstep(1.0, 0.7, r);
+  vec2 haze = vec2(fbm(p * 6.0 + vec2(0.0, -t * 1.6)), fbm(p * 6.0 + vec2(9.0, -t * 1.3))) - 0.5;
+  vec3 col = src(p + haze * 0.09 * grip).rgb;
+  col *= mix(1.0, 0.12, smoothstep(1.0, 0.45, r));
+  col = mix(col, col * vec3(1.0, 0.55, 0.3), grip * 0.7);
+  // Flames stream outwards from the rim of the iris; the iris itself is streaked.
+  float R0 = 0.5;
+  float f = fbm(e * 4.2 - dir * t * 1.5);
+  vec2 look = u_look * vec2(0.2, 0.1);
+  float streak = fbm(normalize(p - look + 1e-5) * 5.0 + vec2(er * 2.0 - t * 0.5, t * 0.2));
+  float iris = (0.28 + 0.62 * streak * streak * 2.0) * (1.25 - er * 1.1);
+  float flames = clamp(f * 2.1 - (er - R0) * 2.3, 0.0, 1.0) * (0.45 + f);
+  float heat = mix(iris, flames, smoothstep(R0 - 0.1, R0 + 0.06, er));
+  heat *= 1.0 - 0.45 * exp(-pow((er - R0 + 0.04) * 14.0, 2.0));    // a dark rim where the iris ends
+  // The slit pupil, sliding towards whatever the eye is following.
+  vec2 c = look;
+  vec2 q = (p - c) / vec2(0.19 + 0.025 * sin(t * 1.7), 0.56);
+  q.x /= 1.0 - 0.75 * q.y * q.y;                                   // pointed at both ends
+  float pd = length(q);
+  heat += exp(-pow((pd - 1.0) * 3.0, 2.0)) * 0.35 * step(1.0, pd);
+  float af = clamp(heat * 1.7, 0.0, 1.0) * smoothstep(1.0, 0.9, r);
+  col = col * (1.0 - af) + fire(heat) * af;
+  vec3 seen = src((p - c) / u_zoom).rgb * vec3(1.0, 0.86, 0.74);
+  seen *= 1.0 - 0.6 * smoothstep(0.6, 1.0, pd);
+  col = mix(col, seen, smoothstep(1.04, 0.92, pd));
+  return vec4(col, disc(p, 0.0));
+}`,
+  },
+
   reading: {
     label: 'Reading bar',
     blurb: 'A bar magnifier for one line at a time: bigger type, more contrast, a warm tint and a guide line.',
@@ -499,7 +560,7 @@ class LensRenderer {
       gl.linkProgram(prog);
       if (gl.getProgramParameter(prog, gl.LINK_STATUS)) {
         p = { prog, u: {} };
-        for (const n of ['u_src', 'u_zoom', 'u_time', 'u_reach', 'u_px', 'u_css', 'u_k', 'u_backdrop', 'u_box', 'u_m']) p.u[n] = gl.getUniformLocation(prog, n);
+        for (const n of ['u_src', 'u_zoom', 'u_time', 'u_reach', 'u_px', 'u_css', 'u_k', 'u_backdrop', 'u_box', 'u_m', 'u_look']) p.u[n] = gl.getUniformLocation(prog, n);
       } else console.error(`lens "${name}" did not link: ${gl.getProgramInfoLog(prog)}`);
     }
     // A context on its way out fails to compile with no log; do not cache that.
@@ -569,6 +630,7 @@ class LensRenderer {
     gl.uniform1f(p.u.u_css, o.css);
     gl.uniform1f(p.u.u_box, n / 2 / o.radiusPx);
     gl.uniform3fv(p.u.u_backdrop, o.backdrop);
+    gl.uniform2fv(p.u.u_look, o.look ?? [0, 0]);
     gl.uniform4fv(p.u.u_k, def.params ? def.params(o.zoom, o.variant) : [0, 0, 0, 0]);
     if (p.u.u_m && def.matrix) gl.uniformMatrix3fv(p.u.u_m, false, def.matrix(o.variant));
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

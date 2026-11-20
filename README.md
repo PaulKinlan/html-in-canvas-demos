@@ -15,7 +15,7 @@ Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-ca
 | `/cross-origin/` | Borrowing and lending DOM across origins |
 | `/transports/` | Transport lab: ~50 routes for moving DOM out of its canvas, each tested live |
 | `/portal/` | `<dom-portal for="id">`: one live element drawn twice, interactive in both places |
-| `/lens/` | `<dom-lens>`: fourteen lenses over live DOM (magnifier, ray-traced glass, fisheye, water drop, x-ray, black hole…), sharp at any zoom, one draw and one shader each |
+| `/lens/` | `<dom-lens>`: fifteen lenses over live DOM (magnifier, ray-traced glass, fisheye, water drop, x-ray, black hole…), sharp at any zoom, one draw and one shader each |
 | `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
 | `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |

@@ -7,7 +7,7 @@
 //
 // Attributes
 //   mode     magnify | glass | fisheye | droplet | frosted | night | thermal |
-//            xray | halftone | pixel | cvd | blackhole | kaleidoscope | reading
+//            xray | halftone | pixel | cvd | blackhole | kaleidoscope | eye | reading
 //            (default magnify; the catalogue is LENSES in lens-gl.js)
 //   variant  for mode="cvd": protan | deutan | tritan
 //   zoom     magnification at the lens centre      (default 2)
@@ -61,6 +61,7 @@ export class DomLens extends SurfaceElement {
   #cap = Infinity;
   #fast = 0;
   #probation = 45;
+  #look = { x: 0, y: 0, px: null, py: 0 }; // eased direction for lenses that look around
   #onRestored = () => this.invalidate();
   #onMove = (e) => {
     this.#touch = e.pointerType === 'touch' || e.pointerType === 'pen';
@@ -277,7 +278,7 @@ export class DomLens extends SurfaceElement {
       this.#srcKey = key;
     }
     const still = stillMotion.matches;
-    const out = gl.draw({ name, variant, zoom: z, time: still ? 0 : (time / 1000) % 3600, reach, radiusPx: R * s, css: s, boxPx, backdrop: [1, 1, 1] });
+    const out = gl.draw({ name, variant, look: this.#looking(lens, R), zoom: z, time: still ? 0 : (time / 1000) % 3600, reach, radiusPx: R * s, css: s, boxPx, backdrop: [1, 1, 1] });
 
     // Put the page back where the patch and the old lens were, then the lens.
     // Only that neighbourhood is redrawn unless the page itself changed.
@@ -339,6 +340,27 @@ export class DomLens extends SurfaceElement {
       this.#settleTimer = setTimeout(() => this.invalidate(), 140);
     }
     return true;
+  }
+
+  // Where a lens with an eye should look: at the pointer when the lens is
+  // pinned, otherwise the way it is travelling. Eased, so it glides.
+  #looking(lens, R) {
+    const k = this.#look;
+    let tx = 0, ty = 0;
+    if (lens.pinned && this.#pointer) {
+      tx = (this.#pointer.x - lens.x) / (R * 2);
+      ty = (this.#pointer.y - lens.y) / (R * 2);
+    } else if (!lens.pinned && k.px != null) {
+      tx = ((lens.x - k.px) / R) * 5;
+      ty = ((lens.y - k.py) / R) * 5;
+    }
+    const len = Math.hypot(tx, ty);
+    if (len > 1) (tx /= len), (ty /= len);
+    k.px = lens.x;
+    k.py = lens.y;
+    k.x += (tx - k.x) * 0.15;
+    k.y += (ty - k.y) * 0.15;
+    return [k.x, k.y];
   }
 
   #onScreen() {
