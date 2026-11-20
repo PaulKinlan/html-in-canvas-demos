@@ -288,6 +288,37 @@
       },
     },
     {
+      name: 'frames() hands back the recorded history as pictures, ready for a video encoder',
+      why: 'Yellow box, turn it cyan, then ask for the last 0.6 s at 20 fps. The first picture should be yellow and the last cyan.',
+      async run() {
+        const ya = document.getElementById('ya');
+        ya.style.background = ''; await sleep(450);
+        ya.style.background = 'rgb(0, 204, 255)'; await sleep(300);
+        const count = (bitmap, [r, g, b]) => {
+          const c = new OffscreenCanvas(bitmap.width, bitmap.height), x = c.getContext('2d');
+          x.drawImage(bitmap, 0, 0);
+          const d = x.getImageData(0, 0, c.width, c.height).data;
+          let n = 0;
+          for (let i = 0; i < d.length; i += 4) if (Math.abs(d[i] - r) < 12 && Math.abs(d[i + 1] - g) < 12 && Math.abs(d[i + 2] - b) < 12) n++;
+          return n;
+        };
+        const got = [];
+        for await (const { time, bitmap } of rig.frames({ seconds: 0.6, fps: 20 })) {
+          got.push({ time, w: bitmap.width, yellow: count(bitmap, YELLOW), cyan: count(bitmap, CYAN) });
+          bitmap.close();
+        }
+        await frames(2);
+        const live = await rigPx(120, 62);
+        ya.style.background = '';
+        const first = got[0], last = got.at(-1);
+        must(got.length >= 12 && got.length <= 14, `${got.length} pictures`);
+        // The rig holds another cyan box, so compare the two ends instead of expecting none.
+        must(first.yellow - last.yellow > 500 && last.cyan - first.cyan > 500, `first picture: ${first.yellow} yellow, ${first.cyan} cyan; last: ${last.yellow} yellow, ${last.cyan} cyan`);
+        must(near(live, CYAN), `live drawing did not resume: ${live}`);
+        return `${got.length} pictures ${first.w}px wide; yellow at 0 s, cyan at ${last.time.toFixed(2)} s; live drawing resumed`;
+      },
+    },
+    {
       name: 'Moving an element does not cost new snapshots',
       why: 'Slide a box for 40 frames; frames go up, snapshots do not.',
       async run() {
