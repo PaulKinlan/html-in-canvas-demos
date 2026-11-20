@@ -9,6 +9,9 @@
 //   const page  = await capturePage({ full: true });           // an ordinary page, no canvas authored
 //   const rec   = await recordElement(el, { fps: 30 });  …  const video = await rec.stop();
 //   await printElement(el);                                    // paginated, print dialog
+//   const print = await captureElement(el, { dpi: 300 });      // print-quality PNG, size recorded in the file
+//   const webm  = await exportVideo(el, { fps: 60 });          // WebCodecs: animations stepped frame by frame
+//   const clip  = await encodeFrames(frames, { fps: 30 });     // any canvases / bitmaps you already have
 //
 // How it gets an arbitrary element into a canvas (opts.strategy):
 //   'move'    (default) a temporary <canvas content="drawable"> takes the element's place and the
@@ -25,6 +28,8 @@
 //   'move'    body's children are moved (moveBefore) into a canvas in <body> and back.
 //   'overlay' as 'move', but the canvas is a fixed, viewport-sized overlay.
 //   'auto'    'shadow' when body can take (or already has an open) shadow root, else 'move'.
+
+import { WebMMuxer } from './webm-mux.js';
 
 export const supported =
   typeof CanvasRenderingContext2D !== 'undefined' &&
@@ -108,7 +113,7 @@ function copyOut(source, sx, sy, sw, sh) {
   return out;
 }
 
-async function finish(out, meta, { as = 'blob', type = 'image/png', quality, background } = {}) {
+async function finish(out, meta, { as = 'blob', type = 'image/png', quality, background, dpi } = {}) {
   if (background) {
     const ctx = out.getContext('2d');
     ctx.globalCompositeOperation = 'destination-over';
@@ -123,6 +128,13 @@ async function finish(out, meta, { as = 'blob', type = 'image/png', quality, bac
     result = await new Promise((resolve, reject) =>
       out.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob produced nothing'))), type, quality),
     );
+    // Say how big a pixel is, so a 300 dpi export opens at the element's real
+    // size in print and layout tools instead of 3× too large.
+    if (result.type === 'image/png') {
+      const ppi = dpi ?? meta.scale * 96;
+      result = await withPngDensity(result, ppi);
+      meta.dpi = Math.round(ppi);
+    }
   }
   // Blobs and bitmaps can't carry expandos reliably across structured clone, but
   // within the page this is a handy way to see what happened.
@@ -135,6 +147,31 @@ async function finish(out, meta, { as = 'blob', type = 'image/png', quality, bac
 
 /** Details of the most recent capture: { strategy, frames, scale, width, height, ms, notes }. */
 export let lastCapture = null;
+
+let crcTable = null;
+function crc32(bytes) {
+  crcTable ??= Uint32Array.from({ length: 256 }, (_, n) => {
+    for (let k = 0; k < 8; k++) n = n & 1 ? 0xedb88320 ^ (n >>> 1) : n >>> 1;
+    return n >>> 0;
+  });
+  let c = 0xffffffff;
+  for (const b of bytes) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+/** Insert a pHYs chunk (pixels per metre) after IHDR. */
+async function withPngDensity(blob, ppi) {
+  const head = new Uint8Array(await blob.slice(0, 33).arrayBuffer());
+  if (head.length < 33 || head[12] !== 0x49 || head[13] !== 0x48) return blob; // not IHDR first: leave it
+  const chunk = new Uint8Array(21);
+  const v = new DataView(chunk.buffer);
+  const ppm = Math.round(ppi / 0.0254);
+  v.setUint32(0, 9);
+  chunk.set([0x70, 0x48, 0x59, 0x73], 4); // "pHYs"
+  v.setUint32(8, ppm); v.setUint32(12, ppm); chunk[16] = 1;
+  v.setUint32(17, crc32(chunk.subarray(4, 17)));
+  const out = new Blob([head, chunk, blob.slice(33)], { type: 'image/png' });
+  return out;
+}
 
 function boxSize(el) {
   if (el.offsetWidth !== undefined && (el.offsetWidth || el.offsetHeight)) return [el.offsetWidth, el.offsetHeight];
@@ -204,6 +241,8 @@ function restoreAnimations(el, saved, again = 2) {
  * @param {object} [opts]
  * @param {number} [opts.scale=devicePixelRatio] output pixels per CSS pixel. The element is
  *   re-rasterized at this scale (text stays sharp), clamped to canvas size limits.
+ * @param {number} [opts.dpi] instead of scale: 300 gives 300 pixels per CSS inch (scale 3.125).
+ *   PNG output records its density (pHYs), so it opens at the element's real size.
  * @param {'blob'|'canvas'|'bitmap'|'dataurl'} [opts.as='blob']
  * @param {string} [opts.type='image/png'] [opts.quality]
  * @param {string} [opts.background] CSS colour painted behind the element (default transparent).
@@ -214,6 +253,7 @@ export async function captureElement(el, opts = {}) {
   if (!(el instanceof Element) || !el.isConnected) throw new TypeError('captureElement needs a connected element');
   if (el === document.body || el === document.documentElement) return capturePage({ full: true, ...opts });
   const t0 = performance.now();
+  if (opts.dpi) opts = { ...opts, scale: opts.dpi / 96 };
   const strategy = opts.strategy && opts.strategy !== 'auto' ? opts.strategy : owner(el) ? 'inplace' : 'move';
   let out, meta;
   if (strategy === 'inplace') {
@@ -675,6 +715,212 @@ export async function recordElement(el, { fps = 30, duration, scale = 1, mimeTyp
   };
   if (duration) setTimeout(stop, duration);
   return { stop, done, stream, canvas: h.canvas, mimeType: type };
+}
+
+// ------------------------------------------------------------ WebCodecs video
+
+const VIDEO_CODECS = { vp9: 'vp09.00.10.08', vp8: 'vp8' };
+
+/** Natural length of the element's animations from where they are now, in ms. */
+function animationSpan(anims) {
+  let span = 0;
+  for (const a of anims) {
+    const t = a.effect?.getComputedTiming?.();
+    if (!t) continue;
+    const end = Number.isFinite(t.endTime) ? t.endTime : (t.delay ?? 0) + (Number(t.duration) || 0) * (t.direction?.startsWith('alternate') ? 2 : 1);
+    span = Math.max(span, end - (Number.isFinite(t.endTime) ? (a.currentTime ?? 0) : 0));
+  }
+  return span;
+}
+
+/**
+ * Encode an element straight to a video file with WebCodecs. Unlike recordElement() this
+ * is not a screen recording: in 'stepped' mode every CSS animation, transition and Web
+ * Animation under the element is paused and moved forward exactly one frame at a time, so
+ * the file has every frame, evenly spaced, however slow the machine or the encoder is.
+ *
+ * @param {Element} el
+ * @param {object} [opts]
+ * @param {number} [opts.fps=30]
+ * @param {number} [opts.duration] ms. Default: the length of the element's animations (one
+ *   cycle of an infinite one), or 2000.
+ * @param {number} [opts.scale=1] output pixels per CSS pixel (re-rasterized, like captureElement).
+ * @param {'stepped'|'realtime'} [opts.mode='stepped'] 'realtime' encodes what the element does
+ *   in real time, for motion driven by script or user input that cannot be stepped.
+ * @param {(ms: number, frame: number) => void|Promise<void>} [opts.onframe] called before each
+ *   stepped frame: put script-driven state where it should be at `ms`.
+ * @param {'now'|'start'} [opts.from='now'] 'start' rewinds the animations to 0 first.
+ * @param {'vp9'|'vp8'} [opts.codec] default vp9, vp8 if the encoder does not have it.
+ * @param {number} [opts.bitrate] bits per second. Default scales with size and fps.
+ * @param {string} [opts.background='#fff'] video has no alpha; this is painted behind the element.
+ * @param {(done: number, total: number) => void} [opts.onprogress]
+ * @param {AbortSignal} [opts.signal]
+ * @returns {Promise<Blob>} video/webm. blob.capture has { frames, width, height, fps, duration, codec, mode, ms }.
+ */
+export async function exportVideo(el, opts = {}) {
+  need();
+  if (typeof VideoEncoder === 'undefined') throw new DOMException('WebCodecs (VideoEncoder) is not available here.', 'NotSupportedError');
+  if (!(el instanceof Element) || !el.isConnected) throw new TypeError('exportVideo needs a connected element');
+  if (owner(el)) throw new DOMException('Element is already drawn by a canvas: export that canvas instead.', 'InvalidStateError');
+  const { fps = 30, scale = 1, mode = 'stepped', from = 'now', background = '#fff', onframe, onprogress, signal } = opts;
+  const t0 = performance.now();
+
+  // Pick a codec the encoder really has before touching the page.
+  const [bw, bh] = boxSize(el);
+  const s = fitScale(bw, bh, scale);
+  const width = Math.max(2, Math.round(bw * s / 2) * 2), height = Math.max(2, Math.round(bh * s / 2) * 2); // encoders want even sizes
+  const bitrate = opts.bitrate ?? Math.round(Math.min(40e6, Math.max(1e6, width * height * fps * 0.12)));
+  let config = null, codec = null;
+  for (const name of opts.codec ? [opts.codec] : ['vp9', 'vp8']) {
+    const c = { codec: VIDEO_CODECS[name] ?? name, width, height, bitrate, framerate: fps, latencyMode: 'quality' };
+    try { if ((await VideoEncoder.isConfigSupported(c)).supported) { config = c; codec = name; break; } } catch {}
+  }
+  if (!config) throw new DOMException(`No WebCodecs encoder for ${opts.codec ?? 'vp9 or vp8'} at ${width}×${height}.`, 'NotSupportedError');
+
+  const h = hold(el, s);
+  h.canvas.width = width; h.canvas.height = height;
+  const draw = () => {
+    h.ctx.reset();
+    h.ctx.fillStyle = background;
+    h.ctx.fillRect(0, 0, width, height);
+    h.ctx.drawElementImage(el, 0, 0, width, height);
+  };
+  const mux = new WebMMuxer({ width, height, codec, fps });
+  let failure = null;
+  const encoder = new VideoEncoder({ output: (chunk) => mux.add(chunk), error: (e) => (failure = e) });
+  encoder.configure(config);
+  const frameUs = 1e6 / fps;
+  const keyEvery = Math.max(1, Math.round(fps * 2));
+  let n = 0;
+  const push = async (us) => {
+    const frame = new VideoFrame(h.canvas, { timestamp: Math.round(us), duration: Math.round(frameUs) });
+    encoder.encode(frame, { keyFrame: n % keyEvery === 0 });
+    frame.close();
+    n++;
+    // Do not let frames pile up in front of a slow encoder.
+    while (encoder.encodeQueueSize > 4 && !failure) await new Promise((r) => setTimeout(r, 2));
+    if (failure) throw failure;
+    signal?.throwIfAborted();
+  };
+
+  let paused = [], duration = opts.duration;
+  try {
+    await untilDrawn(h.canvas, draw);
+    await nextFrame(); // restarted animations have been seeked back by now
+    if (mode === 'realtime') {
+      duration ??= 2000;
+      const start = performance.now();
+      await new Promise((resolve, reject) => {
+        let busy = false;
+        const onPaint = async () => {
+          const t = performance.now() - start;
+          if (t >= duration) { h.canvas.removeEventListener('paint', onPaint); clearInterval(pump); return resolve(); }
+          if (busy || t * 1000 < n * frameUs - frameUs / 2) return; // encoder behind, or faster than fps
+          busy = true;
+          try { draw(); await push(t * 1000); onprogress?.(t, duration); }
+          catch (err) { if (!/paint record/.test(err.message)) { h.canvas.removeEventListener('paint', onPaint); clearInterval(pump); reject(err); } }
+          busy = false;
+        };
+        h.canvas.addEventListener('paint', onPaint);
+        const pump = setInterval(() => h.canvas.requestPaint(), 1000 / fps);
+      });
+    } else {
+      const anims = el.getAnimations({ subtree: true });
+      for (const a of anims) {
+        if (from === 'start') a.currentTime = 0;
+        paused.push({ a, base: Number(a.currentTime ?? 0), state: a.playState });
+        a.pause();
+      }
+      duration ??= Math.min(60000, Math.round(animationSpan(anims)) || 2000);
+      const total = Math.max(1, Math.round(duration * fps / 1000));
+      for (let i = 0; i < total; i++) {
+        const ms = i * 1000 / fps;
+        for (const p of paused) p.a.currentTime = p.base + ms;
+        await onframe?.(ms, i);
+        await untilDrawn(h.canvas, draw);
+        await push(i * frameUs);
+        onprogress?.(i + 1, total);
+      }
+      duration = total * 1000 / fps;
+    }
+    await encoder.flush();
+    if (failure) throw failure;
+  } finally {
+    try { encoder.close(); } catch {}
+    // Hand the animations back where they would have been had nothing happened.
+    for (const p of paused) {
+      try { p.a.currentTime = p.base; if (p.state === 'running') p.a.play(); } catch {}
+    }
+    h.release();
+  }
+  const blob = mux.finish();
+  const meta = { strategy: `webcodecs ${mode}`, frames: mux.frames, scale: s, cssWidth: bw, cssHeight: bh, width, height, fps, duration, codec, mode, bitrate, mimeType: blob.type, ms: Math.round(performance.now() - t0), notes: h.notes };
+  try { Object.defineProperty(blob, 'capture', { value: meta, enumerable: false }); } catch {}
+  lastCapture = meta;
+  return blob;
+}
+
+/**
+ * Encode frames you already have (canvases, ImageBitmaps, VideoFrames) to a WebM file.
+ * Takes any iterable or async iterable of frames, or of { time (seconds), bitmap | canvas | frame },
+ * which is what <dom-rewind>.frames() yields:
+ *
+ *   const webm = await encodeFrames(rewind.frames({ seconds: 5, fps: 30 }), { fps: 30 });
+ *
+ * Sources are closed after encoding when they have close(). Without `time`, frames are spaced by fps.
+ * @returns {Promise<Blob>} video/webm, with blob.capture = { frames, width, height, fps, duration, codec }
+ */
+export async function encodeFrames(source, { fps = 30, codec: wanted, bitrate, background = '#fff', onprogress } = {}) {
+  if (typeof VideoEncoder === 'undefined') throw new DOMException('WebCodecs (VideoEncoder) is not available here.', 'NotSupportedError');
+  const t0 = performance.now();
+  let encoder = null, mux = null, failure = null, pad = null, codec = null, n = 0, lastUs = -1, width = 0, height = 0;
+  const frameUs = 1e6 / fps;
+  for await (const item of source) {
+    const image = item?.bitmap ?? item?.canvas ?? item?.frame ?? item?.image ?? item;
+    const w = image.displayWidth ?? image.width, h = image.displayHeight ?? image.height;
+    if (!encoder) {
+      width = Math.max(2, Math.round(w / 2) * 2); height = Math.max(2, Math.round(h / 2) * 2);
+      for (const name of wanted ? [wanted] : ['vp9', 'vp8']) {
+        const c = { codec: VIDEO_CODECS[name] ?? name, width, height, bitrate: bitrate ?? Math.round(Math.min(40e6, Math.max(1e6, width * height * fps * 0.12))), framerate: fps, latencyMode: 'quality' };
+        try { if ((await VideoEncoder.isConfigSupported(c)).supported) { codec = name; encoder = new VideoEncoder({ output: (chunk) => mux.add(chunk), error: (e) => (failure = e) }); encoder.configure(c); break; } } catch {}
+      }
+      if (!encoder) throw new DOMException(`No WebCodecs encoder for ${wanted ?? 'vp9 or vp8'} at ${width}×${height}.`, 'NotSupportedError');
+      mux = new WebMMuxer({ width, height, codec, fps });
+      pad = new OffscreenCanvas(width, height).getContext('2d'); // flatten alpha, even out the size
+    }
+    pad.fillStyle = background; pad.fillRect(0, 0, width, height);
+    pad.drawImage(image, 0, 0, w, h);
+    image.close?.();
+    let us = Number.isFinite(item?.time) ? Math.round(item.time * 1e6) : Math.round(n * frameUs);
+    if (us <= lastUs) us = lastUs + 1000; // strictly increasing, at least 1 ms apart
+    lastUs = us;
+    const frame = new VideoFrame(pad.canvas, { timestamp: us, duration: Math.round(frameUs) });
+    encoder.encode(frame, { keyFrame: n % Math.max(1, Math.round(fps * 2)) === 0 });
+    frame.close();
+    n++;
+    while (encoder.encodeQueueSize > 4 && !failure) await new Promise((r) => setTimeout(r, 2));
+    if (failure) throw failure;
+    onprogress?.(n);
+  }
+  if (!encoder) throw new Error('no frames to encode');
+  await encoder.flush();
+  encoder.close();
+  if (failure) throw failure;
+  const blob = mux.finish();
+  const meta = { strategy: 'webcodecs frames', frames: mux.frames, scale: 1, width, height, fps, duration: (lastUs + frameUs) / 1000, codec, mimeType: blob.type, ms: Math.round(performance.now() - t0), notes: [] };
+  try { Object.defineProperty(blob, 'capture', { value: meta, enumerable: false }); } catch {}
+  lastCapture = meta;
+  return blob;
+}
+
+/** Save any Blob (a video from exportVideo, say) as a file. */
+export function saveBlob(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+  return blob;
 }
 
 // ------------------------------------------------------------------- print

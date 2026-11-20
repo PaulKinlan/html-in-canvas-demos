@@ -40,7 +40,7 @@
   <h1>Element capture: any element to PNG, video or print</h1>
   <p class="lede">
     One call turns an element that was never written for canvas into pixels:
-    <code>captureElement(el)</code>, <code>recordElement(el)</code>, <code>printElement(el)</code>, and <code>capturePage()</code> for a whole ordinary page.
+    <code>captureElement(el)</code>, <code>recordElement(el)</code>, <code>exportVideo(el)</code>, <code>printElement(el)</code>, and <code>capturePage()</code> for a whole ordinary page.
     Under the hood a temporary HTML-in-canvas canvas takes the element's place for one frame. The tests below say what survives that and what does not.
   </p>
 
@@ -57,7 +57,9 @@
         <button data-do="png4">PNG 4×</button>
         <button data-do="copy">Copy as image</button>
         <button data-do="save">Download</button>
+        <button data-do="png300">PNG 300 dpi</button>
         <button data-do="video">Record 3s</button>
+        <button data-do="export">Export video (WebCodecs)</button>
         <button data-do="print">Print</button>
       </div>
       <div class="tools">
@@ -73,11 +75,13 @@
     </div>
   </div>
 
-<pre><code>import { captureElement, capturePage, recordElement, printElement } from '/lib/element-capture.js';
+<pre><code>import { captureElement, capturePage, recordElement, exportVideo, printElement } from '/lib/element-capture.js';
 
 const png   = await captureElement(document.querySelector('#ticket'), { scale: 4 });
 const page  = await capturePage({ full: true });          // no canvas in the page's markup
+const print = await captureElement(el, { dpi: 300 });     // print-quality PNG that knows its size
 const rec   = await recordElement(el, { fps: 30 });  const webm = await rec.stop();
+const video = await exportVideo(el, { fps: 60 });         // WebCodecs: every animation frame, not a screen recording
 await printElement(el);                                   // paginated, 200 dpi</code></pre>
 
   <h2>A · Elements <small>captureElement, recordElement, printElement</small></h2>
@@ -102,6 +106,7 @@ await printElement(el);                                   // paginated, 200 dpi<
     <li><strong>CSS animations restart</strong> when an element becomes a canvas descendant, on every route. The library reads <code>currentTime</code> before and seeks the restarted animations back.</li>
     <li><strong>Fixed and sticky need a stand-in viewport.</strong> A drawable element is a containing block, so fixed elements attach to it. Wrapping the content in a viewport-sized frame with an inner scroller set to the page's scroll offset gives a faithful viewport shot. In a full-page shot fixed elements land at the end of the document and sticky ones at their static position.</li>
     <li><strong>Cross-origin iframes come out blank</strong>, by design, and so do cross-origin images without CORS. Same-origin iframes paint.</li>
+    <li><strong>Video does not have to be a screen recording.</strong> <code>exportVideo()</code> pauses the element's animations, steps them one frame at a time and encodes each frame with WebCodecs, so a 60 fps file has all 60 frames a second in the right place on any machine. The WebM container is written by a hundred lines of script.</li>
     <li><strong>Output is re-rasterized, not upscaled.</strong> <code>drawElementImage(el, 0, 0, w × 4, h × 4)</code> replays the element's paint record at the new size, so a 4× PNG has sharp text and hairlines. That is what makes print output usable.</li>
   </ul>
 
@@ -145,6 +150,16 @@ await printElement(el);                                   // paginated, 200 dpi<
       const blob = await rec.done;
       const v = Object.assign(document.createElement('video'), { src: URL.createObjectURL(blob), controls: true, loop: true, muted: true, autoplay: true });
       show(v, `· ${blob.type} · ${(blob.size / 1024).toFixed(0)} kB`);
+    },
+    png300: async () => { const b = await cap.captureElement(ticket, { dpi: 300 }); show(img(b), `· ${b.capture.dpi} dpi, prints ${(b.capture.width / b.capture.dpi * 25.4).toFixed(0)} mm wide · ${(b.size / 1024).toFixed(0)} kB`); },
+    export: async () => {
+      // 2.4s of the meter's sweep at 60 fps and 2×: every frame rendered, however long that takes.
+      const blob = await cap.exportVideo(ticket, { fps: 60, duration: 2400, scale: 2, onprogress: (i, n) => (metaEl.textContent = `encoding frame ${i} of ${n}…`) });
+      const v = Object.assign(document.createElement('video'), { src: URL.createObjectURL(blob), controls: true, loop: true, muted: true, autoplay: true, playsInline: true });
+      const a = Object.assign(document.createElement('a'), { href: v.src, download: 'ticket.webm', textContent: 'Download ticket.webm' });
+      const wrap = document.createElement('div'); wrap.append(v, a);
+      const m = blob.capture;
+      show(wrap, `· ${m.frames} frames at ${m.fps} fps · ${m.codec} · ${(blob.size / 1024).toFixed(0)} kB · rendered in ${(m.ms / 1000).toFixed(1)} s for ${(m.duration / 1000).toFixed(1)} s of video`);
     },
     print: async () => { const r = await cap.printElement(ticket); show(document.createTextNode(`Sent ${r.pages} page(s) to the print dialog at ${(r.scale * 96).toFixed(0)} dpi.`)); },
     pageview: async () => show(img(await cap.capturePage({ full: false }))),
@@ -223,6 +238,12 @@ await printElement(el);                                   // paginated, 200 dpi<
   })();
   const loadOf = (el) => new Promise((r) => { el.addEventListener('load', r, { once: true }); el.addEventListener('error', r, { once: true }); setTimeout(r, 2500); });
 
+  // Seek a detached <video> and wait until that frame can be drawn.
+  const seek = async (v, t) => {
+    await new Promise((r) => { v.onseeked = r; v.currentTime = t; setTimeout(r, 3000); });
+    for (let i = 0; i < 40 && v.readyState < 2; i++) await sleep(25);
+    await sleep(30);
+  };
   const elementTests = [
     ['An ordinary element to PNG', 'A div that has never been near a canvas. captureElement(el) → Blob.', async (t) => {
       const el = fixture(`<div style="${BOX}">plain <b>DOM</b></div>`);
@@ -430,6 +451,100 @@ await printElement(el);                                   // paginated, 200 dpi<
       r.frame.remove();
       if (r.pages < 2 || !ok) throw new Error(`${r.pages} page(s), images loaded: ${ok}`);
       return `${r.pages} pages at ${(r.scale * 96).toFixed(0)} dpi, each slice ${imgs[0].naturalWidth}×${imgs[0].naturalHeight}px with alt text taken from the element`;
+    }, { timeout: 20000 }],
+    ['Print-quality PNG: 300 dpi', 'captureElement(el, { dpi: 300 }): re-rasterized at 3.125×, with the density written into the file.', async (t) => {
+      const el = fixture(`<div style="${BOX}"><span style="font-size:9px">fine print</span><hr style="border:0;border-top:1px solid #000;margin:6px 0"></div>`);
+      const blob = await cap.captureElement(el, { dpi: 300 });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const bmp = await createImageBitmap(blob);
+      thumbOf(t, bmp);
+      const tag = String.fromCharCode(...bytes.subarray(37, 41));
+      const ppm = new DataView(bytes.buffer).getUint32(41);
+      if (bmp.width !== 625) throw new Error(`200 CSS px at 300 dpi should be 625px, got ${bmp.width}`);
+      if (tag !== 'pHYs' || ppm !== 11811) throw new Error(`density chunk: ${tag} ${ppm}`);
+      // Sharp, not upscaled: the 1px rule is 3 device px with hard edges.
+      const c = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d'); c.drawImage(bmp, 0, 0);
+      const col = c.getImageData(300, 0, 1, bmp.height).data;
+      let dark = 0, grey = 0;
+      for (let i = 0; i < col.length; i += 4) { const v = col[i] + col[i + 1]; if (v < 60) dark++; else if (v < 380) grey++; }
+      if (dark < 3 || grey > 2) throw new Error(`hairline is ${dark} dark and ${grey} blurred pixels tall`);
+      return `${bmp.width}×${bmp.height}px, pHYs says ${ppm} px/m (300 dpi), so it prints ${(bmp.width / 300 * 25.4).toFixed(1)} mm wide; the 1px rule is ${dark} crisp pixels`;
+    }],
+    ['Animation to video with WebCodecs, frame by frame', 'exportVideo(el, { fps: 30 }): the animation is paused and stepped, each frame encoded with VideoEncoder and muxed to WebM.', async (t) => {
+      const el = fixture(`<div style="${BOX};padding:0;position:relative;background:#fff"><i style="position:absolute;left:0;top:20px;width:40px;height:40px;background:rgb(220,0,60);animation:xv 1s linear forwards"></i><style>@keyframes xv { to { transform: translateX(160px) } }</style></div>`);
+      const t0 = performance.now();
+      const blob = await cap.exportVideo(el, { fps: 30, from: 'start' });
+      const m = blob.capture;
+      const v = document.createElement('video');
+      v.muted = true; v.src = URL.createObjectURL(blob);
+      await new Promise((r, j) => { v.onloadedmetadata = r; v.onerror = () => j(new Error(`the file does not play: ${v.error?.message}`)); });
+      if (m.frames !== 30) throw new Error(`1s at 30 fps should be 30 frames, got ${m.frames}`);
+      if (Math.abs(v.duration - 1) > 0.05) throw new Error(`duration ${v.duration}s`);
+      // Where is the red square at three moments? Linear motion: left edge = 160 × t.
+      const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      const where = [];
+      for (const at of [0.01, 0.5, 0.9]) {
+        await seek(v, at);
+        g.drawImage(v, 0, 0);
+        const row = g.getImageData(0, 40, c.width, 1).data;
+        let x = -1; for (let i = 0; i < c.width; i++) if (row[i * 4] > 150 && row[i * 4 + 1] < 90) { x = i; break; }
+        where.push(x);
+        if (at === 0.5) thumbOf(t, c);
+      }
+      const want = [0, 80, 144];
+      const off = where.map((x, i) => Math.abs(x - want[i]));
+      if (off.some((d) => d > 6)) throw new Error(`square at x=${where} for t=0, 0.5, 0.9 (expected about ${want})`);
+      const running = el.querySelector('i').getAnimations()[0]?.playState;
+      return `${m.frames} frames, ${v.videoWidth}×${v.videoHeight} ${m.codec}, ${(blob.size / 1024).toFixed(0)} kB, seekable; the square is at x=${where.join(', ')} at 0, 0.5 and 0.9s (exact: ${want.join(', ')}). Rendered in ${Math.round(performance.now() - t0)} ms; animation handed back ${running}.`;
+    }, { timeout: 30000 }],
+    ['Slow-motion and script-driven frames', 'exportVideo with onframe: script sets the state for each timestamp, so 60 fps comes out right on any machine.', async (t) => {
+      const el = fixture(`<div style="${BOX};padding:0;background:#fff"><div id="bar" style="height:80px;width:0;background:rgb(0,160,60)"></div></div>`);
+      const bar = el.querySelector('#bar');
+      const blob = await cap.exportVideo(el, { fps: 60, duration: 500, onframe: (ms) => { bar.style.width = `${ms / 500 * 200}px`; } });
+      const m = blob.capture;
+      const v = document.createElement('video'); v.muted = true; v.src = URL.createObjectURL(blob);
+      await new Promise((r, j) => { v.onloadedmetadata = r; v.onerror = () => j(new Error('does not play')); });
+      await seek(v, 0.25);
+      const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+      const g = c.getContext('2d'); g.drawImage(v, 0, 0); thumbOf(t, c);
+      const row = g.getImageData(0, 40, c.width, 1).data;
+      let w = 0; while (w < c.width && row[w * 4] < 120 && row[w * 4 + 1] > 110) w++;
+      if (m.frames !== 30) throw new Error(`${m.frames} frames`);
+      if (Math.abs(w - 100) > 8) throw new Error(`bar is ${w}px wide at 0.25s, expected about 100`);
+      return `${m.frames} frames at 60 fps; at 0.25s the script-driven bar is ${w}px wide (exact: 100)`;
+    }, { timeout: 30000 }],
+    ['Real-time WebCodecs export', "mode: 'realtime' for motion that cannot be stepped: frames are encoded as the element paints.", async (t) => {
+      const el = fixture(`<div style="${BOX}">realtime <span id="n">0</span></div>`);
+      let n = 0; const iv = setInterval(() => (el.querySelector('#n').textContent = ++n), 50);
+      const blob = await cap.exportVideo(el, { mode: 'realtime', duration: 700, fps: 30 });
+      clearInterval(iv);
+      const m = blob.capture;
+      const v = document.createElement('video'); v.muted = true; v.src = URL.createObjectURL(blob);
+      await new Promise((r, j) => { v.onloadedmetadata = r; v.onerror = () => j(new Error('does not play')); });
+      if (m.frames < 6) throw new Error(`only ${m.frames} frames in 0.7s`);
+      return `${m.frames} frames in 0.7s (${v.duration.toFixed(2)}s file), element stayed live`;
+    }, { timeout: 20000 }],
+    ['Frames you already have, to a file', 'encodeFrames(asyncIterable): the shape <dom-rewind>.frames() yields, { time, bitmap }.', async (t) => {
+      async function* clip() {
+        for (let i = 0; i < 20; i++) {
+          const c = new OffscreenCanvas(161, 90); const g = c.getContext('2d'); // odd width on purpose
+          g.fillStyle = 'rgb(255,204,0)'; g.fillRect(0, 0, 161, 90); g.fillStyle = 'rgb(0,60,200)'; g.fillRect(i * 6, 30, 30, 30);
+          yield { time: i / 20, bitmap: c.transferToImageBitmap() };
+        }
+      }
+      const blob = await cap.encodeFrames(clip(), { fps: 20 });
+      const m = blob.capture;
+      const v = document.createElement('video'); v.muted = true; v.src = URL.createObjectURL(blob);
+      await new Promise((r, j) => { v.onloadedmetadata = r; v.onerror = () => j(new Error('does not play')); });
+      await seek(v, 0.5);
+      const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+      const g = c.getContext('2d'); g.drawImage(v, 0, 0); thumbOf(t, c);
+      const row = g.getImageData(0, 45, c.width, 1).data;
+      let x = -1; for (let i = 0; i < c.width; i++) if (row[i * 4 + 2] > 140 && row[i * 4] < 90) { x = i; break; }
+      if (m.frames !== 20 || Math.abs(v.duration - 1) > 0.06) throw new Error(`${m.frames} frames, ${v.duration}s`);
+      if (Math.abs(x - 60) > 5) throw new Error(`square at x=${x} at 0.5s, expected 60`);
+      return `${m.frames} frames from an async iterator → ${v.videoWidth}×${v.videoHeight} ${m.codec}, ${v.duration.toFixed(2)}s; square at x=${x} at 0.5s (exact: 60)`;
     }, { timeout: 20000 }],
     ['An element taller than a canvas can be', 'Canvas dimensions stop at 16,384px; the scale is reduced to fit.', async (t) => {
       const el = fixture(`<div style="width:100px;height:9000px;background:rgb(255,204,0)"></div>`);

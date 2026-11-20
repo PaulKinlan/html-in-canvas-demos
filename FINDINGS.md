@@ -193,6 +193,26 @@ Measured in Chromium 157 headless on 2026-11-20: in-page probes, plus the DevToo
 
 Per-demo results (the same audit, `public/lib/a11y-audit.js`, run over every page in `shared/demos.js`): geometry, focus, names, find and selection hold up wherever content is actually drawn. The recurring caveats are canvases that go soft at 150% zoom (`/slot-bare/`, `/offscreen/`, `/cross-origin/`, `/transitions/`, `/time-scrubber/`, `/particles/`), continuous animation with no `prefers-reduced-motion` handling (`/slot/`, `/transitions/`, `/particles/`), unlabelled pixel-only canvases (`/cross-origin/`, `/transports/`), and one invisible tab stop: the lent card's button on `/cross-origin/` was not hit-testable in the audit frame.
 
+### Pattern by pattern (`/a11y/` section B, `/a11y/pattern.html?p=…`)
+
+The same card (heading, sentence, text field, button, link) built into a canvas thirteen ways, measured live, plus a recording made from outside with the DevTools protocol (`a11y/patterns-recorded.json`: real accessibility tree, real Tab key, real mouse, real devicePixelRatio 1.5).
+
+| Pattern | Accessibility tree | Focus order | Find in page | Selection | Zoom |
+| --- | --- | --- | --- | --- | --- |
+| Child of the canvas, `<canvas-slot>`, bare slot in a shadow canvas, `light-slots.js` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Shadow root on `<body>`, page overlay canvas | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Drawn by a worker (`<canvas-slot worker>`) | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `<dom-portal>`, Shader CSS, `<dom-lens>`, `<physical-ui>` | ✓ | ✓ | ✓ | ✓ | ! CSS `zoom` |
+| `<live-transition>` | ✓ | ✓ | ✓ | ✓ | ! stretched under CSS `zoom` |
+| Pixel mirror (other tab, other origin, video) | ✗ | ✗ | ✗ | ✗ | ! |
+
+- **How the DOM gets into the canvas does not matter to assistive technology.** In every live pattern the accessibility tree has the same four nodes with the same roles and names, as children of one `Canvas` node; a real Tab key visits field, button, link in DOM order; `window.find()` finds and highlights the text; a real mouse drag selects it. Slots, shadow roots on body, workers, WebGL textures: all the same.
+- **The differences are all in zoom.** Patterns that place the element with their own transform (`updateElementGeometry`, or a canvas sized from `devicePixelRatio`) ignore the CSS `zoom` property: the page grows, the drawing grows, but the element's reported box stays the old size, so clicks near the far edges miss. Real browser zoom is a devicePixelRatio change, and at a real ratio of 1.5 all twelve live patterns are sharp and clickable.
+- `<physical-ui>` is the one pattern where a mouse drag does not select text: the drag grabs the material. Keyboard selection and find still work.
+- A pixel mirror fails everything, by construction. It needs a label and a way back to the live element.
+- **`drawElementImage(el, x, y)` without a size draws in device pixels.** On a real HiDPI screen the element comes out at `devicePixelRatio` × its CSS size in canvas pixels, which is right for an unscaled context and wrong after `ctx.scale(devicePixelRatio, devicePixelRatio)`: it is then drawn (and hit-tested) dpr times too large. Pass the size: `drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight)`. Measured at 1, 1.5 and 2 with `--force-device-scale-factor`.
+- **Emulated device pixel ratios hide this.** DevTools device emulation and Playwright's `deviceScaleFactor` change `devicePixelRatio` but not the snapshot size or `devicePixelContentBoxSize`, so a page that is wrong on a phone looks right in emulation. Test HiDPI with the real flag, or on a device.
+
 ## Capture (`/capture/`, `public/lib/element-capture.js`)
 
 | Experiment | Result | Why |
@@ -217,6 +237,14 @@ Per-demo results (the same audit, `public/lib/a11y-audit.js`, run over every pag
 | Flicker | none measured | The snapshot is drawn in the frame the canvas appears. Headless screencasts do not show canvas content, so this still wants an eye: the "Flicker check" button runs 30 captures. |
 
 Browser bug: inserting, moving or removing an iframe from inside a `paint` handler (or a microtask of one) crashes the tab, the same CHECK every time (`trap int3`, same address). Taking an iframe-holding subtree out of a canvas in that handler does it, and so does appending a new iframe to `<body>`. The library leaves the paint event with a MessageChannel task before touching the DOM. This is probably the same failure as the `adoptNode` crash above.
+
+### Video with WebCodecs and print-quality PNG
+
+- **`exportVideo(el, { fps })` is frame-exact.** Animations under the element are paused and their `currentTime` stepped one frame at a time; each frame is drawn in a paint event, wrapped in a `VideoFrame` and encoded with `VideoEncoder` (VP9, VP8 fallback). A square animated 160px in 1s is found at x = 0, 80, 144 at 0, 0.5 and 0.9s: exactly where it should be. One rendering update per frame, so 144 frames at 640×360 took 2.4s here.
+- Setting `animation.currentTime` and asking for a paint gives that time's pixels in the very next paint event. No extra frame of delay.
+- Script-driven motion is stepped with an `onframe(ms)` callback; motion that cannot be stepped uses `mode: 'realtime'`. `encodeFrames(iterable)` encodes frames you already have, in the `{ time, bitmap }` shape `<dom-rewind>.frames()` yields.
+- **WebM needs no library.** `lib/webm-mux.js` is about a hundred lines: EBML header, Info with a real duration, one track, Cues before the clusters (so the file seeks), one cluster per key frame. Chrome plays and seeks the result. MP4 would need a larger muxer and H.264, whose software encoder crashed the tab in earlier testing.
+- `captureElement(el, { dpi: 300 })` re-rasterizes at 3.125× and writes a PNG `pHYs` chunk, so the file opens at the element's real size in print tools. A 1px rule comes out as 3 crisp pixels.
 
 ## Performance (`/perf/`)
 
