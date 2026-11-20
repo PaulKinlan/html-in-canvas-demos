@@ -208,7 +208,6 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
   </ul>
 
   <h2>Live checks</h2>
-  <div id="fixtures"></div>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
 </main>
 
@@ -216,7 +215,7 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
   import '/lib/canvas-slot.js';
   import '/lib/shader-fx.js';
   import { defineEffect, effects } from '/lib/effects.js';
-  import { banner, nav, runTests, supported } from '/shared/support.js';
+  import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn, supported } from '/shared/support.js';
   nav('/slot-effects/');
   banner();
   const $ = (id) => document.getElementById(id);
@@ -275,13 +274,17 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
   }, 400);
 
   // ---- Live checks ----
-  const fixtures = $('fixtures');
+  const fixtures = supported ? checkBench() : null;
   async function fixture(attrs = '', inner = '<div slot="a" class="chip">chip <button>b</button></div>', { wait = true } = {}) {
     const holder = document.createElement('div');
     holder.innerHTML = `<canvas-slot ${attrs}>${inner}</canvas-slot>`;
     const cs = holder.firstElementChild;
     fixtures.append(cs);
-    if (wait) await painted(cs);
+    if (wait) {
+      await painted(cs);
+      // The first frame can be drawn before the canvas takes its real size, and resizing clears it. Let that settle.
+      for (let i = 0; i < 3; i++) await new Promise(requestAnimationFrame);
+    }
     return cs;
   }
   async function painted(cs, more = 1) {
@@ -296,7 +299,6 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
   const X = 30;
   const isYellow = (p) => p[0] > 235 && p[1] > 185 && p[1] < 225 && p[2] < 30 && p[3] > 245;
   const hit = (el, dx = 3, dy = 3) => {
-    el.scrollIntoView({ block: 'center' });
     const r = el.getBoundingClientRect();
     return document.elementFromPoint(r.left + dx, r.top + dy);
   };
@@ -338,8 +340,11 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
         timeout: 15000,
         run: async () => {
           const all = [];
-          for (let i = 0; i < 20; i++) all.push(await fixture('effect="test-invert" style="width:150px;height:64px"', '<div slot="a" class="chip">' + i + '</div>'));
+          // Twenty do not fit in the usual bench on a phone, and a canvas that is clipped away is not painted.
+          fixtures.parentElement.style.maxHeight = '92vh';
+          for (let i = 0; i < 20; i++) all.push(await fixture('effect="test-invert" style="width:150px;height:56px"', '<div slot="a" class="chip">' + i + '</div>'));
           await sleep(300);
+          fixtures.parentElement.style.maxHeight = '';
           const modes = {};
           let bad = 0;
           for (const cs of all) {
@@ -358,7 +363,6 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
         run: async () => {
           const cs = await fixture('effect="none"');
           const chip = cs.firstElementChild, b = chip.querySelector('button');
-          cs.scrollIntoView({ block: 'center' });
           const c = cs.getBoundingClientRect(), r = chip.getBoundingClientRect();
           const dx = Math.round(r.left - c.left), dy = Math.round(r.top - c.top);
           if (Math.abs(dx - X) > 1 || Math.abs(dy) > 1) throw new Error(`chip reports ${dx},${dy}, drawn at ${X},0`);
@@ -414,7 +418,6 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
           const tilted = chip.getBoundingClientRect();
           if (!(tilted.width < flat.width - 8)) throw new Error(`box did not narrow: ${flat.width.toFixed(1)} → ${tilted.width.toFixed(1)}`);
           // Where the shader drew the button's corner: something not yellow must be there.
-          cs.scrollIntoView({ block: 'center' });
           const c = cs.getBoundingClientRect(), br = b.getBoundingClientRect();
           const mid = await cs.effects.pixel(br.left - c.left + br.width / 2, br.top - c.top + br.height / 2);
           const corner = await cs.effects.pixel(X + 1, 1);
@@ -430,7 +433,6 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
           const cs = await fixture('effect="none" style="zoom: 1.5"');
           await sleep(200);
           const chip = cs.firstElementChild, b = chip.querySelector('button');
-          cs.scrollIntoView({ block: 'center' });
           const c = cs.getBoundingClientRect(), r = chip.getBoundingClientRect();
           const dx = r.left - c.left;
           if (Math.abs(r.width - 210) > 2 || Math.abs(dx - X * 1.5) > 2) throw new Error(`hit box ${r.width.toFixed(0)}px wide at ${dx.toFixed(0)}; drawn 210px wide at ${X * 1.5}`);
@@ -505,18 +507,22 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
         name: 'Adding and removing the attribute at run time',
         why: 'A canvas keeps its first context type, so the element swaps canvases. onrender, content and focus must survive.',
         run: async () => {
-          const cs = await fixture('', '<div slot="a" class="chip"><input style="width:60px"></div>', { wait: false });
+          const cs = await fixture('', '<div slot="a" class="chip"><input inputmode="none" aria-label="Test field" style="width:60px"></div>', { wait: false });
           let calls = 0;
           cs.onrender = ({ draw }) => { calls++; draw('a', 20, 40); };
           await sleep(120);
           const input = cs.querySelector('input');
-          input.focus(); input.value = 'kept';
+          // Only take focus when nobody is using it, and never bring up a keyboard (inputmode="none").
+          const free = !document.activeElement || document.activeElement === document.body;
+          if (free) input.focus({ preventScroll: true });
+          input.value = 'kept';
           const first = cs.canvas, mode0 = cs.mode;
           cs.setAttribute('effect', 'test-invert');
           await painted(cs);
           const p = await cs.effects.pixel(20 + 130, 40 + 50);
           const mode1 = cs.mode, swapped = cs.canvas !== first;
-          const focused = document.activeElement === input;
+          const focused = !free || document.activeElement === input;
+          if (free) input.blur();
           cs.removeAttribute('effect');
           await sleep(150);
           const before = calls;
@@ -526,7 +532,7 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
           if (!(p[0] < 20 && p[2] > 235)) throw new Error(`shaded pixel at the onrender position is ${p}`);
           if (!swapped || !focused || input.value !== 'kept') throw new Error(`swapped ${swapped}, focus kept ${focused}, value "${input.value}"`);
           if (calls <= before) throw new Error('onrender stopped being called after going back to 2D');
-          return `2d → ${mode1} → 2d; onrender placed the shaded slot at 20,40; focus and the typed value survived both swaps`;
+          return `2d → ${mode1} → 2d; onrender placed the shaded slot at 20,40; ${free ? 'focus and the typed value' : 'the typed value (focus was in use, so not tried)'} survived both swaps`;
         },
       },
       {
@@ -574,13 +580,24 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
         },
       },
     ];
+    tests.push(stillDrawn(() => [...document.querySelectorAll('main canvas-slot')].map((cs, i) => ({
+      name: cs.id || cs.getAttribute('effect') || `slot ${i + 1}`,
+      note: 'plain HTML',
+      ink: async () => {
+        if (cs.hasAttribute('plain')) return null;
+        // A slot may be restarting on a fresh canvas after a lost context: give it a moment.
+        for (let i = 0; i < 80 && cs.mode !== '2d' && !(cs.effects?.frames > 0); i++) await sleep(25);
+        if (!cs.effects) return cs.mode === '2d' ? inkFraction(cs.canvas.getContext('2d')) : 0;
+        // The shader backends read one pixel at a time: sample a grid.
+        const w = cs.canvas.clientWidth, h = cs.canvas.clientHeight;
+        let ink = 0;
+        for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) if ((await cs.effects.pixel(((x + 0.5) * w) / 6, ((y + 0.5) * h) / 6))[3] > 8) ink++;
+        return ink / 36;
+      },
+      rescue: () => window.__noRescue || cs.showPlain('it drew nothing'),
+    }))));
     // Each check starts with an empty bench, so finished fixtures give their GPU context back.
-    for (const t of tests) {
-      const run = t.run;
-      t.run = () => { fixtures.replaceChildren(); return run(); };
-    }
-    // Clear the bench at the end too: the last fixture may be mid-fallback.
-    runTests($('results'), tests).then(() => { fixtures.replaceChildren(); scrollTo(0, 0); });
+    runTests($('results'), onBench(fixtures, tests)).then(() => fixtures.done());
   }
 </script>
 </body>

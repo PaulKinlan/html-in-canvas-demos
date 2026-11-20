@@ -32,15 +32,16 @@
   #stats { font: 12px var(--mono); color: var(--muted); }
 
   .mapdemo { display: grid; grid-template-columns: minmax(0, 1fr) clamp(110px, 30%, 240px); gap: 16px; }
-  #scroller { height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-  #doc { padding: 14px 18px; font-size: 14px; }
-  #doc h4 { margin: 14px 0 4px; }
-  #doc label { display: block; }
-  .mapbox { position: relative; height: 300px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
+  .scroller { height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .doc { padding: 14px 18px; font-size: 14px; }
+  .doc h4 { margin: 14px 0 4px; }
+  .doc label { display: block; }
+  /* Dragging along the map moves the document, so the browser must not pan the page from here. */
+  .mapbox { touch-action: none; position: relative; height: 300px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
   .mapbox dom-portal { height: 100%; }
-  #viewport { position: absolute; left: 0; right: 0; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; border-radius: 4px; }
+  .marker { position: absolute; left: 0; right: 0; border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); pointer-events: none; border-radius: 4px; }
 
-  #fixtures { display: grid; gap: 8px; margin-bottom: 12px; font: 13px system-ui; }
+  #fixtures { display: grid; gap: 8px; font: 13px system-ui; }
   #fixtures .fx { display: flex; gap: 12px; align-items: flex-start; padding: 6px; border: 1px solid var(--line); border-radius: 8px; min-height: 40px; }
   .chip { background: rgb(255, 204, 0); color: #000; padding: 6px 10px; width: 120px; box-sizing: border-box; }
 </style>
@@ -91,18 +92,18 @@
   <h2>A live minimap</h2>
   <p>
     The document on the left scrolls inside a box. The strip on the right is <code>&lt;dom-portal for="doc" fit&gt;</code>: the whole
-    document, scaled to fit, and still live. Tick a checkbox in the minimap. Because the source is inside a scrolling box, this one
+    document, scaled to fit, and still live. Scroll the document, drag along the minimap to move through it, or tick a checkbox in the minimap. Because the source is inside a scrolling box, this one
     uses <code>layer="top"</code>, which draws through a canvas in the top layer so the copy is not clipped by the scroller.
   </p>
   <div class="mapdemo">
-    <div id="scroller">
+    <div id="scroller" class="scroller">
       <dom-portal-source layer="top" id="docSource">
-        <div id="doc"></div>
+        <div id="doc" class="doc"></div>
       </dom-portal-source>
     </div>
     <div class="mapbox">
       <dom-portal for="doc" fit id="mapPortal"></dom-portal>
-      <div id="viewport"></div>
+      <div id="viewport" class="marker"></div>
     </div>
   </div>
 
@@ -115,13 +116,12 @@
   </ul>
 
   <h2>Live checks</h2>
-  <div id="fixtures"></div>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
 </main>
 
 <script type="module">
   import { DomPortalSource } from '/lib/dom-portal.js';
-  import { banner, nav, runTests, supported } from '/shared/support.js';
+  import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn, supported } from '/shared/support.js';
   nav('/portal/');
   banner();
   const $ = (id) => document.getElementById(id);
@@ -179,23 +179,59 @@
     html += `<h4>Section ${i}</h4><p>Paragraph text for section ${i}. The minimap on the right is this same element, drawn again at a size that fits.</p><label><input type="checkbox" ${i % 3 === 0 ? 'checked' : ''}> Mark section ${i} as read</label>`;
   }
   doc.innerHTML = html;
-  const scroller = $('scroller');
-  function syncViewport() {
-    const map = $('mapPortal').getBoundingClientRect();
-    const k = Math.min(map.width / doc.offsetWidth, map.height / doc.offsetHeight);
-    $('viewport').style.top = (map.height - doc.offsetHeight * k) / 2 + scroller.scrollTop * k + 'px';
-    $('viewport').style.height = scroller.clientHeight * k + 'px';
-    const w = doc.offsetWidth * k;
-    $('viewport').style.left = (map.width - w) / 2 + 'px';
-    $('viewport').style.right = (map.width - w) / 2 + 'px';
+  // One minimap: a scrolling box, the document in it, the box holding the
+  // <dom-portal fit>, and the marker that shows which part is on screen.
+  function minimap(scroller, doc, mapbox, marker) {
+    const portal = mapbox.querySelector('dom-portal');
+    const fit = (box) => Math.min(box.width / doc.offsetWidth, box.height / doc.offsetHeight);
+    function sync() {
+      const map = portal.getBoundingClientRect();
+      const k = fit(map);
+      marker.style.top = (map.height - doc.offsetHeight * k) / 2 + scroller.scrollTop * k + 'px';
+      marker.style.height = scroller.clientHeight * k + 'px';
+      const w = doc.offsetWidth * k;
+      marker.style.left = (map.width - w) / 2 + 'px';
+      marker.style.right = (map.width - w) / 2 + 'px';
+    }
+    scroller.addEventListener('scroll', sync, { passive: true });
+    const ro = new ResizeObserver(sync);
+    ro.observe(doc);
+    // Drag along the minimap to move through the document. A tap is left alone,
+    // so it still reaches the checkbox drawn under the finger. The events
+    // arrive at the document's own elements (the copy is the same DOM), so the
+    // map is found by position, not by event target.
+    const down = (e) => {
+      const box = mapbox.getBoundingClientRect();
+      if (e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom) return;
+      e.preventDefault(); // tells <dom-portal-source> not to pan the page for this touch
+      let dragging = false;
+      const move = (ev) => {
+        if (ev.pointerId !== e.pointerId) return;
+        if (!dragging && Math.abs(ev.clientY - e.clientY) < 6) return;
+        dragging = true;
+        const k = fit(box);
+        const top = box.top + (box.height - doc.offsetHeight * k) / 2;
+        scroller.scrollTop = (ev.clientY - top) / k - scroller.clientHeight / 2;
+      };
+      const end = (ev) => {
+        if (ev.pointerId !== e.pointerId) return;
+        removeEventListener('pointermove', move, true);
+        removeEventListener('pointerup', end, true);
+        removeEventListener('pointercancel', end, true);
+      };
+      addEventListener('pointermove', move, true);
+      addEventListener('pointerup', end, true);
+      addEventListener('pointercancel', end, true);
+    };
+    addEventListener('pointerdown', down, true);
+    return () => { removeEventListener('pointerdown', down, true); ro.disconnect(); };
   }
-  scroller.addEventListener('scroll', syncViewport, { passive: true });
-  new ResizeObserver(syncViewport).observe(doc);
+  minimap($('scroller'), doc, document.querySelector('.mapbox'), $('viewport'));
 
   // ---- Live checks ----
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const frames = (n = 3) => new Promise((r) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : r()); f(); });
-  const fixtures = $('fixtures');
+  const fixtures = supported ? checkBench() : null;
   let n = 0;
   function fx(html) {
     const row = document.createElement('div');
@@ -209,7 +245,6 @@
     for (let i = 0; i < 60 && !(portal.source && portal.source.stats.frames > 0); i++) await sleep(25);
     if (!portal.source) throw new Error('portal never resolved its source');
     if (!portal.source.stats.frames) throw new Error('source never drew');
-    row.scrollIntoView({ block: 'center' });
     await frames(4);
     return portal;
   }
@@ -223,7 +258,7 @@
   const mid = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
 
   if (supported) {
-    runTests($('results'), [
+    runTests($('results'), onBench(fixtures, [
       {
         name: 'The portal draws the element a second time',
         why: 'A yellow chip at home; the portal 200px away shows the same pixels.',
@@ -327,13 +362,14 @@
         },
       },
       {
-        name: 'Scrolling the page costs no redraws',
-        why: 'The canvas spans home and portal in page coordinates, so the compositor scrolls it.',
+        name: 'Scrolling costs no redraws',
+        why: 'The canvas spans home and portal and scrolls with them, so the compositor moves it. Tried in a small scrolling box, so the check does not move the page under you.',
         run: async () => {
-          const row = fx('<div class="chip" id="$">chip</div><dom-portal for="$"></dom-portal>');
+          const row = fx('<div style="height:60px;width:300px;overflow:auto"><div style="height:400px"><div class="chip" id="$">chip</div><dom-portal for="$"></dom-portal></div></div>');
           const portal = await ready(row);
+          const box = row.firstElementChild;
           const before = portal.source.stats.frames;
-          scrollBy(0, -60); await frames(4); scrollBy(0, 60); await frames(4);
+          box.scrollTop = 20; await frames(4); box.scrollTop = 0; await frames(4);
           const after = portal.source.stats.frames;
           if (portal.source.stats.mode !== 'union') throw new Error(`mode is ${portal.source.stats.mode}`);
           if (after !== before) throw new Error(`${after - before} redraws during scroll`);
@@ -429,6 +465,53 @@
         },
       },
       {
+        name: 'Minimap: the document scrolls, and the map follows',
+        why: 'In the top layer the content is outside its scrolling box, so a wheel or a finger on it would move the page. The source scrolls the right box by hand. Dragging along the minimap moves the document too. Run on a small copy of the demo, not the one above.',
+        run: async () => {
+          const row = fx('<div class="mapdemo" style="width:300px;grid-template-columns:1fr 100px"><div class="scroller" style="height:120px"><dom-portal-source layer="top"><div id="$" class="doc" style="padding:0"></div></dom-portal-source></div><div class="mapbox" style="height:120px"><dom-portal for="$" fit></dom-portal><div class="marker"></div></div></div>');
+          const d = row.querySelector('.doc'), box = row.querySelector('.scroller'), map = row.querySelector('.mapbox'), marker = row.querySelector('.marker');
+          d.innerHTML = '<p style="margin:0;height:600px;background:linear-gradient(rgb(255,204,0), #fff)">tall</p>';
+          const stop = minimap(box, d, map, marker);
+          try {
+            await ready(row);
+            const first = d.firstElementChild;
+            const pe = (type, x, y, target) => (target ?? window).dispatchEvent(new PointerEvent(type, { bubbles: true, composed: true, cancelable: true, pointerId: 77, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y }));
+            move(0, 0); await frames();
+            const s = box.getBoundingClientRect();
+            const x = s.left + s.width / 2, y = s.top + 100;
+            const pageBefore = scrollY;
+            // 1. wheel over the document
+            first.dispatchEvent(new WheelEvent('wheel', { bubbles: true, composed: true, cancelable: true, deltaY: 120, clientX: x, clientY: y }));
+            await frames();
+            const afterWheel = box.scrollTop;
+            // 2. a finger dragged up the document
+            pe('pointerdown', x, y, first);
+            for (let i = 1; i <= 6; i++) pe('pointermove', x, y - i * 20);
+            await sleep(120); // rest, so there is no fling
+            pe('pointerup', x, y - 120);
+            await frames();
+            const afterTouch = box.scrollTop;
+            const markerTop = parseFloat(marker.style.top);
+            // 3. a finger dragged along the minimap
+            const m = map.getBoundingClientRect();
+            const mx = m.left + m.width / 2;
+            pe('pointerdown', mx, m.top + 20, first);
+            for (let i = 1; i <= 6; i++) pe('pointermove', mx, m.top + 20 + i * 14);
+            pe('pointerup', mx, m.top + 104);
+            await frames();
+            const afterMap = box.scrollTop;
+            const pageMoved = Math.abs(scrollY - pageBefore);
+            move(0, 0);
+            if (!(afterWheel > 100)) throw new Error(`wheel moved the document by ${afterWheel}px`);
+            if (!(afterTouch > afterWheel + 100)) throw new Error(`touch drag moved the document from ${afterWheel} to ${afterTouch}`);
+            if (!(markerTop > 5)) throw new Error(`the minimap marker did not move (top ${markerTop})`);
+            if (!(afterMap > afterTouch + 100)) throw new Error(`dragging the minimap moved the document from ${afterTouch} to ${afterMap}`);
+            if (pageMoved > 2) throw new Error(`the page scrolled by ${pageMoved}px instead`);
+            return `wheel → ${Math.round(afterWheel)}px, finger → ${Math.round(afterTouch)}px, marker at ${Math.round(markerTop)}px, minimap drag → ${Math.round(afterMap)}px; the page stayed put`;
+          } finally { stop(); }
+        },
+      },
+      {
         name: 'A portal of something that contains a portal source',
         why: 'Nested canvases: does the outer copy include the inner source?',
         run: async () => {
@@ -437,7 +520,6 @@
           inner.hidden = false;
           const outer = row.querySelector('dom-portal:not([hidden]):last-of-type');
           for (let i = 0; i < 60 && !(outer.source?.stats.frames && inner.source?.stats.frames); i++) await sleep(25);
-          row.scrollIntoView({ block: 'center' });
           await frames(6);
           const r = outer.getBoundingClientRect();
           const p = pixelAt(outer.source, r.left + 12, r.top + 12);
@@ -445,7 +527,38 @@
           return 'the outer copy includes the inner source';
         },
       },
-    ]).then(() => scrollTo(0, 0));
+      {
+        name: 'A lost canvas is replaced, not left blank',
+        why: 'A 2D canvas can lose its context on a phone. The source swaps in a fresh canvas; after three losses it shows the element as plain HTML with a note. The loss is simulated with a contextlost event.',
+        run: async () => {
+          const row = fx('<div class="chip" id="$">chip</div><span style="width:40px"></span><dom-portal for="$"></dom-portal>');
+          const portal = await ready(row);
+          const source = portal.source, first = source.canvas;
+          first.dispatchEvent(new Event('contextlost'));
+          for (let i = 0; i < 40 && !(source.canvas !== first && source.stats.frames && isYellow(pixelAt(source, portal.getBoundingClientRect().left + 4, portal.getBoundingClientRect().top + 4))); i++) await sleep(25);
+          const r = portal.getBoundingClientRect();
+          const p = pixelAt(source, r.left + 4, r.top + 4);
+          if (source.canvas === first || !isYellow(p)) throw new Error(`canvas replaced: ${source.canvas !== first}, portal pixel ${p}`);
+          for (let i = 0; i < 3; i++) source.canvas.dispatchEvent(new Event('contextlost'));
+          await frames(3);
+          const note = source.shadowRoot.querySelector('[part=notice]')?.textContent ?? '';
+          if (!source.lost || !note) throw new Error('after three more losses there is no plain fallback');
+          return `fresh canvas drew the copy again (${p.slice(0, 3)}); after three more losses: "${note}"`;
+        },
+      },
+      stillDrawn(() => [$('docSource'), $('dockPortal').source].map((src, i) => ({
+        name: i ? 'basket' : 'minimap',
+        note: src?.lost ? 'plain HTML' : 'off screen',
+        ink: () => {
+          if (!src || src.lost) return src ? null : 0;
+          // The canvas only has pixels where a copy is on screen (or always, when it spans the page).
+          const boxes = [src, ...src.portals].map((el) => el.getBoundingClientRect());
+          const onScreen = boxes.some((b) => b.bottom > 0 && b.top < innerHeight && b.right > 0 && b.left < innerWidth);
+          if (src.stats.mode !== 'union' && !onScreen) return null;
+          return inkFraction(src.canvas.getContext('2d'));
+        },
+      }))),
+    ])).then(() => fixtures.done());
   }
 </script>
 </body>

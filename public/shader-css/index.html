@@ -152,13 +152,12 @@
   </ul>
 
   <h2>Live checks</h2>
-  <div id="fixtures"></div>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
 </main>
 
 <script type="module">
   import { FxSurface, defineEffect } from '/lib/shader-fx.js';
-  import { banner, nav, runTests, supported } from '/shared/support.js';
+  import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn, supported } from '/shared/support.js';
   nav('/shader-css/');
   banner();
   const $ = (id) => document.getElementById(id);
@@ -194,7 +193,7 @@
 
   // ---- Live checks ----
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const fixtures = $('fixtures');
+  const fixtures = supported ? checkBench() : null;
   async function fixture(attrs = '', inner = 'chip <button>b</button>') {
     const el = document.createElement('div');
     el.innerHTML = `<div class="chip" ${attrs}>${inner}</div>`;
@@ -214,7 +213,7 @@
   const isYellow = (p) => p[0] > 235 && p[1] > 185 && p[1] < 225 && p[2] < 30 && p[3] > 245;
 
   if (supported) {
-    runTests($('results'), [
+    runTests($('results'), onBench(fixtures, [
       {
         name: 'WebGPU: DOM → GPUTexture → WGSL shader',
         why: 'queue.drawElementImageToTexture() on a WebGPU canvas, sampled by a WGSL fragment shader that swaps red and blue. Needs a WebGPU adapter.',
@@ -328,7 +327,6 @@
         why: 'transition: --fx-progress 600ms. Sampled mid-flight, the computed value is between 0 and 1.',
         run: async () => {
           const { chip, s } = await fixture('fx="dissolve" style="transition: --fx-progress 600ms linear"');
-          s.scrollIntoView({ block: 'center' });
           await sleep(120);
           const f0 = s.frames;
           chip.style.setProperty('--fx-progress', '1');
@@ -346,14 +344,12 @@
         why: 'elementFromPoint on the button inside a rippling element.',
         run: async () => {
           const { chip, s } = await fixture('fx="ripple"');
-          s.scrollIntoView({ block: 'center' });
           await sleep(80);
           const b = chip.querySelector('button');
           const r = b.getBoundingClientRect();
           s.poke(20, 20);
           await sleep(60);
           const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-          scrollTo(0, 0);
           if (hit !== b) throw new Error(`found ${hit?.localName}`);
           return 'elementFromPoint → the real button, mid-ripple';
         },
@@ -383,7 +379,6 @@
             fixtures.append(el);
             made.push(el);
           }
-          made[0].scrollIntoView({ block: 'center' });
           await sleep(800);
           const surfaces = made.map((el) => el.closest('fx-surface'));
           const lost = surfaces.filter((s) => !s || !s.live || s.error).length;
@@ -431,7 +426,13 @@
           return 'parent is the original container again';
         },
       },
-    ]).then(() => scrollTo(0, 0));
+      stillDrawn(() => [...document.querySelectorAll('.gallery fx-surface, .play fx-surface')].map((el, i) => ({
+        name: el.effectName || `surface ${i + 1}`,
+        note: 'plain HTML',
+        ink: () => (el.live ? inkFraction(el.snapshot()) : null),
+        rescue: () => el.fallBackToPlain('it drew nothing'),
+      }))),
+    ])).then(() => fixtures.done());
   }
 </script>
 </body>

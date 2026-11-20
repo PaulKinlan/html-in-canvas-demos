@@ -21,8 +21,6 @@
   /* One class carries the card's look, so it is the same in the page and in the canvas. */
   .fruit { box-sizing: border-box; width: min(300px, calc(100vw - 82px)); padding: 10px 14px; border-radius: 8px; border: 1px dashed #0006; font: 16px/1.55 system-ui; cursor: pointer; }
   .fruit input { font: inherit; width: 120px; max-width: 45%; }
-  #variants { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
-  #variants > * { height: 70px; border: 1px solid var(--line); }
 </style>
 </head>
 <body>
@@ -90,7 +88,7 @@
   <p class="note">Tap a card to slot it into the canvas (one at a time, it takes <code>slot="current"</code>); tap it in the canvas to send it back. The big copy is the live element: its input and link work where they are drawn. The two small copies are extra draws of the same element (scaled, and a cropped strip) and are pixels only.</p>
 
   <h2>What works with slots (live, in your browser)</h2>
-  <div id="variants"></div>
+  <p class="note">Each test builds a small canvas, draws into it and checks the result. The picture in a row is what that test drew.</p>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
 
   <h2>Takeaways</h2>
@@ -106,7 +104,7 @@
 
 <script type="module">
   import '/lib/canvas-slot.js';
-  import { banner, nav, runTests, nextPaint, pixel, supported } from '/shared/support.js';
+  import { banner, nav, runTests, nextPaint, pixel, supported, testStage } from '/shared/support.js';
   nav('/slot/');
   banner();
 
@@ -196,13 +194,12 @@
   });
 
   // ---- Live experiments ----
-  const variants = document.getElementById('variants');
   function makeHost(innerCanvasHTML, lightHTML) {
     const host = document.createElement('div');
     host.innerHTML = lightHTML;
     const root = host.attachShadow({ mode: 'open', slotAssignment: innerCanvasHTML.includes('manual') ? 'manual' : 'named' });
     root.innerHTML = `<canvas content="drawable" layoutsubtree width="420" height="140" style="width:210px;height:70px">${innerCanvasHTML.replace('manual', '')}</canvas>`;
-    variants.append(host);
+    testStage().append(host);
     const canvas = root.querySelector('canvas');
     return { host, root, canvas, ctx: canvas.getContext('2d') };
   }
@@ -283,12 +280,9 @@
           await nextPaint(v.canvas);
           v.ctx.reset();
           v.ctx.drawElementImage(v.host.firstElementChild, 40, 40); // canvas px; CSS px is half (canvas is 2x)
-          v.host.scrollIntoView({ block: 'center' });
-          await nextPaint(v.canvas);
           const r = v.canvas.getBoundingClientRect();
           const scale = r.width / v.canvas.width;
           const hit = document.elementFromPoint(r.x + 44 * scale, r.y + 44 * scale);
-          window.scrollTo(0, 0);
           if (hit !== v.host.firstElementChild) throw new Error(`elementFromPoint returned ${hit?.tagName ?? null}`);
           return `elementFromPoint → the slotted <div> (drawn offset 40,40)`;
         },
@@ -352,21 +346,25 @@
           slotCard(kiwi);
           try {
             await nextPaint(swap.canvas); await nextPaint(swap.canvas);
-            swap.scrollIntoView({ block: 'center' });
-            await nextPaint(swap.canvas);
             const c = swap.canvas.getBoundingClientRect();
             const { main } = swapLayout(swap.canvas.clientWidth, kiwi);
             // Where the input should be: its offset inside the card, plus where the card is drawn.
             const x = c.x + main.x + input.offsetLeft - kiwi.offsetLeft + input.offsetWidth / 2;
             const y = c.y + main.y + input.offsetTop - kiwi.offsetTop + input.offsetHeight / 2;
-            const hit = document.elementFromPoint(x, y);
+            // The input's hit-testing box must be where it is drawn. This needs no scrolling,
+            // so the page stays where the reader left it.
             const r = input.getBoundingClientRect();
-            window.scrollTo(0, 0);
-            if (hit !== input) throw new Error(`elementFromPoint at the drawn input returned ${hit ? '<' + hit.localName + '>' : 'null'}; the input's box is at ${Math.round(r.x - c.x)},${Math.round(r.y - c.y)} in the canvas`);
-            input.focus();
+            const dx = Math.abs(r.x + r.width / 2 - x), dy = Math.abs(r.y + r.height / 2 - y);
+            if (dx > 2 || dy > 2) throw new Error(`the input's hit box is ${Math.round(dx)},${Math.round(dy)}px away from where it is drawn (box at ${Math.round(r.x - c.x)},${Math.round(r.y - c.y)} in the canvas)`);
+            // When that spot is on screen, also ask the browser what is under it.
+            if (y > 0 && y < innerHeight && x > 0 && x < innerWidth) {
+              const hit = document.elementFromPoint(x, y);
+              if (hit !== input && !hit?.closest('#site-nav, #test-stage')) throw new Error(`elementFromPoint at the drawn input returned ${hit ? '<' + hit.localName + '>' : 'null'}`);
+            }
+            input.focus({ preventScroll: true });
             if (swap.contains(document.activeElement) && document.activeElement !== input) throw new Error('focus went elsewhere');
             input.blur();
-            return `elementFromPoint → the <input> at ${Math.round(x - c.x)},${Math.round(y - c.y)} in the canvas`;
+            return `the <input> hit-tests at ${Math.round(x - c.x)},${Math.round(y - c.y)} in the canvas, where it is drawn`;
           } finally { unslot(); }
         },
       },

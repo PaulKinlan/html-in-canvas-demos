@@ -46,6 +46,9 @@ const SOURCE_CSS = `
   canvas[popover] { position: fixed; inset: auto; left: 0; top: 0; margin: 0; border: 0; padding: 0; background: none; overflow: visible; max-width: none; max-height: none; }
   #content { position: absolute; left: 0; top: 0; display: flow-root; box-sizing: border-box; pointer-events: auto; }
   :host([inline]) #content { width: max-content; }
+  /* In the top layer the content is no longer inside the page's scrollers,
+     so touch panning is done by hand (see #onPanStart). */
+  canvas[popover] #content { touch-action: pinch-zoom; }
   /* An adopted element's margins move to the host so they still collapse with its neighbours. */
   :host([adopted]) ::slotted(*) { margin: 0 !important; }
 `;
@@ -68,6 +71,23 @@ if (typeof window !== 'undefined') {
     },
     { capture: true, passive: true },
   );
+  // A finger does not hover. Once it lifts, nothing is pointing at a copy any
+  // more, so hit testing goes home; otherwise the next touch on the source
+  // itself would land on nothing.
+  // Wait a moment first: the tap's click is hit tested after pointerup and
+  // must still find the copy.
+  let releasing = 0;
+  const release = (e) => {
+    if (e.pointerType === 'mouse') return;
+    clearTimeout(releasing);
+    releasing = setTimeout(() => {
+      pointer.known = false;
+      for (const s of DomPortalSource.instances) s.update(true);
+    }, 350);
+  };
+  addEventListener('pointerdown', () => clearTimeout(releasing), { capture: true, passive: true });
+  addEventListener('pointerup', release, { capture: true, passive: true });
+  addEventListener('pointercancel', release, { capture: true, passive: true });
 }
 
 export class DomPortalSource extends HTMLElement {
@@ -129,12 +149,131 @@ export class DomPortalSource extends HTMLElement {
     this.#sizer = this.#root.getElementById('sizer');
     this.#canvas = this.#root.querySelector('canvas');
     this.#content = this.#root.getElementById('content');
-    this.#canvas.addEventListener('paint', () => {
+    this.#listen(this.#canvas);
+    this.#content.addEventListener('wheel', this.#onWheel, { passive: false });
+    this.#content.addEventListener('pointerdown', this.#onPanStart);
+  }
+
+  #listen(canvas) {
+    canvas.addEventListener('paint', () => {
+      if (canvas !== this.#canvas) return;
       this.#painted = true;
       this.#dirty = true;
       this.update();
     });
+    canvas.addEventListener('contextlost', () => canvas === this.#canvas && this.#renew('canvas context lost'));
   }
+
+  // A 2D canvas can lose its context (GPU reset, memory pressure on a phone),
+  // and one that comes back does not always draw again. Swap in a fresh
+  // canvas instead of waiting; after three tries, stop and show plain HTML.
+  #renewals = 0;
+  #dead = false;
+  /** Why the canvas was given up on, or '' while it is working. */
+  lost = '';
+  #renew(reason) {
+    if (this.#dead) return;
+    if (++this.#renewals > 3) return this.#giveUp(reason);
+    const old = this.#canvas;
+    const fresh = old.cloneNode(false);
+    fresh.removeAttribute('popover');
+    try { old.hidePopover?.(); } catch {}
+    old.replaceWith(fresh);
+    fresh.append(this.#content);
+    this.#canvas = fresh;
+    this.#ctx = fresh.getContext('2d');
+    this.#top = false;
+    this.#painted = false;
+    this.#key = '';
+    this.#unitKey = '';
+    this.#dirty = true;
+    this.#listen(fresh);
+    this.dispatchEvent(new CustomEvent('portalrenew', { detail: { reason, tries: this.#renewals }, bubbles: true }));
+    if (!this.#ctx) return this.#giveUp('no 2D context');
+    fresh.requestPaint();
+  }
+
+  #giveUp(reason) {
+    this.#dead = true;
+    this.lost = reason;
+    cancelAnimationFrame(this.#raf);
+    const target = this.firstElementChild;
+    this.#root.innerHTML = '<slot></slot><small part="notice" style="display:block;font:11px system-ui;opacity:.7;margin-top:2px"></small>';
+    this.#root.querySelector('small').textContent = `Shown as plain HTML (${reason}). The copies are now inert pictures.`;
+    this.setAttribute('plain', reason);
+    for (const p of [...this.#portals]) p.sourceLost(target);
+    this.#portals.clear();
+    this.dispatchEvent(new CustomEvent('portalfallback', { detail: { reason }, bubbles: true }));
+  }
+
+  // layer="top" moves the canvas, and the content with it, into the top
+  // layer. Scrolling started on the content then chains straight to the page
+  // and skips the scrolling boxes the source sits in, so a wheel or a finger
+  // on a document inside a scroller would move the page instead. Put the
+  // chain back by hand: scroll the nearest box that still has room, starting
+  // from the copy the pointer is on, and end at the page.
+  #scrollChain(dx, dy) {
+    const from = this.active ?? this;
+    for (let n = from.parentElement ?? from.getRootNode().host; n && (dx || dy); n = n.parentElement ?? n.getRootNode().host) {
+      if (!(n instanceof Element) || n === document.documentElement || n === document.body) break;
+      const cs = getComputedStyle(n);
+      if (dy && /auto|scroll/.test(cs.overflowY) && (dy < 0 ? n.scrollTop > 0 : n.scrollTop < n.scrollHeight - n.clientHeight - 0.5)) {
+        n.scrollTop += dy;
+        dy = 0;
+      }
+      if (dx && /auto|scroll/.test(cs.overflowX) && (dx < 0 ? n.scrollLeft > 0 : n.scrollLeft < n.scrollWidth - n.clientWidth - 0.5)) {
+        n.scrollLeft += dx;
+        dx = 0;
+      }
+    }
+    if (dx || dy) scrollBy(dx, dy);
+  }
+
+  #onWheel = (e) => {
+    if (!this.#top || e.ctrlKey || e.defaultPrevented) return;
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1;
+    e.preventDefault();
+    this.#scrollChain(e.deltaX * unit, e.deltaY * unit);
+  };
+
+  #onPanStart = (e) => {
+    if (!this.#top || e.pointerType !== 'touch' || !e.isPrimary || e.defaultPrevented) return;
+    cancelAnimationFrame(this.#fling);
+    let x = e.clientX, y = e.clientY, t = performance.now(), vx = 0, vy = 0, moved = false;
+    const move = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      const dx = x - ev.clientX, dy = y - ev.clientY;
+      if (!moved && Math.hypot(e.clientX - ev.clientX, e.clientY - ev.clientY) < 6) return; // still a tap
+      moved = true;
+      const now = performance.now(), dt = Math.max(1, now - t);
+      vx = 0.7 * (dx / dt) + 0.3 * vx;
+      vy = 0.7 * (dy / dt) + 0.3 * vy;
+      x = ev.clientX; y = ev.clientY; t = now;
+      this.#scrollChain(dx, dy);
+    };
+    const end = (ev) => {
+      if (ev.pointerId !== e.pointerId) return;
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', end, true);
+      removeEventListener('pointercancel', end, true);
+      if (!moved || performance.now() - t > 80 || ev.type === 'pointercancel') return;
+      // Carry on for a moment after the finger lifts, like a native fling.
+      let last = performance.now();
+      const step = (now) => {
+        const dt = Math.min(32, now - last);
+        last = now;
+        vx *= Math.pow(0.996, dt); vy *= Math.pow(0.996, dt);
+        if (Math.hypot(vx, vy) < 0.02) return;
+        this.#scrollChain(vx * dt, vy * dt);
+        this.#fling = requestAnimationFrame(step);
+      };
+      this.#fling = requestAnimationFrame(step);
+    };
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', end, true);
+    addEventListener('pointercancel', end, true);
+  };
+  #fling = 0;
 
   get canvas() {
     return this.#canvas;
@@ -176,6 +315,7 @@ export class DomPortalSource extends HTMLElement {
   }
 
   attach(portal) {
+    if (this.#dead) return portal.sourceLost(this.firstElementChild);
     this.#portals.add(portal);
     if (this.width) portal.sourceResized(this.width, this.height);
     this.#dirty = true;
@@ -191,7 +331,7 @@ export class DomPortalSource extends HTMLElement {
   // containers, layout shifts, animations), so the boxes are re-read every
   // frame. Drawing only happens when something actually moved or repainted.
   #loop() {
-    if (this.#raf || !this.isConnected || !SUPPORTED) return;
+    if (this.#raf || !this.isConnected || !SUPPORTED || this.#dead) return;
     this.#raf = requestAnimationFrame(() => {
       this.#raf = 0;
       this.update();
@@ -219,7 +359,7 @@ export class DomPortalSource extends HTMLElement {
 
   /** Recompute the canvas box and redraw if anything changed. */
   update(force = false) {
-    if (!this.#painted || !this.width || !this.isConnected) return;
+    if (this.#dead || !this.#painted || !this.width || !this.isConnected) return;
     const home = this.getBoundingClientRect();
     // Everything below is in client px, which include CSS zoom; the element's
     // own size (this.width) and the canvas's style are in layout px, which do
@@ -469,6 +609,12 @@ export class DomPortal extends HTMLElement {
       cy += (r.height - h * s) / 2;
     }
     return { portal: this, x: r.left, y: r.top, w: r.width, h: r.height, cx, cy, s };
+  }
+
+  /** The source gave up on its canvas: show the inert copy instead. */
+  sourceLost(target) {
+    this.#source = null;
+    if (target) this.#fallback(target);
   }
 
   // No HTML-in-canvas: show a dead copy. It is inert and hidden from

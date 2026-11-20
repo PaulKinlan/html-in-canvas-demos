@@ -125,6 +125,12 @@ export class HTMLSurfaces {
     // Keyboard focus can arrive with no pointer and between frames: place geometry right away.
     this._onFocus = () => this.#syncGeometry();
     canvas.addEventListener('focusin', this._onFocus);
+    // After a lost context comes back every texture is gone: make them again on the next paint.
+    this._onRestored = () => {
+      for (const s of this.surfaces) { s.glTexture = null; s.width = s.height = 0; }
+      this.invalidate();
+    };
+    canvas.addEventListener('webglcontextrestored', this._onRestored);
     canvas.addEventListener('paint', this._onPaint);
     canvas.addEventListener('pointermove', this._onMove, true);
     canvas.addEventListener('pointerdown', this._onMove, true);
@@ -177,6 +183,7 @@ export class HTMLSurfaces {
   dispose() {
     for (const s of [...this.surfaces]) this.remove(s);
     this.canvas.removeEventListener('paint', this._onPaint);
+    this.canvas.removeEventListener('webglcontextrestored', this._onRestored);
     this.canvas.removeEventListener('focusin', this._onFocus);
     this.canvas.removeEventListener('pointermove', this._onMove, true);
     this.canvas.removeEventListener('pointerdown', this._onMove, true);
@@ -240,7 +247,7 @@ export class HTMLSurfaces {
       return;
     }
     const gl = this.renderer.getContext();
-    let touched = false;
+    let touched = false, failed = false;
     for (const s of this.surfaces) {
       if (changed && !changed.has(s.element) && s.glTexture && !s.dirty) continue;
       try {
@@ -248,9 +255,12 @@ export class HTMLSurfaces {
         s.dirty = false;
         touched = true;
       } catch (err) {
+        failed = true;
+        s.dirty = true; // try again on the next paint
         this.stats.lastError = `${err.name}: ${err.message}`;
       }
     }
+    if (touched && !failed) this.stats.lastError = null; // an error that persists is set again each paint
     if (touched) {
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
       this.renderer.resetState();
@@ -266,6 +276,7 @@ export class HTMLSurfaces {
     const immutable = support.webgl === 'texElementSubImage2D';
     if (!s.glTexture || s.width !== w || s.height !== h) {
       if (s.glTexture) gl.deleteTexture(s.glTexture);
+      if (gl.isContextLost()) throw new Error('the WebGL context is lost');
       s.glTexture = gl.createTexture();
       s.width = w;
       s.height = h;

@@ -250,6 +250,9 @@ export const sharedGL = {
 
 /** Compile (and cache per context) the program for a named effect. Throws with the shader log. */
 export function compileEffect(gl, cache, name) {
+  // A lost context fails every compile with an empty log. That is not a
+  // broken shader, so do not remember it as one.
+  if (gl.isContextLost()) throw new Error('WebGL context lost');
   let entry = cache.get(name);
   const def = effects.get(name);
   if (entry && entry.def === def) {
@@ -262,6 +265,7 @@ export function compileEffect(gl, cache, name) {
     for (const n of UNIFORMS) u[n] = gl.getUniformLocation(p, n);
     entry = { program: p, u, def };
   } catch (error) {
+    if (/context lost/i.test(error.message)) throw error;
     // Remember the failure so a broken shader is not recompiled every frame.
     cache.set(name, { def, error });
     throw error;
