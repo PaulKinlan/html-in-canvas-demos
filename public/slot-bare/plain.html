@@ -17,6 +17,41 @@
   .switch { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
   .switch a { padding: 6px 12px; border: 1px solid var(--line); border-radius: 99px; text-decoration: none; color: var(--fg); font-size: 14px; }
   .switch a[aria-current] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  /* ---- How it works: DOM trees drawn as SVG ---- */
+  .ls-steps { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 14px; }
+  .ls-step { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+  .ls-step h3 { margin: 0 0 10px; font-size: 17px; }
+  .ls-step .num { display: inline-block; min-width: 1.6em; padding: 1px 8px; margin-right: 4px; border-radius: 99px; background: var(--fg); color: var(--bg); font-size: 13px; text-align: center; }
+  .ls-pair { display: grid; gap: 12px 24px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 760px) { .ls-pair { grid-template-columns: 340px minmax(0, 1fr); } }
+  .ls-pair > * { min-width: 0; }
+  .ls-pair figure { margin: 0; }
+  .ls-pair figcaption { font-size: 13px; color: var(--muted); }
+  .ls-pair p { margin: 0 0 10px; }
+  .ls-pair pre { margin: 0; }
+  .ls-tree { display: block; max-width: 100%; height: auto; --c1: #b7791f; --c2: #2b7bd6; }
+  .ls-tree .wire { fill: none; stroke: var(--muted); stroke-width: 1; opacity: .6; }
+  .ls-tree .node { fill: var(--bg); stroke: var(--line); stroke-width: 1.2; }
+  .ls-tree .node.shadow { fill: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+  .ls-tree .node.new { stroke: var(--accent); stroke-width: 2; }
+  .ls-tree .node.first { stroke: var(--c1); stroke-width: 2; fill: color-mix(in srgb, var(--c1) 14%, var(--bg)); }
+  .ls-tree .node.second { stroke: var(--c2); stroke-width: 2; fill: color-mix(in srgb, var(--c2) 14%, var(--bg)); }
+  .ls-tree .node.flow { stroke: var(--muted); stroke-width: 2; }
+  .ls-tree .node.dim { stroke-dasharray: 3 3; }
+  .ls-tree .lbl { font: 11px var(--mono); fill: var(--fg); }
+  .ls-tree .lbl.dim { fill: var(--muted); }
+  .ls-tree .badge { font: 11px system-ui; fill: var(--muted); }
+  .ls-tree .badge.new { fill: var(--accent); font-weight: 600; }
+  .ls-tree .arrow { fill: none; stroke-width: 1.8; }
+  .ls-tree .arrow.first, .head.first { stroke: var(--c1); } .head.first { fill: var(--c1); stroke: none; }
+  .ls-tree .arrow.second { stroke: var(--c2); } .head.second { fill: var(--c2); }
+  .ls-tree .arrow.flow { stroke: var(--muted); stroke-dasharray: 4 3; } .head.flow { fill: var(--muted); }
+  .ls-tree .canvasbox { fill: var(--bg); stroke: var(--fg); stroke-width: 1.5; }
+  .ls-tree .line { fill: var(--line); }
+  .ls-tree .card.first { fill: #fff4d6; stroke: #e6cf8a; } .ls-tree .card.second { fill: #e3f1ff; stroke: #a9cbee; }
+  .ls-tree .cardt { font: 600 11px system-ui; fill: #222; }
+  .ls-tree .ctl { fill: #0002; }
+  #ls-proof { min-height: 3em; }
 </style>
 </head>
 <body>
@@ -86,11 +121,125 @@
     <li><strong>The cost of the workaround:</strong> slotted elements have to share a parent with the canvas (or opt in to being moved with <code>slots="document"</code>), and document CSS reaches the canvas only because the script copies stylesheet rules into the shadow root.</li>
     <li><strong>The platform gap:</strong> if <code>&lt;canvas content="drawable"&gt;</code> treated its own <code>&lt;slot&gt;</code> children as real slots for elements in the same tree, this page would work with no script at all. Worth proposing on the WICG repo.</li>
   </ul>
+
+  <h2 id="how">How light-slots.js works, step by step</h2>
+  <p>
+    Read the pictures top to bottom. Each one is the DOM tree of this page at that moment, and the code next to it is the part of
+    <a href="/lib/light-slots.js"><code>light-slots.js</code></a> that made the change. Orange outlines mark what is new in each step. The trees leave out this page's heading and text, which are treated just like the <code>&lt;p&gt;</code>.
+  </p>
+  <p id="ls-proof" class="note">On the “With one script” tab this line checks the pictures against the real page.</p>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><marker id="ah-flow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="head flow" d="M0 0L8 4L0 8z"/></marker><marker id="ah-first" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="head first" d="M0 0L8 4L0 8z"/></marker><marker id="ah-second" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="head second" d="M0 0L8 4L0 8z"/></marker></defs></svg>
+  <ol class="ls-steps">
+    <li class="ls-step ">
+      <h3><span class="num">Before</span> What you write, and what the browser does with it</h3>
+      <div class="ls-pair">
+        <figure><svg class="ls-tree" viewBox="0 0 340 218" width="340" height="218" role="img" aria-label="DOM tree before: the canvas and its two slots are ordinary light DOM children of main, next to a paragraph and two sections with slot attributes"><path class="wire" d="M17 26V45H26"/><path class="wire" d="M35 56V75H44"/><path class="wire" d="M35 56V105H44"/><path class="wire" d="M17 26V135H26"/><path class="wire" d="M17 26V165H26"/><path class="wire" d="M17 26V195H26"/><rect class="node " x="8" y="4" width="54" height="22" rx="5"/><text class="lbl " x="15" y="19">&lt;main&gt;</text><rect class="node " x="26" y="34" width="140" height="22" rx="5"/><text class="lbl " x="33" y="49">&lt;canvas id="stage"&gt;</text><rect class="node dim" x="44" y="64" width="140" height="22" rx="5"/><text class="lbl dim" x="51" y="79">&lt;slot name="first"&gt;</text><text class="badge dim" x="190" y="79">inert</text><rect class="node dim" x="44" y="94" width="147" height="22" rx="5"/><text class="lbl dim" x="51" y="109">&lt;slot name="second"&gt;</text><text class="badge dim" x="197" y="109">inert</text><rect class="node " x="26" y="124" width="34" height="22" rx="5"/><text class="lbl " x="33" y="139">&lt;p&gt;</text><rect class="node first" x="26" y="154" width="160" height="22" rx="5"/><text class="lbl first" x="33" y="169">&lt;section slot="first"&gt;</text><rect class="node second" x="26" y="184" width="167" height="22" rx="5"/><text class="lbl second" x="33" y="199">&lt;section slot="second"&gt;</text></svg></figure>
+        <div>
+          <p>The canvas, its two <code>&lt;slot&gt;</code>s, a paragraph and two sections are all ordinary children of <code>&lt;main&gt;</code>. A <code>&lt;slot&gt;</code> outside a shadow tree projects nothing, so the canvas has nothing to draw and the sections stay in the page flow.</p><figure><svg class="ls-tree" viewBox="0 0 340 236" width="340" height="236" role="img" aria-label="On screen before: an empty canvas, then the paragraph, then both sections in normal flow under it"><rect class="canvasbox" x="8" y="6" width="324" height="78" rx="8"/><text class="badge" x="18" y="24">canvas: nothing to draw</text><rect class="line" x="8" y="98" width="300" height="7" rx="3"/><rect class="line" x="8" y="111" width="210" height="7" rx="3"/><g transform="translate(8 130) rotate(0)"><rect class="card first" width="118" height="44" rx="6"/><text class="cardt first" x="9" y="19">slot="first"</text><rect class="ctl first" x="9" y="26" width="62" height="11" rx="3"/></g><g transform="translate(8 184) rotate(0)"><rect class="card second" width="118" height="44" rx="6"/><text class="cardt second" x="9" y="19">slot="second"</text><rect class="ctl second" x="9" y="26" width="62" height="11" rx="3"/></g><text class="badge" x="136" y="156">still in the page flow</text></svg><figcaption>On screen</figcaption></figure>
+<pre><code>&lt;canvas id=&quot;stage&quot; content=&quot;drawable&quot; layoutsubtree&gt;
+  &lt;slot name=&quot;first&quot;&gt;&lt;/slot&gt;
+  &lt;slot name=&quot;second&quot;&gt;&lt;/slot&gt;
+&lt;/canvas&gt;
+&lt;p&gt;…&lt;/p&gt;
+&lt;section slot=&quot;first&quot;&gt;…&lt;/section&gt;
+&lt;section slot=&quot;second&quot;&gt;…&lt;/section&gt;</code></pre>
+        </div>
+      </div>
+    </li>
+
+    <li class="ls-step ">
+      <h3><span class="num">1</span> Attach a shadow root to the canvas’s parent</h3>
+      <div class="ls-pair">
+        <figure><svg class="ls-tree" viewBox="0 0 340 278" width="340" height="278" role="img" aria-label="Step 1: main gains a shadow root in manual slot mode holding one unnamed slot. The canvas and other children are untouched"><path class="wire" d="M17 26V45H26"/><path class="wire" d="M35 56V75H44"/><path class="wire" d="M17 26V105H26"/><path class="wire" d="M35 116V135H44"/><path class="wire" d="M35 116V165H44"/><path class="wire" d="M17 26V195H26"/><path class="wire" d="M17 26V225H26"/><path class="wire" d="M17 26V255H26"/><rect class="node " x="8" y="4" width="54" height="22" rx="5"/><text class="lbl " x="15" y="19">&lt;main&gt;</text><rect class="node new shadow" x="26" y="34" width="94" height="22" rx="5"/><text class="lbl new shadow" x="33" y="49">#shadow-root</text><text class="badge new shadow" x="126" y="49">new, manual</text><rect class="node new" x="44" y="64" width="54" height="22" rx="5"/><text class="lbl new" x="51" y="79">&lt;slot&gt;</text><text class="badge new" x="104" y="79">new</text><rect class="node " x="26" y="94" width="140" height="22" rx="5"/><text class="lbl " x="33" y="109">&lt;canvas id="stage"&gt;</text><rect class="node dim" x="44" y="124" width="140" height="22" rx="5"/><text class="lbl dim" x="51" y="139">&lt;slot name="first"&gt;</text><rect class="node dim" x="44" y="154" width="147" height="22" rx="5"/><text class="lbl dim" x="51" y="169">&lt;slot name="second"&gt;</text><rect class="node " x="26" y="184" width="34" height="22" rx="5"/><text class="lbl " x="33" y="199">&lt;p&gt;</text><rect class="node first" x="26" y="214" width="160" height="22" rx="5"/><text class="lbl first" x="33" y="229">&lt;section slot="first"&gt;</text><rect class="node second" x="26" y="244" width="167" height="22" rx="5"/><text class="lbl second" x="33" y="259">&lt;section slot="second"&gt;</text></svg></figure>
+        <div>
+          <p>Slots only work inside a shadow tree, so the script gives the parent of the canvas one. It is in <em>manual</em> slot mode, so the script decides which child goes into which slot. It starts with one unnamed slot, and copies the page’s CSS rules in so your canvas styles still apply. Nothing has moved yet. Because the parent now has a shadow root, its children stop rendering until step 3 assigns them, all within the same frame.</p>
+<pre><code>const host = canvas.parentElement;
+root = host.attachShadow({ mode: &#x27;open&#x27;, slotAssignment: &#x27;manual&#x27; });
+copyDocumentStyles(root);
+const first = document.createElement(&#x27;slot&#x27;);
+first.dataset.flow = &#x27;&#x27;;
+root.append(first);</code></pre>
+        </div>
+      </div>
+    </li>
+
+    <li class="ls-step ">
+      <h3><span class="num">2</span> Move the canvas into the shadow root, and leave a marker</h3>
+      <div class="ls-pair">
+        <figure><svg class="ls-tree" viewBox="0 0 340 338" width="340" height="338" role="img" aria-label="Step 2: the canvas now sits inside the shadow root between two unnamed slots, and a comment marks where it was among the children of main"><path class="wire" d="M17 26V45H26"/><path class="wire" d="M35 56V75H44"/><path class="wire" d="M35 56V105H44"/><path class="wire" d="M53 116V135H62"/><path class="wire" d="M53 116V165H62"/><path class="wire" d="M35 56V195H44"/><path class="wire" d="M17 26V225H26"/><path class="wire" d="M17 26V255H26"/><path class="wire" d="M17 26V285H26"/><path class="wire" d="M17 26V315H26"/><rect class="node " x="8" y="4" width="54" height="22" rx="5"/><text class="lbl " x="15" y="19">&lt;main&gt;</text><rect class="node shadow" x="26" y="34" width="94" height="22" rx="5"/><text class="lbl shadow" x="33" y="49">#shadow-root</text><rect class="node " x="44" y="64" width="54" height="22" rx="5"/><text class="lbl " x="51" y="79">&lt;slot&gt;</text><rect class="node new" x="44" y="94" width="140" height="22" rx="5"/><text class="lbl new" x="51" y="109">&lt;canvas id="stage"&gt;</text><text class="badge new" x="190" y="109">moved here</text><rect class="node " x="62" y="124" width="140" height="22" rx="5"/><text class="lbl " x="69" y="139">&lt;slot name="first"&gt;</text><rect class="node " x="62" y="154" width="147" height="22" rx="5"/><text class="lbl " x="69" y="169">&lt;slot name="second"&gt;</text><rect class="node new" x="44" y="184" width="54" height="22" rx="5"/><text class="lbl new" x="51" y="199">&lt;slot&gt;</text><text class="badge new" x="104" y="199">new</text><rect class="node new dim" x="26" y="214" width="154" height="22" rx="5"/><text class="lbl new dim" x="33" y="229">&lt;!-- canvas moved --&gt;</text><text class="badge new dim" x="186" y="229">marker</text><rect class="node " x="26" y="244" width="34" height="22" rx="5"/><text class="lbl " x="33" y="259">&lt;p&gt;</text><rect class="node first" x="26" y="274" width="160" height="22" rx="5"/><text class="lbl first" x="33" y="289">&lt;section slot="first"&gt;</text><rect class="node second" x="26" y="304" width="167" height="22" rx="5"/><text class="lbl second" x="33" y="319">&lt;section slot="second"&gt;</text></svg></figure>
+        <div>
+          <p>The same canvas element moves (your references and its 2D context stay valid). Its slots are now inside a shadow tree, so they are real slots. A comment stays behind to remember where the canvas was, and a second unnamed slot goes after the canvas for everything that follows it.</p>
+<pre><code>const marker = document.createComment(&#x27;canvas moved to shadow root by light-slots&#x27;);
+canvas.replaceWith(marker);
+const after = document.createElement(&#x27;slot&#x27;);
+after.dataset.flow = &#x27;&#x27;;
+// anon[region] is the unnamed slot for the content before the marker
+anon[region].after(canvas, after);</code></pre>
+        </div>
+      </div>
+    </li>
+
+    <li class="ls-step ">
+      <h3><span class="num">3</span> Assign every child of the parent to a slot</h3>
+      <div class="ls-pair">
+        <figure><svg class="ls-tree" viewBox="0 0 340 338" width="340" height="338" role="img" aria-label="Step 3: the section with slot first is assigned to the slot named first, the section with slot second to the slot named second, and the paragraph to the unnamed slot after the canvas. Both sections gain the drawable attribute"><path class="wire" d="M17 26V45H26"/><path class="wire" d="M35 56V75H44"/><path class="wire" d="M35 56V105H44"/><path class="wire" d="M53 116V135H62"/><path class="wire" d="M53 116V165H62"/><path class="wire" d="M35 56V195H44"/><path class="wire" d="M17 26V225H26"/><path class="wire" d="M17 26V255H26"/><path class="wire" d="M17 26V285H26"/><path class="wire" d="M17 26V315H26"/><rect class="node " x="8" y="4" width="54" height="22" rx="5"/><text class="lbl " x="15" y="19">&lt;main&gt;</text><rect class="node shadow" x="26" y="34" width="94" height="22" rx="5"/><text class="lbl shadow" x="33" y="49">#shadow-root</text><rect class="node dim" x="44" y="64" width="54" height="22" rx="5"/><text class="lbl dim" x="51" y="79">&lt;slot&gt;</text><text class="badge dim" x="104" y="79">whatever came before the canvas</text><rect class="node " x="44" y="94" width="140" height="22" rx="5"/><text class="lbl " x="51" y="109">&lt;canvas id="stage"&gt;</text><rect class="node first" x="62" y="124" width="140" height="22" rx="5"/><text class="lbl first" x="69" y="139">&lt;slot name="first"&gt;</text><rect class="node second" x="62" y="154" width="147" height="22" rx="5"/><text class="lbl second" x="69" y="169">&lt;slot name="second"&gt;</text><rect class="node flow" x="44" y="184" width="54" height="22" rx="5"/><text class="lbl flow" x="51" y="199">&lt;slot&gt;</text><rect class="node dim" x="26" y="214" width="154" height="22" rx="5"/><text class="lbl dim" x="33" y="229">&lt;!-- canvas moved --&gt;</text><rect class="node flow" x="26" y="244" width="34" height="22" rx="5"/><text class="lbl flow" x="33" y="259">&lt;p&gt;</text><rect class="node first" x="26" y="274" width="220" height="22" rx="5"/><text class="lbl first" x="33" y="289">&lt;section slot="first" drawable&gt;</text><rect class="node second" x="26" y="304" width="227" height="22" rx="5"/><text class="lbl second" x="33" y="319">&lt;section slot="second" drawable&gt;</text><path class="arrow flow" marker-end="url(#ah-flow)" d="M63 255C132 255 132 195 107 195"/><path class="arrow first" marker-end="url(#ah-first)" d="M249 285C296 285 296 135 211 135"/><path class="arrow second" marker-end="url(#ah-second)" d="M256 315C319 315 319 165 218 165"/></svg></figure>
+        <div>
+          <p>The script walks the parent’s children in order. A child whose <code>slot="…"</code> matches a slot in the canvas is assigned to that slot and gets the <code>drawable</code> attribute. Every other child is assigned to the unnamed slot for its side of the marker, so it renders exactly where it did before. A MutationObserver repeats this step whenever children or <code>slot</code> attributes change.</p>
+<pre><code>for (const node of host.childNodes) {
+  const m = markers.indexOf(node);
+  if (m !== -1) { region = m + 1; continue; }
+  const name = node.nodeType === 1 ? node.getAttribute(&#x27;slot&#x27;) : null;
+  if (name &amp;&amp; named.has(name)) {
+    if (!node.hasAttribute(&#x27;drawable&#x27;)) node.setAttribute(&#x27;drawable&#x27;, &#x27;&#x27;);
+    named.get(name).nodes.push(node);
+  } else if (node.nodeType === 1 || node.nodeType === 3) {
+    flow[region].push(node);
+  }
+}
+anon.forEach((slot, i) =&gt; slot.assign(...flow[i]));
+for (const { slot, nodes } of named.values()) slot.assign(...nodes);
+for (const canvas of state.canvases) canvas.requestPaint?.();</code></pre>
+        </div>
+      </div>
+    </li>
+
+    <li class="ls-step ">
+      <h3><span class="num">After</span> Your paint handler draws what was slotted</h3>
+      <div class="ls-pair">
+        <figure><svg class="ls-tree" viewBox="0 0 340 176" width="340" height="176" role="img" aria-label="On screen after: both sections are drawn inside the canvas by the paint handler, and the paragraph follows the canvas"><rect class="canvasbox" x="8" y="6" width="324" height="130" rx="8"/><text class="badge" x="18" y="24">canvas: your paint handler draws them</text><g transform="translate(26 44) rotate(-5)"><rect class="card first" width="118" height="44" rx="6"/><text class="cardt first" x="9" y="19">slot="first"</text><rect class="ctl first" x="9" y="26" width="62" height="11" rx="3"/></g><g transform="translate(182 50) rotate(4)"><rect class="card second" width="118" height="44" rx="6"/><text class="cardt second" x="9" y="19">slot="second"</text><rect class="ctl second" x="9" y="26" width="62" height="11" rx="3"/></g><rect class="line" x="8" y="150" width="300" height="7" rx="3"/><rect class="line" x="8" y="163" width="210" height="7" rx="3"/></svg></figure>
+        <div>
+          <p>The script stops there. It does not draw anything. The sections are now laid out as children of the canvas, <code>slot.assignedElements()</code> returns them, and your own <code>paint</code> handler decides where each one goes. They stay real elements, so the button and the input keep working where they are drawn.</p>
+<pre><code>stage.onpaint = () =&gt; {
+  ctx.reset();
+  let x = 20;
+  for (const slot of stage.querySelectorAll(&#x27;slot&#x27;))
+    for (const el of slot.assignedElements()) {
+      ctx.drawElementImage(el, x, 20, el.offsetWidth, el.offsetHeight);
+      x += el.offsetWidth + 20;
+    }
+};</code></pre>
+        </div>
+      </div>
+    </li>
+  </ol>
+  <p class="note">
+    With <code>slots="document"</code> on the canvas there is one step before step 1: elements anywhere in the page whose <code>slot</code> matches are
+    appended to the canvas’s parent, because only children of the shadow host can be assigned.
+  </p>
+
+  <h2 id="source">The source of light-slots.js</h2>
+  <p>All of it. Use it with <code>&lt;script type="module" src="light-slots.js"&gt;&lt;/script&gt;</code>, or import <code>upgrade(canvas)</code> from <code>light-slots.js?manual</code> and call it yourself.</p>
+  <details class="source" open data-src="/lib/light-slots.js">
+    <summary>light-slots.js</summary>
+  </details>
+
   <p class="note"><a href="/slot-bare/">← back to the declarative shadow DOM version and the live tests</a></p>
 </main>
 
 <script type="module">
   // ---- this is all the page's own code ----
+  import { sourceViews } from '/shared/source-view.js';
+  sourceViews();
   const stage = document.getElementById('stage');
   const status = document.getElementById('status');
   const wantUpgrade = new URLSearchParams(location.search).has('upgrade');
@@ -138,6 +287,31 @@
 
     if (wantUpgrade) await import('/lib/light-slots.js');
     stage.requestPaint();
+
+    // Check the pictures in "How light-slots.js works" against this page.
+    const proof = document.getElementById('ls-proof');
+    if (wantUpgrade) {
+      const parent = document.querySelector('main');
+      const root = parent.shadowRoot;
+      const inRoot = root ? [...root.children].map((n) => n.localName).join(', ') : '';
+      const marker = [...parent.childNodes].some((n) => n.nodeType === 8 && n.data.includes('light-slots'));
+      const [s1, s2] = stage.querySelectorAll('slot');
+      const flowAfter = root ? root.children[2]?.assignedNodes().filter((n) => n.nodeType === 1).length : 0;
+      const facts = [
+        [root?.slotAssignment === 'manual', 'main has a shadow root in manual slot mode'],
+        [inRoot === 'slot, canvas, slot', `the shadow root holds: ${inRoot || 'nothing'}`],
+        [stage.getRootNode() === root, 'the canvas is the same element, now inside it'],
+        [marker, 'a comment marks where the canvas was'],
+        [s1?.assignedElements()[0]?.getAttribute('slot') === 'first' && s2?.assignedElements()[0]?.getAttribute('slot') === 'second', 'each section is assigned to its named slot'],
+        [[...parent.querySelectorAll(':scope > [slot]')].every((n) => n.hasAttribute('drawable')), 'both sections gained drawable'],
+        [flowAfter > 0, `${flowAfter} other elements are assigned to the unnamed slot after the canvas`],
+      ];
+      const ok = facts.every(([f]) => f);
+      window.__proof = ok;
+      proof.textContent = (ok ? '✓ The pictures match this page right now: ' : '✗ This page differs from the pictures: ') + facts.map(([f, t]) => `${f ? '✓' : '✗'} ${t}`).join('; ') + '.';
+    } else {
+      proof.innerHTML = 'This tab runs without the script, so the page is still in the “Before” state. <a href="/slot-bare/plain.html?upgrade#how">Switch to the script tab</a> and this line checks the pictures against the real page.';
+    }
   }
 </script>
 </body>

@@ -52,16 +52,34 @@ export function testStage() {
     el = document.createElement('div');
     el.id = 'test-stage';
     el.setAttribute('aria-hidden', 'true');
-    el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483600;opacity:.02;display:flex;flex-direction:column;align-items:flex-start;max-width:calc(100vw - 16px);overflow:hidden';
+    // A fixed size, so the box itself never moves or resizes between tests (that would count as layout shift).
+    el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:2147483600;opacity:.02;display:flex;flex-direction:column;align-items:flex-start;width:min(360px,calc(100vw - 16px));height:340px;overflow:hidden';
     document.body.append(el);
   }
   return el;
+}
+
+/**
+ * Load a same-origin page in a frame on the test stage and resolve with the
+ * frame once it has loaded. For testing a demo page without depending on
+ * where the reader has scrolled to.
+ */
+export function stageFrame(url, width = 360, height = 320) {
+  return new Promise((resolve, reject) => {
+    const frame = document.createElement('iframe');
+    frame.style.cssText = `display:block;border:0;width:${width}px;max-width:100%;height:${height}px;background:#fff`;
+    frame.onload = () => resolve(frame);
+    frame.onerror = () => reject(new Error(`could not load ${url}`));
+    frame.src = url;
+    testStage().append(frame);
+  });
 }
 
 function canvasesIn(root, out = []) {
   for (const el of root.querySelectorAll('*')) {
     if (el.localName === 'canvas') out.push(el);
     if (el.shadowRoot) canvasesIn(el.shadowRoot, out);
+    if (el.localName === 'iframe') { try { canvasesIn(el.contentDocument, out); } catch {} }
   }
   return out;
 }

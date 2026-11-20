@@ -19,6 +19,11 @@ The API surface used here is the current WICG explainer shape: `<canvas content=
 | Slotting an element that isn't a child of the host | fails | `assign()` ignores non-children. |
 | Shadow root on `<body>` with a canvas and named slots | works | Any top-level element opts in with `slot="…"`. |
 | Clicks, focus, typing on slotted elements at their drawn position | works | `drawElementImage` updates element geometry. |
+| Content from outside the component: `<canvas-slot from="#promo">`, `adopt()`, `release()` | works | Something has to move the element in. The component leaves a comment where it was and puts it back on release. `/slot/#outside` lists every route. |
+| A `<slot name>` in a light-DOM canvas used as a named mount point (Extensible Web Apps pattern) | works | It projects nothing, but an element moved into it is a canvas descendant and draws. No shadow root or component. `/slot/mount.html` |
+| `moveBefore()` an element out of a drawable canvas and back in the same task | fails (Chromium 157) | Afterwards drawing throws "The element can only be drawn into its nearest ancestor <canvas>". A plain insert works, so `canvas-slot.js` skips `moveBefore` for an element it moved in the last two frames. |
+| Drawing in a canvas that is far off screen (for example in an unscrolled iframe) | fails until visible | "No cached paint record for element". Demos retry on a timer, and live checks run on a fixed on-screen stage (`testStage()`, `stageFrame()` in `shared/support.js`). |
+| `<template shadowrootmode>` via `innerHTML` | fails | Only the parser, `setHTMLUnsafe()` and `parseHTMLUnsafe()` build the shadow root. Parsed normally, the template is consumed and the canvas inside is live at once (`/slot-bare/#template`). |
 
 ## ElementImage and OffscreenCanvas
 

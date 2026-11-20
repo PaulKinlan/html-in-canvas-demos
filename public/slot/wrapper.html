@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>A drawable wrapper around a slot</title>
+
+<style>
+  body { font: 16px/1.5 system-ui; margin: 16px; }
+  canvas-wrap { display: block; height: 230px; border: 1px solid #8886; border-radius: 12px; }
+</style>
+
+<!-- The author's markup. No slot="…" and no drawable attribute anywhere:
+     it does not know it is being drawn by a canvas. -->
+<canvas-wrap id="wrap">
+  <h3 style="margin:0">Untouched markup</h3>
+  <p style="margin:6px 0">Three children, drawn as <em>one</em> image.</p>
+  <button type="button" id="count">Clicked 0×</button>
+</canvas-wrap>
+
+<script type="module">
+  // The whole mechanism: a canvas in a shadow root, and inside it ONE real
+  // element marked drawable that wraps a default <slot>. A <slot> has no box
+  // of its own, so it cannot be drawn; the <div> around it can, and
+  // everything slotted into it comes along as a single picture.
+  class CanvasWrap extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' }).innerHTML = `
+        <canvas content="drawable" layoutsubtree style="display:block;width:100%;height:100%">
+          <div drawable id="wrapper" style="width:min(260px, 70%);padding:12px 14px;border-radius:10px;background:#eef8ee;color:#163016">
+            <slot></slot>
+          </div>
+        </canvas>`;
+      const canvas = this.shadowRoot.querySelector('canvas');
+      const wrapper = this.shadowRoot.getElementById('wrapper');
+      const ctx = canvas.getContext('2d');
+
+      // Keep the canvas as sharp as the screen.
+      new ResizeObserver(() => {
+        canvas.width = canvas.clientWidth * devicePixelRatio;
+        canvas.height = canvas.clientHeight * devicePixelRatio;
+        canvas.requestPaint();
+      }).observe(canvas);
+
+      // paint fires when the canvas is ready and whenever the content changes.
+      canvas.addEventListener('paint', () => {
+        ctx.reset();
+        ctx.scale(devicePixelRatio, devicePixelRatio);
+        ctx.translate(24, 30);
+        ctx.rotate(-0.04);
+        ctx.shadowColor = 'rgba(0,0,0,.25)';
+        ctx.shadowBlur = 16;
+        ctx.shadowOffsetY = 6;
+        // One call draws the wrapper and everything slotted into it. Always
+        // pass the size, or it is drawn too big on a high-density screen.
+        try {
+          ctx.drawElementImage(wrapper, 0, 0, wrapper.offsetWidth, wrapper.offsetHeight);
+        } catch {
+          // Not painted yet: the very first frame, or the canvas is far off screen. Try again shortly.
+          setTimeout(() => canvas.requestPaint(), 100);
+        }
+      });
+    }
+  }
+  customElements.define('canvas-wrap', CanvasWrap);
+
+  let clicks = 0;
+  const button = document.getElementById('count');
+  button.onclick = () => (button.textContent = `Clicked ${++clicks}×`);
+</script>
+</html>
