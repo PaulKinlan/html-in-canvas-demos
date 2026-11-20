@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>An ordinary page (capture fixture)</title>
+<style>
+  /* An ordinary page: nothing here knows about canvas. */
+  html { background: rgb(250, 248, 240); }
+  body { font: 14px/1.4 system-ui, sans-serif; color: #222; }
+  header { position: sticky; top: 0; background: rgb(250, 210, 0); padding: 6px 10px; font-weight: 700; z-index: 2; }
+  #badge { position: fixed; right: 0; bottom: 0; width: 90px; height: 36px; background: rgb(0, 160, 60); color: #fff; display: grid; place-items: center; z-index: 3; }
+  body > main > #filler { border-left: 6px solid rgb(0, 90, 220); }
+  @keyframes slide { to { transform: translateX(120px); } }
+  #anim { width: 20px; height: 20px; background: #a0f; animation: slide 20s linear infinite alternate; }
+  iframe { width: 150px; height: 44px; border: 0; display: block; margin: 4px 0; }
+  #filler { height: 900px; background: linear-gradient(rgb(250, 248, 240), rgb(170, 200, 255)); }
+  #bottom { height: 50px; background: rgb(200, 0, 120); color: #fff; padding: 6px; }
+</style>
+</head>
+<body>
+<header>Sticky header</header>
+<div id="badge">fixed</div>
+<main>
+  <h1>An ordinary page</h1>
+  <p>No canvas in the markup. <span id="sel">Select me.</span> <input id="name" aria-label="Name" size="10"></p>
+  <div id="anim"></div>
+  <iframe id="same" title="same-origin frame" src="/cross-origin/solid.html"></iframe>
+  <iframe id="cross" title="cross-origin frame"></iframe>
+  <div id="filler">Content below the fold…</div>
+  <div id="bottom">Bottom of the document</div>
+</main>
+<script type="module">
+  import { capturePage, lastCapture } from '/lib/element-capture.js';
+  import * as lib from '/lib/element-capture.js';
+
+  const q = new URLSearchParams(location.search);
+  // Variants: the page already owns body's shadow root.
+  if (q.get('root')) {
+    const root = document.body.attachShadow({ mode: q.get('root') });
+    root.innerHTML = '<style>:host{outline:0}</style><div id="shell"><slot></slot></div>';
+  }
+  const other = new URL(location.href);
+  if (other.hostname === 'localhost' || other.hostname === '127.0.0.1') other.port = other.port === '8001' ? '8002' : '8001';
+  else other.hostname = other.hostname.startsWith('html-in-canvas-demos.')
+    ? other.hostname.replace('html-in-canvas-demos.', 'html-in-canvas-remote.')
+    : other.hostname.replace('html-in-canvas-remote.', 'html-in-canvas-demos.');
+  const cross = document.getElementById('cross');
+  cross.src = other.origin + '/cross-origin/solid.html';
+
+  let sameLoads = 0, crossLoads = 0;
+  document.getElementById('same').addEventListener('load', () => sameLoads++);
+  cross.addEventListener('load', () => crossLoads++);
+  const loaded = Promise.all([...document.querySelectorAll('iframe')].map((f) => new Promise((r) => { f.addEventListener('load', r, { once: true }); setTimeout(r, 2500); })));
+
+  const near = (px, want, tol = 12) => want.every((v, i) => Math.abs(px[i] - v) <= tol) && px[3] > 200;
+  const SCROLL = 180;
+
+  window.run = async ({ route = 'auto', full = false, scale = 1 } = {}) => {
+    await loaded;
+    await new Promise((r) => setTimeout(r, 50));
+    const input = document.getElementById('name');
+    input.value = 'typed';
+    scrollTo(0, SCROLL);
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(1, 4);
+    const anim = document.getElementById('anim');
+    const a0 = anim.getAnimations()[0];
+    let scrollEvents = 0, mutations = 0;
+    const onScroll = () => scrollEvents++;
+    addEventListener('scroll', onScroll);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    scrollEvents = 0;
+    const mo = new MutationObserver((list) => (mutations += list.length));
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true });
+    const loads0 = sameLoads + crossLoads;
+    const t0 = a0.currentTime, w0 = performance.now();
+    const rect = (id) => { const r = document.getElementById(id).getBoundingClientRect(); return { x: r.x + scrollX, y: r.y + scrollY, w: r.width, h: r.height }; };
+    const geo = { same: rect('same'), cross: rect('cross'), bottom: rect('bottom'), direct: rect('filler') };
+    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    const dh = document.documentElement.scrollHeight;
+
+    let canvas, error;
+    try {
+      canvas = await capturePage({ route, full, scale, as: 'canvas' });
+    } catch (err) {
+      error = err;
+    }
+    const meta = lib.lastCapture;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    mo.disconnect();
+    removeEventListener('scroll', onScroll);
+    if (error) throw error;
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const px = (x, y) => Array.from(ctx.getImageData(Math.round(x * scale), Math.round(y * scale), 1, 1).data);
+    const oy = full ? 0 : SCROLL; // document y → image y
+    const a1 = anim.getAnimations()[0];
+    const drift = Math.round(a1.currentTime - t0 - (performance.now() - w0));
+    const fixedAtViewport = near(px(vw - 20, (full ? SCROLL + vh : vh) - 12), [0, 160, 60]);
+    const fixedAtDocEnd = full && near(px(vw - 20, canvas.height / scale - 12), [0, 160, 60]);
+    const fixedAtDocTop = full && near(px(vw - 20, vh - 12), [0, 160, 60]);
+    const stickyAtViewportTop = near(px(40, (full ? SCROLL : 0) + 4), [250, 210, 0]);
+    const stickyAtStatic = full && near(px(40, 12), [250, 210, 0]);
+    const checks = {
+      size: `${canvas.width}×${canvas.height}`,
+      scrollKept: scrollY === SCROLL,
+      scrollEvents,
+      focusKept: document.activeElement === input,
+      caretKept: input.selectionStart === 1 && input.selectionEnd === 4,
+      valueKept: input.value === 'typed',
+      iframeReloads: sameLoads + crossLoads - loads0,
+      animationKept: a1 === a0 ? 'same animation' : Math.abs(drift) < 120 ? 'restarted, time restored' : `restarted (drift ${drift}ms)`,
+      mutationsSeenByPage: mutations,
+      selectorsKept: near(px(geo.direct.x + 3, geo.direct.y - oy + 150), [0, 90, 220]),
+      fixed: fixedAtViewport ? 'at its viewport position' : fixedAtDocEnd ? 'at the end of the document' : fixedAtDocTop ? 'one viewport down from the top' : 'missing',
+      sticky: stickyAtViewportTop ? 'stuck at the viewport top' : stickyAtStatic ? 'at its static position (not stuck)' : 'missing',
+      belowFold: full ? near(px(30, geo.bottom.y + 25), [200, 0, 120]) : null,
+      sameOriginIframe: near(px(geo.same.x + 140, geo.same.y - oy + 38), [220, 0, 60]),
+      crossOriginIframe: near(px(geo.cross.x + 140, geo.cross.y - oy + 38), [220, 0, 60]),
+      shadowRootLeftBehind: !!document.body.shadowRoot && !q.get('root'),
+    };
+    return { canvas, meta, checks };
+  };
+  parent.postMessage({ type: 'fixture-ready' }, location.origin);
+</script>
+</body>
+</html>

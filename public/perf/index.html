@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Performance wall</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1100px; }
+  #stage { position: relative; width: 100%; height: 340px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--card); contain: strict; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  .pc { box-sizing: border-box; font: 13px/1.35 system-ui; color: #1d1c1a; background: #fff6e6; border: 1px solid #d9c8a8; border-radius: 8px; padding: 6px 8px; overflow: hidden; }
+  .pc.s { width: 120px; height: 40px; }
+  .pc.m { width: 240px; height: 120px; }
+  .pc.l { width: 480px; height: 320px; }
+  .pc h4 { margin: 0 0 2px; font-size: 14px; }
+  .pc table { border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+  .pc td { border: 1px solid #e2d6bf; padding: 1px 6px; }
+  #stage.dom .pc { position: absolute; left: 0; top: 0; will-change: transform; }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  #now { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; }
+  #wall { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #wall th, #wall td { border-bottom: 1px solid var(--line); padding: 6px 5px; text-align: right; white-space: nowrap; }
+  #wall th:first-child, #wall td:first-child { text-align: left; white-space: normal; min-width: 190px; }
+  #wall td.fps { font: 12px var(--mono); }
+  #wall td.good { color: var(--ok); } #wall td.mid { color: var(--warn); } #wall td.bad { color: var(--bad); }
+  #wall td.wall { font-weight: 700; }
+  #wall tr.group td { text-align: left; font-weight: 600; background: color-mix(in srgb, var(--fg) 5%, transparent); }
+  h2 small { font: 13px var(--mono); color: var(--muted); font-weight: 400; margin-left: 8px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Performance wall: how much live DOM can a canvas carry?</h1>
+  <p class="lede">
+    Each row keeps adding live elements, all moving every frame, until the frame rate falls off. The same scene is run as plain DOM with CSS transforms,
+    as a 2D canvas drawing every element with <code>drawElementImage</code>, and as a worker drawing transferred <code>ElementImage</code> snapshots.
+    The numbers are from this device, right now.
+  </p>
+
+  <div id="stage" aria-hidden="true"></div>
+  <div class="tools">
+    <button id="quick" type="button">Run quick (about 40s)</button>
+    <button id="full" type="button">Run full (about 3 min)</button>
+    <button id="stop" type="button" disabled>Stop</button>
+    <button id="copy" type="button">Copy results as JSON</button>
+  </div>
+  <p id="now">Not run yet.</p>
+
+  <div style="overflow-x:auto">
+    <table id="wall">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="note">
+    Cells are frames per second with that many elements (for worker rows: the worker's frame rate, which is what moves on screen). The wall is the largest count that held 90% of this display's refresh rate.
+    A row stops at the first count under half the refresh rate.
+  </p>
+
+  <h2>Reading the result</h2>
+  <ul class="findings" id="reading">
+    <li>Run it to see what this device does.</li>
+  </ul>
+
+  <h2>What the rows mean</h2>
+  <ul class="findings">
+    <li><strong>Plain DOM</strong> is the baseline: the same cards, absolutely positioned, moved with <code>transform</code>. The compositor does the work.</li>
+    <li><strong>2D canvas</strong> asks for a <code>paint</code> event every frame and redraws every element. The cost is one <code>drawElementImage</code> replay per element per frame, on the main thread.</li>
+    <li><strong>2D canvas, changing content</strong> also rewrites the text of some elements each frame, so their paint records are rebuilt.</li>
+    <li><strong>Worker</strong> transfers the canvas to a worker. The main thread only captures an <code>ElementImage</code> when an element changes; the worker redraws every frame from the snapshots it holds.</li>
+    <li><strong>Busy main thread</strong> adds 40ms of blocking script to every main-thread frame. Canvas drawing on the main thread drops to that rate; the worker does not.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, nav, supported } from '/shared/support.js';
+  nav('/perf/');
+  banner();
+
+  const $ = (s) => document.querySelector(s);
+  const stage = $('#stage'), now = $('#now');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const raf = () => new Promise((r) => requestAnimationFrame(r));
+
+  const SIZES = { s: [120, 40, 'small chip 120×40'], m: [240, 120, 'card 240×120'], l: [480, 320, 'panel 480×320'] };
+  const STEPS = [10, 25, 50, 100, 200, 400, 800, 1600];
+  const cardHTML = (i, size) => size === 's'
+    ? `<div class="pc s"><b>#${i}</b> <span class="v">0</span></div>`
+    : size === 'm'
+      ? `<div class="pc m"><h4>Card ${i}</h4>Live DOM with a <a href="#">link</a> and <button type="button">button</button><br>value <span class="v">0</span></div>`
+      : `<div class="pc l"><h4>Panel ${i}</h4><p style="margin:0">A larger piece of interface: paragraphs, a form control and a table, all real elements.</p><input value="field ${i}" size="14"> <button type="button">Go</button><table>${'<tr><td>row</td><td>12.5</td><td>ok</td><td>north</td></tr>'.repeat(7)}</table>value <span class="v">0</span></div>`;
+
+  // One scene per renderer. Each returns { step(t), measure(ms) → {fps, p95, drawMs}, destroy() }.
+  const pos = (i, t, w, h, sw, sh) => [
+    (0.5 + 0.5 * Math.sin(t / 900 + i * 1.7)) * Math.max(0, w - sw),
+    (0.5 + 0.5 * Math.cos(t / 1100 + i * 2.3)) * Math.max(0, h - sh),
+  ];
+  const stats = (deltas, drawMs) => {
+    if (deltas.length < 2) return { fps: 0, p95: Infinity, drawMs };
+    const sorted = [...deltas].sort((a, b) => a - b);
+    const mean = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+    return { fps: 1000 / mean, p95: sorted[Math.floor(sorted.length * 0.95)], drawMs };
+  };
+
+  function build(n, size, kind) {
+    stage.className = kind === 'dom' ? 'dom' : '';
+    const dpr = Math.min(devicePixelRatio, 2);
+    const w = stage.clientWidth, h = stage.clientHeight;
+    const [sw, sh] = SIZES[size];
+    let html = '';
+    for (let i = 0; i < n; i++) html += cardHTML(i, size);
+    let els, canvas = null, ctx = null, worker = null;
+    if (kind === 'dom') {
+      stage.innerHTML = html;
+      els = [...stage.children];
+    } else {
+      canvas = document.createElement('canvas');
+      canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+      canvas.innerHTML = html;
+      els = [...canvas.children];
+      for (const el of els) el.setAttribute('drawable', '');
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+      stage.replaceChildren(canvas);
+    }
+    const values = els.map((el) => el.querySelector('.v'));
+    return { els, values, canvas, w, h, sw, sh, dpr };
+  }
+
+  async function scene(kind, n, size, { churn = 0, busy = 0 } = {}) {
+    const S = build(n, size, kind === 'dom' ? 'dom' : 'canvas');
+    const { els, values, canvas, w, h, sw, sh, dpr } = S;
+    let running = true, tick = 0, drawMs = 0, drawN = 0, deltas = [], last = 0;
+    let worker = null, ctx = null, sent = new Set();
+    const mutate = () => {
+      if (!churn) return;
+      const k = Math.max(1, Math.round(n * churn));
+      for (let j = 0; j < k; j++) values[(tick * 7 + j * 13) % n].textContent = tick;
+    };
+    const spin = () => { if (busy) { const end = performance.now() + busy; while (performance.now() < end); } };
+
+    if (kind === 'dom') {
+      const loop = (t) => {
+        if (!running) return;
+        requestAnimationFrame(loop);
+        if (last) deltas.push(t - last); last = t; tick++;
+        const t0 = performance.now();
+        for (let i = 0; i < n; i++) { const [x, y] = pos(i, t, w, h, sw, sh); els[i].style.transform = `translate(${x}px,${y}px)`; }
+        mutate();
+        drawMs += performance.now() - t0; drawN++;
+        spin();
+      };
+      requestAnimationFrame(loop);
+    } else if (kind === '2d') {
+      ctx = canvas.getContext('2d');
+      canvas.addEventListener('paint', () => {
+        const t = performance.now();
+        ctx.reset(); ctx.scale(dpr, dpr);
+        for (let i = 0; i < n; i++) {
+          const [x, y] = pos(i, t, w, h, sw, sh);
+          try { ctx.drawElementImage(els[i], x, y); } catch {}
+        }
+        drawMs += performance.now() - t; drawN++;
+      });
+      const loop = (t) => {
+        if (!running) return;
+        requestAnimationFrame(loop);
+        if (last) deltas.push(t - last); last = t; tick++;
+        mutate();
+        canvas.requestPaint();
+        spin();
+      };
+      requestAnimationFrame(loop);
+    } else if (kind === 'worker') {
+      worker = new Worker('/perf/worker.js');
+      const off = canvas.transferControlToOffscreen();
+      worker.postMessage({ type: 'init', canvas: off, dpr }, [off]);
+      const sizes = els.map(() => [sw, sh]);
+      canvas.addEventListener('paint', (e) => {
+        const t0 = performance.now();
+        const changed = new Set(e.changedElements ?? []);
+        const images = [], transfer = [];
+        for (let i = 0; i < n; i++) {
+          if (sent.has(i) && !changed.has(els[i])) continue;
+          try { const img = canvas.captureElementImage(els[i]); images.push([i, img]); transfer.push(img); sent.add(i); } catch {}
+        }
+        if (images.length) worker.postMessage({ type: 'images', images, sizes }, transfer);
+        drawMs += performance.now() - t0; drawN++;
+      });
+      canvas.requestPaint();
+      const loop = (t) => {
+        if (!running) return;
+        requestAnimationFrame(loop);
+        if (last) deltas.push(t - last); last = t; tick++;
+        mutate();
+        if (sent.size < n) canvas.requestPaint();
+        spin();
+      };
+      requestAnimationFrame(loop);
+    }
+
+    return {
+      async measure(ms) {
+        await sleep(350); // warm up: first paints, snapshot transfer
+        deltas = []; drawMs = 0; drawN = 0;
+        if (worker) {
+          const got = new Promise((r) => (worker.onmessage = (e) => e.data.type === 'stats' && r(e.data)));
+          worker.postMessage({ type: 'measure', ms });
+          const ws = await got;
+          const main = stats(deltas, drawN ? drawMs / drawN : 0);
+          const s = stats(ws.deltas, ws.drawMs);
+          return { ...s, mainFps: main.fps, captureMs: main.drawMs };
+        }
+        await sleep(ms);
+        const s = stats(deltas, drawN ? drawMs / drawN : 0);
+        return { ...s, mainFps: s.fps };
+      },
+      destroy() {
+        running = false;
+        worker?.terminate();
+        stage.replaceChildren();
+      },
+    };
+  }
+
+  const CONFIGS = {
+    quick: [
+      ['Scene: card 240×120, nothing changes but position'],
+      ['dom-m', 'Plain DOM (CSS transforms)', 'dom', 'm', {}],
+      ['2d-m', '2D canvas, main thread', '2d', 'm', {}],
+      ['worker-m', 'Worker with ElementImage snapshots', 'worker', 'm', {}],
+      ['Scene: card 240×120, main thread blocked 40ms per frame'],
+      ['2d-m-busy', '2D canvas, busy main thread', '2d', 'm', { busy: 40 }],
+      ['worker-m-busy', 'Worker, busy main thread', 'worker', 'm', { busy: 40 }],
+    ],
+    full: [
+      ['Scene: small chip 120×40'],
+      ['dom-s', 'Plain DOM (CSS transforms)', 'dom', 's', {}],
+      ['2d-s', '2D canvas, main thread', '2d', 's', {}],
+      ['worker-s', 'Worker with ElementImage snapshots', 'worker', 's', {}],
+      ['Scene: card 240×120'],
+      ['dom-m', 'Plain DOM (CSS transforms)', 'dom', 'm', {}],
+      ['2d-m', '2D canvas, main thread', '2d', 'm', {}],
+      ['worker-m', 'Worker with ElementImage snapshots', 'worker', 'm', {}],
+      ['Scene: panel 480×320'],
+      ['dom-l', 'Plain DOM (CSS transforms)', 'dom', 'l', {}],
+      ['2d-l', '2D canvas, main thread', '2d', 'l', {}],
+      ['worker-l', 'Worker with ElementImage snapshots', 'worker', 'l', {}],
+      ['Scene: card 240×120, 10% of elements change text every frame'],
+      ['dom-m-c10', 'Plain DOM', 'dom', 'm', { churn: 0.1 }],
+      ['2d-m-c10', '2D canvas, main thread', '2d', 'm', { churn: 0.1 }],
+      ['worker-m-c10', 'Worker (re-snapshots the changed ones)', 'worker', 'm', { churn: 0.1 }],
+      ['Scene: card 240×120, every element changes text every frame'],
+      ['dom-m-c100', 'Plain DOM', 'dom', 'm', { churn: 1 }],
+      ['2d-m-c100', '2D canvas, main thread', '2d', 'm', { churn: 1 }],
+      ['worker-m-c100', 'Worker (re-snapshots everything)', 'worker', 'm', { churn: 1 }],
+      ['Scene: card 240×120, main thread blocked 40ms per frame'],
+      ['dom-m-busy', 'Plain DOM, busy main thread', 'dom', 'm', { busy: 40 }],
+      ['2d-m-busy', '2D canvas, busy main thread', '2d', 'm', { busy: 40 }],
+      ['worker-m-busy', 'Worker, busy main thread', 'worker', 'm', { busy: 40 }],
+    ],
+  };
+
+  const thead = $('#wall thead'), tbody = $('#wall tbody');
+  thead.innerHTML = `<tr><th scope="col">Renderer</th>${STEPS.map((n) => `<th scope="col">${n}</th>`).join('')}<th scope="col">Wall</th><th scope="col">ms/frame at wall</th></tr>`;
+  let results = {}, stopFlag = false, refresh = 60;
+
+  async function measureRefresh() {
+    const d = [];
+    let last = 0;
+    for (let i = 0; i < 40; i++) { const t = await raf(); if (last) d.push(t - last); last = t; }
+    d.sort((a, b) => a - b);
+    return 1000 / d[Math.floor(d.length / 2)];
+  }
+
+  async function run(mode) {
+    if (!supported) return;
+    const maxN = +new URLSearchParams(location.search).get('max') || Infinity;
+    const dwell = +new URLSearchParams(location.search).get('dwell') || 700;
+    stopFlag = false; results = {};
+    $('#quick').disabled = $('#full').disabled = true; $('#stop').disabled = false;
+    tbody.replaceChildren();
+    refresh = await measureRefresh();
+    const rows = CONFIGS[mode];
+    for (const row of rows) {
+      const tr = document.createElement('tr');
+      if (row.length === 1) { tr.className = 'group'; tr.innerHTML = `<td colspan="${STEPS.length + 3}">${row[0]}</td>`; }
+      else { tr.dataset.id = row[0]; tr.innerHTML = `<td>${row[1]}</td>${STEPS.map(() => '<td class="fps">·</td>').join('')}<td class="wall">·</td><td class="fps">·</td>`; }
+      tbody.append(tr);
+    }
+    for (const row of rows) {
+      if (row.length === 1 || stopFlag) continue;
+      const [id, label, kind, size, opts] = row;
+      const tr = tbody.querySelector(`tr[data-id="${id}"]`);
+      const res = { label, kind, size, opts, steps: [], wall: 0 };
+      results[id] = res;
+      for (const [si, n] of STEPS.entries()) {
+        if (stopFlag || n > maxN) break;
+        now.textContent = `${label}: ${n} × ${SIZES[size][2]}…`;
+        let s;
+        try {
+          const sc = await scene(kind, n, size, opts);
+          s = await sc.measure(dwell);
+          sc.destroy();
+        } catch (err) { s = { fps: 0, p95: Infinity, drawMs: 0, error: err.message }; }
+        await sleep(60);
+        res.steps.push({ n, fps: +s.fps.toFixed(1), p95: +(+s.p95).toFixed(1), ms: +(s.drawMs ?? 0).toFixed(2), mainFps: s.mainFps ? +s.mainFps.toFixed(1) : undefined, captureMs: s.captureMs ? +s.captureMs.toFixed(2) : undefined, error: s.error });
+        const td = tr.children[si + 1];
+        const ratio = s.fps / refresh;
+        td.textContent = s.error ? 'err' : s.fps.toFixed(0);
+        td.title = s.error ?? `p95 frame ${(+s.p95).toFixed(1)} ms; script ${(s.drawMs ?? 0).toFixed(2)} ms/frame${s.mainFps ? `; main thread ${s.mainFps.toFixed(0)} fps` : ''}`;
+        td.className = `fps ${ratio >= 0.9 ? 'good' : ratio >= 0.5 ? 'mid' : 'bad'}`;
+        if (ratio >= 0.9) res.wall = n;
+        if (ratio < 0.5) break;
+      }
+      const at = res.steps.find((x) => x.n === res.wall);
+      const unbroken = res.wall === STEPS.at(-1) || res.wall === res.steps.at(-1)?.n;
+      tr.children[STEPS.length + 1].textContent = res.wall ? `${unbroken ? '≥ ' : ''}${res.wall}` : `< ${STEPS[0]}`;
+      tr.children[STEPS.length + 2].textContent = at ? at.ms.toFixed(2) : '–';
+    }
+    stage.replaceChildren();
+    now.textContent = stopFlag ? 'Stopped.' : `Done. Display refresh measured at ${refresh.toFixed(0)} Hz, devicePixelRatio ${devicePixelRatio}, ${navigator.hardwareConcurrency} cores.`;
+    $('#quick').disabled = $('#full').disabled = false; $('#stop').disabled = true;
+    read();
+    window.__results = { refresh, results };
+    window.__done = true;
+  }
+
+  function read() {
+    const r = results, out = [];
+    const wall = (id) => r[id]?.wall;
+    const perEl = (id) => { const s = r[id]?.steps.filter((x) => x.n >= 100 && x.ms > 0).at(-1); return s ? (s.ms * 1000 / s.n) : null; };
+    if (r['2d-m'] && r['dom-m']) {
+      out.push(`<strong>Main-thread canvas wall: ${wall('2d-m') || '< 10'} cards</strong>, against ${wall('dom-m') || '< 10'} for the same cards as plain DOM.` +
+        (perEl('2d-m') ? ` Script is ${(r['2d-m'].steps.find((x) => x.n === wall('2d-m'))?.ms ?? 0).toFixed(1)} ms of the frame at the wall (about ${perEl('2d-m').toFixed(0)} µs per drawElementImage call), so what runs out first is rasterising and compositing, not JavaScript.` : ''));
+    }
+    if (r['worker-m']) out.push(`<strong>Worker wall: ${wall('worker-m') || '< 10'} cards.</strong> The worker redraws from snapshots it already holds, so the main thread does no per-frame work when nothing changes.`);
+    if (r['2d-m-busy'] && r['worker-m-busy']) {
+      const a = r['2d-m-busy'].steps[0], b = r['worker-m-busy'].steps[0];
+      out.push(`<strong>Where the worker earns its keep:</strong> with the main thread blocked 40ms a frame, the main-thread canvas runs at ${a?.fps.toFixed(0)} fps and the worker canvas at ${b?.fps.toFixed(0)} fps (its content only updates at the main thread's ${b?.mainFps?.toFixed(0) ?? '?'} fps, but motion stays smooth).`);
+    }
+    if (r['worker-m-c100'] && r['2d-m-c100']) out.push(`<strong>Where it does not:</strong> when every element changes every frame the worker needs a fresh snapshot of each one from the main thread (wall ${wall('worker-m-c100') || '< 10'}) and has no advantage over drawing directly (wall ${wall('2d-m-c100') || '< 10'}).`);
+    if (r['2d-s'] && r['2d-l']) out.push(`<strong>Size matters less than count on the main thread:</strong> wall of ${wall('2d-s') || '< 10'} small chips, ${wall('2d-m') || '< 10'} cards, ${wall('2d-l') || '< 10'} large panels.`);
+    if (!out.length) out.push('No complete rows yet.');
+    $('#reading').innerHTML = out.map((t) => `<li>${t}</li>`).join('');
+  }
+
+  $('#quick').onclick = () => run('quick');
+  $('#full').onclick = () => run('full');
+  $('#stop').onclick = () => (stopFlag = true);
+  $('#copy').onclick = async () => {
+    await navigator.clipboard.writeText(JSON.stringify({ when: new Date().toISOString(), userAgent: navigator.userAgent, devicePixelRatio, cores: navigator.hardwareConcurrency, refresh, results }, null, 2));
+    now.textContent = 'Copied.';
+  };
+
+  if (!supported) {
+    now.textContent = 'HTML-in-canvas is not available here, so only the plain DOM row could run. Nothing was started.';
+    $('#quick').disabled = $('#full').disabled = true;
+  } else {
+    const auto = new URLSearchParams(location.search).get('run');
+    if (auto) run(auto);
+  }
+</script>
+</body>
+</html>

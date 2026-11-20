@@ -125,10 +125,66 @@ Things that bit:
 
 Not tested here: whether Chrome's find-in-page highlight is painted into an element's picture (needs a person at a real browser), and frame rates on a real GPU (these numbers are from software rendering).
 
+## Accessibility (`/a11y/`)
+
+Measured in Chromium 157 headless on 2026-11-20: in-page probes, plus the DevTools protocol for the accessibility tree, real key and mouse input, IME composition and forced-colours emulation. Screen reader output, the find bar, IME candidate windows, native popups and OS magnifiers are not automated: `/a11y/` section C is the list to try by hand.
+
+| Check | Result | Notes |
+|---|---|---|
+| Accessibility tree | works | Canvas children are ordinary nodes under a "Canvas" node, with the same roles and names as outside a canvas. |
+| Tab order, focus ring, caret | works | Real Tab walks canvas children in DOM order. Focus rings, carets and typed text are painted, and each focus change fires `paint` with the right `changedElements`. |
+| Geometry (`getBoundingClientRect`, `elementFromPoint`, `scrollIntoView`) | works | Follows where the element is drawn, including under rotation and scale. |
+| Mouse: click, caret placement, drag and double-click selection | works | |
+| Selection highlight, `window.find()` | works | Both are painted into the canvas. |
+| IME composition (`Input.imeSetComposition`) | works | Composition events fire and composing text is painted. |
+| Forced colours, system colours, `light-dark()` | works | Painted with their real values. The explainer allows system colours to be left out; this build paints them. |
+| A drawable child the paint handler never draws | hazard | Still a Tab stop and still in the accessibility tree, reported at the canvas origin. Focus lands on nothing visible. `inert` on undrawn children fixes it; nothing does that for you. |
+| WebGL (`texElementSubImage2D`) | hazard | No geometry until the author calls `updateElementGeometry`: the texture is on screen but hit testing and focus position are not. |
+| Pixel mirrors (`drawImage(canvas)`, other tabs, other origins) | hazard | A plain canvas with no role, name, focus or text. Needs its own label. |
+| Zoom | author's job | Layout and hit testing follow, but a canvas with a fixed `width` attribute is stretched. `<canvas-slot>` resizes itself with a device-pixel ResizeObserver; most hand-written canvases here do not. |
+
+Per-demo results (the same audit, `public/lib/a11y-audit.js`, run over every page in `shared/demos.js`): geometry, focus, names, find and selection hold up wherever content is actually drawn. The recurring caveats are canvases that go soft at 150% zoom (`/slot-bare/`, `/offscreen/`, `/cross-origin/`, `/transitions/`, `/time-scrubber/`, `/particles/`), continuous animation with no `prefers-reduced-motion` handling (`/slot/`, `/transitions/`, `/particles/`), unlabelled pixel-only canvases (`/cross-origin/`, `/transports/`), and one invisible tab stop: the lent card's button on `/cross-origin/` was not hit-testable in the audit frame.
+
+## Capture (`/capture/`, `public/lib/element-capture.js`)
+
+| Experiment | Result | Why |
+|---|---|---|
+| Wrap an ordinary element in a temporary canvas and snapshot it | works | Ready in the first rendering update: the `paint` event fires in the frame the canvas was inserted. About 10 to 20 ms. |
+| Move the element in with `moveBefore()` | works | Focus, caret, typed value, scroll offsets and iframes survive; custom elements get `connectedMoveCallback`, not disconnect. |
+| CSS animations across the move | restart | Becoming a canvas descendant restarts them (attaching a shadow root does too). Reading `currentTime` before and seeking after hides it. |
+| `drawElementImage(el, 0, 0, w × 4, h × 4)` | works | Re-rasterized, not upscaled: a 1px line becomes 4 hard pixels. Print-quality output from any element. |
+| `parent > child` selectors during capture | fails | The canvas is the element's parent for that frame. |
+| Box-shadow and outline outside the border box | cut off | `drawElementImage` draws the border box. |
+| Element already in a drawable 2D canvas | works | Borrow that canvas for one synchronous tiled draw with `preserveElementGeometry`, then restore its pixels. |
+| Element in a worker-owned canvas | clone only | No context on the main thread to draw with. |
+| Cross-origin iframe; cross-origin image without CORS | blank | Left out by design; the canvas stays readable. With CORS the image paints. |
+| `canvas.captureStream()` + MediaRecorder on the temporary canvas | works | The element stays live and clickable while it is recorded. |
+| Printing a page that has a drawable canvas | works | `page.pdf()` includes the drawn DOM as a bitmap. |
+| Body shadow root: `canvas > div[drawable] > slot` | works | Whole page captured with no light-DOM mutation; selectors, focus, caret, iframes and scroll position untouched. The shadow root cannot be removed afterwards. |
+| Move body's children into a canvas and back (in flow, or a fixed overlay) | works | Needs `moveBefore()`. The page sees mutation records, `body > x` selectors stop matching for the frame, and the browser scrolls when the focused element moves back (restored). |
+| Body already has an open shadow root | works via move | Moving the page's own shadow tree into a canvas drops focus, so `capturePage()` uses the move route instead. |
+| Body has a closed shadow root | works via move | `attachShadow` throws; the canvas goes in the light DOM. |
+| Fixed and sticky elements | works for a viewport shot | A drawable element is a containing block, so the capture wraps content in a viewport-sized frame with an inner scroller. In a full-page shot fixed elements land at the document end and sticky ones at their static position. |
+| View transition to hide the swap | fails | `paint` events do not fire while a view transition holds rendering; the capture waited out the 4s timeout. |
+| Flicker | none measured | The snapshot is drawn in the frame the canvas appears. Headless screencasts do not show canvas content, so this still wants an eye: the "Flicker check" button runs 30 captures. |
+
+Browser bug: inserting, moving or removing an iframe from inside a `paint` handler (or a microtask of one) crashes the tab, the same CHECK every time (`trap int3`, same address). Taking an iframe-holding subtree out of a canvas in that handler does it, and so does appending a new iframe to `<body>`. The library leaves the paint event with a MessageChannel task before touching the DOM. This is probably the same failure as the `adoptNode` crash above.
+
+## Performance (`/perf/`)
+
+The page ramps 10 to 1,600 moving elements per renderer and reports where the frame rate falls below 90% of the display's refresh. Numbers from headless Chromium use software rendering and only show the shape; run it on real hardware for the wall.
+
+- Script is not the limit. A `drawElementImage` call costs about 7 µs, so 200 cards is roughly 1 ms of a frame. Rasterising and compositing run out first.
+- In software rendering the 2D canvas carried more moving cards (200 at 60 fps) than the same cards as individually composited DOM layers (100).
+- A worker holding `ElementImage` snapshots costs the main thread nothing per frame when content is static. With the main thread blocked 40 ms per frame, a main-thread canvas drops to 23 fps and the worker stays at 60 fps (content updates at the main thread's rate, motion stays smooth).
+- The worker has no advantage when every element changes every frame: each one needs a fresh snapshot captured on the main thread.
+
 ## What this means
 
 - The slot pattern is a real answer to "the DOM has to live inside the canvas": the markup stays in the light DOM and only the canvas moves into a shadow root.
 - Reprojection across documents is a pixel stream plus input forwarding, not a shared snapshot. Semantics (selection, accessibility tree, find-in-page) stay in the source document.
 - The primitives all rest on the same wrapper and the same two workarounds: stretch one canvas over everywhere the element must appear, and move the single hit-test geometry to wherever the pointer is. A way to draw one element into several canvases, and a per-region geometry, would remove both.
 - One element has one hit box. Effects that show an element in many pieces (shards, glyphs) can route one pointer correctly but not two, and a way to give `updateElementGeometry` several regions, or a hit-test callback, would close that gap.
+- Accessibility largely survives, with one sharp edge: whatever is in the canvas but not drawn is still focusable. An opt-in such as "undrawn means inert" would remove the main hazard.
+- Any element can be exported with one call today, and a whole ordinary page can be wrapped in a canvas for a single frame without the user seeing it.
 - A native "draw this element by reference" hook for canvas (an id reference rather than DOM containment) would remove the need for the shadow root. An ElementImage that could be drawn into a second canvas would make cross-document reprojection first class; today it is deliberately bound to one canvas.

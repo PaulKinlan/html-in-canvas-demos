@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Element capture</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1060px; }
+  .bench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .bench { grid-template-columns: 1fr; } }
+  #ticket { width: 320px; max-width: 100%; padding: 16px; border-radius: 14px; border: 2px solid #1d1c1a; background: linear-gradient(160deg, #ffe9d6, #dfe9ff); color: #1d1c1a; font: 15px/1.4 system-ui; box-shadow: 0 6px 0 #1d1c1a; }
+  #ticket h3 { margin: 0 0 6px; font-size: 19px; }
+  #ticket input { font: inherit; width: 100%; box-sizing: border-box; margin: 6px 0; }
+  #ticket .meter { height: 8px; border-radius: 4px; background: #0002; overflow: hidden; }
+  #ticket .meter i { display: block; height: 100%; width: 40%; background: #d2491f; animation: sweep 2.4s ease-in-out infinite alternate; }
+  @keyframes sweep { to { transform: translateX(150%); } }
+  @media (prefers-reduced-motion: reduce) { #ticket .meter i { animation-duration: 20s; } }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  #out { min-height: 120px; display: grid; gap: 8px; }
+  #out img, #out video { max-width: 100%; border: 1px solid var(--line); border-radius: 8px; background: repeating-conic-gradient(#0001 0 25%, transparent 0 50%) 0 0 / 14px 14px; }
+  #meta { font: 12px var(--mono); color: var(--muted); white-space: pre-wrap; }
+  iframe#page { width: 100%; height: 300px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  table.lab { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.lab td, table.lab th { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+  table.lab td.status { white-space: nowrap; font-weight: 600; width: 84px; }
+  table.lab td.thumb { width: 132px; }
+  table.lab td.thumb canvas { display: block; width: 120px; height: 80px; border: 1px solid var(--line); border-radius: 4px; background: repeating-conic-gradient(#0001 0 25%, transparent 0 50%) 0 0 / 10px 10px; }
+  table.lab .detail { font: 12px var(--mono); color: var(--muted); word-break: break-word; }
+  .expected { color: var(--warn); }
+  #lab { position: relative; height: 0; overflow: visible; }
+  #lab > * { position: absolute; left: 0; top: 0; opacity: 0.02; pointer-events: none; }
+  h2 small { font: 13px var(--mono); color: var(--muted); font-weight: 400; margin-left: 8px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Element capture: any element to PNG, video or print</h1>
+  <p class="lede">
+    One call turns an element that was never written for canvas into pixels:
+    <code>captureElement(el)</code>, <code>recordElement(el)</code>, <code>printElement(el)</code>, and <code>capturePage()</code> for a whole ordinary page.
+    Under the hood a temporary HTML-in-canvas canvas takes the element's place for one frame. The tests below say what survives that and what does not.
+  </p>
+
+  <div class="bench">
+    <div>
+      <div id="ticket">
+        <h3>Support ticket #4821</h3>
+        <label>Summary <input id="summary" value="Export button does nothing"></label>
+        <div class="meter" aria-hidden="true"><i></i></div>
+        <p style="margin:8px 0 0">Updated <time id="clock"></time>. <button id="bump" type="button">Clicked 0×</button></p>
+      </div>
+      <div class="tools">
+        <button data-do="png1">PNG 1×</button>
+        <button data-do="png4">PNG 4×</button>
+        <button data-do="copy">Copy as image</button>
+        <button data-do="save">Download</button>
+        <button data-do="video">Record 3s</button>
+        <button data-do="print">Print</button>
+      </div>
+      <div class="tools">
+        <button data-do="pageview">This page: viewport</button>
+        <button data-do="pagefull">This page: full</button>
+        <button data-do="flicker">Flicker check (30 captures)</button>
+      </div>
+      <p class="note">Type in the field, then capture: the element is live the whole time, including while it is being recorded.</p>
+    </div>
+    <div>
+      <div id="out"><span class="note">Output appears here.</span></div>
+      <div id="meta"></div>
+    </div>
+  </div>
+
+<pre><code>import { captureElement, capturePage, recordElement, printElement } from '/lib/element-capture.js';
+
+const png   = await captureElement(document.querySelector('#ticket'), { scale: 4 });
+const page  = await capturePage({ full: true });          // no canvas in the page's markup
+const rec   = await recordElement(el, { fps: 30 });  const webm = await rec.stop();
+await printElement(el);                                   // paginated, 200 dpi</code></pre>
+
+  <h2>A · Elements <small>captureElement, recordElement, printElement</small></h2>
+  <p id="scoreA" class="note">running…</p>
+  <table class="lab"><tbody id="tA"></tbody></table>
+
+  <h2>B · A whole ordinary page <small>temporarily wrap body in a canvas</small></h2>
+  <p>
+    Each row loads <a href="/capture/fixture.html">a plain page</a> (sticky header, fixed badge, content below the fold, a same-origin and a cross-origin iframe)
+    in the frame below, scrolls it, focuses its input, and calls <code>capturePage()</code> with one route. A row passes when a correct image came back
+    and scroll position, focus, caret and form value survived. Side effects are listed either way.
+  </p>
+  <iframe id="page" title="Fixture page being captured"></iframe>
+  <p id="scoreB" class="note">waiting…</p>
+  <table class="lab"><tbody id="tB"></tbody></table>
+
+  <h2>What this shows</h2>
+  <ul class="findings">
+    <li><strong>Yes, body can be wrapped in a canvas for one frame.</strong> The snapshot is ready in the first rendering update after the canvas goes in: the <code>paint</code> event fires in that same frame, so there is no waiting and nothing to await but one frame.</li>
+    <li><strong>The shadow-root route moves nothing.</strong> A shadow root on <code>&lt;body&gt;</code> holding <code>canvas &gt; div[drawable] &gt; slot</code> reprojects every body child without touching the light DOM: no mutation records for the page, selectors like <code>body &gt; main</code> keep matching, focus, caret, iframes and scroll position stay put. Its cost is permanent: a shadow root cannot be removed, so body keeps a bare <code>&lt;slot&gt;</code> afterwards and the page can never attach its own.</li>
+    <li><strong>The move route needs <code>moveBefore()</code>.</strong> With it, moving body's children into a canvas and back keeps focus, caret, form state and iframes alive. With plain <code>append</code> the iframes reload and focus is lost, and taking an iframe out of a canvas in the frame it was drawn crashed the tab.</li>
+    <li><strong>CSS animations restart</strong> when an element becomes a canvas descendant, on every route. The library reads <code>currentTime</code> before and seeks the restarted animations back.</li>
+    <li><strong>Fixed and sticky need a stand-in viewport.</strong> A drawable element is a containing block, so fixed elements attach to it. Wrapping the content in a viewport-sized frame with an inner scroller set to the page's scroll offset gives a faithful viewport shot. In a full-page shot fixed elements land at the end of the document and sticky ones at their static position.</li>
+    <li><strong>Cross-origin iframes come out blank</strong>, by design, and so do cross-origin images without CORS. Same-origin iframes paint.</li>
+    <li><strong>Output is re-rasterized, not upscaled.</strong> <code>drawElementImage(el, 0, 0, w × 4, h × 4)</code> replays the element's paint record at the new size, so a 4× PNG has sharp text and hairlines. That is what makes print output usable.</li>
+  </ul>
+
+  <div id="lab" aria-hidden="true"></div>
+</main>
+
+<script type="module">
+  import '/lib/canvas-slot.js';
+  import { banner, nav, supported, withTimeout } from '/shared/support.js';
+  import * as cap from '/lib/element-capture.js';
+  nav('/capture/');
+  banner();
+
+  const $ = (s) => document.querySelector(s);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const frames = (n = 2) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+  const near = (px, want, tol = 10) => want.every((v, i) => Math.abs(px[i] - v) <= tol) && (want.length > 3 || px[3] > 200);
+  const pxOf = (canvas, x, y) => Array.from(canvas.getContext('2d', Q.has('nowrf') ? undefined : { willReadFrequently: true }).getImageData(Math.round(x), Math.round(y), 1, 1).data);
+
+  // ------------------------------------------------------------ the bench
+  const ticket = $('#ticket');
+  const clock = $('#clock');
+  setInterval(() => (clock.textContent = new Date().toLocaleTimeString([], { hour12: false })), 500);
+  let clicks = 0;
+  $('#bump').onclick = (e) => (e.target.textContent = `Clicked ${++clicks}×`);
+  const out = $('#out'), metaEl = $('#meta');
+  const show = (node, extra = '') => {
+    out.replaceChildren(node);
+    const m = cap.lastCapture;
+    metaEl.textContent = m ? `${m.strategy} · ${m.width}×${m.height} · scale ${(+m.scale).toFixed(2)} · ${m.frames} frame(s) · ${m.ms ?? '–'} ms ${extra}\n${(m.notes ?? []).join('\n')}` : extra;
+  };
+  const img = (blob) => Object.assign(new Image(), { src: URL.createObjectURL(blob), alt: 'Captured element' });
+  const actions = {
+    png1: async () => show(img(await cap.captureElement(ticket, { scale: 1 }))),
+    png4: async () => show(img(await cap.captureElement(ticket, { scale: 4 }))),
+    copy: async () => { await cap.copyElement(ticket, { scale: 2 }); show(document.createTextNode('Copied to the clipboard as a PNG. Paste it somewhere.')); },
+    save: async () => show(img(await cap.downloadElement(ticket, 'ticket.png', { scale: 2 }))),
+    video: async () => {
+      const rec = await cap.recordElement(ticket, { duration: 3000, scale: 2 });
+      show(document.createTextNode('Recording for 3 seconds. The ticket is still live: type in it.'));
+      const blob = await rec.done;
+      const v = Object.assign(document.createElement('video'), { src: URL.createObjectURL(blob), controls: true, loop: true, muted: true, autoplay: true });
+      show(v, `· ${blob.type} · ${(blob.size / 1024).toFixed(0)} kB`);
+    },
+    print: async () => { const r = await cap.printElement(ticket); show(document.createTextNode(`Sent ${r.pages} page(s) to the print dialog at ${(r.scale * 96).toFixed(0)} dpi.`)); },
+    pageview: async () => show(img(await cap.capturePage({ full: false }))),
+    pagefull: async () => show(img(await cap.capturePage({ full: true, scale: 1 }))),
+    flicker: async () => {
+      const t0 = performance.now();
+      for (let i = 0; i < 30; i++) { await cap.capturePage({ full: false, as: 'canvas', scale: 1 }); await frames(4); }
+      show(document.createTextNode(`30 viewport captures in ${Math.round(performance.now() - t0)} ms. If the page did not flash, the swap is invisible on your machine.`));
+    },
+  };
+  for (const b of document.querySelectorAll('[data-do]')) {
+    b.onclick = async () => {
+      try { await actions[b.dataset.do](); } catch (err) { show(document.createTextNode(`${err.name}: ${err.message}`)); }
+    };
+  }
+
+  // ---------------------------------------------------------- test harness
+  // Each test: [name, why, run(thumbCanvas) → detail string, { expect: 'fail' }?]
+  async function runLab(tbody, score, tests) {
+    const rows = tests.map(([name, why, , opt]) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td class="status pending">…</td><td class="thumb"><canvas width="240" height="160"></canvas></td><td><strong></strong><div class="note"></div></td><td class="detail"></td>`;
+      tr.querySelector('strong').textContent = name;
+      tr.querySelector('.note').textContent = why + (opt?.expect === 'fail' ? ' (expected to fail)' : '');
+      tbody.append(tr);
+      return tr;
+    });
+    const results = [];
+    for (const [i, [name, , run, opt]] of tests.entries()) {
+      const tr = rows[i];
+      const thumb = tr.querySelector('canvas');
+      let ok, detail;
+      try { detail = await withTimeout(run(thumb), opt?.timeout ?? 10000); ok = true; }
+      catch (err) { ok = false; detail = `${err?.name ?? 'Error'}: ${err?.message ?? err}`; }
+      // One fixture at a time: give the last one two frames, then clear the strip.
+      await frames(2);
+      if (!Q.has('noclean')) lab.replaceChildren();
+      if (globalThis.gc) { globalThis.gc(); await frames(2); }
+      const st = tr.querySelector('.status');
+      st.className = `status ${ok ? 'pass' : opt?.expect === 'fail' ? 'expected' : 'fail'}`;
+      st.textContent = ok ? '✓ works' : '✗ fails';
+      tr.querySelector('.detail').textContent = detail ?? '';
+      results.push({ name, ok, detail, expect: opt?.expect ?? 'pass' });
+      const n = results.filter((r) => r.ok).length;
+      score.textContent = `${n} work, ${results.length - n} fail, ${tests.length - results.length} to go`;
+    }
+    const n = results.filter((r) => r.ok).length;
+    score.textContent = `${n} of ${results.length} work. ${results.filter((r) => !r.ok && r.expect === 'fail').length} of the failures are expected limits of the API.`;
+    return results;
+  }
+  const Q = new URLSearchParams(location.search);
+  function thumbOf(thumb, source) {
+    if (Q.has('nothumb')) return;
+    const ctx = thumb.getContext('2d');
+    ctx.clearRect(0, 0, thumb.width, thumb.height);
+    const s = Math.min(thumb.width / source.width, thumb.height / source.height);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, source.width * s, source.height * s);
+  }
+
+  // Fixtures live in a nearly invisible strip (a hidden canvas never paints).
+  const lab = $('#lab');
+  function fixture(html, parent = lab) {
+    const d = document.createElement('div');
+    d.innerHTML = html.trim();
+    const el = d.firstElementChild;
+    parent.append(el);
+    return el;
+  }
+  const BOX = 'box-sizing:border-box;width:200px;height:80px;background:rgb(255,204,0);color:#000;font:14px system-ui;padding:10px';
+  const other = (() => {
+    const u = new URL(location.href);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') u.port = u.port === '8001' ? '8002' : '8001';
+    else u.hostname = u.hostname.startsWith('html-in-canvas-demos.') ? u.hostname.replace('html-in-canvas-demos.', 'html-in-canvas-remote.') : u.hostname.replace('html-in-canvas-remote.', 'html-in-canvas-demos.');
+    return u.origin;
+  })();
+  const loadOf = (el) => new Promise((r) => { el.addEventListener('load', r, { once: true }); el.addEventListener('error', r, { once: true }); setTimeout(r, 2500); });
+
+  const elementTests = [
+    ['An ordinary element to PNG', 'A div that has never been near a canvas. captureElement(el) → Blob.', async (t) => {
+      const el = fixture(`<div style="${BOX}">plain <b>DOM</b></div>`);
+      const blob = await cap.captureElement(el, { scale: 2 });
+      const m = cap.lastCapture;
+      const bmp = await createImageBitmap(blob);
+      thumbOf(t, bmp);
+      const c = await cap.captureElement(el, { scale: 2, as: 'canvas' });
+      if (!near(pxOf(c, 6, 6), [255, 204, 0])) throw new Error(`pixel is ${pxOf(c, 6, 6)}`);
+      if (bmp.width !== 400 || bmp.height !== 160) throw new Error(`size ${bmp.width}×${bmp.height}, wanted 400×160`);
+      if (el.parentNode !== lab || el.hasAttribute('drawable') || lab.querySelector('canvas[data-element-capture]')) throw new Error('element was not put back cleanly');
+      return `${blob.type}, ${bmp.width}×${bmp.height}, ${blob.size} bytes; snapshot ready after ${m.frames} frame(s), ${m.ms} ms; element back in place`;
+    }],
+    ['4× output is re-rasterized, not upscaled', 'A 1px line captured at scale 4 should be 4 solid pixels with no blur either side.', async (t) => {
+      const el = fixture(`<div style="${BOX};background:#fff;border-left:1px solid #000;padding:0"></div>`);
+      const c = await cap.captureElement(el, { scale: 4, as: 'canvas' });
+      thumbOf(t, c);
+      const row = [0, 1, 2, 3, 4, 5, 6].map((x) => pxOf(c, x, 100)[0]);
+      const crisp = row.slice(0, 4).every((v) => v < 8) && row.slice(4).every((v) => v > 247);
+      if (!crisp) throw new Error(`edge is soft: red channel across x=0..6 is ${row.join(',')}`);
+      return `red channel across x=0..6: ${row.join(',')} (hard edge at 4px); ${c.width}×${c.height}`;
+    }],
+    ['Record an element to video', 'recordElement(): captureStream + MediaRecorder while the element stays where it is.', async (t) => {
+      const el = fixture(`<div style="${BOX}"><button>still clickable</button></div>`);
+      const rec = await cap.recordElement(el, { fps: 30, scale: 1 });
+      await sleep(300);
+      const btn = el.querySelector('button');
+      rec.canvas.style.pointerEvents = 'auto'; rec.canvas.style.position = 'fixed'; rec.canvas.style.top = '72px'; // inside the viewport, below the menu, for elementFromPoint
+      const r = btn.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      await sleep(900);
+      const blob = await rec.stop();
+      if (!blob.size) throw new Error('empty recording');
+      const v = document.createElement('video');
+      v.muted = true; v.src = URL.createObjectURL(blob);
+      await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('recording does not decode')); });
+      await v.play().catch(() => {});
+      await new Promise((res) => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(res) : setTimeout(res, 200)));
+      v.pause();
+      const probe = document.createElement('canvas'); probe.width = v.videoWidth; probe.height = v.videoHeight;
+      probe.getContext('2d').drawImage(v, 0, 0);
+      thumbOf(t, probe);
+      const px = pxOf(probe, 190, 70);
+      if (!near(px, [255, 204, 0], 24)) throw new Error(`decoded frame pixel ${px.slice(0, 3)}`);
+      if (el.parentNode !== lab) throw new Error('element not restored');
+      return `${blob.type}, ${(blob.size / 1024).toFixed(1)} kB, ${v.videoWidth}×${v.videoHeight}; decoded frame matches; during recording elementFromPoint at the button returned ${hit === btn ? 'the button' : hit?.localName ?? 'nothing'}`;
+    }, { timeout: 15000 }],
+    ['Focus, caret, typed value and scroll offset survive', 'The element is moved into the canvas with moveBefore() and back.', async (t) => {
+      const el = fixture(`<div style="${BOX};height:110px"><input value="abc" size="8"><div class="sc" style="height:40px;overflow:auto"><div style="height:300px">scroll<br>me<br>down<br>more</div></div></div>`);
+      lab.style.pointerEvents = 'auto';
+      const input = el.querySelector('input'), sc = el.querySelector('.sc');
+      input.value = 'typed here'; input.focus({ preventScroll: true }); input.setSelectionRange(2, 5); sc.scrollTop = 57;
+      const c = await cap.captureElement(el, { as: 'canvas' });
+      thumbOf(t, c);
+      const got = { focus: document.activeElement === input, caret: `${input.selectionStart}-${input.selectionEnd}`, value: input.value, scrollTop: sc.scrollTop };
+      input.blur();
+      if (!got.focus || got.caret !== '2-5' || got.value !== 'typed here' || got.scrollTop !== 57) throw new Error(JSON.stringify(got));
+      return `focus kept, caret ${got.caret}, value "${got.value}", scrollTop ${got.scrollTop}; moveBefore ${'moveBefore' in Element.prototype ? 'available' : 'missing'}`;
+    }],
+    ['A same-origin iframe inside the element does not reload', 'moveBefore() keeps the nested browsing context alive.', async (t) => {
+      const el = fixture(`<div style="${BOX}"><iframe src="/cross-origin/solid.html" style="width:160px;height:40px;border:0"></iframe></div>`);
+      const f = el.querySelector('iframe');
+      await loadOf(f); await frames(3);
+      let loads = 0; f.addEventListener('load', () => loads++);
+      const win = f.contentWindow; win.__mark = 1;
+      const c = await cap.captureElement(el, { as: 'canvas' });
+      thumbOf(t, c);
+      await sleep(150);
+      if (loads || f.contentWindow.__mark !== 1) throw new Error(`iframe reloaded ${loads}×`);
+      if (!near(pxOf(c, 150, 40), [220, 0, 60])) throw new Error(`iframe pixels missing: ${pxOf(c, 150, 40)}`);
+      return 'iframe kept its document and was painted into the image';
+    }],
+    ['CSS animation keeps its place', 'Becoming a canvas child restarts CSS animations; the library seeks them back.', async (t) => {
+      const el = fixture(`<div style="${BOX}"><style>@keyframes capx{to{transform:translateX(150px)}}</style><i style="display:block;width:20px;height:20px;background:#00f;animation:capx 10s linear infinite"></i></div>`);
+      await sleep(400);
+      const a0 = el.querySelector('i').getAnimations()[0];
+      const t0 = a0.currentTime, w0 = performance.now();
+      const c = await cap.captureElement(el, { as: 'canvas' });
+      thumbOf(t, c);
+      const a1 = el.querySelector('i').getAnimations()[0];
+      const drift = Math.round(a1.currentTime - t0 - (performance.now() - w0));
+      // In the picture the blue square should be where it was (≈ 400ms in ⇒ ≈ 6px), not at 0.
+      if (Math.abs(drift) > 100) throw new Error(`animation jumped by ${drift} ms`);
+      return `${a1 === a0 ? 'same Animation object' : 'animation object was replaced (restart)'}; after restore it is ${drift} ms off where it would have been`;
+    }],
+    ['Custom element is not disconnected', 'A custom element with connectedMoveCallback sees a move, not a remove and re-insert.', async (t) => {
+      const log = [];
+      if (!customElements.get('cap-probe')) customElements.define('cap-probe', class extends HTMLElement {
+        connectedCallback() { this.log?.push('connected'); }
+        disconnectedCallback() { this.log?.push('disconnected'); }
+        connectedMoveCallback() { this.log?.push('moved'); }
+      });
+      const el = fixture(`<cap-probe style="display:block;${BOX}">custom element</cap-probe>`);
+      el.log = log;
+      const c = await cap.captureElement(el, { as: 'canvas' });
+      thumbOf(t, c);
+      if (log.includes('disconnected')) throw new Error(`callbacks: ${log.join(', ')}`);
+      return `callbacks during capture: ${log.join(', ') || 'none'}`;
+    }],
+    ['Styles that depend on the parent still apply', 'The canvas becomes the element\'s parent for a frame, so "parent > child" rules stop matching.', async (t) => {
+      const wrap = fixture(`<div class="cap-parent"><style>.cap-parent > .kid { background: rgb(255,204,0) !important; }</style><div class="kid" style="${BOX};background:rgb(0,0,255)">child combinator</div></div>`);
+      const c = await cap.captureElement(wrap.querySelector('.kid'), { as: 'canvas' });
+      thumbOf(t, c);
+      if (!near(pxOf(c, 6, 6), [255, 204, 0])) throw new Error(`the "parent > .kid" rule was lost during capture (pixel ${pxOf(c, 6, 6).slice(0, 3)}); capture the parent, or use strategy: "clone" which has the same limit`);
+      return 'child-combinator rule still applied';
+    }, { expect: 'fail' }],
+    ['Ink outside the border box (box-shadow)', 'drawElementImage draws the border box. Is a shadow included?', async (t) => {
+      const el = fixture(`<div style="${BOX};box-shadow:0 0 0 12px rgb(0,160,60);margin:14px"></div>`);
+      const c = await cap.captureElement(el, { as: 'canvas', scale: 1 });
+      thumbOf(t, c);
+      if (c.width > 200) return `image is ${c.width}×${c.height}: the shadow is included`;
+      throw new Error(`image is exactly the border box (${c.width}×${c.height}); shadows and outlines outside it are cut off. Capture a padded wrapper to keep them.`);
+    }, { expect: 'fail' }],
+    ['Element that is already inside a drawable canvas', 'A <canvas-slot> child. The owning canvas is borrowed for one synchronous draw and restored.', async (t) => {
+      const host = fixture(`<canvas-slot style="width:260px;height:120px"><div slot="a" style="${BOX}">slotted <button>btn</button></div></canvas-slot>`);
+      host.onrender = ({ ctx, draw }) => { ctx.fillStyle = 'rgb(0,0,255)'; ctx.fillRect(0, 0, 400, 400); ctx.rotate(0.1); draw('a', 40, 20); };
+      await frames(4);
+      const el = host.firstElementChild;
+      const ctx = host.canvas.getContext('2d');
+      const before = pxOf(host.canvas, 2, 2), tr0 = host.canvas.getElementTransform(el).toString();
+      const c = await cap.captureElement(el, { as: 'canvas', scale: 3 });
+      thumbOf(t, c);
+      const m = cap.lastCapture;
+      const after = pxOf(host.canvas, 2, 2), tr1 = host.canvas.getElementTransform(el).toString();
+      if (m.strategy !== 'inplace') throw new Error(`used ${m.strategy}: ${m.notes.join('; ')}`);
+      if (!near(pxOf(c, 8, 8), [255, 204, 0])) throw new Error(`pixel ${pxOf(c, 8, 8)}`);
+      if (c.width !== 600) throw new Error(`size ${c.width}`);
+      if (before.join() !== after.join()) throw new Error('the borrowed canvas was not restored');
+      if (tr0 !== tr1) throw new Error('hit-test geometry changed');
+      return `in place, ${c.width}×${c.height} (3×, tiled through a ${host.canvas.width}px canvas), upright even though it is drawn rotated; canvas pixels and hit-test geometry unchanged`;
+    }],
+    ['Element inside a canvas owned by a worker', 'No 2D context on the main thread to borrow, so a clone is drawn instead.', async (t) => {
+      const host = fixture(`<canvas-slot worker="/offscreen/renderer.js" style="width:260px;height:120px"><div slot="a" style="${BOX}">in a worker canvas</div></canvas-slot>`);
+      await frames(6);
+      const c = await cap.captureElement(host.firstElementChild, { as: 'canvas' });
+      thumbOf(t, c);
+      const m = cap.lastCapture;
+      if (!near(pxOf(c, 8, 8), [255, 204, 0])) throw new Error(`pixel ${pxOf(c, 8, 8)}`);
+      return `strategy: ${m.strategy}. ${m.notes.join('. ')}`;
+    }],
+    ['Clone strategy leaves the element alone', 'strategy: "clone" draws a copy next to the original; form values are copied across.', async (t) => {
+      const el = fixture(`<div style="${BOX}"><input value="x" size="8"><input type="checkbox"></div>`);
+      el.querySelector('input').value = 'live value'; el.querySelector('[type=checkbox]').checked = true;
+      let moved = 0;
+      const mo = new MutationObserver((l) => (moved += l.filter((r) => [...r.removedNodes].includes(el)).length));
+      mo.observe(lab, { childList: true });
+      const c = await cap.captureElement(el, { as: 'canvas', strategy: 'clone', scale: 2 });
+      mo.disconnect();
+      thumbOf(t, c);
+      if (moved) throw new Error('original element was moved');
+      if (!near(pxOf(c, 6, 6), [255, 204, 0])) throw new Error(`pixel ${pxOf(c, 6, 6)}`);
+      return `original never left its parent; ${cap.lastCapture.frames} frame(s)`;
+    }],
+    ['Cross-origin iframe inside the element', 'Read-back-allowed rendering leaves cross-origin content out.', async (t) => {
+      const el = fixture(`<div style="${BOX}"><iframe src="${other}/cross-origin/solid.html" style="width:160px;height:40px;border:0"></iframe></div>`);
+      await loadOf(el.querySelector('iframe')); await frames(3);
+      const c = await cap.captureElement(el, { as: 'canvas' });
+      thumbOf(t, c);
+      const px = pxOf(c, 150, 40);
+      if (!near(px, [220, 0, 60])) throw new Error(`cross-origin frame is blank in the image (pixel ${px.slice(0, 3)}); the rest of the element is captured`);
+      return 'cross-origin iframe was painted';
+    }, { expect: 'fail' }],
+    ['Cross-origin image without CORS', 'An <img> from the other origin, no crossorigin attribute.', async (t) => {
+      const el = fixture(`<div style="${BOX};padding:0"><img alt="" width="200" height="80" style="display:block"></div>`);
+      const im = el.querySelector('img');
+      // Any image on the other origin will do: use an SVG data-free endpoint we know exists.
+      im.src = `${other}/capture/swatch.svg`;
+      await loadOf(im); await frames(3);
+      if (!im.naturalWidth) throw new Error('test image did not load from the other origin');
+      const c = await cap.captureElement(el, { as: 'canvas' });
+      thumbOf(t, c);
+      const px = pxOf(c, 100, 40);
+      if (!near(px, [0, 160, 60])) throw new Error(`image is left out (pixel ${px.slice(0, 3)}); the canvas is not tainted and the rest reads back`);
+      return 'cross-origin image was painted';
+    }, { expect: 'fail' }],
+    ['Same image with CORS', 'crossorigin="anonymous" and an Access-Control-Allow-Origin header.', async (t) => {
+      const el = fixture(`<div style="${BOX};padding:0"><img alt="" crossorigin="anonymous" width="200" height="80" style="display:block"></div>`);
+      const im = el.querySelector('img');
+      im.src = `${other}/capture/swatch.svg?cors`;
+      await loadOf(im); await frames(3);
+      if (!im.naturalWidth) throw new Error('the other origin does not send Access-Control-Allow-Origin, so the image did not load');
+      const c = await cap.captureElement(el, { as: 'canvas' });
+      thumbOf(t, c);
+      const px = pxOf(c, 100, 40);
+      if (!near(px, [0, 160, 60])) throw new Error(`loaded with CORS but still left out (pixel ${px.slice(0, 3)})`);
+      return 'CORS-approved cross-origin image is painted';
+    }],
+    ['A 2D canvas and an SVG inside the element', 'Nested ordinary canvas content and inline SVG.', async (t) => {
+      const el = fixture(`<div style="${BOX};padding:0;display:flex"><canvas width="100" height="80"></canvas><svg width="100" height="80"><rect width="100" height="80" fill="rgb(0,160,60)"/></svg></div>`);
+      const g = el.querySelector('canvas').getContext('2d'); g.fillStyle = 'rgb(220,0,60)'; g.fillRect(0, 0, 100, 80);
+      await frames(2);
+      const c = await cap.captureElement(el, { as: 'canvas', scale: 1 });
+      thumbOf(t, c);
+      const a = pxOf(c, 50, 40), b = pxOf(c, 150, 40);
+      if (!near(a, [220, 0, 60])) throw new Error(`inner canvas missing: ${a}`);
+      if (!near(b, [0, 160, 60])) throw new Error(`svg missing: ${b}`);
+      return 'inner canvas pixels and SVG both captured';
+    }],
+    ['Paginate a tall element for print', 'printElement(el, { print: false }) builds the print document without opening the dialog.', async (t) => {
+      const el = fixture(`<div style="width:300px;background:linear-gradient(rgb(255,204,0),rgb(0,160,60));font:14px system-ui"><div style="height:2600px;padding:10px">tall content</div></div>`);
+      const r = await cap.printElement(el, { print: false, dpi: 150 });
+      const imgs = [...r.frame.contentDocument.images];
+      thumbOf(t, imgs[0]);
+      const ok = imgs.every((i) => i.naturalWidth > 0);
+      r.frame.remove();
+      if (r.pages < 2 || !ok) throw new Error(`${r.pages} page(s), images loaded: ${ok}`);
+      return `${r.pages} pages at ${(r.scale * 96).toFixed(0)} dpi, each slice ${imgs[0].naturalWidth}×${imgs[0].naturalHeight}px with alt text taken from the element`;
+    }, { timeout: 20000 }],
+    ['An element taller than a canvas can be', 'Canvas dimensions stop at 16,384px; the scale is reduced to fit.', async (t) => {
+      const el = fixture(`<div style="width:100px;height:9000px;background:rgb(255,204,0)"></div>`);
+      const c = await cap.captureElement(el, { as: 'canvas', scale: 4 });
+      thumbOf(t, c);
+      const m = cap.lastCapture;
+      if (!near(pxOf(c, 5, c.height - 5), [255, 204, 0])) throw new Error('bottom of the element missing');
+      return `asked for 4×, got ${m.scale.toFixed(2)}× (${c.width}×${c.height})`;
+    }],
+  ];
+
+  // ------------------------------------------------------------ page routes
+  const pageFrame = $('#page');
+  async function loadFixture(variant = '') {
+    const ready = new Promise((r) => {
+      const on = (e) => { if (e.source === pageFrame.contentWindow && e.data?.type === 'fixture-ready') { removeEventListener('message', on); r(); } };
+      addEventListener('message', on);
+    });
+    pageFrame.src = `/capture/fixture.html?${variant}&t=${Date.now()}`;
+    await withTimeout(ready, 6000);
+  }
+  const describe = (meta, k) => {
+    const side = [];
+    side.push(`snapshot after ${meta.frames} frame(s), ${meta.ms} ms, ${k.size}`);
+    side.push(`fixed: ${k.fixed}`, `sticky: ${k.sticky}`);
+    if (k.belowFold !== null) side.push(`below the fold: ${k.belowFold ? 'captured' : 'MISSING'}`);
+    side.push(`same-origin iframe: ${k.sameOriginIframe ? 'painted' : 'blank'}`, `cross-origin iframe: ${k.crossOriginIframe ? 'painted' : 'blank'}`);
+    side.push(`iframe reloads: ${k.iframeReloads}`, `animation: ${k.animationKept}`, `scroll events: ${k.scrollEvents}`);
+    side.push(`DOM mutations the page could observe: ${k.mutationsSeenByPage}`, `"body > main > #filler" rule: ${k.selectorsKept ? 'kept' : 'LOST'}`);
+    if (k.shadowRootLeftBehind) side.push('body is left with a shadow root');
+    if (meta.notes?.length) side.push(...meta.notes);
+    return side.join('; ');
+  };
+  const pageTest = (label, why, variant, opts, extra = {}) => [label, why, async (t) => {
+    await loadFixture(variant);
+    const { canvas, meta, checks: k } = await pageFrame.contentWindow.run(opts);
+    thumbOf(t, canvas);
+    const bad = [];
+    if (!k.scrollKept) bad.push('scroll position lost');
+    if (!k.focusKept) bad.push('focus lost');
+    if (!k.caretKept) bad.push('caret lost');
+    if (!k.valueKept) bad.push('typed value lost');
+    if (!k.sameOriginIframe) bad.push('same-origin iframe not painted');
+    if (opts.full && !k.belowFold) bad.push('content below the fold missing');
+    if (!opts.full && k.fixed !== 'at its viewport position') bad.push(`fixed element ${k.fixed}`);
+    if (!opts.full && k.sticky !== 'stuck at the viewport top') bad.push(`sticky element ${k.sticky}`);
+    if (bad.length) throw new Error(`${bad.join(', ')}. ${describe(meta, k)}`);
+    return `${meta.strategy}. ${describe(meta, k)}`;
+  }, extra];
+
+  const pageTests = [
+    pageTest('Shadow root on body, viewport', 'Route 1: body.attachShadow() with canvas > div[drawable] > slot. Nothing in the light DOM moves.', '', { route: 'shadow', full: false }),
+    pageTest('Shadow root on body, full page', 'Same route, canvas as tall as the document.', '', { route: 'shadow', full: true }),
+    pageTest('Move body\'s children into a canvas, viewport', 'Route 2: moveBefore() every child of body into the canvas, snapshot, move them back.', '', { route: 'move', full: false }),
+    pageTest('Move body\'s children into a canvas, full page', 'Same route, whole document.', '', { route: 'move', full: true }),
+    pageTest('Fixed overlay canvas, viewport', 'Route 3: a position: fixed, viewport-sized canvas on top; body\'s children are moved into it.', '', { route: 'overlay', full: false }),
+    pageTest('Fixed overlay canvas, full page', 'Same route, whole document.', '', { route: 'overlay', full: true }),
+    pageTest('Shadow route when body already has an open shadow root', 'The page\'s own shadow tree is moved inside the canvas and back. Moving the slot\'s ancestors drops focus.', 'root=open', { route: 'shadow', full: false }, { expect: 'fail' }),
+    pageTest('capturePage() when body has an open shadow root', 'route: "auto" leaves the page\'s root alone and uses the move route.', 'root=open', { route: 'auto', full: false }),
+    pageTest('Shadow route when body already has a closed shadow root', 'attachShadow() throws and the existing root cannot be reached.', 'root=closed', { route: 'shadow', full: false }, { expect: 'fail' }),
+    pageTest('Move route when body has a closed shadow root', 'The canvas goes into body\'s light DOM and is slotted by the page\'s own root.', 'root=closed', { route: 'move', full: false }),
+    pageTest('capturePage() picks a route by itself', 'route: "auto" on the closed-root page: tries shadow, falls back to move.', 'root=closed', { route: 'auto', full: true }),
+    pageTest('capturePage() at 2×', 'Default route, device-independent output.', '', { route: 'auto', full: false, scale: 2 }),
+  ];
+
+  // ?only=text runs just the rows whose name contains it.
+  const only = new URLSearchParams(location.search).get('only')?.toLowerCase();
+  if (only) {
+    for (const list of [elementTests, pageTests]) list.splice(0, list.length, ...list.filter((t) => only.split(',').some((o) => t[0].toLowerCase().includes(o))));
+  }
+  if (supported) {
+    window.__results = {};
+    window.__results.elements = await runLab($('#tA'), $('#scoreA'), elementTests);
+    window.__results.page = await runLab($('#tB'), $('#scoreB'), pageTests);
+    window.__done = true;
+  } else {
+    $('#scoreA').textContent = 'HTML-in-canvas is not available, so nothing can be captured here. The buttons above will report NotSupportedError.';
+    $('#scoreB').textContent = '';
+  }
+</script>
+</body>
+</html>
