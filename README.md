@@ -26,25 +26,19 @@ The minimum code:
 </script>
 ```
 
-Read the demos in this order:
+## Two kinds of page
 
-1. [`/start/`](public/start/): the API
-2. [`/slot-bare/`](public/slot-bare/): draw elements that are outside the canvas, using a shadow root and a `<slot>`
-3. [`/slot/`](public/slot/): the `<canvas-slot>` custom element
-4. [`/portal/`](public/portal/): hit testing and `updateElementGeometry()`
-5. [`/shader-css/`](public/shader-css/): WebGL textures with `texElementSubImage2D()`
-6. [`/offscreen/`](public/offscreen/): `ElementImage` snapshots and workers
-7. [`/cross-tab/`](public/cross-tab/): other tabs and origins, by sending pixels and forwarding input
-8. [`/three-form/`](public/three-form/): three.js
-9. [`/a11y/`](public/a11y/): accessibility measurements
+[`/start/`](public/start/) is a tutorial for the API: how to enable it, a 60-line page that draws one element, common errors and a glossary. It is the only page written as a lesson.
 
-Every demo page has a "What this page covers" box listing what it shows, which pages to read first and the API calls it uses. The text for the boxes and the list above are in [`public/shared/learn.js`](public/shared/learn.js).
+Every other page is an experiment. Each one asks a question about the API (for example, whether a `<slot>` works inside a canvas, or whether one element can be drawn in two places) and reports what worked and what did not. The slot pages, `<canvas-slot>` and `<dom-portal>` are experiments, not recommended patterns. Experiments have no reading order.
+
+Every experiment page has an "About this experiment" box with the question it asks, the pages it builds on and the API calls it uses. The text for the boxes is in [`public/shared/learn.js`](public/shared/learn.js), with a table of which experiments use each API call.
 
 ## The demos
 
 | Demo | What it explores |
 |---|---|
-| `/start/` | Tutorial: enable the API, draw one element, common errors, reading order, glossary |
+| `/start/` | Tutorial: enable the API, draw one element, common errors, where each API call is used, glossary |
 | `/slot/` | `<canvas-slot>`: light-DOM children slotted into a shadow canvas |
 | `/slot-bare/` | Just `<slot>` in `<canvas>` with declarative shadow DOM; a shadow root on `<body>` |
 | `/offscreen/` | `ElementImage` snapshots rendered in a worker; magnifier; pixel mirrors |
@@ -119,7 +113,7 @@ npm run check:jank -- --json out.json --shots frames/   # full numbers and every
 For a new demo page:
 
 - Put `<script src="/shared/nav.js"></script>` first in `<body>`. It reserves the menu's space and holds the first paint until your module scripts have built the page.
-- Add one line for it in `public/shared/demos.js` (menu and homepage) and one entry in `public/shared/learn.js` (what it teaches, what to read first, the calls to look for). The menu script puts the "What this page covers" box under the page's `<p class="lede">`, so write one.
+- Add one line for it in `public/shared/demos.js` (menu and homepage) and one entry in `public/shared/learn.js` (the question the experiment asks, the pages it builds on, the calls it uses). The menu script puts the "About this experiment" box under the page's `<p class="lede">`, so write one. Write the page as an experiment: state the question, and put what worked, what did not and what is still open under "Findings".
 - In the first paragraph, say what the demo does and how to use it. Put the demo above the test tables.
 - Use the same section names as the other pages: "How it works" for the explanation, "Live checks" for the results table and "Findings" for the conclusions, in that order after the demo.
 - `runTests()` puts its results table in a `<details>` with the pass count in the summary line. It is closed on screens narrower than 700 px.
