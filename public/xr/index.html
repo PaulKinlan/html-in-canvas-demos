@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebXR panels made of ordinary HTML</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/xr/xr.css">
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js" } }</script>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>WebXR panels made of ordinary HTML</h1>
+  <p class="lede">
+    A form, a guest book, a diagnostics read-out and a keyboard, floating around you. Each one is plain HTML inside the
+    <code>&lt;canvas&gt;</code>, uploaded as a texture on every <code>paint</code>. On this page you use them with the mouse or a finger.
+    In a headset there is no mouse, so controller, hand and gaze rays are turned into pointer events on the same elements.
+  </p>
+
+  <div class="row toolbar">
+    <button id="enter-vr" disabled>Enter VR</button>
+    <button id="enter-ar" disabled>Enter AR</button>
+    <a class="btn" id="emu-link" href="?emulate=1">Emulate a headset</a>
+    <label class="ctl"><input id="opt-layer" type="checkbox"> Crisp XR layer for the form <small>(experimental)</small></label>
+    <span class="ctl" id="xr-status"></span>
+  </div>
+
+  <div class="stage-xr" id="stage">
+    <canvas id="scene" content="drawable" layoutsubtree aria-label="A room with four floating HTML panels"></canvas>
+    <div id="hud" class="hud"></div>
+  </div>
+  <p class="note" id="hint">
+    Drag empty space to look around. Everything on a panel is live. Click a text field, then use the floating keyboard: its keys
+    never take focus, so the caret stays where it was. Enter AR on an Android phone should put the panels in your room, with a tap as the trigger. That path has only been run in the emulator so far.
+  </p>
+
+  <!-- The panels. Plain HTML first, so the page works without the API. -->
+  <section id="uis" class="uis" aria-label="The panels shown in the scene">
+    <form id="p-form" class="xp form" autocomplete="off">
+      <header><b>Postcard</b><time id="x-clock">--:--:--</time></header>
+      <div class="cols">
+        <div>
+          <label for="x-name">Your name</label>
+          <input id="x-name" name="name" type="text" value="Ada" maxlength="20">
+          <label for="x-msg">Message</label>
+          <textarea id="x-msg" name="msg" maxlength="120">Hello from a headset.</textarea>
+        </div>
+        <div>
+          <label for="x-mood">Mood</label>
+          <select id="x-mood" name="mood">
+            <option>Curious</option>
+            <option>Delighted</option>
+            <option>Sceptical</option>
+            <option>Seasick</option>
+          </select>
+          <label for="x-size">Volume <output id="x-size-out">5</output></label>
+          <input id="x-size" name="size" type="range" min="0" max="10" value="5">
+          <label class="check"><input id="x-shout" name="shout" type="checkbox"> Shout it</label>
+          <button id="x-send" type="submit">Sign the guest book</button>
+        </div>
+      </div>
+    </form>
+
+    <section id="p-log" class="xp log">
+      <header><b>Guest book</b><span id="x-count"></span></header>
+      <ol id="x-list" class="scroll" tabindex="0"></ol>
+      <footer><button id="x-clear" type="button">Clear</button><span>Scroll with the wheel or a thumbstick</span></footer>
+    </section>
+
+    <section id="p-stats" class="xp stats">
+      <header><b>Diagnostics</b><span id="x-mode">page</span></header>
+      <dl id="x-stats"></dl>
+      <ul id="x-checks"><li>Checks run two seconds after a session starts.</li></ul>
+    </section>
+
+    <section id="p-keys" class="xp keys" aria-label="On-panel keyboard"></section>
+  </section>
+
+  <h2>What works here (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Inside a session</h2>
+  <p class="note">These run two seconds after a session starts, and also show on the Diagnostics panel inside the headset.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="session-results"><tr><td class="status pending">…</td><td colspan="2" class="note">No session yet. Enter VR or AR, or use the emulator.</td></tr></tbody></table>
+
+  <h2>How it is put together</h2>
+<pre><code>const surfaces = new HTMLSurfaces(renderer, camera, { scene });
+surfaces.add(form, panelMesh);                  // texture + native hit testing on the page
+
+// In a session the page has no pointer. Rays become pointer events on the same elements.
+const pointer = surfaces.createRayPointer();
+controller.addEventListener('selectstart', () =&gt; { pointer.move(raycaster); pointer.down(); });
+controller.addEventListener('selectend',   () =&gt; { pointer.move(raycaster); pointer.up(); });</code></pre>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>The texture half carries straight over.</strong> A panel is a mesh with an element texture. Nothing about the upload changes when the same renderer is presenting to a headset.</li>
+    <li><strong>The input half does not.</strong> Browser hit testing is tied to the page's 2D box, and an immersive session has no pointer over it. Rays have to be turned into events by hand, and synthetic events are untrusted: focus, caret placement, slider drags and <code>&lt;select&gt;</code> all need a hand-written stand-in.</li>
+    <li><strong><code>elementFromPoint</code> is the bridge.</strong> Lay the elements out flat with <code>updateElementGeometry()</code>, turn the ray's UV hit into a point in that layout, and the browser still answers which element is there, including inside scrollers.</li>
+    <li><strong>A keyboard is just buttons.</strong> Keys that cancel <code>mousedown</code> never take focus, so <code>setRangeText()</code> plus an <code>input</code> event types into whatever field had the caret.</li>
+    <li><strong>Whether <code>paint</code> keeps firing inside a real headset is the open question.</strong> The Diagnostics panel counts paint events during the session and falls back to forced uploads if they stop. The emulator cannot answer this, a device can.</li>
+  </ul>
+</main>
+
+<script type="module" src="/xr/main.js"></script>
+</body>
+</html>

@@ -191,6 +191,33 @@ export class HTMLSurfaces {
     this.canvas.requestPaint?.();
   }
 
+  /**
+   * Upload every surface right now, outside a paint event, from the browser's last paint record.
+   * A fallback for places where paint events may stop arriving (an immersive session, perhaps).
+   * Returns how many surfaces uploaded.
+   */
+  uploadNow() {
+    if (this.backend !== 'webgl') {
+      for (const s of this.surfaces) s.texture.needsUpdate = true;
+      return this.surfaces.length;
+    }
+    const gl = this.renderer.getContext();
+    let n = 0;
+    for (const s of this.surfaces) {
+      try {
+        this.#upload(gl, s);
+        n++;
+      } catch (err) {
+        this.stats.lastError = `${err.name}: ${err.message}`;
+      }
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    this.renderer.resetState();
+    // Mid-frame, three has already bound its render target: bind it again after the reset.
+    this.renderer.setRenderTarget(this.renderer.getRenderTarget());
+    return n;
+  }
+
   // ---------------------------------------------------------------- textures
 
   #paint(event) {
