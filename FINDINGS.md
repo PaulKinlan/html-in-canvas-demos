@@ -101,6 +101,8 @@ Things that bit:
 - Under the CSS `zoom` property, `getBoundingClientRect()` and pointer coordinates include the zoom while `offsetWidth`, ResizeObserver sizes and the canvas's own style do not. Geometry calibrated against one and applied in the other left hit boxes at the unzoomed size, and put the portal's canvas in the wrong place. The libraries now read `element.currentCSSZoom` and convert. Browser zoom (a `devicePixelRatio` change) never had the problem.
 - On a real HiDPI screen (`--force-device-scale-factor=1.5`, not DevTools emulation) all five pages pass as they do at 1×, because every `drawElementImage()` here passes an explicit size. The one real bug it showed: when a very tall canvas is capped, width and height round separately, and using the width ratio alone cut the last few pixels off the bottom.
 
+- A text selection inside an `fx` element is painted into its WebGL texture (about 2,000 pixels change when a heading is selected), so selection highlight goes through the shader. The find-in-page highlight itself cannot be triggered from script (`window.find()` only makes a selection), so whether it is painted still needs a person with the find bar open.
+
 ### Named effects and shader slots (`/slot-effects/`)
 
 `<canvas-slot effect="tilt">` extends the existing element: without the attribute nothing changes. 15 live checks.
