@@ -62,7 +62,7 @@ export function installThreeShims({ srgb = true } = {}) {
         this.canvas.requestPaint(); // no paint record yet: try again after the next paint
         return;
       }
-      this.texImage2D(target, 0, srgb ? this.SRGB8_ALPHA8 : internalformat, size.width, size.height, 0, this.RGBA, this.UNSIGNED_BYTE, null);
+      this.texImage2D(target, 0, srgb ? this.SRGB8_ALPHA8 : internalformat, Math.ceil(size.width), Math.ceil(size.height), 0, this.RGBA, this.UNSIGNED_BYTE, null);
       this.texElementSubImage2D(target, 0, 0, 0, element);
     };
     done.push('WebGL2RenderingContext.texElementImage2D');
@@ -230,7 +230,8 @@ export class HTMLSurfaces {
     const size = this.canvas.getElementImageDefaultSize
       ? this.canvas.getElementImageDefaultSize(s.element)
       : { width: s.element.offsetWidth * devicePixelRatio, height: s.element.offsetHeight * devicePixelRatio };
-    const w = Math.max(1, Math.round(size.width)), h = Math.max(1, Math.round(size.height));
+    // Sizes can be fractional when the canvas's CSS box is; the browser's image is the ceiling.
+    const w = Math.max(1, Math.ceil(size.width)), h = Math.max(1, Math.ceil(size.height));
     const immutable = support.webgl === 'texElementSubImage2D';
     if (!s.glTexture || s.width !== w || s.height !== h) {
       if (s.glTexture) gl.deleteTexture(s.glTexture);

@@ -364,9 +364,16 @@ async function expectHit(key, el, fx, fy, { tracked = true } = {}) {
   return pt;
 }
 
+// Hooks for scripted input tests.
+window.__scene = { surfaces, S, camera, scene };
+window.__touchTargets = () => ['w-anim', 'w-link', 'w-filter'].map((id) => ({ name: id, ...clientPoint('wall', $(id), 0.5, 0.5) }));
+
 if (support.paint) {
   await until(() => surfaces.stats.uploads >= 3 || surfaces.stats.lastError, 5000).catch(() => {});
   auto = false;
+  // elementFromPoint() only answers inside the viewport, so the scene has to be on screen.
+  const scrollBefore = scrollY;
+  $('stage').scrollIntoView({ block: 'nearest' });
   const tests = [
     {
       name: 'DOM reaches the GPU as a texture',
@@ -508,7 +515,9 @@ if (support.paint) {
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error('no WebGPU adapter on this machine');
         const device = await adapter.requestDevice();
-        const el = $('laptop-ui'), size = canvas.getElementImageDefaultSize(el);
+        const el = $('laptop-ui'), measured = canvas.getElementImageDefaultSize(el), size = { width: measured.width, height: measured.height };
+        size.width = Math.ceil(size.width);
+        size.height = Math.ceil(size.height);
         const texture = device.createTexture({ size: [size.width, size.height], format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
         if (support.webgpu === 'drawElementImageToTexture') device.queue.drawElementImageToTexture({ source: el }, { texture });
         else device.queue.copyElementImageToTexture({ source: el }, { destination: { texture }, width: size.width, height: size.height });
@@ -584,12 +593,10 @@ if (support.paint) {
     },
   ];
   await runTests($('results'), tests);
+  scrollTo(0, scrollBefore);
   view('overview', true);
   auto = true;
 } else {
   $('results').innerHTML = '<tr><td class="status fail">✗</td><td colspan="2">HTML-in-canvas is not available, so the three documents are shown as ordinary HTML above and the scene has blank screens.</td></tr>';
 }
 
-// Hooks for scripted input tests: where the scene says some wall controls are, and what got clicked.
-window.__touchTargets = () => ['w-anim', 'w-link', 'w-filter'].map((id) => ({ name: id, ...clientPoint('wall', $(id), 0.5, 0.5) }));
-window.__scene = { surfaces, S, camera, scene };
