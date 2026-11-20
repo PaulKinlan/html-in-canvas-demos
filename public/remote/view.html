@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Remote component</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; height: 100%; }
+  body { font: 15px/1.4 system-ui, sans-serif; background: #161514; color: #eee; display: flex; flex-direction: column; }
+  header { padding: 10px 14px; font-size: 13px; color: #aaa; display: flex; gap: 10px; align-items: center; }
+  header b { color: #fff; font-weight: 600; }
+  #dot { width: 9px; height: 9px; border-radius: 50%; background: #c80; flex: none; }
+  #dot.on { background: #4c6; }
+  #dot.off { background: #c44; }
+  main { flex: 1; display: grid; place-items: center; padding: 12px; min-height: 0; }
+  live-view { width: min(100%, var(--live-w, 420px) * 1.6); border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px #0008; }
+  live-view[stalled] { filter: grayscale(1) opacity(0.6); }
+  [hidden] { display: none !important; }
+  form { display: flex; gap: 8px; padding: 0 12px 12px; }
+  form input { flex: 1; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; }
+  form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; background: #d2491f; color: #fff; }
+  footer { padding: 8px 14px calc(8px + env(safe-area-inset-bottom)); font-size: 12px; color: #888; }
+</style>
+</head>
+<body>
+<header><span id="dot"></span><span><b id="title">Remote component</b> <span id="state">connecting…</span></span></header>
+<main><live-view id="view" fit aria-label="Remote component"></live-view></main>
+<form id="join" hidden><input id="code" placeholder="Room code" autocapitalize="off" autocomplete="off" aria-label="Room code"><button>Join</button></form>
+<footer>This is a picture of an element on another device. Taps and typing are sent back to it. This page needs nothing special: any browser will do.</footer>
+<script type="module">
+  // The far end of /remote/. Deliberately plain: no HTML-in-canvas here.
+  import '/lib/live-view.js';
+  import { watchRoom } from '/lib/live-link.js';
+  const q = new URLSearchParams(location.search);
+  const view = document.getElementById('view');
+  const state = document.getElementById('state');
+  const dot = document.getElementById('dot');
+  const room = (location.hash.slice(1) || q.get('room') || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+
+  view.addEventListener('meta', (e) => (document.getElementById('title').textContent = e.detail.title || 'Remote component'));
+  view.addEventListener('sourcevisibility', (e) => {
+    if (e.detail !== 'visible') state.textContent = 'paused: the page that owns this element is hidden';
+    else state.textContent = window.session?.state ?? '';
+  });
+
+  if (!room) {
+    state.textContent = 'enter the room code shown next to the QR code';
+    dot.className = 'off';
+    const form = document.getElementById('join');
+    form.hidden = false;
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      location.hash = document.getElementById('code').value.trim();
+      location.reload();
+    };
+  } else {
+    try {
+      const session = await watchRoom(view, room, { kind: q.get('kind') ?? 'auto', transport: q.get('transport') ?? 'auto', patience: Number(q.get('patience')) || 7000 });
+      window.session = session;
+      state.textContent = `in room ${room} (${session.signal.kind === 'ws' ? 'relay server' : 'this browser only'}), ${session.state}`;
+      session.on('state', (text, via) => {
+        state.textContent = text;
+        dot.className = via ? 'on' : 'off';
+      });
+    } catch (err) {
+      state.textContent = `could not join: ${err.message}`;
+      dot.className = 'off';
+    }
+  }
+  window.view = view;
+</script>
+</body>
+</html>

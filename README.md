@@ -21,6 +21,10 @@ Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-ca
 | `/transitions/` | `<live-transition>`: shatter, fold, burn and morph between two states that both stay live and clickable |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
+| `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
+| `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
+| `/embed/` | Cross-origin cards the host distorts and restyles without DOM access |
+| `/support/` | Share one region of a page with a support agent or a vision model |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
@@ -37,12 +41,21 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/physical-ui.js`: `<physical-ui material="jelly|cloth|paper" wind pin>`.
 - `public/lib/surface.js`: the shared base that slots any markup into a canvas; `SurfaceElement.adopt(el)` wraps an element in place.
 
+- `public/lib/live-surface.js`: `<live-region>` and `attachSurface(el)` turn any element into a shareable surface (frames, redaction, element map, replayed input). `serve(surface, link)` speaks the protocol.
+- `public/lib/live-view.js`: `<live-view>`, the receiving end. Needs no HTML-in-canvas.
+- `public/lib/live-link.js`: `shareInRoom()` / `watchRoom()` over a relay room, WebRTC with a relayed-JPEG fallback.
+- `public/lib/live-card.js`: `<live-card src effect>` embeds a cross-origin card through a WebGL shader.
+
+## Worker
+
+`src/index.js` routes `/api/*`; everything else is static. `src/cross-context.js` serves `/api/x/room/<id>` (WebSocket relay rooms in a Durable Object), `/api/x/ice` and `/api/x/vision` (Workers AI). Bindings are in `wrangler.jsonc`. Optional secrets `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` (a Cloudflare Realtime TURN key) add TURN servers for networks where WebRTC can't connect directly; without them the demos fall back to relayed frames.
+
 ## Develop and deploy
 
 Static files in `public/`, served by Workers static assets.
 
 ```
-npx wrangler dev
+npx wrangler dev   # needs a Cloudflare login because of the Workers AI binding
 npm run deploy   # deploys html-in-canvas-demos and html-in-canvas-remote
 ```
 

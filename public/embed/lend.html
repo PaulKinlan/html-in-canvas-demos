@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lent card</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #1c1b22; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #badge { width: 250px; padding: 12px 14px; border-radius: 14px; background: #fff7e0; color: #2b2208; border: 1px solid #e3cf95; font: 14px/1.4 system-ui; }
+  #badge h2 { margin: 0 0 4px; font-size: 15px; }
+  #badge button { font: inherit; padding: 4px 12px; border-radius: 999px; border: 1px solid #b89a3c; background: #fff; color: inherit; cursor: pointer; margin-top: 6px; }
+  #badge button:focus-visible { outline: 2px solid #1a56db; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<canvas id="c" content="drawable" layoutsubtree>
+  <div id="badge" drawable>
+    <h2>Verified seller ✓</h2>
+    This card belongs to <span id="who"></span>. The page around it does the drawing.
+    <div><button id="follow" type="button">Follow · 0</button></div>
+  </div>
+</canvas>
+<script type="module">
+  // The other way to embed: this frame hands its host the canvas itself (as
+  // an OffscreenCanvas) and a snapshot of the card on every paint. The host
+  // draws the card however it wants, inside this frame's box. The DOM stays
+  // here, so the button is a real button: a real click, real focus, a real
+  // entry in the accessibility tree. Wherever the host draws it is where it
+  // can be clicked.
+  const canvas = document.getElementById('c');
+  const badge = document.getElementById('badge');
+  const follow = document.getElementById('follow');
+  document.getElementById('who').textContent = location.host;
+  let n = 0;
+  follow.onclick = () => {
+    follow.textContent = `Follow · ${++n}`;
+    parent.postMessage({ type: 'lend-app', follows: n }, '*');
+  };
+  const ok = 'captureElementImage' in HTMLCanvasElement.prototype;
+  if (!ok) {
+    // No API: canvas children are fallback content and would not render. Show the card as plain DOM.
+    document.body.prepend(badge);
+    canvas.remove();
+    badge.style.margin = '16px';
+  }
+  let lent = false;
+  addEventListener('message', (e) => {
+    if (e.source !== parent) return;
+    if (e.data?.type === 'lend-start' && ok && !lent) {
+      lent = true;
+      const dpr = devicePixelRatio;
+      const r = canvas.getBoundingClientRect();
+      const off = canvas.transferControlToOffscreen();
+      off.width = Math.round(r.width * dpr);
+      off.height = Math.round(r.height * dpr);
+      parent.postMessage({ type: 'lend-canvas', canvas: off, width: r.width, height: r.height, dpr }, '*', [off]);
+      let sent = false;
+      canvas.addEventListener('paint', () => {
+        try {
+          const img = canvas.captureElementImage(badge);
+          parent.postMessage({ type: 'lend-image', img, width: badge.offsetWidth, height: badge.offsetHeight }, '*', [img]);
+          sent = true;
+        } catch {}
+      });
+      // The first paint can arrive before the element has a paint record;
+      // nothing then triggers another, so ask until one snapshot has gone.
+      const ask = () => {
+        if (sent) return;
+        canvas.requestPaint();
+        setTimeout(ask, 100);
+      };
+      ask();
+    } else if (e.data?.type === 'lend-probe') {
+      // Where is the button, as far as this document's hit testing is concerned?
+      const r = follow.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      parent.postMessage({ type: 'lend-probe-result', id: e.data.id, x: r.x, y: r.y, w: r.width, h: r.height, hit: hit === follow }, '*');
+    }
+  });
+  parent.postMessage({ type: 'lend-ready', supported: ok }, '*');
+</script>
+</body>
+</html>

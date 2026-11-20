@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Embeddable live cards</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bench { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 16px; align-items: start; }
+  @media (max-width: 720px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+  .plinth { grid-template-columns: minmax(0, 1fr); justify-items: center; padding: 28px 20px; border-radius: 12px; background: repeating-conic-gradient(color-mix(in srgb, var(--fg) 6%, transparent) 0 25%, transparent 0 50%) 0 0 / 22px 22px; min-height: 250px; display: grid; place-items: center; }
+  .plinth > * { min-width: 0; }
+  live-card { width: min(var(--card-width, 460px), 100%); }
+  @media (max-width: 520px) { .plinth { padding: 16px 4px; } }
+  .controls { display: grid; gap: 12px; font-size: 14px; }
+  .controls fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; margin: 0; display: grid; gap: 6px; }
+  .controls legend { font: 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 0 4px; }
+  .controls label { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+  .controls select, .controls input[type=range] { max-width: 130px; }
+  #said { font: 13px var(--mono); color: var(--muted); margin: 8px 0 0; min-height: 1.5em; }
+  iframe#lend { width: 100%; height: 230px; border: 1px solid var(--line); border-radius: 12px; display: block; }
+  .lendbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; font-size: 14px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Embeddable live cards</h1>
+  <p class="lede">
+    The card below is served by a different origin (<code id="o2"></code>). This page (<code id="o1"></code>) cannot read or touch its DOM, yet it
+    bends it, recolours it and resizes it, and the buttons still work. Two ways to do it, with opposite trade-offs.
+  </p>
+
+  <h2>A · The card sends pictures, the host draws them</h2>
+  <div class="bench">
+    <div class="stage"><div class="plinth"><live-card id="card" effect="ripple" aria-label="Coffee product card"></live-card></div><p id="said" role="status">Waiting for the card…</p></div>
+    <div class="controls card">
+      <fieldset><legend>Host draws (pixels)</legend>
+        <label>Effect <select id="effect"><option value="none">None</option><option value="ripple" selected>Ripple</option><option value="crt">CRT</option><option value="tilt">Tilt</option></select></label>
+        <label>Duotone <input type="range" id="tint" min="0" max="1" step="0.05" value="0" aria-label="Duotone amount"></label>
+        <label>Ink <input type="color" id="dark" value="#102a43"></label>
+        <label>Paper <input type="color" id="light" value="#f4efe6"></label>
+      </fieldset>
+      <fieldset><legend>Host asks (the card restyles itself)</legend>
+        <label>Accent <input type="color" id="accent" value="#d2491f"></label>
+        <label>Background <input type="color" id="bg" value="#ffffff"></label>
+        <label>Text <input type="color" id="fg" value="#1d1c1a"></label>
+        <label>Corners <input type="range" id="radius" min="0" max="28" value="16" aria-label="Corner radius"></label>
+        <label>Font <select id="font"><option value="system-ui, sans-serif">Sans</option><option value="Georgia, serif">Serif</option><option value="ui-monospace, monospace">Mono</option></select></label>
+      </fieldset>
+      <fieldset><legend>Host sizes (the card reflows)</legend>
+        <label>Width <input type="range" id="width" min="250" max="560" value="460" aria-label="Card width"></label>
+      </fieldset>
+    </div>
+  </div>
+  <p class="note">
+    <code>&lt;live-card src effect&gt;</code> (<a href="/lib/live-card.js">live-card.js</a>) runs the card in an invisible frame, receives <code>ImageBitmap</code>s of it over a
+    <code>MessagePort</code> and draws them with a WebGL shader. A click is run backwards through the same distortion to find the point on the card, and sent to it.
+    Press Tab: the canvas's fallback content is real buttons and a text field rebuilt from the card's element map.
+  </p>
+
+  <h2>B · The card lends its canvas, the host draws inside it</h2>
+  <div class="lendbar">
+    <label>Host draws it as <select id="lendfx"><option value="wave">a flag</option><option value="spin">a slow spin</option><option value="plain">plain, top left</option></select></label>
+    <span id="lendsaid" class="note" role="status"></span>
+  </div>
+  <iframe id="lend" title="Card that lends its canvas"></iframe>
+  <p class="note">
+    Here the frame is visible and the card's DOM is in it. The frame transferred its canvas to this page as an <code>OffscreenCanvas</code>, and sends an
+    <code>ElementImage</code> snapshot on each <code>paint</code>. This page does all the drawing. Nothing is forwarded: the button you click is the frame's real
+    button, hit-testable wherever this page last drew it.
+  </p>
+
+  <h2>What a host can and can't do (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>Pixels out, input in (A)</strong> lets the host put the card anywhere: outside the frame's box, through a shader, in 3D. The cost is that the host's copy is a picture. Semantics have to be rebuilt from the element map, and the card must trust the host with its pixels.</li>
+    <li><strong>Lending the canvas (B)</strong> keeps everything native: real hit testing, focus, selection and accessibility, with no input code at all. The cost is that the drawing stays inside the frame's rectangle.</li>
+    <li><strong>Restyling without DOM access is a contract.</strong> The host can recolour pixels on its own, but real restyling (fonts, radius, reflow at a new width) only happens because the card accepts a short list of custom properties. The card stays in charge of what is allowed.</li>
+    <li><strong>In B the host decides where the embed can be clicked.</strong> Hit testing follows the last <code>drawElementImage()</code> call, and the host makes that call. An embed that lends its canvas is trusting the host not to slide its buttons under the user's pointer.</li>
+    <li><strong>The embed has to opt in either way.</strong> A cross-origin frame placed inside the host's own drawable canvas paints blank, so a host cannot do any of this to an embed that doesn't cooperate.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/live-card.js';
+  import { otherOrigin } from '/lib/live-origins.js';
+  import { banner, nav, runTests, supported } from '/shared/support.js';
+  nav('/embed/');
+  banner();
+
+  const REMOTE = otherOrigin() ?? location.origin;
+  document.getElementById('o1').textContent = location.host;
+  document.getElementById('o2').textContent = new URL(REMOTE).host + (REMOTE === location.origin ? ' (no second origin on this host, so same origin)' : '');
+  const $ = (id) => document.getElementById(id);
+  const card = $('card');
+  const said = $('said');
+  let app = null;
+  card.addEventListener('app', (e) => {
+    app = e.detail;
+    said.textContent = `The card says: ${app.basket} in basket, ${app.liked ? 'saved' : 'not saved'}${app.note ? `, note "${app.note}"` : ''}.`;
+  });
+  card.addEventListener('meta', () => {
+    if (!app) said.textContent = 'Card connected. Try its buttons.';
+  });
+  card.addEventListener('fallback', (e) => (said.textContent = `Showing the card as a plain frame: ${e.detail}.`));
+  card.setAttribute('src', REMOTE + '/embed/card.html');
+
+  $('effect').onchange = (e) => (card.effect = e.target.value);
+  const tint = () => (card.tint = { amount: Number($('tint').value), dark: $('dark').value, light: $('light').value });
+  for (const id of ['tint', 'dark', 'light']) $(id).oninput = tint;
+  const theme = () => (card.theme = { '--card-accent': $('accent').value, '--card-bg': $('bg').value, '--card-fg': $('fg').value, '--card-radius': $('radius').value + 'px', '--card-font': $('font').value });
+  for (const id of ['accent', 'bg', 'fg', 'radius', 'font']) $(id).oninput = theme;
+  $('width').oninput = (e) => card.style.setProperty('--card-width', e.target.value + 'px');
+  window.card = card;
+
+  // ---- B: draw the lent card ----
+  const lendFrame = $('lend');
+  const lend = { ctx: null, img: null, size: null, box: null, follows: 0, place: null };
+  addEventListener('message', (e) => {
+    if (e.source !== lendFrame.contentWindow || e.origin !== REMOTE) return;
+    const m = e.data;
+    if (m?.type === 'lend-ready') {
+      if (!m.supported) return ($('lendsaid').textContent = 'The frame has no HTML-in-canvas, so it shows nothing to lend.');
+      lendFrame.contentWindow.postMessage({ type: 'lend-start' }, REMOTE);
+    } else if (m?.type === 'lend-canvas') {
+      lend.ctx = m.canvas.getContext('2d', { willReadFrequently: true });
+      lend.box = { width: m.width, height: m.height, dpr: m.dpr };
+      requestAnimationFrame(drawLent);
+    } else if (m?.type === 'lend-image') {
+      lend.img?.close();
+      lend.img = m.img;
+      lend.size = { width: m.width, height: m.height };
+    } else if (m?.type === 'lend-app') {
+      lend.follows = m.follows;
+      $('lendsaid').textContent = `The frame says: followed ${m.follows} time${m.follows === 1 ? '' : 's'}.`;
+    }
+  });
+  lendFrame.src = REMOTE + '/embed/lend.html';
+
+  function drawLent(t) {
+    requestAnimationFrame(drawLent);
+    const { ctx, img, size, box } = lend;
+    if (!ctx || !img || !size) return;
+    const fx = $('lendfx').value;
+    const { width, height } = size;
+    ctx.reset();
+    ctx.scale(box.dpr, box.dpr);
+    const g = ctx.createLinearGradient(0, 0, box.width, box.height);
+    g.addColorStop(0, '#2a2140');
+    g.addColorStop(1, '#0f2a33');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, box.width, box.height);
+    const ox = (box.width - width) / 2;
+    const oy = (box.height - height) / 2;
+    try {
+      if (fx === 'plain') {
+        ctx.drawElementImage(img, 12, 12, width, height);
+        lend.place = { x: 12, y: 12 };
+      } else if (fx === 'spin') {
+        ctx.translate(box.width / 2, box.height / 2);
+        ctx.rotate(Math.sin(t / 1400) * 0.25);
+        ctx.drawElementImage(img, -width / 2, -height / 2, width, height);
+        lend.place = null;
+      } else {
+        // Vertical strips of one snapshot, each shifted: a flag.
+        const strip = 4;
+        const k = box.dpr;
+        for (let x = 0; x < width; x += strip) {
+          const dy = Math.sin(t / 380 + x / 34) * 7 * (x / width);
+          ctx.drawElementImage(img, x * k, 0, strip * k, height * k, ox + x, oy + dy, strip, height, { preserveElementGeometry: true });
+        }
+        // One invisible, undistorted draw tells the frame where its element is.
+        ctx.globalAlpha = 0;
+        ctx.drawElementImage(img, ox, oy, width, height);
+        lend.place = { x: ox, y: oy };
+      }
+    } catch (err) {
+      $('lendsaid').textContent = `${err.name}: ${err.message}`;
+      lend.img = null;
+    }
+  }
+
+  // ---- Live checks ----
+  const until = async (fn, ms = 4000) => {
+    const end = performance.now() + ms;
+    while (performance.now() < end) {
+      const v = await fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    return null;
+  };
+  const probe = () =>
+    new Promise((resolve) => {
+      const id = Math.random();
+      const on = (e) => {
+        if (e.data?.type !== 'lend-probe-result' || e.data.id !== id) return;
+        removeEventListener('message', on);
+        resolve(e.data);
+      };
+      addEventListener('message', on);
+      lendFrame.contentWindow.postMessage({ type: 'lend-probe', id }, REMOTE);
+    });
+  // Find where on the host canvas a card element appears under the current
+  // effect, by searching for the canvas point that maps back to it.
+  function whereOnCanvas(item) {
+    const tx = item.rect.x + item.rect.w / 2;
+    const ty = item.rect.y + item.rect.h / 2;
+    let best = null;
+    for (let y = 0; y <= 1; y += 0.01) {
+      for (let x = 0; x <= 1; x += 0.01) {
+        const p = card.toCard(x, y);
+        const d = (p.x - tx) ** 2 + (p.y - ty) ** 2;
+        if (!best || d < best.d) best = { x, y, d };
+      }
+    }
+    return best;
+  }
+  function clickCanvas(pt) {
+    const r = card.canvas.getBoundingClientRect();
+    const at = { clientX: r.left + pt.x * r.width, clientY: r.top + pt.y * r.height, bubbles: true, composed: true, button: 0, pointerId: 1 };
+    card.canvas.dispatchEvent(new PointerEvent('pointerdown', at));
+    card.canvas.dispatchEvent(new PointerEvent('pointerup', at));
+  }
+
+  if (supported) {
+    runTests($('results'), [
+      {
+        name: 'Pictures of the other origin\'s card arrive here',
+        why: 'ImageBitmaps over a MessagePort; the card\'s canvas is not tainted by its own DOM.',
+        run: async () => {
+          if (!(await until(() => card.frames > 0 && card.meta, 6000))) throw new Error(card.hasAttribute('fallback') ? 'fell back to a plain frame' : 'no frames');
+          return `${card.frames} frame(s), ${card.canvas.width}×${card.canvas.height} px, ${card.meta.map.length} interactive elements described`;
+        },
+        timeout: 8000,
+      },
+      {
+        name: 'This page can reach into the card\'s DOM',
+        why: 'It must not: the two are different origins.',
+        run: async () => {
+          if (REMOTE === location.origin) return 'same origin on this host, so yes (deploy the second Worker to see it refused)';
+          const doc = card.frameElement.contentDocument;
+          if (!doc) throw new Error('contentDocument is null: the card\'s DOM is out of reach');
+          return 'the DOM was readable';
+        },
+      },
+      {
+        name: 'A click on the rippling picture presses the real button',
+        why: 'The pointer is mapped back through the shader\'s distortion before it is sent.',
+        run: async () => {
+          card.effect = 'ripple';
+          const item = card.meta.map.find((m) => m.name === 'One more');
+          const before = card.meta.map.find((m) => m.name === 'Quantity')?.value;
+          clickCanvas(whereOnCanvas(item));
+          const price = () => card.meta.map.length && app;
+          await until(() => false, 400);
+          clickCanvas(whereOnCanvas(card.meta.map.find((m) => m.name === 'Add to basket')));
+          if (!(await until(() => app?.basket === 2, 3000))) throw new Error(`the card reports basket ${app?.basket}`);
+          return `pressed + then "Add to basket" through the ripple: the card reports ${app.basket} in its basket`;
+        },
+        timeout: 8000,
+      },
+      {
+        name: 'Typing reaches the card\'s text field',
+        why: 'Keys pressed on the host canvas are forwarded to whatever the card has focused.',
+        run: async () => {
+          clickCanvas(whereOnCanvas(card.meta.map.find((m) => m.editable)));
+          await until(() => false, 250);
+          for (const key of 'Hi!') card.canvas.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+          if (!(await until(() => app?.note === 'Hi!', 3000))) throw new Error(`the card's note is "${app?.note}"`);
+          return `the card's gift note now reads "${app.note}"`;
+        },
+        timeout: 6000,
+      },
+      {
+        name: 'The host restyles the card through its contract',
+        why: 'A theme message sets --card-accent; the next picture should show it.',
+        run: async () => {
+          const before = card.frames;
+          card.theme = { '--card-accent': '#00aa66' };
+          if (!(await until(() => card.frames > before, 3000))) throw new Error('no new frame after the theme message');
+          card.effect = 'none';
+          await until(() => false, 200);
+          const item = card.meta.map.find((m) => m.name === 'Add to basket');
+          const pt = whereOnCanvas(item);
+          const gl = card.canvas.getContext('webgl');
+          const px = new Uint8Array(4);
+          gl.readPixels(Math.round((pt.x - item.rect.w * 0.4 * 0.9) * card.canvas.width), Math.round((1 - pt.y) * card.canvas.height), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+          card.theme = { '--card-accent': $('accent').value };
+          card.effect = $('effect').value;
+          if (!(px[1] > px[0] + 40 && px[1] > px[2])) throw new Error(`button pixel is ${[...px]}, not green`);
+          return `the button's pixel became ${[...px].slice(0, 3)} after asking for a green accent`;
+        },
+        timeout: 7000,
+      },
+      {
+        name: 'A property outside the contract is ignored',
+        why: 'The card only accepts a short list of custom properties.',
+        run: async () => {
+          const before = card.frames;
+          card.theme = { display: 'none', '--card-bg': 'url(https://example.com/x.png)' };
+          await until(() => false, 500);
+          if (!card.meta?.h) throw new Error('the card disappeared');
+          return `the card ignored it (still ${card.meta.w}×${card.meta.h}, ${card.frames - before} new frames)`;
+        },
+      },
+      {
+        name: 'Resizing the host element reflows the card',
+        why: 'It is live layout in the other document, not a scaled picture.',
+        run: async () => {
+          const start = { w: card.meta.w, h: card.meta.h };
+          card.style.setProperty('--card-width', Math.round(start.w * 0.62) + 'px');
+          const ok = await until(() => card.meta.w < start.w - 50, 3000);
+          const now = { w: card.meta.w, h: card.meta.h };
+          card.style.setProperty('--card-width', $('width').value + 'px');
+          if (!ok) throw new Error(`size stayed ${now.w}×${now.h}`);
+          return `${start.w}×${start.h} became ${now.w}×${now.h}: the card laid itself out again at the new width, it was not scaled`;
+        },
+        timeout: 5000,
+      },
+      {
+        name: 'Fallback content gives the canvas real, focusable controls',
+        why: 'Built from the card\'s element map for keyboards and assistive technology.',
+        run: async () => {
+          const buttons = [...card.canvas.querySelectorAll('button')].map((b) => b.textContent);
+          if (!buttons.length) throw new Error('no fallback controls');
+          const before = app?.liked;
+          [...card.canvas.querySelectorAll('button')].find((b) => /Save/.test(b.textContent)).click();
+          if (!(await until(() => app && app.liked !== before, 3000))) throw new Error('activating the proxy button did nothing');
+          return `${buttons.length} buttons and ${card.canvas.querySelectorAll('input').length} field(s); activating the "Save" proxy toggled the card (${app.liked ? 'saved' : 'not saved'})`;
+        },
+        timeout: 5000,
+      },
+      {
+        name: 'B: this page draws the frame\'s card inside the frame\'s canvas',
+        why: 'OffscreenCanvas and ElementImage both transferred from the other origin.',
+        run: async () => {
+          // A frame that is scrolled out of view is not painted, so it has nothing to lend yet.
+          const y = scrollY;
+          lendFrame.scrollIntoView({ block: 'center' });
+          const ok = await until(() => lend.ctx && lend.img, 5000);
+          if (!ok) {
+            scrollTo(0, y);
+            throw new Error('nothing was lent');
+          }
+          window.__lendScroll = y;
+          await until(() => false, 200);
+          const d = lend.ctx.getImageData(Math.round((lend.box.width / 2) * lend.box.dpr), Math.round((lend.box.height / 2) * lend.box.dpr), 1, 1).data;
+          return `drawing a ${lend.size.width}×${lend.size.height} snapshot; and this page can read it back (centre pixel ${Array.from(d).join(',')})`;
+        },
+        timeout: 8000,
+      },
+      {
+        name: 'B: the frame\'s real button is clickable where this page drew it',
+        why: 'drawElementImage() on the lent canvas moves the element\'s hit-test geometry in the frame.',
+        run: async () => {
+          $('lendfx').value = 'plain';
+          await until(() => lend.place?.x === 12, 2000);
+          await until(() => false, 300);
+          const a = await probe();
+          $('lendfx').value = 'wave';
+          await until(() => lend.place && lend.place.x !== 12, 2000);
+          await until(() => false, 300);
+          const b = await probe();
+          scrollTo(0, window.__lendScroll ?? 0);
+          if (!a.hit || !b.hit) throw new Error('the button is not hit-testable where it was drawn');
+          if (Math.abs(a.x - b.x) < 5) throw new Error(`the button did not move (${Math.round(a.x)} → ${Math.round(b.x)})`);
+          return `the frame reports its button at x=${Math.round(a.x)} when drawn top left and x=${Math.round(b.x)} when drawn centred; hit-testable both times`;
+        },
+        timeout: 9000,
+      },
+    ]);
+  }
+</script>
+</body>
+</html>
