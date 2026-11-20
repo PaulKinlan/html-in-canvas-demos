@@ -38,6 +38,14 @@ export function deepAll(root, selector, out = []) {
   return out;
 }
 
+/** An element and everything under it in the flat tree: children, shadow trees and slotted nodes. */
+function flatAll(el, out = []) {
+  out.push(el);
+  const kids = el.localName === 'slot' && el.assignedElements().length ? el.assignedElements() : el.shadowRoot ? el.shadowRoot.children : el.children;
+  for (const k of kids) flatAll(k, out);
+  return out;
+}
+
 const flatParent = (n) => n.assignedSlot ?? n.parentNode ?? n.host ?? null;
 const isDrawableCanvas = (n) => n.nodeType === 1 && n.localName === 'canvas' && (n.getAttribute('content') === 'drawable' || n.hasAttribute('layoutsubtree'));
 
@@ -145,9 +153,8 @@ function hitTestable(doc, el) {
   const r = el.getBoundingClientRect();
   if (!inViewport(win, r)) return null;
   // pointer-events: none (fixture strips, overlays) makes the question unanswerable.
-  for (let n = el; n; n = flatParent(n)) {
-    if (n.nodeType === 1 && win.getComputedStyle(n).pointerEvents === 'none') return null;
-  }
+  // pointer-events is inherited, so the element's own computed value is the answer.
+  if (win.getComputedStyle(el).pointerEvents === 'none') return null;
   // Try a few points: the centre can be covered by a child canvas or clipped.
   const pts = [[0.5, 0.5], [0.2, 0.3], [0.8, 0.7], [0.1, 0.1], [0.9, 0.9]];
   for (const [fx, fy] of pts) {
@@ -197,7 +204,12 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
     c.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
     await frames(win, 3);
     for (const r of roots.filter((x) => x.canvas === c)) {
-      const h = hitTestable(doc, r.el);
+      let h = hitTestable(doc, r.el);
+      if (h === null) {
+        // A wrapper that takes no pointer events itself (portals, lenses): ask what it holds.
+        const inner = flatAll(r.el).slice(1, 60).map((e) => hitTestable(doc, e)).filter((x) => x !== null);
+        if (inner.length) h = inner.some(Boolean);
+      }
       r.rect = r.el.getBoundingClientRect();
       r.scrollY = win.scrollY;
       if (h === true) drawn.push(r);
@@ -218,7 +230,7 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
   {
     const ghosts = [];
     for (const r of undrawn) {
-      for (const f of [r.el, ...deepAll(r.el, '*')].filter((e) => e.matches(FOCUSABLE))) {
+      for (const f of flatAll(r.el).filter((e) => e.matches(FOCUSABLE))) {
         if (f.tabIndex < 0 || f.disabled || hiddenFromAT(f)) continue;
         ghosts.push(f);
       }
@@ -231,7 +243,7 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
   // ---- focus + names
   const controls = [];
   for (const r of drawn) {
-    for (const f of [r.el, ...deepAll(r.el, '*')].filter((e) => e.matches(FOCUSABLE))) {
+    for (const f of flatAll(r.el).filter((e) => e.matches(FOCUSABLE))) {
       if (f.disabled || f.tabIndex < 0 || hiddenFromAT(f)) continue;
       controls.push({ el: f, canvas: r.canvas });
     }
@@ -270,15 +282,16 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
     }
     const unnamed = controls.filter((c) => !accessibleName(c.el));
     if (!controls.length) checks.push(result('names', 'info', 'no controls'));
-    else checks.push(result('names', unnamed.length ? 'fail' : 'pass', unnamed.length ? `${unnamed.length} of ${controls.length} control(s) have no accessible name` : `all ${controls.length} control(s) have a name`, unnamed.map(label)));
+    else checks.push(result('names', unnamed.length ? 'fail' : 'pass', unnamed.length ? `${unnamed.length} of ${controls.length} control(s) have no accessible name` : `all ${controls.length} control(s) have a name`, unnamed.map((c) => label(c.el))));
   }
 
   // ---- find + selection
   {
     let tested = null;
     for (const r of drawn) {
-      const walker = doc.createTreeWalker(r.el, NodeFilter.SHOW_TEXT);
-      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      // Text nodes of every element in the flat tree (a TreeWalker would stop at slots).
+      const texts = flatAll(r.el).flatMap((e) => [...e.childNodes].filter((n) => n.nodeType === 3));
+      for (const n of texts) {
         const m = n.data.match(/[\p{L}\p{N}]{3,}(?: [\p{L}\p{N}]+)?/u);
         const p = n.parentElement;
         if (!m || !p || p.closest('script, style, textarea, button, input, select, option')) continue;
