@@ -100,7 +100,7 @@ Things that bit:
 
 ### Named effects and shader slots (`/slot-effects/`)
 
-`<canvas-slot effect="tilt">` extends the existing element: without the attribute nothing changes. 16 live checks.
+`<canvas-slot effect="tilt">` extends the existing element: without the attribute nothing changes. 15 live checks.
 
 | Experiment | Result | Why |
 |---|---|---|
