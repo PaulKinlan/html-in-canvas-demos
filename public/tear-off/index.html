@@ -75,7 +75,7 @@
   import { connectBroker } from '/lib/slot-share.js';
   import { otherOrigin } from '/lib/live-origins.js';
   import { WIDGETS, wireWidgets } from '/shared/live-widgets.js';
-  import { banner, nav, runTests, withTimeout } from '/shared/support.js';
+  import { banner, nav, runTests, withTimeout, apart, isBench } from '/shared/support.js';
   nav('/tear-off/');
   banner();
 
@@ -426,7 +426,21 @@
       f.remove();
       return `${frames} frame(s) over ${how}; a click there changed the timer here from ${before} to ${timerText()}`;
     };
-    runTests(document.getElementById('results'), [
+    runTests(document.getElementById('results'), apart([
+      {
+        name: 'The widgets on screen are pictures, not empty boxes',
+        apart: false,
+        why: 'Each widget is painted through a canvas. Reads 64 points of each one\'s shareable copy.',
+        run: async () => {
+          const out = [];
+          for (const w of widgets.values()) {
+            if (!(await until(() => w.surface.frames > 0 && !w.surface.isBlank(), 4000))) throw new Error(`${w.title} is ${w.surface.lost ? 'lost by the browser' : w.surface.frames ? 'one flat colour' : 'not painted yet'}`);
+            out.push(w.title);
+          }
+          return `${out.join(', ')}: all have content`;
+        },
+        timeout: 14000,
+      },
       {
         name: 'BroadcastChannel: frames out, clicks back, no window reference',
         why: 'The other document only knows a channel name.',
@@ -545,6 +559,7 @@
       },
       {
         name: 'Document Picture-in-Picture is available',
+        apart: false,
         why: 'An always-on-top window that is a real same-origin document.',
         run: async () => {
           if (!('documentPictureInPicture' in window)) throw new Error('not in this browser');
@@ -567,7 +582,8 @@
         },
         timeout: 6000,
       },
-    ]).then(() => {
+    ])).then(() => {
+      if (!isBench) return; // nothing here was touched
       // Leave the widgets as they were found.
       t.content.querySelector('[data-act=reset]').click();
       widgets.get('notes').content.querySelector('ul').replaceChildren();

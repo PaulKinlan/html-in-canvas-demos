@@ -73,6 +73,7 @@
   </p>
 
   <h2>What a host can and can't do (live)</h2>
+  <p class="note">The checks that press, type, restyle and resize run on a hidden second copy of this page, so the demo above stays as you left it.</p>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
 
   <h2>Takeaways</h2>
@@ -88,7 +89,7 @@
 <script type="module">
   import '/lib/live-card.js';
   import { otherOrigin } from '/lib/live-origins.js';
-  import { banner, nav, runTests, supported } from '/shared/support.js';
+  import { banner, isBench, nav, runTests, supported } from '/shared/support.js';
   nav('/embed/');
   banner();
 
@@ -106,6 +107,7 @@
   card.addEventListener('meta', () => {
     if (!app) said.textContent = 'Card connected. Try its buttons.';
   });
+  card.addEventListener('trouble', (e) => (said.textContent = e.detail));
   card.addEventListener('fallback', (e) => (said.textContent = `Showing the card as a plain frame: ${e.detail}.`));
   card.setAttribute('src', REMOTE + '/embed/card.html');
 
@@ -119,7 +121,7 @@
 
   // ---- B: draw the lent card ----
   const lendFrame = $('lend');
-  const lend = { ctx: null, img: null, size: null, box: null, follows: 0, place: null };
+  const lend = { ctx: null, img: null, size: null, box: null, follows: 0, place: null, drawn: 0, seen: 0 };
   addEventListener('message', (e) => {
     if (e.source !== lendFrame.contentWindow || e.origin !== REMOTE) return;
     const m = e.data;
@@ -128,11 +130,14 @@
       lendFrame.contentWindow.postMessage({ type: 'lend-start' }, REMOTE);
     } else if (m?.type === 'lend-canvas') {
       lend.ctx = m.canvas.getContext('2d', { willReadFrequently: true });
+      m.canvas.addEventListener?.('contextlost', () => ($('lendsaid').textContent = 'The browser dropped the lent canvas. It is redrawn as soon as it comes back.'));
+      m.canvas.addEventListener?.('contextrestored', () => ($('lendsaid').textContent = 'The lent canvas is back.'));
       lend.box = { width: m.width, height: m.height, dpr: m.dpr };
       requestAnimationFrame(drawLent);
     } else if (m?.type === 'lend-image') {
       lend.img?.close();
       lend.img = m.img;
+      if (/Could not draw/.test($('lendsaid').textContent)) $('lendsaid').textContent = 'Got a new picture from the frame.';
       lend.size = { width: m.width, height: m.height };
     } else if (m?.type === 'lend-app') {
       lend.follows = m.follows;
@@ -178,11 +183,22 @@
         ctx.drawElementImage(img, ox, oy, width, height);
         lend.place = { x: ox, y: oy };
       }
+      lend.drawn++;
     } catch (err) {
-      $('lendsaid').textContent = `${err.name}: ${err.message}`;
+      // The snapshot or the canvas went away (a phone under memory pressure
+      // does this). Say so, and ask the frame for a new snapshot.
+      $('lendsaid').textContent = `Could not draw the frame's card (${err.name}). Asking it for a new picture…`;
       lend.img = null;
+      lendFrame.contentWindow?.postMessage({ type: 'lend-again' }, REMOTE);
     }
   }
+  // A snapshot can also stop being drawable without throwing. If nothing has
+  // been drawn for a while although the frame is on screen, ask again.
+  setInterval(() => {
+    if (!lend.ctx || document.visibilityState !== 'visible') return;
+    if (lend.drawn === lend.seen && !lend.img) lendFrame.contentWindow?.postMessage({ type: 'lend-again' }, REMOTE);
+    lend.seen = lend.drawn;
+  }, 2000);
 
   // ---- Live checks ----
   const until = async (fn, ms = 4000) => {
@@ -239,6 +255,16 @@
         timeout: 8000,
       },
       {
+        name: 'The card on screen is a picture, not an empty box',
+        why: 'Reads 64 points of the canvas you are looking at. A dropped graphics context or a blank frame would make them all the same.',
+        run: async () => {
+          await until(() => card.frames > 0, 6000);
+          if (!(await until(() => !card.isBlank(), 3000))) throw new Error(card.trouble ?? 'every sampled pixel is the same colour');
+          return `the canvas has content${card.trouble ? `, but it says: ${card.trouble}` : ''}`;
+        },
+        timeout: 10000,
+      },
+      {
         name: 'This page can reach into the card\'s DOM',
         why: 'It must not: the two are different origins.',
         run: async () => {
@@ -250,8 +276,10 @@
       },
       {
         name: 'A click on the rippling picture presses the real button',
+        apart: true,
         why: 'The pointer is mapped back through the shader\'s distortion before it is sent.',
         run: async () => {
+          await until(() => card.frames > 0 && card.meta, 6000);
           card.effect = 'ripple';
           const item = card.meta.map.find((m) => m.name === 'One more');
           const before = card.meta.map.find((m) => m.name === 'Quantity')?.value;
@@ -266,6 +294,7 @@
       },
       {
         name: 'Typing reaches the card\'s text field',
+        apart: true,
         why: 'Keys pressed on the host canvas are forwarded to whatever the card has focused.',
         run: async () => {
           clickCanvas(whereOnCanvas(card.meta.map.find((m) => m.editable)));
@@ -278,6 +307,7 @@
       },
       {
         name: 'The host restyles the card through its contract',
+        apart: true,
         why: 'A theme message sets --card-accent; the next picture should show it.',
         run: async () => {
           const before = card.frames;
@@ -299,6 +329,7 @@
       },
       {
         name: 'A property outside the contract is ignored',
+        apart: true,
         why: 'The card only accepts a short list of custom properties.',
         run: async () => {
           const before = card.frames;
@@ -310,6 +341,7 @@
       },
       {
         name: 'Resizing the host element reflows the card',
+        apart: true,
         why: 'It is live layout in the other document, not a scaled picture.',
         run: async () => {
           const start = { w: card.meta.w, h: card.meta.h };
@@ -324,6 +356,7 @@
       },
       {
         name: 'Fallback content gives the canvas real, focusable controls',
+        apart: true,
         why: 'Built from the card\'s element map for keyboards and assistive technology.',
         run: async () => {
           const buttons = [...card.canvas.querySelectorAll('button')].map((b) => b.textContent);
@@ -337,18 +370,22 @@
       },
       {
         name: 'B: this page draws the frame\'s card inside the frame\'s canvas',
+        apart: true,
         why: 'OffscreenCanvas and ElementImage both transferred from the other origin.',
         run: async () => {
           // A frame that is scrolled out of view is not painted, so it has nothing to lend yet.
-          const y = scrollY;
-          lendFrame.scrollIntoView({ block: 'center' });
+          // This runs in the hidden copy of the page, so the scrolling is its own.
+          if (isBench) scrollTo(0, lendFrame.getBoundingClientRect().top + scrollY - 80);
           const ok = await until(() => lend.ctx && lend.img, 5000);
-          if (!ok) {
-            scrollTo(0, y);
-            throw new Error('nothing was lent');
-          }
-          window.__lendScroll = y;
+          if (!ok) throw new Error('nothing was lent');
           await until(() => false, 200);
+          // Not blank: the card's cream box must differ from the dark backdrop somewhere.
+          const seen = new Set();
+          for (let i = 0; i < 64; i++) {
+            const p = lend.ctx.getImageData(Math.floor((((i % 8) + 0.5) / 8) * lend.box.width * lend.box.dpr), Math.floor(((Math.floor(i / 8) + 0.5) / 8) * lend.box.height * lend.box.dpr), 1, 1).data;
+            seen.add(`${p[0] >> 5},${p[1] >> 5},${p[2] >> 5}`);
+          }
+          if (seen.size < 3) throw new Error('the lent canvas is blank or shows only its backdrop');
           const d = lend.ctx.getImageData(Math.round((lend.box.width / 2) * lend.box.dpr), Math.round((lend.box.height / 2) * lend.box.dpr), 1, 1).data;
           return `drawing a ${lend.size.width}×${lend.size.height} snapshot; and this page can read it back (centre pixel ${Array.from(d).join(',')})`;
         },
@@ -356,6 +393,7 @@
       },
       {
         name: 'B: the frame\'s real button is clickable where this page drew it',
+        apart: true,
         why: 'drawElementImage() on the lent canvas moves the element\'s hit-test geometry in the frame.',
         run: async () => {
           $('lendfx').value = 'plain';
@@ -366,7 +404,6 @@
           await until(() => lend.place && lend.place.x !== 12, 2000);
           await until(() => false, 300);
           const b = await probe();
-          scrollTo(0, window.__lendScroll ?? 0);
           if (!a.hit || !b.hit) throw new Error('the button is not hit-testable where it was drawn');
           if (Math.abs(a.x - b.x) < 5) throw new Error(`the button did not move (${Math.round(a.x)} → ${Math.round(b.x)})`);
           return `the frame reports its button at x=${Math.round(a.x)} when drawn top left and x=${Math.round(b.x)} when drawn centred; hit-testable both times`;
