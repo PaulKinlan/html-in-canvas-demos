@@ -27,8 +27,16 @@
 // becomes a WebGL texture and is drawn through the named fragment shader
 // (tilt, ripple, dissolve, page-curl, glass, haze, crt, or your own), driven
 // by CSS custom properties. effect="#script-id" or effect="url(x.frag)" points
-// at a shader; backend="webgpu" uses WGSL. See slot-effects.js and
-// /slot-effects/. That file is only loaded when the attribute is used.
+// at a shader. Effects are drawn by WebGPU (WGSL) when /shared/backend.js says
+// it works on this machine, else by WebGL (GLSL); backend="webgpu|webgl|shared"
+// names one (and backend="gl" means WebGL either way, never WebGPU), .mode
+// says which is in use and .gpuNote why WebGPU is not. See
+// slot-effects.js and /slot-effects/. That file is only loaded when the
+// attribute is used.
+
+// Does WebGPU really work on this page? undefined until slot-effects.js has asked.
+let gpuUsable;
+let gpuWhy = '';
 
 const SUPPORTED =
   typeof CanvasRenderingContext2D !== 'undefined' &&
@@ -78,17 +86,35 @@ export class CanvasSlot extends HTMLElement {
       if (this.isConnected) this.#syncFrom();
       return;
     }
+    if (name === 'effect' && this.#noWGSL) {
+      // WebGPU was passed over for want of WGSL; the new effect may have it.
+      this.#noWGSL = false;
+      this.#avoid.delete('webgpu');
+      this.#gpuNote = '';
+    }
     if (!this.isConnected || !this.#mode || this.#mode === 'worker') return;
     if (this.#wantedMode() !== this.#mode || this.#backendAttr !== this.getAttribute('backend')) this.#start(true);
     else this.#fx?.changed();
   }
 
+  /** Why this element is not drawn by WebGPU ('' when it is, or when no effect is set). */
+  get gpuNote() {
+    if (!this.hasAttribute('effect') || this.mode === 'webgpu') return '';
+    const want = this.getAttribute('backend');
+    if (want === 'webgl' || want === 'shared' || want === 'gl') return `backend="${want}" was asked for`;
+    return this.#gpuNote || gpuWhy || '';
+  }
+  #gpuNote = '';
+  #noWGSL = false;
+
   #wantedMode() {
     if (!this.hasAttribute('effect')) return '2d';
     const gl = typeof WebGL2RenderingContext !== 'undefined' && 'texElementSubImage2D' in WebGL2RenderingContext.prototype;
-    const gpu = typeof GPUQueue !== 'undefined' && 'drawElementImageToTexture' in GPUQueue.prototype;
+    const gpu = typeof navigator !== 'undefined' && !!navigator.gpu && typeof GPUQueue !== 'undefined' && 'drawElementImageToTexture' in GPUQueue.prototype;
     const want = this.getAttribute('backend');
-    if (want === 'webgpu' && gpu && !this.#avoid.has('webgpu')) return 'webgpu';
+    // WebGPU when it is asked for by name, or by default once the page knows it really works here.
+    const auto = want !== 'webgl' && want !== 'shared' && want !== 'gl' && gpuUsable === true;
+    if ((want === 'webgpu' || auto) && gpu && !this.#avoid.has('webgpu')) return 'webgpu';
     if (gl && want !== 'shared' && !this.#avoid.has('webgl')) return 'webgl';
     return SUPPORTED && typeof WebGL2RenderingContext !== 'undefined' && !this.#avoid.has('shared') ? 'shared' : '2d';
   }
@@ -111,6 +137,19 @@ export class CanvasSlot extends HTMLElement {
     this.#fx?.destroy();
     this.#fx = null;
     this.#ctx = null;
+    if (this.hasAttribute('effect') && gpuUsable === undefined) {
+      // First shaded element on the page: find out whether WebGPU works before choosing a kind of canvas.
+      this.#mode = null;
+      const token = ++this.#loading;
+      import('./slot-effects.js')
+        .then((m) => m.gpuReady.then((ok) => [ok, m.gpuReason()]))
+        .then(([ok, why]) => {
+          gpuUsable ??= ok;
+          gpuWhy = ok ? '' : why;
+          if (token === this.#loading && this.isConnected) this.#start(replace);
+        });
+      return;
+    }
     if (replace) this.#freshCanvas();
     const mode = (this.#mode = this.#wantedMode());
     this.#backendAttr = this.getAttribute('backend');
@@ -122,8 +161,18 @@ export class CanvasSlot extends HTMLElement {
     const token = ++this.#loading;
     import('./slot-effects.js').then((m) => {
       if (token !== this.#loading || !this.isConnected) return;
+      // WebGPU by default needs WGSL for every effect in use; with only GLSL this element uses WebGL, quietly.
+      if (mode === 'webgpu' && this.getAttribute('backend') !== 'webgpu') {
+        const missing = m.missingWGSL(this);
+        if (missing) {
+          this.#gpuNote = `the effect "${missing}" has no WGSL source`;
+          this.#avoid.add('webgpu');
+          this.#noWGSL = true;
+          return this.#start(false);
+        }
+      }
       try {
-        this.#fx = m.attach(this, this.#canvas, mode, (reason) => this.#fallBack(mode, reason), { present: !this.hasAttribute('offscreen'), force: this.getAttribute('backend') === 'webgl' });
+        this.#fx = m.attach(this, this.#canvas, mode, (reason) => this.#fallBack(mode, reason), { present: !this.hasAttribute('offscreen'), force: this.getAttribute('backend') === 'webgl', strict: this.getAttribute('backend') === 'webgpu' });
       } catch (err) {
         this.#fallBack(mode, err.message);
       }
@@ -138,6 +187,14 @@ export class CanvasSlot extends HTMLElement {
     const tries = (this.#tries.get(mode) ?? 0) + 1;
     this.#tries.set(mode, tries);
     const retry = /lost/i.test(reason) && mode !== 'webgpu' && tries <= 2;
+    if (mode === 'webgpu') {
+      this.#gpuNote = reason;
+      // A device that was lost or rejects elements is no use to the other elements either.
+      if (!/has no WGSL source/.test(reason)) {
+        gpuUsable = false;
+        gpuWhy = reason;
+      }
+    }
     if (!retry) {
       console.warn(`<canvas-slot effect>: ${mode} failed (${reason}); falling back`);
       this.#avoid.add(mode);

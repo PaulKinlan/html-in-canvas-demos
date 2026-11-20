@@ -175,6 +175,8 @@ if (!live) {
 async function start() {
   // ---------------------------------------------------------------- renderer
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  // WebXR is presented through WebGL here; say whether this browser has the WebGPU binding at all.
+  if (document.getElementById('xr-gpu')) document.getElementById('xr-gpu').textContent = typeof XRGPUBinding === 'undefined' ? 'is missing from this browser' : 'this browser has, but this page does not use yet';
   renderer.setPixelRatio(isFixture ? 1 : Math.min(devicePixelRatio, 2)); // the hidden copy that runs the checks stays cheap
   renderer.xr.enabled = true;
   const SKY = new THREE.Color(0x0d0f14);

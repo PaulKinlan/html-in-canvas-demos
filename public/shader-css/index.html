@@ -113,6 +113,7 @@
       <code>style="--fx-progress: 0.28"</code>
     </div>
   </div>
+  <p id="route"></p>
   <p id="backends"></p>
   <details class="show-code">
     <summary>Show the code <small>fx="…" on any element</small></summary>
@@ -176,6 +177,7 @@
   <h2 id="how">How it works</h2>
   <ul class="findings">
     <li><strong>The attribute wraps the element.</strong> A MutationObserver finds <code>[fx]</code> and wraps the element in <code>&lt;fx-surface&gt;</code>, which slots it into a canvas the same size. Remove the attribute and it is unwrapped.</li>
+    <li><strong>WebGPU first.</strong> When the page has a usable WebGPU device (a real adapter that passes a self-test) and the effect has WGSL source, the canvas is WebGPU: <code>queue.drawElementImageToTexture()</code> uploads the DOM and one render pass draws it. Otherwise the surface uses WebGL, and the line under the cards says why. <code>fx-backend="webgpu|gl"</code> names a route by hand. A custom effect needs a <code>wgsl</code> string beside its <code>glsl</code> to run on WebGPU.</li>
     <li><strong>Direct backend:</strong> the canvas is WebGL and <code>texElementSubImage2D()</code> uploads the DOM straight into a texture, only when the DOM repaints. One quad, one fragment shader.</li>
     <li><strong>Shared backend:</strong> browsers allow about 16 WebGL contexts per page, so after the first eight surfaces the rest use a 2D canvas: <code>drawElementImage()</code>, copy into one shared WebGL context, shade, draw back. Unlimited surfaces for two extra copies per frame.</li>
     <li><strong>CSS is the control surface.</strong> <code>--fx-progress</code> and <code>--fx-amount</code> are registered as numbers, so they transition and animate. The surface samples the computed value each frame and redraws only when a uniform changed.</li>
@@ -190,6 +192,8 @@
   // #region page
   import { FxSurface, defineEffect } from '/lib/shader-fx.js';
   // #endregion page
+  import { routeSwitch } from '/shared/route-switch.js';
+  import { pictureDifference } from '/lib/gpu-util.js';
   import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn, supported } from '/shared/support.js';
   nav('/shader-css/');
   banner();
@@ -222,6 +226,15 @@
   compile();
   // #endregion custom-page
 
+  // "Drawn with": fx-backend on each card. Without it a surface takes WebGPU when the page has a usable device, else WebGL.
+  const surfaceOf = (el) => el.closest('fx-surface');
+  routeSwitch($('route'), {
+    targets: () => document.querySelectorAll('.gallery [fx], .play [fx]'),
+    attr: 'fx-backend',
+    values: { webgpu: 'webgpu', webgl: 'gl' },
+    active: (el) => surfaceOf(el)?.backend,
+    note: (el) => surfaceOf(el)?.gpuNote,
+  });
   setInterval(() => {
     const all = [...document.querySelectorAll('.gallery fx-surface, .play fx-surface')];
     if (!all.length) return;
@@ -233,6 +246,8 @@
   const fixtures = supported ? checkBench() : null;
   async function fixture(attrs = '', inner = 'chip <button>b</button>') {
     const el = document.createElement('div');
+    // The checks below are about the WebGL routes unless they name another one.
+    if (!attrs.includes('fx-backend')) attrs += ' fx-backend="gl"';
     el.innerHTML = `<div class="chip" ${attrs}>${inner}</div>`;
     const chip = el.firstElementChild;
     fixtures.append(chip);
@@ -303,6 +318,41 @@
           // rgb(255,204,0) with red and blue swapped is rgb(0,204,255)
           if (!(p[0] < 20 && p[1] > 185 && p[2] > 235)) throw new Error(`pixel ${p} (expected about 0,204,255)`);
           return `yellow element came out ${p.slice(0, 3)} through WGSL (read back from the GPU)`;
+        },
+      },
+      {
+        name: 'fx attribute on WebGPU: the same picture as WebGL',
+        why: 'Each built-in effect is written twice, in GLSL and WGSL. This draws one element both ways (the WebGPU one into a texture, read back from the GPU) and compares every pixel. Needs a WebGPU adapter.',
+        timeout: 15000,
+        run: async () => {
+          const parts = [];
+          for (const name of ['none', 'ripple', 'glass', 'dissolve', 'curl']) {
+            const style = 'style="--fx-progress: 0.45"';
+            const gl = await fixture(`fx="${name}" fx-backend="direct" ${style}`, 'same <b>picture</b>');
+            const gpu = await fixture(`fx="${name}" fx-backend="webgpu" fx-offscreen ${style}`, 'same <b>picture</b>');
+            for (let i = 0; i < 40 && gpu.s.backend !== 'webgpu' && !gpu.s.gpuNote; i++) await sleep(50);
+            if (gpu.s.backend !== 'webgpu') throw new Error(`WebGPU is not in use: ${gpu.s.gpuNote || 'it did not start'}`);
+            await sleep(80);
+            const d = pictureDifference(await gl.s.readback(), await gpu.s.readback());
+            if (d.ink < 0.1) throw new Error(`${name}: WebGPU drew nothing`);
+            if (d.mean > 1.5) throw new Error(`${name}: mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+            parts.push(`${name} ${d.mean.toFixed(2)}`);
+          }
+          return `mean difference per channel, of 255: ${parts.join(', ')}`;
+        },
+      },
+      {
+        name: 'fx attribute on WebGPU, on screen',
+        why: 'The same route shown in a WebGPU canvas, which is what the cards above use when WebGPU is picked. Fails where the adapter is missing or software only; the cards then use WebGL.',
+        timeout: 8000,
+        run: async () => {
+          const { s } = await fixture('fx="none" fx-backend="webgpu"');
+          for (let i = 0; i < 40 && s.backend !== 'webgpu' && !s.gpuNote; i++) await sleep(50);
+          if (s.backend !== 'webgpu') throw new Error(`not used here: ${s.gpuNote || 'WebGPU did not start'}. Drawn with ${s.backend} instead`);
+          await sleep(120);
+          const p = read(s, 4, 4);
+          if (!isYellow(p)) throw new Error(`WebGPU showed the wrong picture: pixel ${p}`);
+          return `pixel ${p.slice(0, 3)} from a WebGPU canvas`;
         },
       },
       {
@@ -411,6 +461,7 @@
           for (let i = 0; i < 24; i++) {
             const el = document.createElement('span');
             el.setAttribute('fx', i % 2 ? 'crt' : 'haze');
+            el.setAttribute('fx-backend', 'gl');
             el.textContent = String(i + 1).padStart(2, '0');
             el.style.cssText = 'display:inline-block;padding:4px 7px;background:rgb(255,204,0);color:#000;font:12px monospace';
             fixtures.append(el);

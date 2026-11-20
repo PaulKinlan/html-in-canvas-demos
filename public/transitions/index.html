@@ -156,6 +156,7 @@
     <label>Hold part way <input type="range" id="scrub" min="0" max="1" step="0.001" value="0" aria-label="Transition progress">
       <button id="release" disabled>Release</button><button id="cancel" disabled>Cancel</button></label>
     <div id="where">Buttons inside the cards also start a transition, from the point you clicked.</div>
+    <p id="route" style="margin:0"></p>
   </div>
 
   <details class="show-code">
@@ -164,7 +165,7 @@
       <li data-code="#markup"><b>Each child of <code>&lt;live-transition&gt;</code> is one state.</b> Ordinary HTML. <code>data-morph</code> names the parts that the morph effect pairs up.</li>
       <li data-code="#page"><b>Switch states with <code>show()</code>, or <code>begin()</code> and set <code>progress</code> to hold part way.</b> <code>effect</code> is the name picked in the row of buttons.</li>
       <li data-code="#your-shader"><b>Add your own effect: a GLSL function.</b> Both states arrive as live textures.</li>
-      <li data-code="/lib/live-transition.js#upload"><b>Inside the element: each state becomes a WebGL texture.</b> <code>gl.texElementSubImage2D(…, element)</code> copies the element's current rendering into a texture. It runs in the canvas <code>paint</code> event, and only for states the browser repainted.</li>
+      <li data-code="/lib/live-transition.js#upload"><b>Inside the element: each state becomes a texture.</b> This is the WebGL route; on WebGPU the call is <code>device.queue.drawElementImageToTexture({ source }, { texture })</code>. <code>gl.texElementSubImage2D(…, element)</code> copies the element's current rendering into a texture. It runs in the canvas <code>paint</code> event, and only for states the browser repainted.</li>
       <li data-code="/lib/live-transition.js#route"><b>Inside the element: keep clicks landing on what you see.</b> WebGL draws do not move an element's hit box, so <code>canvas.updateElementGeometry(el, { canvasTransform })</code> tells the browser where the piece under the pointer was drawn.</li>
       <li data-code="/lib/live-transition.js"><b>The whole element.</b></li>
     </ol>
@@ -213,7 +214,7 @@ vec4 transition(vec2 uv) {
   <p class="note">These run in your browser when this section is on screen, against the small rig below. They do not touch the demo above.</p>
   <div id="rigbox">
     <div class="cap">test rig</div>
-    <live-transition id="rig" bleed="16">
+    <live-transition id="rig" bleed="16" backend="webgl">
       <div class="r ra"><button id="ra-btn" data-morph="b" style="margin:60px 0 0 30px">A button</button> <input id="ra-in" size="6" value="abc" aria-label="Test text" inputmode="none" tabindex="-1"><div class="blink"></div><span id="ra-text">select me</span></div>
       <div class="r rb"><button id="rb-btn" data-morph="b" style="margin:10px 0 0 200px">B button</button><div id="rb-pop" popover="manual" style="background:rgb(255,0,255);border:0;padding:6px;margin:0;inset:auto;font:12px system-ui">popover</div></div>
     </live-transition>
@@ -223,6 +224,7 @@ vec4 transition(vec2 uv) {
 
   <h2>What we learned</h2>
   <ul class="findings">
+    <li><strong>WebGPU first, WebGL behind it.</strong> Every built-in effect is written in both WGSL and GLSL. The element uses WebGPU when the browser has a real adapter that passes a self-test and accepts the first frame, and WebGL otherwise; the line under the controls says which and why, and <code>backend="webgpu|webgl"</code> names one by hand. A shader effect given only as GLSL (like <em>Yours</em>) moves the element to WebGL.</li>
     <li><strong>Both states really are live.</strong> Whenever the browser repaints a state (the <code>paint</code> event lists which), it is uploaded again with <code>texElementSubImage2D</code>, so CSS animations, typing, checkbox ticks and selection highlights appear on shards, folds and embers as they happen.</li>
     <li><strong>The mesh doubles as the hit test.</strong> WebGL draws do not move an element's hit box, so the element keeps the last frame's triangles. On pointer move it finds the triangle under the pointer, works out the affine matrix that maps that piece of the state to the screen, and hands it to <code>updateElementGeometry</code>. You can press a button that is riding a shard.</li>
     <li><strong>One element has one hit box.</strong> A shattered state is 100+ pieces but the element can only be in one place, so routing follows the pointer. Two pointers on two shards would disagree. Perspective is approximated per triangle.</li>
@@ -239,9 +241,12 @@ vec4 transition(vec2 uv) {
   // #region page
   import { LiveTransition } from '/lib/live-transition.js';
   // #endregion page
+  import { routeSwitch } from '/shared/route-switch.js';
   banner();
 
   // ---------------------------------------------------------------- stage
+  // "Drawn with": the backend attribute. Without it the element takes WebGPU when the page has a usable device, else WebGL.
+  routeSwitch(document.getElementById('route'), { targets: () => [document.getElementById('lt')] });
   // #region page
   const lt = document.getElementById('lt');
   // #endregion page
@@ -355,7 +360,9 @@ vec4 transition(vec2 uv) {
       // At rest the card covers the middle and the margin around it is clear. Nothing drawn, or everything opaque, is wrong.
       const wrong = any / n < 0.005 ? 'the canvas came out blank' : (!lt.transitioning && opaque / n > 0.98) ? 'the canvas came out as one solid block' : null;
       bad = wrong ? bad + 1 : 0;
-      if (bad >= 2) lt.showPlain(wrong);                             // twice in a row, so one odd frame does not count
+      if (bad < 2) return;                                           // twice in a row, so one odd frame does not count
+      // A wrong picture from WebGPU gets one more chance on WebGL before the cards go plain.
+      if (lt.backend === 'webgpu') { lt.leaveGPU(wrong.replace('the canvas', 'the WebGPU canvas')); bad = 0; } else lt.showPlain(wrong);
     });
   }
 
@@ -379,6 +386,11 @@ vec4 transition(vec2 uv) {
       rig.canvas.requestPaint();
     });
   }
+  /** An element's canvas as ImageData, copied inside its own frame: the only time a WebGL or WebGPU canvas is sure to hold its picture. */
+  const shot = (el) => new Promise((resolve) => {
+    el.addEventListener('liveframe', () => resolve(el.readback()), { once: true });
+    el.canvas.requestPaint();
+  });
   const near = (px, want, tol = 12) => want.every((v, i) => Math.abs(px[i] - v) <= tol);
   const must = (cond, msg) => { if (!cond) throw new Error(msg); };
   const YELLOW = [255, 204, 0], CYAN = [0, 204, 255];
@@ -610,6 +622,68 @@ vec4 transition(vec2 uv) {
         const fps = n / ((performance.now() - t0) / 1000);
         must(fps > 5, `${fps.toFixed(0)} frames per second`);
         return `${fps.toFixed(0)} frames per second, ${tris} triangles, at ${devicePixelRatio}× pixel density`;
+      },
+    },
+    {
+      name: 'WebGPU draws the same transitions as WebGL',
+      why: 'Two small copies of the element, backend="webgl" and backend="webgpu", held at 40% of each effect. The WebGPU one draws into a texture that is read back from the GPU, and every pixel is compared. Needs a WebGPU adapter.',
+      timeout: 30000,
+      async run() {
+        const { pictureDifference } = await import('/lib/gpu-util.js');
+        const make = (backend, extra) => {
+          const el = document.createElement('live-transition');
+          el.setAttribute('backend', backend); el.setAttribute('bleed', '16'); if (extra) el.setAttribute(extra, '');
+          el.style.cssText = 'width:150px';
+          el.innerHTML = '<div class="r ra" style="height:70px"><b data-morph="t">One</b> <button tabindex="-1">Go</button></div><div class="r rb" style="height:70px"><p style="margin:0">Second <b data-morph="t">state</b></p></div>';
+          document.getElementById('raws').append(el);
+          return el;
+        };
+        const gl = make('webgl'), gpu = make('webgpu', 'offscreen');
+        try {
+          await Promise.all([gl.whenStarted(), gpu.whenStarted()]);
+          must(gpu.backend === 'webgpu', `WebGPU is not in use: ${gpu.gpuNote || 'it did not start'}`);
+          await sleep(300);
+          const parts = [];
+          for (const effect of ['fade', 'shatter', 'fold', 'morph', 'burn', 'ripple', 'pixelate', 'swirl']) {
+            const o = { effect, seed: 5, force: true, origin: { x: 60, y: 30 } };
+            await Promise.all([gl.begin(1, o), gpu.begin(1, o)]);
+            gl.progress = 0.4; gpu.progress = 0.4;
+            await sleep(150);
+            must(gpu.backend === 'webgpu', `${effect}: WebGPU gave up: ${gpu.gpuNote}`);
+            const d = pictureDifference(await shot(gl), await gpu.readback());
+            must(d.ink > 0.05, `${effect}: WebGPU drew nothing`);
+            must(d.mean < 1.5, `${effect}: mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+            parts.push(`${effect} ${d.mean.toFixed(2)}`);
+            gl.cancel(); gpu.cancel();
+            await sleep(80);
+          }
+          return `mean difference per channel, of 255: ${parts.join(', ')}`;
+        } finally { gl.remove(); gpu.remove(); }
+      },
+    },
+    {
+      name: 'WebGPU on screen: a transition shown in a WebGPU canvas',
+      why: 'What the demo above uses when WebGPU is picked. Fails where the adapter is missing or software only; the demo then uses WebGL.',
+      timeout: 10000,
+      async run() {
+        const el = document.createElement('live-transition');
+        el.setAttribute('backend', 'webgpu'); el.setAttribute('bleed', '16');
+        el.style.cssText = 'width:150px';
+        el.innerHTML = '<div class="r ra" style="height:70px">One</div><div class="r rb" style="height:70px">Two</div>';
+        document.getElementById('raws').append(el);
+        try {
+          await el.whenStarted();
+          must(el.backend === 'webgpu', `not used here: ${el.gpuNote || 'WebGPU did not start'}. Drawn with ${el.backend} instead`);
+          await sleep(200);
+          const dpr = devicePixelRatio, at = (im, x, y) => Array.from(im.data.slice(((Math.round((y + 16) * dpr)) * im.width + Math.round((x + 16) * dpr)) * 4).slice(0, 4));
+          const before = at(await shot(el), 100, 50);
+          await el.begin(1, { effect: 'fade', force: true });
+          el.progress = 1; await sleep(150);
+          const after = at(await shot(el), 100, 50);
+          must(el.backend === 'webgpu', `WebGPU gave up: ${el.gpuNote}`);
+          must(near(before, YELLOW) && near(after, CYAN), `pixels ${before} then ${after} (expected yellow, then cyan)`);
+          return `first state ${before.slice(0, 3)}, after a fade ${after.slice(0, 3)}, from a WebGPU canvas`;
+        } finally { el.remove(); }
       },
     },
     {

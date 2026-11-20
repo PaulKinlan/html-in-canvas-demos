@@ -62,7 +62,7 @@
       <li data-code="/lib/glyph-field.js#map"><b>Inside the element: find every glyph without changing the markup.</b> A <code>Range</code> around each grapheme gives its rectangle with <code>getClientRects()</code>.</li>
       <li data-code="/lib/glyph-field.js#paint2d"><b>Inside the element: draw the text once, then one piece of that picture per glyph.</b> <code>drawElementImage()</code> draws the block, <code>createImageBitmap(canvas)</code> keeps a copy, and each particle is a <code>drawImage()</code> crop of it.</li>
       <li data-code="/lib/glyph-field.js#home"><b>Inside the element: say where the real text is.</b> So selection, links and the caret stay on the line while the glyphs fly.</li>
-      <li data-code="/lib/glyph-field.js"><b>The whole element</b>, with the WebGL renderer.</li>
+      <li data-code="/lib/glyph-field.js"><b>The whole element</b>, with the WebGPU and WebGL renderers.</li>
     </ol>
   </details>
 
@@ -77,8 +77,10 @@
   <div class="bar">
     <label>Renderer
       <select id="engine">
-        <option value="2d">2D canvas with a bitmap atlas</option>
+        <option value="auto">Best available (WebGPU, else 2D)</option>
+        <option value="webgpu">WebGPU instanced quads</option>
         <option value="webgl">WebGL instanced quads</option>
+        <option value="2d">2D canvas with a bitmap atlas</option>
       </select>
     </label>
     <span id="diag" class="note" style="font:12px var(--mono)"></span>
@@ -118,7 +120,8 @@
     <li><strong>The text is never split up.</strong> <code>Range.getClientRects()</code> gives a rectangle per grapheme without touching the markup, and each particle is that rectangle cut from one picture of the whole block. Kerning, ligatures, emoji sequences, links and the accessibility tree are untouched.</li>
     <li><strong>First try, 2D: right idea, wrong cost.</strong> <code>drawElementImage(el, sx, sy, sw, sh, dx, dy, dw, dh)</code> cuts a glyph out directly and is quick while glyphs stay upright. Give each glyph its own angle and every draw re-rasterises text at that angle; a thousand draws took over a second here.</li>
     <li><strong>Second try, WebGL: one texture, one draw call.</strong> <code>texElementSubImage2D</code> uploads the block when the browser repaints it (the <code>paint</code> event says when), and the glyphs are instanced quads. Fast, but on an Android phone the canvas came out as a solid white block once the letters started moving.</li>
-    <li><strong>Third try, the default: 2D with a bitmap atlas.</strong> Draw the block into the 2D canvas, copy it with <code>createImageBitmap</code>, clear, and draw each glyph with <code>drawImage</code> from the copy, all inside one <code>paint</code> handler so the intermediate picture never reaches the screen. Rotation is cheap again because the pieces are pixels. At rest the block is one <code>drawElementImage</code>, sharp as ever.</li>
+    <li><strong>Fourth, where it works: WebGPU.</strong> The same instanced quads in WGSL, with <code>queue.drawElementImageToTexture()</code> for the block. It is picked when the browser has a real WebGPU adapter that passes a self-test and accepts the first frame; otherwise the page uses the 2D renderer below and the line under the renderer menu says why.</li>
+    <li><strong>Third try, the fallback: 2D with a bitmap atlas.</strong> Draw the block into the 2D canvas, copy it with <code>createImageBitmap</code>, clear, and draw each glyph with <code>drawImage</code> from the copy, all inside one <code>paint</code> handler so the intermediate picture never reaches the screen. Rotation is cheap again because the pieces are pixels. At rest the block is one <code>drawElementImage</code>, sharp as ever.</li>
     <li><strong>A canvas that fails should get out of the way.</strong> If the context is lost the element lifts its children out of the canvas and shows them as plain HTML until the context returns. A live test reads the canvas back and fails if it is blank or mostly solid.</li>
     <li><strong>The selection is part of the picture.</strong> Selected glyphs carry their highlight when they fly. <code>selectionchange</code> plus <code>Range.isPointInRange</code> tells the element which particles are selected, so a selection or a <code>window.find()</code> match can drive the motion.</li>
     <li><strong>Interaction stays where the text rests.</strong> The element's hit box is pinned to the home position with <code>updateElementGeometry</code>, so selecting, clicking the link and placing the caret work there even mid-explosion. A glyph in mid-air cannot be clicked: one element has one hit box.</li>
@@ -131,10 +134,11 @@
   import { banner, supported, runTests } from '/shared/support.js';
   import { onScreen } from '/shared/on-screen.js';
   // The renderer has to be chosen before the element is defined, so it rides in the URL.
-  const wantEngine = new URLSearchParams(location.search).get('engine') === 'webgl' ? 'webgl' : '2d';
+  const askedEngine = new URLSearchParams(location.search).get('engine');
+  const wantEngine = ['webgpu', 'webgl', '2d'].includes(askedEngine) ? askedEngine : 'auto';
   document.getElementById('field').setAttribute('engine', wantEngine);
   document.getElementById('engine').value = wantEngine;
-  document.getElementById('engine').addEventListener('change', (e) => { location.search = e.target.value === 'webgl' ? '?engine=webgl' : ''; });
+  document.getElementById('engine').addEventListener('change', (e) => { location.search = e.target.value === 'auto' ? '' : `?engine=${e.target.value}`; });
   // #region page
   await import('/lib/glyph-field.js');
   // #endregion page
@@ -205,7 +209,8 @@
       if (performance.now() - last < 500) return;
       last = performance.now();
       const c = field.canvas, cov = coverage(field);
-      diag.textContent = `${e.detail.engine} · canvas ${c.width}×${c.height} at ${devicePixelRatio}× · ${e.detail.particles} particles · ${(cov.opaque * 100).toFixed(0)}% of the canvas opaque`;
+      const why = field.engine !== 'webgpu' && wantEngine !== 'webgl' && wantEngine !== '2d' && field.gpuNote ? ` · WebGPU is not in use: ${field.gpuNote}` : '';
+      diag.textContent = `${e.detail.engine}${why} · canvas ${c.width}×${c.height} at ${devicePixelRatio}× · ${e.detail.particles} particles · ${(cov.opaque * 100).toFixed(0)}% of the canvas opaque`;
       // A canvas that is mostly solid is not text. Stop drawing on it rather than cover the page.
       if (cov.opaque > 0.6) { diag.textContent += ' · that is a solid block, not text'; note.hidden = false; note.textContent = `The canvas came out ${(cov.opaque * 100).toFixed(0)}% solid, which is wrong. Try the other renderer below.`; }
     });
@@ -441,6 +446,54 @@
           must(lost && plainVisible, `after losing the context: reason "${lost}", plain text visible: ${plainVisible}`);
           must(back && cov2.any > 0.005, `after restoring: fallback ${g.fallbackReason}, drawn ${(cov2.any * 100).toFixed(1)}%`);
           return `drew ${(cov.any * 100).toFixed(1)}% of its canvas; on context loss showed plain HTML ("${lost}"); drew again after restore`;
+        } finally { g.remove(); }
+      },
+    },
+    {
+      name: 'The WebGPU renderer draws the same picture as WebGL',
+      why: 'Two rigs with the same text, engine="webgl" and engine="webgpu". The WebGPU one draws into a texture that is read back from the GPU, and every pixel is compared. Needs a WebGPU adapter.',
+      timeout: 15000,
+      async run() {
+        const { pictureDifference } = await import('/lib/gpu-util.js');
+        const make = (engine, extra) => {
+          const g = document.createElement('glyph-field');
+          g.setAttribute('engine', engine); g.setAttribute(extra, ''); g.setAttribute('bleed', '20'); g.setAttribute('force-motion', '');
+          g.style.cssText = 'width:200px;background:#fff;color:#000;margin:20px';
+          g.innerHTML = '<p style="font:20px/28px monospace;margin:0">Same text</p>';
+          spans.append(g);
+          return g;
+        };
+        const gl = make('webgl', 'debug-readback'), gpu = make('webgpu', 'offscreen');
+        try {
+          for (let i = 0; i < 40 && gpu.engine === 'starting'; i++) await sleep(50);
+          must(gpu.engine === 'webgpu', `WebGPU is not in use: ${gpu.gpuNote || 'it did not start'}`);
+          must(gl.engine === 'webgl', 'WebGL 2 with texElementSubImage2D is not available to compare with');
+          await frames(8);
+          const d = pictureDifference(await gl.readback(), await gpu.readback());
+          must(d.ink > 0.005, 'WebGPU drew nothing');
+          must(d.mean < 1.5, `mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+          return `at rest: mean difference ${d.mean.toFixed(2)} per channel of 255, ${(d.ink * 100).toFixed(1)}% of the canvas drawn`;
+        } finally { gl.remove(); gpu.remove(); }
+      },
+    },
+    {
+      name: 'The WebGPU renderer, on screen',
+      why: 'The same renderer shown in a WebGPU canvas, mid-explosion, which is what the demo uses when WebGPU is picked. Fails where the adapter is missing or software only; the demo then uses the 2D renderer.',
+      timeout: 15000,
+      async run() {
+        const g = document.createElement('glyph-field');
+        g.setAttribute('engine', 'webgpu'); g.setAttribute('bleed', '20'); g.setAttribute('force-motion', '');
+        g.style.cssText = 'width:200px;background:#fff;color:#000;margin:20px';
+        g.innerHTML = '<p style="font:20px/28px monospace;margin:0">WebGPU text</p>';
+        spans.append(g);
+        try {
+          for (let i = 0; i < 40 && g.engine === 'starting'; i++) await sleep(50);
+          must(g.engine === 'webgpu', `not used here: ${g.gpuNote || 'WebGPU did not start'}. Drawn with ${g.engine} instead`);
+          g.explode({ power: 0.3, hold: 300 }); await sleep(200);
+          const cov = await coverageNext(g);
+          must(g.engine === 'webgpu', `WebGPU gave up: ${g.gpuNote}`);
+          must(cov.any > 0.005 && cov.opaque < 0.6, `drawn ${(cov.any * 100).toFixed(1)}%, opaque ${(cov.opaque * 100).toFixed(1)}%`);
+          return `drew ${(cov.any * 100).toFixed(1)}% of its canvas mid-explosion, ${(cov.opaque * 100).toFixed(1)}% opaque`;
         } finally { g.remove(); }
       },
     },

@@ -13,7 +13,10 @@
 //   touch     "scroll" lets a touch drag scroll the page instead of grabbing
 //   bleed     canvas margin for the material to move into (default 60)
 //
-// The content is uploaded to a WebGL texture (texElementSubImage2D) and drawn
+//   backend   webgpu | webgl                   (default: WebGPU when it works here, else WebGL)
+//
+// The content is uploaded to a texture (queue.drawElementImageToTexture on
+// WebGPU, gl.texElementSubImage2D on WebGL) and drawn
 // on a mesh of point masses joined by distance constraints. Drag anywhere that
 // is not a control to pull the material about; pressing a control or typing
 // gives it a poke.
@@ -25,6 +28,8 @@
 // it is moving. At rest the mesh is exactly the layout box.
 
 import { SurfaceElement, ElementTexture, program, supportedGL } from './surface.js';
+import { supportedGPU, GPUCanvas, GPUElementTexture, BLEND_OVER, watchFrame } from './gpu-util.js';
+import { webgpu } from '../shared/backend.js';
 
 const MATERIALS = {
   //         home spring, constraint stiffness, iterations, bend, damping, depth push on drag, shading
@@ -70,17 +75,57 @@ void main() {
   o = c;
 }`;
 
+// The same mesh shader in WGSL.
+const WGSL = `
+struct U { canvas: vec2f, centre: vec2f, bleed: f32, shade: f32 };
+@group(0) @binding(0) var<uniform> u: U;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var tex: texture_2d<f32>;
+struct V { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) normal: vec3f };
+@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_uv: vec2f, @location(2) a_normal: vec3f) -> V {
+  let k = 1.0 + a_pos.z / ${DEPTH.toFixed(1)};
+  let p = u.centre + (a_pos.xy - u.centre) * k + u.bleed;
+  var o: V;
+  o.uv = a_uv;
+  o.normal = a_normal;
+  o.pos = vec4f(p.x / u.canvas.x * 2.0 - 1.0, 1.0 - p.y / u.canvas.y * 2.0, 0.0, 1.0);
+  return o;
+}
+@fragment fn fs(i: V) -> @location(0) vec4f {
+  let c = textureSample(tex, samp, i.uv);
+  let n = normalize(i.normal);
+  let L = normalize(vec3f(-0.45, -0.6, 0.66));
+  let lit = 1.0 + (dot(n, L) - L.z) * u.shade;
+  let spec = pow(max(dot(reflect(-L, n), vec3f(0.0, 0.0, 1.0)), 0.0), 24.0) - pow(L.z, 24.0);
+  return vec4f(c.rgb * clamp(lit, 0.55, 1.35) + c.a * max(spec, 0.0) * 0.25 * min(u.shade, 1.0), c.a);
+}`;
+
+let gpuBroken = ''; // set when WebGPU started but could not draw an element here
+const instances = new Set();
+if (typeof addEventListener === 'function') {
+  addEventListener('webgpulost', () => {
+    for (const el of instances) if (el.backend === 'webgpu') el.leaveGPU(webgpu.reason || 'the WebGPU device was lost');
+  });
+}
+
 const reducedMotion = typeof matchMedia !== 'undefined' ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 
 export class PhysicalUI extends SurfaceElement {
   static contextType = 'webgl2';
   static contextAttributes = { premultipliedAlpha: true, antialias: true };
   static defaultBleed = 60;
-  static observedAttributes = ['material', 'pin', 'wind'];
+  static observedAttributes = ['material', 'pin', 'wind', 'backend'];
   static get supported() {
     return supportedGL;
   }
 
+  /** 'webgpu' or 'webgl': what is drawing the mesh. */
+  backend = null;
+  /** Why WebGPU is not drawing this element ('' when it is). */
+  gpuNote = '';
+  #gpu = null; // { surface, pipeline, uniforms, tex, pos, uv, normals, index, bind, msaa, mesh, checked }
+  #mesh = null; // { uv, index }: the CPU copy both backends upload from
+  #glMesh = null;
   #gl = null;
   #prog = null;
   #u = {};
@@ -115,24 +160,99 @@ export class PhysicalUI extends SurfaceElement {
     return MATERIALS[m] ? m : 'jelly';
   }
 
-  attributeChangedCallback() {
+  attributeChangedCallback(name, before, after) {
+    if (name === 'backend') {
+      // A canvas keeps its first kind of context: changing backend means a new canvas.
+      if (before !== after && this.backend && this.isConnected) this.#restart();
+      return;
+    }
     this.#meshFor = '';
     this.wake();
   }
 
+  createContext(canvas) {
+    const want = this.getAttribute('backend');
+    this.#dropGPU();
+    this.#prog = null;
+    this.#glMesh = null;
+    const startGL = () => {
+      const gl = canvas.getContext('webgl2', PhysicalUI.contextAttributes);
+      this.#gl = gl;
+      this.backend = gl ? 'webgl' : null;
+      canvas.addEventListener('webglcontextlost', (e) => {
+        if (canvas !== this.canvas) return;
+        e.preventDefault();
+        this.#prog = null;
+        this.#lost = setTimeout(() => canvas === this.canvas && this.fallBackToPlain('WebGL context lost'), 1500);
+      });
+      canvas.addEventListener('webglcontextrestored', () => {
+        clearTimeout(this.#lost);
+        if (canvas !== this.canvas) return;
+        this.#meshFor = '';
+        this.contentDirty = true;
+        this.wake();
+      });
+      return gl;
+    };
+    if (want === 'webgl') {
+      this.gpuNote = 'backend="webgl" was asked for';
+      return startGL();
+    }
+    if (!supportedGPU) {
+      this.gpuNote = 'this browser cannot put an element into a WebGPU texture';
+      return startGL();
+    }
+    if (gpuBroken) {
+      this.gpuNote = gpuBroken;
+      return startGL();
+    }
+    const offscreen = this.hasAttribute('offscreen');
+    return webgpu({ force: offscreen }).then((gpu) => {
+      if (canvas !== this.canvas) return null;
+      if (gpu && !gpu.lost) {
+        try {
+          const surface = new GPUCanvas(canvas, gpu, { present: !offscreen });
+          this.#gpu = { surface, mesh: null, checked: false };
+          this.#gl = null;
+          this.backend = 'webgpu';
+          this.gpuNote = '';
+          return surface.context;
+        } catch (err) {
+          this.gpuNote = err.message;
+        }
+      } else this.gpuNote = webgpu.reason || 'WebGPU did not start';
+      return startGL();
+    });
+  }
+
+  #dropGPU() {
+    const g = this.#gpu;
+    if (!g) return;
+    for (const b of [g.pos, g.uv, g.normals, g.index, g.uniforms]) b?.destroy();
+    g.tex?.destroy();
+    g.msaa?.destroy();
+    g.surface.destroy();
+    this.#gpu = null;
+  }
+
+  #restart() {
+    this.#dropGPU();
+    this.#gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    this.#gl = null;
+    this.backend = null;
+    this.swapCanvas();
+  }
+
+  /** Stop using WebGPU on this element and carry on with WebGL (the device was lost, or it rejected a frame). */
+  leaveGPU(reason) {
+    if (this.backend !== 'webgpu') return;
+    gpuBroken ||= reason;
+    this.dispatchEvent(new CustomEvent('physicalfallback', { detail: { from: 'webgpu', reason }, bubbles: true }));
+    this.#restart();
+  }
+
   connected() {
-    const gl = (this.#gl = this.ctx);
-    this.canvas.addEventListener('webglcontextlost', (e) => {
-      e.preventDefault();
-      this.#prog = null;
-      this.#lost = setTimeout(() => this.fallBackToPlain('WebGL context lost'), 1500);
-    });
-    this.canvas.addEventListener('webglcontextrestored', () => {
-      clearTimeout(this.#lost);
-      this.#meshFor = '';
-      this.contentDirty = true;
-      this.wake();
-    });
+    instances.add(this);
     this.addEventListener('pointerdown', this.#onDown);
     this.addEventListener('pointermove', this.#onMove);
     this.addEventListener('pointerup', this.#onUp);
@@ -143,10 +263,10 @@ export class PhysicalUI extends SurfaceElement {
     addEventListener('scroll', this.#onScroll, { passive: true });
     this.#scrollY = scrollY;
     if (!this.shadowRoot.adoptedStyleSheets.includes(touchSheet())) this.shadowRoot.adoptedStyleSheets.push(touchSheet());
-    void gl;
   }
 
   disconnected() {
+    instances.delete(this);
     removeEventListener('scroll', this.#onScroll);
   }
 
@@ -274,7 +394,6 @@ export class PhysicalUI extends SurfaceElement {
   // ---- mesh ----
 
   #build() {
-    const gl = this.#gl;
     const m = MATERIALS[this.material];
     const w = this.width, h = this.height;
     const cols = (this.#cols = Math.max(3, Math.min(44, Math.round(w / 22))));
@@ -336,7 +455,14 @@ export class PhysicalUI extends SurfaceElement {
       }
     }
     this.#indexCount = index.length;
+    this.#mesh = { uv, index };
+    this.stats.nodes = n;
+    this.contentDirty = true;
+  }
 
+  // Program, texture and buffers for the current mesh, on this canvas's WebGL context.
+  #prepareGL() {
+    const gl = this.#gl;
     if (!this.#prog) {
       this.#prog = program(gl, VERT, FRAG);
       for (const name of ['u_canvas', 'u_bleed', 'u_centre', 'u_tex', 'u_shade']) this.#u[name] = gl.getUniformLocation(this.#prog, name);
@@ -345,13 +471,16 @@ export class PhysicalUI extends SurfaceElement {
       this.#ibo = gl.createBuffer();
       this.uvbo = gl.createBuffer();
       this.#nbo = gl.createBuffer();
+      this.#glMesh = null;
     }
+    if (this.#glMesh === this.#mesh) return;
+    this.#glMesh = this.#mesh;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo);
     gl.bufferData(gl.ARRAY_BUFFER, this.#pos, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.uvbo);
-    gl.bufferData(gl.ARRAY_BUFFER, uv, gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, this.#mesh.uv, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#nbo);
@@ -359,9 +488,99 @@ export class PhysicalUI extends SurfaceElement {
     gl.enableVertexAttribArray(2);
     gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.#ibo);
-    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, index, gl.STATIC_DRAW);
-    this.stats.nodes = n;
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, this.#mesh.index, gl.STATIC_DRAW);
     this.contentDirty = true;
+  }
+
+  // The same mesh on the page's WebGPU device: three vertex buffers, one index buffer, 4x multisampling like the WebGL canvas.
+  #drawGPU(m) {
+    const g = this.#gpu;
+    const { device, format } = g.surface;
+    const frame = () => {
+      if (!g.pipeline) {
+        const module = device.createShaderModule({ code: WGSL });
+        g.pipeline = device.createRenderPipeline({
+          layout: 'auto',
+          vertex: {
+            module, entryPoint: 'vs',
+            buffers: [
+              { arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x3' }] },
+              { arrayStride: 8, attributes: [{ shaderLocation: 1, offset: 0, format: 'float32x2' }] },
+              { arrayStride: 12, attributes: [{ shaderLocation: 2, offset: 0, format: 'float32x3' }] },
+            ],
+          },
+          fragment: { module, entryPoint: 'fs', targets: [{ format, blend: BLEND_OVER }] },
+          primitive: { topology: 'triangle-list', cullMode: 'none' },
+          multisample: { count: 4 },
+        });
+        g.uniforms = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        g.tex = new GPUElementTexture(device, this.canvas, this.content);
+        g.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+      }
+      if (g.mesh !== this.#mesh) {
+        g.mesh = this.#mesh;
+        for (const b of [g.pos, g.uv, g.normals, g.index]) b?.destroy();
+        const make = (data, usage) => {
+          const buffer = device.createBuffer({ size: Math.ceil(data.byteLength / 4) * 4, usage: usage | GPUBufferUsage.COPY_DST });
+          device.queue.writeBuffer(buffer, 0, data.buffer, data.byteOffset, data.byteLength);
+          return buffer;
+        };
+        g.pos = make(this.#pos, GPUBufferUsage.VERTEX);
+        g.uv = make(this.#mesh.uv, GPUBufferUsage.VERTEX);
+        g.normals = make(this.#normals, GPUBufferUsage.VERTEX);
+        // An odd number of 16-bit indices is not a multiple of four bytes: pad the copy.
+        const index = new Uint16Array(Math.ceil(this.#mesh.index.length / 2) * 2);
+        index.set(this.#mesh.index);
+        g.index = make(index, GPUBufferUsage.INDEX);
+      }
+      if (this.contentDirty || !g.tex.width) g.tex.update();
+      this.contentDirty = false;
+      const { width, height } = this.canvas;
+      if (!g.msaa || g.msaa.width !== width || g.msaa.height !== height) {
+        g.msaa?.destroy();
+        g.msaa = device.createTexture({ size: [width, height], format, sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+      }
+      device.queue.writeBuffer(g.uniforms, 0, new Float32Array([width / this.scale, height / this.scale, this.width / 2, this.height / 2, this.bleed, m.shade, 0, 0]));
+      device.queue.writeBuffer(g.pos, 0, this.#pos);
+      this.#computeNormals();
+      device.queue.writeBuffer(g.normals, 0, this.#normals);
+      if (!g.bind || g.bind.view !== g.tex.view) {
+        g.bind = {
+          view: g.tex.view,
+          group: device.createBindGroup({
+            layout: g.pipeline.getBindGroupLayout(0),
+            entries: [{ binding: 0, resource: { buffer: g.uniforms } }, { binding: 1, resource: g.sampler }, { binding: 2, resource: g.tex.view }],
+          }),
+        };
+      }
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({ colorAttachments: [{ view: g.msaa.createView(), resolveTarget: g.surface.view(), loadOp: 'clear', storeOp: 'discard', clearValue: [0, 0, 0, 0] }] });
+      pass.setPipeline(g.pipeline);
+      pass.setBindGroup(0, g.bind.group);
+      pass.setVertexBuffer(0, g.pos);
+      pass.setVertexBuffer(1, g.uv);
+      pass.setVertexBuffer(2, g.normals);
+      pass.setIndexBuffer(g.index, 'uint16');
+      pass.drawIndexed(this.#indexCount);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+      g.surface.shown((why) => this.#gpu === g && this.leaveGPU(why));
+    };
+    if (g.checked) return frame();
+    // The first frame is watched: a browser whose WebGPU rejects it goes to WebGL, with the reason.
+    watchFrame(device, frame, (problem) => this.#gpu === g && this.leaveGPU(`WebGPU rejected the first frame: ${problem}`));
+    g.checked = true;
+  }
+
+  /** The last frame as ImageData. With the offscreen attribute on a WebGPU element this reads the GPU texture; otherwise it copies the canvas. */
+  async readback() {
+    if (this.backend === 'webgpu' && !this.#gpu.surface.present) {
+      this.contentDirty = true;
+      this.render(performance.now());
+      return this.#gpu.surface.read();
+    }
+    const ctx = this.snapshot();
+    return ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
   }
 
   // ---- simulation ----
@@ -497,7 +716,8 @@ export class PhysicalUI extends SurfaceElement {
 
   render(now) {
     const gl = this.#gl;
-    if (!gl || gl.isContextLost()) return false;
+    const onGPU = this.backend === 'webgpu';
+    if (onGPU ? !this.#gpu || this.#gpu.surface.lost : !gl || gl.isContextLost()) return false;
     const key = `${this.material}|${this.getAttribute('pin')}|${Math.round(this.width)}x${Math.round(this.height)}`;
     if (key !== this.#meshFor) {
       this.#build();
@@ -534,6 +754,12 @@ export class PhysicalUI extends SurfaceElement {
     this.#last = now;
     this.stats.awake = this.#awake;
 
+    if (onGPU) {
+      this.#drawGPU(m);
+      this.#updateGeometry();
+      return this.#awake;
+    }
+    this.#prepareGL();
     gl.activeTexture(gl.TEXTURE0);
     if (this.contentDirty || !this.#tex.width) this.#tex.update();
     else gl.bindTexture(gl.TEXTURE_2D, this.#tex.texture);

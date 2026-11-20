@@ -20,11 +20,33 @@
 import { ElementTexture, geometryUnit, cssZoom, supportedGL } from './surface.js';
 import {
   effects, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, Interaction, inverseHomography,
-  setupQuad, compileEffect, setEffectUniforms, sharedGL, WGSL_HEAD, WGSL_TAIL, WGSL_UNIFORM_SIZE, packWGSLUniforms,
+  setupQuad, compileEffect, setEffectUniforms, sharedGL, WGSL_UNIFORM_SIZE, packWGSLUniforms, hasWGSL, gpuEffect, gpuSampler,
 } from './effects.js';
+import { blankWatch, supportedGPU, uploadElement, watchFrame } from './gpu-util.js';
+import { webgpu } from '../shared/backend.js';
 
-export { supportedGL };
-export const supportedGPU = typeof navigator !== 'undefined' && !!navigator.gpu && typeof GPUQueue !== 'undefined' && 'drawElementImageToTexture' in GPUQueue.prototype;
+export { supportedGL, supportedGPU };
+
+/**
+ * Resolves true when WebGPU really works on this page (/shared/backend.js: a
+ * real adapter that passes its self-test). <canvas-slot effect> waits for
+ * this once, then uses WebGPU by default when it is true.
+ */
+export const gpuReady = supportedGPU ? webgpu().then((gpu) => !!gpu && !gpu.lost) : Promise.resolve(false);
+/** The first effect in use on a <canvas-slot> (its own, or a slotted child's) that has no WGSL source, or null. */
+export function missingWGSL(host) {
+  const names = [host.getAttribute('effect'), ...[...host.children].map((el) => el.getAttribute('effect'))].filter(Boolean);
+  for (const raw of names) {
+    const name = resolveEffect(raw, host.ownerDocument);
+    // An effect still being fetched resolves to 'none' for now; whether it has WGSL is not known yet.
+    if (name === 'none' && raw.trim() !== 'none') return raw;
+    if (!hasWGSL(name)) return raw;
+  }
+  return null;
+}
+
+/** Why WebGPU is not in use ('' when it is). */
+export const gpuReason = () => (supportedGPU ? webgpu.reason : 'this browser cannot put an element into a WebGPU texture');
 
 // A page only gets about 16 WebGL contexts, and the fx attribute may use eight
 // of them, so only the first few <canvas-slot effect> elements get their own.
@@ -193,32 +215,38 @@ class SharedBackend {
 
 class GPUBackend {
   kind = 'webgpu';
+  #watch = blankWatch();
   #pipelines = new Map();
   #textures = new WeakMap();
   #draws = [];
   #pool = [];
   #last = null;
 
-  /** present: false renders to an off-screen texture only (for readback where a GPU canvas cannot be shown). */
-  constructor(canvas, onfail, { present = true } = {}) {
+  /**
+   * present: false renders to an off-screen texture only (for readback where a GPU canvas cannot be shown).
+   * strict: the author asked for WebGPU by name, so an effect without WGSL is drawn unshaded instead of falling back.
+   */
+  constructor(canvas, onfail, { present = true, strict = false } = {}) {
     this.canvas = canvas;
     this.present = present;
+    this.strict = strict;
     this.onfail = onfail;
     this.ready = this.#init();
   }
 
   async #init() {
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new Error('no WebGPU adapter');
-    const device = await adapter.requestDevice();
+    // The page's shared device. Off-screen use never shows a canvas, so a software adapter will do.
+    const gpu = await webgpu({ force: !this.present });
+    if (!gpu || gpu.lost) throw new Error(webgpu.reason || 'WebGPU did not start');
+    const device = gpu.device;
     this.device = device;
-    this.format = navigator.gpu.getPreferredCanvasFormat();
+    this.format = gpu.format;
     // The canvas needs a WebGPU context for drawElementImageToTexture even
     // when nothing is presented to it.
     this.context = this.canvas.getContext('webgpu');
     if (!this.context) throw new Error('no WebGPU canvas context');
     this.context.configure({ device, format: this.format, alphaMode: 'premultiplied' });
-    this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    this.sampler = gpuSampler(device);
     device.lost.then((info) => {
       if (this.destroyed) return;
       this.dead = true;
@@ -246,40 +274,27 @@ class GPUBackend {
     }
     if (dirty || t.fresh) {
       // #region texture-gpu
-      this.device.queue.drawElementImageToTexture({ source: el }, { texture: t.texture });
+      // uploadElement() is device.queue.drawElementImageToTexture({ source: el }, { texture })
+      const upload = () => uploadElement(this.device, el, t.texture);
       // #endregion texture-gpu
+      // The first upload is watched: a browser whose WebGPU rejects it goes to WebGL, with the reason.
+      if (this.#checked) upload();
+      else {
+        watchFrame(this.device, upload, (problem) => !this.destroyed && !this.dead && this.onfail(`WebGPU rejected the element: ${problem}`));
+        this.#checked = true;
+      }
       t.fresh = false;
     }
     return t;
   }
+  #checked = false;
 
   has(name) {
-    return !!effects.get(name)?.wgsl;
+    return hasWGSL(name);
   }
 
   #pipeline(name) {
-    const def = effects.get(name);
-    let entry = this.#pipelines.get(name);
-    if (entry && entry.def === def) return entry.pipeline;
-    const module = this.device.createShaderModule({ code: WGSL_HEAD + def.wgsl + WGSL_TAIL });
-    module.getCompilationInfo?.().then(
-      (info) => {
-        const errors = info.messages.filter((m) => m.type === 'error');
-        if (errors.length) console.warn(`effect "${name}" (WGSL): ${errors.map((m) => `${m.lineNum}: ${m.message}`).join('; ')}`);
-      },
-      () => {},
-    );
-    const pipeline = this.device.createRenderPipeline({
-      layout: 'auto',
-      vertex: { module, entryPoint: 'fx_vs' },
-      fragment: {
-        module,
-        entryPoint: 'fx_fs',
-        targets: [{ format: this.format, blend: { color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' } } }],
-      },
-    });
-    this.#pipelines.set(name, { def, pipeline });
-    return pipeline;
+    return gpuEffect(this.device, this.format, name);
   }
 
   draw(el, name, uniforms) {
@@ -309,6 +324,8 @@ class GPUBackend {
     const encoder = this.device.createCommandEncoder();
     this.#run(this.context.getCurrentTexture().createView(), encoder);
     this.device.queue.submit([encoder.finish()]);
+    // Only when something was drawn: a frame with no slots is meant to be empty.
+    if (this.#draws.length) this.#watch(this.canvas, (why) => !this.destroyed && !this.dead && this.onfail(why));
   }
 
   /** Re-run the last frame into an off-screen texture and read one pixel back. */
@@ -334,8 +351,11 @@ class GPUBackend {
   }
 
   destroy() {
+    // The device belongs to the page, so only this element's textures go.
     this.destroyed = true;
-    this.device?.destroy();
+    try {
+      this.context?.unconfigure();
+    } catch {}
   }
 }
 
@@ -367,10 +387,13 @@ class SlotEffects {
   #ready = false;
   #signature = '';
   #pointer = null;
+  #onfail;
+  #left = false;
 
   constructor(host, canvas, kind, onfail, options) {
     this.#host = host;
     this.#canvas = canvas;
+    this.#onfail = onfail;
     if (kind === 'webgpu') this.#backend = new GPUBackend(canvas, onfail, options);
     else if (kind === 'webgl' && (options.force || liveDirect < MAX_DIRECT)) this.#backend = new GLBackend(canvas, onfail);
     else this.#backend = new SharedBackend(canvas, onfail);
@@ -509,6 +532,12 @@ class SlotEffects {
       const live = s.interaction.step();
       let effect = this.effectFor(el);
       if (!backend.has(effect)) {
+        // WebGPU was chosen for the element, not asked for: use the GLSL on WebGL instead.
+        if (!backend.strict) {
+          if (!this.#left) queueMicrotask(() => this.#onfail(`the effect "${effect}" has no WGSL source`));
+          this.#left = true;
+          return;
+        }
         this.error ??= new Error(`effect "${effect}" has no WGSL source for backend="webgpu"`);
         effect = 'none';
       }

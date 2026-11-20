@@ -9,7 +9,18 @@ nav('/three-form/');
 banner();
 
 const useGPU = window.__gpu;
-document.getElementById(useGPU ? 'r-webgpu' : 'r-webgl').setAttribute('aria-current', 'true');
+// "Best available" picked for itself: if WebGPU then fails, the page reloads on WebGL and says why.
+const autoRoute = window.__gpuAuto;
+document.getElementById(autoRoute ? 'r-auto' : useGPU ? 'r-webgpu' : 'r-webgl').setAttribute('aria-current', 'true');
+let leaving = false;
+function leaveGPU(reason) {
+  if (!autoRoute || !useGPU || leaving) return;
+  leaving = true;
+  const url = new URL(location.href);
+  url.searchParams.set('renderer', 'webgl');
+  url.searchParams.set('gpufail', String(reason).slice(0, 160));
+  location.replace(url);
+}
 const $ = (id) => document.getElementById(id);
 // #region setup
 const canvas = $('scene');
@@ -23,9 +34,15 @@ const native = { texElementImage2D: 'texElementImage2D' in WebGL2RenderingContex
 let renderer, backendName;
 if (useGPU) {
   installThreeShims();
-  renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-  await renderer.init();
+  try {
+    renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+    await renderer.init();
+  } catch (err) {
+    leaveGPU(`three's WebGPURenderer did not start (${err.message})`);
+    throw err;
+  }
   backendName = renderer.backend.isWebGPUBackend ? 'three WebGPURenderer (WebGPU)' : 'three WebGPURenderer (fell back to WebGL2)';
+  if (!renderer.backend.isWebGPUBackend) leaveGPU("three's WebGPURenderer found no WebGPU and fell back to WebGL 2 by itself");
 } else {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   backendName = 'three WebGLRenderer';
@@ -33,7 +50,14 @@ if (useGPU) {
 // #endregion setup
 renderer.setPixelRatio(isFixture ? 1 : Math.min(devicePixelRatio, 2)); // the hidden copy that runs the checks stays cheap
 let deviceLost = '';
-renderer.backend?.device?.lost.then((info) => (deviceLost = `WebGPU device lost: ${info.message || info.reason}`));
+renderer.backend?.device?.lost.then((info) => {
+  deviceLost = `WebGPU device lost: ${info.message || info.reason}`;
+  if (!isFixture) leaveGPU(`the WebGPU device was lost (${info.message || info.reason})`);
+});
+{
+  const why = !useGPU && window.__gpuWhy ? ` WebGPU is not in use: ${window.__gpuWhy.replace(/\.$/, '')}.` : '';
+  $('route-note').textContent = `Drawn with ${backendName}.${why}`;
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0d0f14);
@@ -424,7 +448,7 @@ window.__touchTargets = () => ['w-anim', 'w-link', 'w-filter'].map((id) => ({ na
 if (support.paint && !isFixture) {
   // The checks fly the camera around and focus fields, so they run on a hidden copy of this page.
   await mirror($('results'), runTests, {
-    query: useGPU ? '&renderer=webgpu' : '',
+    query: useGPU ? '&renderer=webgpu' : '&renderer=webgl',
     extra: [{
       name: 'The scene on this page is not blank',
       why: 'Read back from the canvas on this page, not the hidden copy. Fails if it is one flat colour or its graphics context is gone.',
