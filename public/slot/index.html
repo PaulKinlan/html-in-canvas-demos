@@ -15,12 +15,18 @@
   .form-card input { font: inherit; padding: 4px 8px; width: 180px; }
   .form-card button { background: #10243d; color: white; border: 0; }
   .quote-card { padding: 14px 16px; border-radius: 10px; background: #eef8ee; color: #163016; border: 1px solid #bfdcbf; font: italic 16px/1.5 Georgia, serif; }
-  canvas-slot.swap { height: 150px; }
-  @media (max-width: 620px) { canvas-slot.swap { height: 210px; } }
-  .pool { display: flex; gap: 12px; flex-wrap: wrap; }
-  /* One class carries the card's look, so it is the same in the page and in the canvas. */
-  .fruit { box-sizing: border-box; width: min(300px, calc(100vw - 82px)); padding: 10px 14px; border-radius: 8px; border: 1px dashed #0006; font: 16px/1.55 system-ui; cursor: pointer; }
-  .fruit input { font: inherit; width: 120px; max-width: 45%; }
+  /* Each smaller demo is a complete page of its own, shown in a frame, with its source under it. */
+  /* Heights are fixed up front so the page never shifts when a frame or its source loads. */
+  iframe.demo { display: block; width: 100%; height: 300px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .routes { display: grid; gap: 14px; margin: 16px 0; padding: 0; list-style: none; counter-reset: route; }
+  .routes > li { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; counter-increment: route; min-width: 0; }
+  .routes h3 { margin: 0 0 6px; font-size: 17px; }
+  .routes h3::before { content: counter(route) ". "; color: var(--accent); }
+  .routes p { margin: 6px 0; }
+  .routes pre { margin: 8px 0 0; background: var(--bg); }
+  .verdict { font: 600 13px var(--mono); padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+  .verdict.yes { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .verdict.no { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
 </style>
 </head>
 <body>
@@ -56,55 +62,248 @@
     <label><input type="checkbox" id="wobble" checked> Animate (renderer runs every frame)</label>
   </div>
 
-<pre><code>&lt;script type="module" src="/lib/canvas-slot.js"&gt;&lt;/script&gt;
+  <details class="source" open data-src="/slot/hello.html">
+    <summary>The smallest complete page that does this</summary>
+  </details>
 
-&lt;canvas-slot id="hero"&gt;
-  &lt;article slot="note"&gt;…&lt;/article&gt;
-  &lt;form slot="form"&gt;…&lt;/form&gt;
-&lt;/canvas-slot&gt;
+  <h2 id="reslot">Re-slotting: move content in and out of the canvas</h2>
+  <p>
+    An element is drawn by the canvas when two things are true: it is a child of <code>&lt;canvas-slot&gt;</code>, and it has a
+    <code>slot="…"</code> name. Make both true to move it in. Undo them to move it out. It is the same element the whole time, so
+    what you typed into it and its event listeners come along.
+  </p>
+<pre><code>// Move in
+card.setAttribute('slot', 'current');
+stage.append(card);              // stage is the &lt;canvas-slot&gt;
+
+// Move out
+card.removeAttribute('slot');
+shelf.append(card);              // anywhere outside the &lt;canvas-slot&gt;
+
+// Draw whatever is in the slot. This runs again by itself after every change.
+stage.onrender = ({ draw }) =&gt; draw('current', 12, 12);</code></pre>
+  <p>Try it. Tap a card to move it into the canvas, and tap it in the canvas to send it back. Type in the Kiwi input before and after.</p>
+  <iframe class="demo" id="reslot-frame" style="height:312px" src="/slot/reslot.html" title="Re-slotting demo"></iframe>
+  <details class="source" open data-src="/slot/reslot.html">
+    <summary>The complete page for this demo (paste it into a blank .html file)</summary>
+  </details>
+  <p class="note">
+    If the element is already a child of <code>&lt;canvas-slot&gt;</code>, changing only its <code>slot</code> attribute is enough: an element
+    with no slot name is not drawn and not shown, and one with a name is. If you draw the same element more than once, draw the copy
+    people should interact with last, because the last draw decides where taps land.
+  </p>
+
+  <h2 id="outside">Content that lives outside the element</h2>
+  <p>
+    <strong>Short answer:</strong> yes, content written anywhere on the page can be drawn in the canvas, but something has to bring it in.
+    The browser rule is that a <code>&lt;slot&gt;</code> only takes <em>children of the element that owns the shadow root</em>, and
+    HTML-in-canvas only draws elements that are laid out inside the canvas. So an element elsewhere on the page is out of reach until
+    it becomes a child of that element, or until that element is made big enough to already contain it. These are all the routes, with
+    the ones that fail included. Each is checked live in the table further down.
+  </p>
+  <iframe class="demo" id="outside-frame" style="height:340px" src="/slot/outside.html" title="Outside content demo"></iframe>
+  <details class="source" open data-src="/slot/outside.html">
+    <summary>The complete page for this demo, using route 3 (paste it into a blank .html file)</summary>
+  </details>
+
+  <ol class="routes">
+    <li>
+      <h3>Just give it a slot name <span class="verdict no">✗ does nothing</span></h3>
+      <p>The markup you would hope works. The slot is in <code>&lt;canvas-slot&gt;</code>'s shadow root, and the footer's child is not a child of <code>&lt;canvas-slot&gt;</code>, so it is never assigned. It stays where it is as ordinary HTML.</p>
+<pre><code>&lt;canvas-slot id="stage"&gt;&lt;/canvas-slot&gt;
+&lt;footer&gt;
+  &lt;aside slot="promo"&gt;…&lt;/aside&gt;      &lt;!-- not a child of canvas-slot: ignored --&gt;
+&lt;/footer&gt;</code></pre>
+    </li>
+    <li>
+      <h3>Move it in yourself <span class="verdict yes">✓ works</span></h3>
+      <p>Two lines. The element is moved, not copied. This is what the re-slotting demo above does.</p>
+<pre><code>const stage = document.getElementById('stage');
+const promo = document.querySelector('footer aside');
+
+promo.setAttribute('slot', 'promo');
+stage.append(promo);                          // in
+
+promo.removeAttribute('slot');
+document.querySelector('footer').append(promo);   // and back out</code></pre>
+    </li>
+    <li>
+      <h3>Point <code>&lt;canvas-slot&gt;</code> at it: <code>from="…"</code> <span class="verdict yes">✓ works</span></h3>
+      <p>
+        New in <code>canvas-slot.js</code>. <code>from</code> is a CSS selector; whatever matches is brought in when the page loads, and its slot name is its
+        <code>slot</code> attribute or else its <code>id</code>. In script, <code>stage.adopt(element)</code> does the same for one element and
+        <code>stage.release(element)</code> puts it back exactly where it was (a comment node marks the spot). Under the hood this is route 2:
+        there is no way to draw it without moving it. It uses <code>moveBefore()</code> where the browser has it, so focus and running animations survive the move.
+      </p>
+<pre><code>&lt;canvas-slot id="stage" from="#promo"&gt;&lt;/canvas-slot&gt;
+&lt;footer&gt;
+  &lt;aside id="promo"&gt;…&lt;/aside&gt;
+&lt;/footer&gt;
 
 &lt;script type="module"&gt;
-  const hero = document.getElementById('hero');   // the &lt;canvas-slot&gt; element
+  const stage = document.getElementById('stage');
+  stage.onrender = ({ draw }) =&gt; draw('promo', 16, 16);
 
-  // Called on every paint. ctx is the canvas's 2D context;
-  // draw(slotName, x, y) is drawElementImage() for the element in that slot.
-  hero.onrender = ({ ctx, draw, time }) =&gt; {
-    ctx.rotate(Math.sin(time / 900) * 0.04);
-    draw('note', 20, 20);
-    draw('form', 60, 170);
+  stage.release(document.getElementById('promo'));   // back to the footer
+  stage.adopt('#promo');                             // in again
+&lt;/script&gt;</code></pre>
+      <p class="note">The catch with routes 2 and 3: the element has a new parent while it is in the canvas, so CSS that reached it through its old ancestors (<code>footer &gt; aside</code>) stops matching. Style it by class or id.</p>
+    </li>
+    <li>
+      <h3>Make the host bigger: a shadow root on <code>&lt;body&gt;</code> <span class="verdict yes">✓ works</span></h3>
+      <p>
+        If the shadow root is on <code>&lt;body&gt;</code>, every top-level element of the page is a child of the host. Any of them can opt in with
+        only <code>slot="stage"</code>, and nothing is moved. Everything else flows through a default <code>&lt;slot&gt;</code> as before.
+        The limit: only <em>direct</em> children of <code>&lt;body&gt;</code> can opt in. <a href="/slot-bare/body.html">See it running</a>.
+      </p>
+<pre><code>&lt;body&gt;
+  &lt;p&gt;Normal content.&lt;/p&gt;
+  &lt;aside slot="stage" drawable&gt;I opted in.&lt;/aside&gt;
+  &lt;p&gt;More normal content.&lt;/p&gt;
+
+  &lt;script type="module"&gt;
+    const root = document.body.attachShadow({ mode: 'open' });
+    root.innerHTML = `
+      &lt;canvas content="drawable" layoutsubtree style="display:block;width:100%;height:130px"&gt;
+        &lt;slot name="stage"&gt;&lt;/slot&gt;
+      &lt;/canvas&gt;
+      &lt;slot&gt;&lt;/slot&gt;`;                    // everything else, in its normal place
+    const canvas = root.querySelector('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.onpaint = () =&gt; {
+      ctx.reset();
+      let x = 20;
+      for (const el of root.querySelector('slot[name=stage]').assignedElements()) {
+        ctx.drawElementImage(el, x, 20, el.offsetWidth, el.offsetHeight);
+        x += el.offsetWidth + 20;
+      }
+    };
+  &lt;/script&gt;
+&lt;/body&gt;</code></pre>
+    </li>
+    <li>
+      <h3>Plain <code>&lt;canvas&gt;&lt;slot&gt;</code> plus one script: <code>light-slots.js</code> <span class="verdict yes">✓ works</span></h3>
+      <p>
+        No custom element. You write a <code>&lt;slot&gt;</code> inside a normal <code>&lt;canvas&gt;</code>, and the script puts a shadow root on the canvas's
+        parent so that the canvas's siblings can be slotted. Add <code>slots="document"</code> to the canvas and matching elements anywhere in the page are
+        moved next to it first. <a href="/slot-bare/plain.html?upgrade">See it running</a>, and
+        <a href="/slot-bare/plain.html?upgrade#how"><strong>see how it works, step by step, in pictures</strong></a>.
+      </p>
+<pre><code>&lt;script type="module" src="/lib/light-slots.js"&gt;&lt;/script&gt;
+
+&lt;canvas id="stage" content="drawable" layoutsubtree slots="document"&gt;
+  &lt;slot name="promo"&gt;&lt;/slot&gt;
+&lt;/canvas&gt;
+&lt;footer&gt;
+  &lt;aside slot="promo"&gt;…&lt;/aside&gt;
+&lt;/footer&gt;</code></pre>
+      <details class="source" data-src="/lib/light-slots.js">
+        <summary>The whole of light-slots.js</summary>
+      </details>
+    </li>
+    <li>
+      <h3>No component at all: a <code>&lt;slot&gt;</code> as a mount point <span class="verdict yes">✓ works</span></h3>
+      <p>
+        The pattern from <a href="https://github.com/PaulKinlan/ExtensibleWebApps">Extensible Web Apps</a>: a <code>&lt;slot name="…"&gt;</code> in the light DOM is not a real slot,
+        it is a named place that script appends things to. Put one inside a plain <code>&lt;canvas&gt;</code> and it works as a mount point with no custom element and
+        no shadow root. A comment node remembers where the element came from. <a href="/slot/mount.html">See it running</a>.
+      </p>
+<pre><code>&lt;canvas id="stage" content="drawable" layoutsubtree&gt;
+  &lt;slot name="main"&gt;&lt;/slot&gt;
+&lt;/canvas&gt;
+&lt;aside id="card" drawable&gt;…&lt;/aside&gt;
+
+&lt;script type="module"&gt;
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const slot = canvas.querySelector('slot[name="main"]');
+  const card = document.getElementById('card');
+  const mark = document.createComment('card was here');
+
+  // In: leave a marker, move the card into the slot.
+  card.before(mark);
+  slot.moveBefore(card, null);          // keeps focus and state; append() also works
+  canvas.requestPaint();
+
+  // Out: back to the marker.
+  // mark.parentNode.moveBefore(card, mark); mark.remove(); canvas.requestPaint();
+
+  canvas.onpaint = () =&gt; {
+    ctx.reset();
+    for (const el of slot.children)
+      ctx.drawElementImage(el, 16, 16, el.offsetWidth, el.offsetHeight);
   };
 &lt;/script&gt;</code></pre>
+    </li>
+    <li>
+      <h3>Assign it by hand with <code>slot.assign()</code> <span class="verdict no">✗ does nothing</span></h3>
+      <p>Manual slot assignment sounds like the escape hatch, but it has the same rule: <code>assign()</code> silently ignores any node that is not a child of the host.</p>
+<pre><code>const root = host.attachShadow({ mode: 'open', slotAssignment: 'manual' });
+root.innerHTML = '&lt;canvas content="drawable" layoutsubtree&gt;&lt;slot&gt;&lt;/slot&gt;&lt;/canvas&gt;';
+const slot = root.querySelector('slot');
 
-  <h2>Re-slotting: move content in and out of the canvas</h2>
-  <p>Changing an element's <code>slot</code> attribute reassigns it. Nothing is cloned or moved in the DOM, the canvas just gets a <code>slotchange</code> and repaints.</p>
-  <div class="stage">
-    <canvas-slot class="swap" id="swap"></canvas-slot>
-  </div>
-  <div class="pool" id="pool" style="margin-top:12px">
-    <div class="fruit" style="background:#fde2e4;color:#3a0d12">🍓 Strawberry: <b>bold</b> text, <a href="#">a link</a></div>
-    <div class="fruit" id="kiwi" style="background:#e2f0cb;color:#1f2d0b">🥝 Kiwi: <input placeholder="an input"></div>
-    <div class="fruit" style="background:#cde7f0;color:#0b2530">🫐 Blueberry: <progress value="0.6"></progress></div>
-  </div>
-  <p class="note">Tap a card to slot it into the canvas (one at a time, it takes <code>slot="current"</code>); tap it in the canvas to send it back. The big copy is the live element: its input and link work where they are drawn. The two small copies are extra draws of the same element (scaled, and a cropped strip) and are pixels only.</p>
+slot.assign(document.querySelector('footer aside'));
+slot.assignedElements();   // [] : it is not a child of host</code></pre>
+    </li>
+    <li>
+      <h3>Leave it where it is and draw it twice: <code>&lt;dom-portal&gt;</code> <span class="verdict yes">✓ works, differently</span></h3>
+      <p>
+        A different idea for a different need. <code>&lt;dom-portal for="promo"&gt;</code> shows a second live picture of an element somewhere else on the page.
+        It does not bring the element into your canvas: it wraps the element where it sits and stretches one canvas over both places. Use it
+        when you want a mirror, not when you want to draw the element yourself. <a href="/portal/">See /portal/</a>.
+      </p>
+<pre><code>&lt;script type="module" src="/lib/dom-portal.js"&gt;&lt;/script&gt;
 
-  <h2>What works with slots (live, in your browser)</h2>
+&lt;aside id="promo"&gt;…&lt;/aside&gt;
+…
+&lt;dom-portal for="promo" scale="0.5"&gt;&lt;/dom-portal&gt;</code></pre>
+    </li>
+  </ol>
+  <p class="note">
+    What would remove the need for any of this: letting a <code>&lt;canvas content="drawable"&gt;</code> treat its own <code>&lt;slot&gt;</code> children as real slots
+    for elements in the same document, or giving slots a way to reference an element by id. Neither exists today.
+  </p>
+
+  <h2 id="wrapper">A drawable wrapper around the slot</h2>
+  <p>
+    <code>&lt;canvas-slot&gt;</code> asks you to name each child with <code>slot="…"</code> and draws them one by one. The other pattern leaves the author's
+    markup completely alone: inside the canvas there is one real element marked <code>drawable</code> that wraps a default <code>&lt;slot&gt;</code>. Everything
+    the author wrote lands in that wrapper and is drawn as a single image with one call. The children stay live, so the button below still works.
+  </p>
+<pre><code>&lt;canvas content="drawable" layoutsubtree&gt;   &lt;!-- in the shadow root --&gt;
+  &lt;div drawable id="wrapper"&gt;
+    &lt;slot&gt;&lt;/slot&gt;                           &lt;!-- all the author's children --&gt;
+  &lt;/div&gt;
+&lt;/canvas&gt;
+
+ctx.drawElementImage(wrapper, 0, 0, wrapper.offsetWidth, wrapper.offsetHeight);</code></pre>
+  <iframe class="demo" id="wrapper-frame" style="height:280px" src="/slot/wrapper.html" title="Drawable wrapper demo"></iframe>
+  <details class="source" open data-src="/slot/wrapper.html">
+    <summary>The complete page for this demo (paste it into a blank .html file)</summary>
+  </details>
+  <p class="note">The wrapper has to be a real element. Marking the <code>&lt;slot&gt;</code> itself <code>drawable</code> fails, because a slot has no box to paint (see the table below).</p>
+
+  <h2 id="tests">What works with slots (live, in your browser)</h2>
   <p class="note">Each test builds a small canvas, draws into it and checks the result. The picture in a row is what that test drew.</p>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
 
   <h2>Takeaways</h2>
+  <p class="note">Every point links to where it is shown working, or failing, on this page.</p>
   <ul class="findings" id="takeaways">
-    <li><strong>Slotted light-DOM elements can be drawn directly.</strong> <code>drawElementImage(lightChild)</code> works when the light child is assigned to a slot inside the canvas, because layout and paint use the flat tree.</li>
-    <li><strong>The <code>&lt;slot&gt;</code> itself can't be the drawable.</strong> It is <code>display: contents</code>, so it has no box and no paint record ("No cached paint record for element"). Put <code>drawable</code> on the slotted element, or on a real wrapper element in the shadow tree around the slot.</li>
-    <li><strong>A shadow wrapper works too.</strong> <code>&lt;div drawable&gt;&lt;slot&gt;&lt;/slot&gt;&lt;/div&gt;</code> inside the canvas draws everything slotted into it as one image, which is handy when you don't want to touch the author's markup.</li>
-    <li><strong>The limit is the host's children.</strong> A slot can only reproject children of its shadow host. It does not let you pull an arbitrary element from elsewhere in the page into the canvas; for that, see the OffscreenCanvas and cross-tab demos.</li>
-    <li><strong>Always pass a size to <code>drawElementImage()</code>.</strong> Without one the element is drawn in canvas pixels. On a canvas sized for a high-density screen with <code>ctx.scale(dpr, dpr)</code>, that makes it <code>dpr</code> times too big, and its hit-testing box grows with it. <code>&lt;canvas-slot&gt;</code>'s <code>draw()</code> helper passes the size for you.</li>
-    <li><strong>Hit testing, focus and selection follow the drawn position</strong>, because <code>drawElementImage</code> updates the element's geometry automatically.</li>
+    <li><strong>Slotted light-DOM elements can be drawn directly.</strong> <code>drawElementImage(lightChild)</code> works when the light child is assigned to a slot inside the canvas, because layout and paint use the flat tree. <a href="#hero">Shown in the first demo</a> and in the first row of <a href="#tests">the live table</a>.</li>
+    <li><strong>The <code>&lt;slot&gt;</code> itself can't be the drawable.</strong> It is <code>display: contents</code>, so it has no box and no paint record ("No cached paint record for element"). Put <code>drawable</code> on the slotted element, or on a real wrapper element in the shadow tree around the slot. <a href="#tests">It fails live in the table</a> ("Mark the &lt;slot&gt; itself drawable").</li>
+    <li><strong>A shadow wrapper works too.</strong> <code>&lt;div drawable&gt;&lt;slot&gt;&lt;/slot&gt;&lt;/div&gt;</code> inside the canvas draws everything slotted into it as one image, which is handy when you don't want to touch the author's markup. <a href="#wrapper">Working demo and full code</a>.</li>
+    <li><strong>The limit is the host's children.</strong> A slot can only reproject children of its shadow host, so an element elsewhere in the page has to be moved in, or the host made bigger. <a href="#outside">All the routes, with code</a>.</li>
+    <li><strong>Moving in and out is two lines each way.</strong> Set <code>slot</code> and append to move in; remove <code>slot</code> and append elsewhere to move out. <a href="#reslot">Demo and full code</a>.</li>
+    <li><strong>Always pass a size to <code>drawElementImage()</code>.</strong> Without one the element is drawn in canvas pixels. On a canvas sized for a high-density screen with <code>ctx.scale(dpr, dpr)</code>, that makes it <code>dpr</code> times too big, and its hit-testing box grows with it. <code>&lt;canvas-slot&gt;</code>'s <code>draw()</code> helper passes the size for you. <a href="#tests">It fails live in the table</a> ("On a sharp canvas…"), which reports the size it got.</li>
+    <li><strong>Hit testing, focus and selection follow the drawn position</strong>, because <code>drawElementImage</code> updates the element's geometry automatically. Every demo on this page relies on it: the buttons and inputs work where they are drawn. <a href="#tests">Checked live</a> ("Hit testing lands…").</li>
   </ul>
 </main>
 
 <script type="module">
   import '/lib/canvas-slot.js';
-  import { banner, nav, runTests, nextPaint, pixel, supported, testStage } from '/shared/support.js';
+  import { banner, nav, runTests, nextPaint, pixel, supported, testStage, stageFrame } from '/shared/support.js';
+  import { sourceViews } from '/shared/source-view.js';
   nav('/slot/');
   banner();
 
@@ -136,62 +335,13 @@
   wobble.onchange = syncAnim;
   syncAnim();
 
-  // ---- Re-slotting ----
-  const swap = document.getElementById('swap');
-  const pool = document.getElementById('pool');
-  // Where the three draws go. Side by side when there is room, stacked on a phone.
-  function swapLayout(width, el) {
-    const w = el.offsetWidth, h = el.offsetHeight;
-    const main = { x: 12, y: 12, w, h };
-    const wide = width >= 12 + w + 18 + w * 0.6 + 12;
-    const sx = wide ? 12 + w + 18 : 12;
-    const sy = wide ? 12 : 12 + h + 16;
-    const scaled = { x: sx, y: sy, w: w * 0.6, h: h * 0.6 };
-    const strip = { x: sx, y: sy + scaled.h + 12, w: Math.min(120, w), h: 30 };
-    return { main, scaled, strip };
-  }
-  swap.onrender = ({ ctx, draw, elements, width, dpr }) => {
-    const el = elements.get('current');
-    if (!el) {
-      ctx.fillStyle = getComputedStyle(document.body).color;
-      ctx.font = '15px system-ui';
-      ctx.fillText('Nothing slotted. Tap a card below.', 16, 30);
-      return;
-    }
-    const { main, scaled, strip } = swapLayout(width, el);
-    // Two extra copies first: scaled, and a cropped strip.
-    // Source rect is in canvas-grid pixels (CSS px × canvas.width / clientWidth).
-    draw(el, scaled.x, scaled.y, scaled.w, scaled.h);
-    ctx.drawElementImage(el, 0, 0, strip.w * dpr, strip.h * dpr, strip.x, strip.y, strip.w, strip.h);
-    // The full-size draw goes LAST: every drawElementImage() moves the element's
-    // hit-testing box to where it drew, so the last draw decides where taps land.
-    draw(el, main.x, main.y);
+  // ---- Demos that are pages of their own, with their source shown under them ----
+  sourceViews();
+  const settle = (win) => new Promise((r) => win.requestAnimationFrame(() => win.requestAnimationFrame(r)));
+  const until = async (fn, ms = 2500) => {
+    const end = performance.now() + ms;
+    for (;;) { const v = fn(); if (v) return v; if (performance.now() > end) return v; await new Promise((r) => setTimeout(r, 50)); }
   };
-  const interactive = (e) => e.target.closest('input, a, button, progress');
-  function unslot() {
-    const current = swap.querySelector('[slot=current]');
-    if (!current) return null;
-    current.removeAttribute('slot');
-    current.removeAttribute('drawable');
-    pool.append(current);
-    return current;
-  }
-  function slotCard(card) {
-    unslot();
-    card.setAttribute('slot', 'current');
-    swap.append(card);
-  }
-  pool.addEventListener('click', (e) => {
-    const card = e.target.closest('#pool > *');
-    if (!card) return;
-    if (interactive(e)) { if (e.target.closest('a')) e.preventDefault(); return; }
-    slotCard(card);
-  });
-  swap.addEventListener('click', (e) => {
-    if (e.target.closest('a')) e.preventDefault();
-    if (!e.target.closest('[slot=current]') || interactive(e)) return;
-    unslot();
-  });
 
   // ---- Live experiments ----
   function makeHost(innerCanvasHTML, lightHTML) {
@@ -310,74 +460,127 @@
         },
       },
       {
-        name: 'Re-slot demo: the card looks the same in the canvas as in the page',
-        why: 'Slots the Kiwi card into the demo above and compares its computed box styles and its drawn edge pixels.',
+        name: 'Re-slot demo: a card moves in, looks the same, and its input is live where it is drawn',
+        why: 'Drives a second copy of the demo page above: moves the Kiwi card in, compares its styles and position, then moves it out again.',
         run: async () => {
-          const kiwi = document.getElementById('kiwi');
+          const frame = await stageFrame('/slot/reslot.html'), doc = frame.contentDocument, win = frame.contentWindow;
+          const stage = doc.getElementById('stage'), shelf = doc.getElementById('shelf');
+          const card = doc.querySelectorAll('.card')[1], input = card.querySelector('input');
           const props = ['paddingTop', 'paddingLeft', 'borderTopWidth', 'borderTopStyle', 'borderTopLeftRadius', 'fontSize', 'width', 'height'];
-          const read = () => Object.fromEntries(props.map((p) => [p, getComputedStyle(kiwi)[p]]));
-          unslot();
+          const read = () => Object.fromEntries(props.map((p) => [p, win.getComputedStyle(card)[p]]));
+          if (card.parentNode !== shelf) card.click();
           const before = read();
-          slotCard(kiwi);
+          input.value = 'typed before';
+          card.click();                                  // the demo's own handler moves it in
           try {
-            await nextPaint(swap.canvas); await nextPaint(swap.canvas);
+            if (card.parentNode !== stage || card.getAttribute('slot') !== 'current') throw new Error('the card did not become a slotted child of <canvas-slot>');
+            await until(() => Math.abs(card.getBoundingClientRect().y - stage.getBoundingClientRect().y - 12) < 2);
+            await settle(win);
             const after = read();
             const diff = props.filter((p) => before[p] !== after[p]).map((p) => `${p}: ${before[p]} → ${after[p]}`);
             if (diff.length) throw new Error('styles changed when slotted: ' + diff.join(', '));
-            const { main, scaled, strip } = swapLayout(swap.canvas.clientWidth, kiwi);
-            const cw = swap.canvas.clientWidth, ch = swap.canvas.clientHeight;
-            for (const [n, r] of Object.entries({ main, scaled, strip }))
-              if (r.x + r.w > cw + 0.5 || r.y + r.h > ch + 0.5) throw new Error(`the ${n} copy does not fit the ${cw}×${ch} canvas (ends at ${Math.round(r.x + r.w)}, ${Math.round(r.y + r.h)})`);
-            // Card background inside the padding, and transparent in the rounded corner.
-            const dpr = swap.canvas.width / cw, ctx = swap.canvas.getContext('2d');
-            const inside = pixel(ctx, Math.round((main.x + 6) * dpr), Math.round((main.y + main.h / 2) * dpr));
-            const corner = pixel(ctx, Math.round(main.x * dpr), Math.round(main.y * dpr));
-            if (!inside.startsWith('226,240,203')) throw new Error(`padding area is ${inside}, expected the card background`);
-            if (corner.endsWith(',255')) throw new Error(`corner pixel is opaque (${corner}), so the border radius is missing`);
-            return `padding ${after.paddingLeft}, border ${after.borderTopWidth} ${after.borderTopStyle}, radius ${after.borderTopLeftRadius} in both places; all three copies fit a ${cw}px canvas`;
-          } finally { unslot(); }
+            const s = stage.getBoundingClientRect(), c = card.getBoundingClientRect();
+            if (Math.abs(c.x - s.x - 12) > 2 || Math.abs(c.y - s.y - 12) > 2) throw new Error(`drawn at 12,12 but its hit box is at ${Math.round(c.x - s.x)},${Math.round(c.y - s.y)}`);
+            if (c.right > s.right + 1 || c.bottom > s.bottom + 1) throw new Error(`the card does not fit the ${Math.round(s.width)}×${Math.round(s.height)} canvas`);
+            const i = input.getBoundingClientRect();
+            const hit = doc.elementFromPoint(i.x + i.width / 2, i.y + i.height / 2);
+            if (hit !== input) throw new Error(`elementFromPoint at the drawn input returned ${hit ? '<' + hit.localName + '>' : 'null'}`);
+            if (input.value !== 'typed before') throw new Error('the input lost its text when it moved');
+            return `same padding, border and radius in both places; hit box at ${Math.round(c.x - s.x)},${Math.round(c.y - s.y)} where it is drawn; the input kept its text`;
+          } finally {
+            card.click();                                // and out again
+            input.value = '';
+            if (card.parentNode !== shelf) throw new Error('tapping the card in the canvas did not move it back out');
+          }
         },
       },
       {
-        name: 'Re-slot demo: the slotted input is reachable where it is drawn',
-        why: 'Hit tests the centre of the input in the full-size copy, then sends a real pointer sequence and checks focus.',
+        name: 'Outside content, route 1: an element elsewhere with only slot="…"',
+        why: 'A <canvas-slot> and, outside it, <aside slot="guest">. Is it picked up?',
         run: async () => {
-          const kiwi = document.getElementById('kiwi'), input = kiwi.querySelector('input');
-          slotCard(kiwi);
-          try {
-            await nextPaint(swap.canvas); await nextPaint(swap.canvas);
-            const c = swap.canvas.getBoundingClientRect();
-            const { main } = swapLayout(swap.canvas.clientWidth, kiwi);
-            // Where the input should be: its offset inside the card, plus where the card is drawn.
-            const x = c.x + main.x + input.offsetLeft - kiwi.offsetLeft + input.offsetWidth / 2;
-            const y = c.y + main.y + input.offsetTop - kiwi.offsetTop + input.offsetHeight / 2;
-            // The input's hit-testing box must be where it is drawn. This needs no scrolling,
-            // so the page stays where the reader left it.
-            const r = input.getBoundingClientRect();
-            const dx = Math.abs(r.x + r.width / 2 - x), dy = Math.abs(r.y + r.height / 2 - y);
-            if (dx > 2 || dy > 2) throw new Error(`the input's hit box is ${Math.round(dx)},${Math.round(dy)}px away from where it is drawn (box at ${Math.round(r.x - c.x)},${Math.round(r.y - c.y)} in the canvas)`);
-            // When that spot is on screen, also ask the browser what is under it.
-            if (y > 0 && y < innerHeight && x > 0 && x < innerWidth) {
-              const hit = document.elementFromPoint(x, y);
-              if (hit !== input && !hit?.closest('#site-nav, #test-stage')) throw new Error(`elementFromPoint at the drawn input returned ${hit ? '<' + hit.localName + '>' : 'null'}`);
-            }
-            input.focus({ preventScroll: true });
-            if (swap.contains(document.activeElement) && document.activeElement !== input) throw new Error('focus went elsewhere');
-            input.blur();
-            return `the <input> hit-tests at ${Math.round(x - c.x)},${Math.round(y - c.y)} in the canvas, where it is drawn`;
-          } finally { unslot(); }
+          const wrap = document.createElement('div');
+          wrap.innerHTML = `<canvas-slot style="display:block;width:210px;height:70px"></canvas-slot><aside slot="guest" ${box}>outside</aside>`;
+          testStage().append(wrap);
+          const cs = wrap.firstElementChild;
+          await nextPaint(cs.canvas);
+          if (!cs.elements.has('guest')) throw new Error('not picked up: elements.has("guest") is false, the element stays ordinary HTML outside the canvas');
+          return 'picked up';
         },
       },
       {
-        name: 'Slot an element that lives elsewhere in the page',
-        why: 'Can a slot reproject an element that is not a child of the host?',
+        name: 'Outside content, route 2: move it in with setAttribute + append, and back',
+        why: 'The same markup, then two lines of script each way.',
+        run: async () => {
+          const wrap = document.createElement('div');
+          wrap.innerHTML = `<canvas-slot style="display:block;width:210px;height:70px"></canvas-slot><aside ${box}>moved in</aside>`;
+          testStage().append(wrap);
+          const [cs, guest] = wrap.children;
+          cs.onrender = ({ draw }) => draw('guest', 10, 10);
+          guest.setAttribute('slot', 'guest');
+          cs.append(guest);
+          await nextPaint(cs.canvas); await nextPaint(cs.canvas);
+          const px = pixel(cs.canvas.getContext('2d'), Math.round(14 * cs.canvas.width / 210), Math.round(14 * cs.canvas.height / 70));
+          if (px !== '255,204,0,255') throw new Error(`moved in but the canvas pixel is ${px}`);
+          guest.removeAttribute('slot'); wrap.append(guest);
+          if (cs.elements.has('guest')) throw new Error('still slotted after moving out');
+          cs.append(guest); guest.setAttribute('slot', 'guest'); // leave it drawn for the picture
+          await nextPaint(cs.canvas);
+          return `drawn, pixel ${px}; moved out and in again`;
+        },
+      },
+      {
+        name: 'Outside content, route 3: <canvas-slot from="…">, adopt() and release()',
+        why: 'A second copy of the demo page above: #promo is written in a <footer>. Is it in the canvas, live, and does release() put it back exactly?',
+        run: async () => {
+          const frame = await stageFrame('/slot/outside.html'), doc = frame.contentDocument, win = frame.contentWindow;
+          const stage = doc.getElementById('stage'), promo = doc.getElementById('promo'), footer = doc.querySelector('footer');
+          if (!stage.adopted.includes(promo)) stage.adopt(promo);
+          await until(() => promo.parentNode === stage && Math.abs(promo.getBoundingClientRect().y - stage.getBoundingClientRect().y - 16) < 2);
+          await settle(win);
+          if (promo.parentNode !== stage) throw new Error('from="#promo" did not bring the element in');
+          const b = doc.getElementById('count').getBoundingClientRect();
+          const hit = doc.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+          if (hit?.id !== 'count') throw new Error(`the button is not hit-testable where it is drawn (found ${hit?.localName ?? 'nothing'})`);
+          stage.release(promo);
+          const back = promo.parentNode === footer && !promo.hasAttribute('slot') && !promo.hasAttribute('drawable');
+          stage.adopt(promo);
+          if (!back) throw new Error('release() did not restore the element to the footer as it was');
+          return 'adopted from the footer with slot name "promo", button hit-testable in the canvas; release() put it back in the footer with no leftover attributes';
+        },
+      },
+      {
+        name: 'Outside content, route 7: slot.assign() with an element that is not a child of the host',
+        why: 'Manual slot assignment. Can it reach outside?',
         run: () => {
           const v = makeHost('manual<slot></slot>', '');
-          const outsider = document.querySelector('#pool > *');
+          const outsider = document.querySelector('h1');
           v.root.querySelector('slot').assign(outsider);
           const assigned = v.root.querySelector('slot').assignedElements().length;
           if (!assigned) throw new Error('slot.assign() silently ignores non-children: assignedElements() is empty');
           return 'assigned';
+        },
+      },
+      {
+        name: 'Wrapper demo: <div drawable><slot></slot></div> draws untouched children as one image',
+        why: 'A second copy of the demo page above. The author\'s three children have no slot or drawable attribute.',
+        run: async () => {
+          const frame = await stageFrame('/slot/wrapper.html'), doc = frame.contentDocument, win = frame.contentWindow;
+          const host = doc.getElementById('wrap'), canvas = host.shadowRoot.querySelector('canvas'), wrapper = host.shadowRoot.getElementById('wrapper');
+          await until(() => canvas.width > 100 && wrapper.getBoundingClientRect().y - canvas.getBoundingClientRect().y > 10);
+          await settle(win);
+          const marked = [...host.children].filter((el) => el.hasAttribute('slot') || el.hasAttribute('drawable')).length;
+          if (marked) throw new Error('the author markup was changed');
+          const ctx = canvas.getContext('2d');
+          const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+          let green = 0;
+          for (let i = 0; i < d.length; i += 4 * 97) if (d[i] === 238 && d[i + 1] === 248 && d[i + 2] === 238) green++;
+          if (!green) throw new Error('nothing with the wrapper\'s background was drawn');
+          const btn = doc.getElementById('count'), r = btn.getBoundingClientRect();
+          const hit = doc.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          if (hit !== btn) throw new Error(`the slotted button is not hit-testable where it is drawn (found ${hit?.localName ?? 'nothing'})`);
+          const was = btn.textContent; btn.click();
+          if (btn.textContent === was) throw new Error('the button did not respond');
+          return `${host.children.length} untouched children drawn by one drawElementImage(wrapper) call; the button is live at its drawn position`;
         },
       },
     ]).finally(syncAnim);

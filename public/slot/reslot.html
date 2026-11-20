@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Re-slotting with canvas-slot</title>
+
+<style>
+  body { font: 16px/1.5 system-ui; margin: 16px; }
+  #stage { display: block; height: 90px; border: 1px solid #8886; border-radius: 12px; }
+  #shelf { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+  /* The card's look is on a class, so it is the same in the page and in the canvas. */
+  .card { box-sizing: border-box; width: min(300px, 100%); padding: 10px 14px; border: 1px dashed #0006; border-radius: 8px; cursor: pointer; }
+</style>
+
+<script type="module" src="/lib/canvas-slot.js"></script>
+
+<!-- 1. The canvas. Anything inside it with a slot="…" attribute is drawn. -->
+<canvas-slot id="stage"></canvas-slot>
+
+<!-- 2. Ordinary elements, outside the canvas. -->
+<div id="shelf">
+  <div class="card" style="background:#fde2e4;color:#3a0d12">🍓 Strawberry: <b>bold</b> text</div>
+  <div class="card" style="background:#e2f0cb;color:#1f2d0b">🥝 Kiwi: <input placeholder="an input" size="10"></div>
+  <div class="card" style="background:#cde7f0;color:#0b2530">🫐 Blueberry: <progress value="0.6"></progress></div>
+</div>
+
+<script type="module">
+  const stage = document.getElementById('stage');   // the <canvas-slot>
+  const shelf = document.getElementById('shelf');   // where cards rest
+
+  // MOVE IN: make the card a child of <canvas-slot> and give it a slot name.
+  function moveIn(card) {
+    const current = stage.querySelector('[slot="current"]');
+    if (current) moveOut(current);                  // one at a time
+    card.setAttribute('slot', 'current');
+    stage.append(card);
+  }
+
+  // MOVE OUT: take the slot name away and put the card back on the shelf.
+  function moveOut(card) {
+    card.removeAttribute('slot');
+    card.removeAttribute('drawable');               // <canvas-slot> added this
+    shelf.append(card);
+  }
+
+  // DRAW: runs after every change. You do not listen for slotchange yourself:
+  // <canvas-slot> does, and repaints. draw(name, x, y) draws the element that
+  // is in that slot, and moves its click and focus area to the same place.
+  stage.onrender = ({ ctx, draw, elements }) => {
+    if (!elements.has('current')) {
+      ctx.font = '15px system-ui';
+      ctx.fillStyle = 'gray';
+      ctx.fillText('Nothing slotted. Tap a card below.', 16, 30);
+      return;
+    }
+    draw('current', 12, 12);
+  };
+
+  // Tap a card on the shelf to move it in; tap it in the canvas to move it out.
+  // Taps on the input (or any other control) are left alone so it still works.
+  const isControl = (event) => event.target.closest('input, a, button, progress');
+  shelf.addEventListener('click', (event) => {
+    const card = event.target.closest('.card');
+    if (card && !isControl(event)) moveIn(card);
+  });
+  stage.addEventListener('click', (event) => {
+    const card = event.target.closest('[slot="current"]');
+    if (card && !isControl(event)) moveOut(card);
+  });
+</script>
+</html>

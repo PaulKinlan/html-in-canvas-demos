@@ -18,6 +18,11 @@
 // an OffscreenCanvas in that worker and, on every paint, sends it the changed
 // elements as transferable ElementImage snapshots. See /offscreen/.
 //
+// Content from elsewhere: a slot only takes children of this element, so
+// <canvas-slot from="#promo, .card"> (or el.adopt(node)) moves the matching
+// elements in for you and el.release(node) puts them back exactly where they
+// were. They are the same nodes, not copies. See /slot/#outside.
+//
 // Effects: <canvas-slot effect="tilt"> needs no onrender at all. Each slot
 // becomes a WebGL texture and is drawn through the named fragment shader
 // (tilt, ripple, dissolve, page-curl, glass, haze, crt, or your own), driven
@@ -46,7 +51,10 @@ export class CanvasSlot extends HTMLElement {
   #tries = new Map();
   #backendAttr = null;
 
-  static observedAttributes = ['effect', 'backend'];
+  static observedAttributes = ['effect', 'backend', 'from'];
+  #retries = 0;
+  #retryTimer = 0;
+  #adopted = new Map(); // element -> { marker, slot, drawable, viaFrom }
 
   static get supported() {
     return SUPPORTED;
@@ -65,7 +73,11 @@ export class CanvasSlot extends HTMLElement {
     return this.#fx?.kind ?? this.#mode;
   }
 
-  attributeChangedCallback() {
+  attributeChangedCallback(name) {
+    if (name === 'from') {
+      if (this.isConnected) this.#syncFrom();
+      return;
+    }
     if (!this.isConnected || !this.#mode || this.#mode === 'worker') return;
     if (this.#wantedMode() !== this.#mode || this.#backendAttr !== this.getAttribute('backend')) this.#start(true);
     else this.#fx?.changed();
@@ -177,6 +189,7 @@ export class CanvasSlot extends HTMLElement {
   }
 
   connectedCallback() {
+    if (this.hasAttribute('from')) this.#syncFrom();
     this.#syncSlots();
     this.#mo = new MutationObserver(() => this.#syncSlots());
     this.#mo.observe(this, { childList: true, attributes: true, attributeFilter: ['slot'], subtree: false });
@@ -223,11 +236,82 @@ export class CanvasSlot extends HTMLElement {
     this.#mo?.disconnect();
     this.#ro?.disconnect();
     cancelAnimationFrame(this.#raf);
+    clearTimeout(this.#retryTimer);
     this.#worker?.terminate();
     this.#worker = null;
     this.#fx?.destroy();
     this.#fx = null;
     this.#loading++;
+  }
+
+  /**
+   * Bring an element that lives anywhere in the document into this canvas.
+   * A slot can only take children of its host, so the element is moved here
+   * (the same node, with its listeners and state) and a marker is left where
+   * it was. It keeps its slot="…" name if it has one, else `slot`, else its id.
+   * Because it has a new parent, CSS that matched it through its old
+   * ancestors (".sidebar > .card") stops matching; style it by class or id.
+   */
+  adopt(el, slot) {
+    if (typeof el === 'string') el = document.querySelector(el);
+    if (!el || el === this || el.contains(this)) return null;
+    if (el.parentNode === this && !this.#adopted.has(el)) {
+      if (slot) el.setAttribute('slot', slot);
+      return el;
+    }
+    let rec = this.#adopted.get(el);
+    if (!rec) {
+      const marker = document.createComment(' canvas-slot: an element was moved from here ');
+      el.before(marker);
+      rec = { marker, slot: el.getAttribute('slot'), drawable: el.hasAttribute('drawable'), viaFrom: false };
+      this.#adopted.set(el, rec);
+    }
+    const name = slot || el.getAttribute('slot') || el.id || `adopted-${this.#adopted.size}`;
+    el.setAttribute('slot', name);
+    // moveBefore() keeps focus, animations and iframes alive across the move.
+    if (el.parentNode !== this) move(this, el, null);
+    return el;
+  }
+
+  /** Put an adopted element back where it came from. With no argument, all of them. */
+  release(el) {
+    if (el === undefined) {
+      for (const node of [...this.#adopted.keys()]) this.release(node);
+      return;
+    }
+    if (typeof el === 'string') el = this.querySelector(el);
+    const rec = el && this.#adopted.get(el);
+    if (!rec) return null;
+    this.#adopted.delete(el);
+    if (rec.slot === null) el.removeAttribute('slot'); else el.setAttribute('slot', rec.slot);
+    if (!rec.drawable) el.removeAttribute('drawable');
+    const home = rec.marker.parentNode;
+    if (home) {
+      move(home, el, rec.marker);
+      rec.marker.remove();
+    } else {
+      this.after(el); // its old home is gone
+    }
+    return el;
+  }
+
+  /** The elements currently adopted from elsewhere. */
+  get adopted() {
+    return [...this.#adopted.keys()];
+  }
+
+  // from="selector": adopt what matches, release what no longer does.
+  #syncFrom() {
+    const selector = this.getAttribute('from');
+    let want = [];
+    if (selector) {
+      try { want = [...document.querySelectorAll(selector)].filter((el) => el !== this && !el.contains(this)); } catch { want = []; }
+    }
+    for (const [el, rec] of [...this.#adopted]) if (rec.viaFrom && !want.includes(el)) this.release(el);
+    for (const el of want) {
+      if (el.parentNode === this && !this.#adopted.has(el)) continue;
+      if (this.adopt(el)) this.#adopted.get(el).viaFrom = true;
+    }
   }
 
   /** Post an arbitrary message to the worker (worker mode only). */
@@ -339,13 +423,46 @@ export class CanvasSlot extends HTMLElement {
     const draw = (name, x = 0, y = 0, w, h) => {
       const el = typeof name === 'string' ? elements.get(name) : name;
       if (!el) return;
-      ctx.drawElementImage(el, x, y, w ?? el.offsetWidth, h ?? el.offsetHeight);
+      try {
+        ctx.drawElementImage(el, x, y, w ?? el.offsetWidth, h ?? el.offsetHeight);
+        this.#retries = 0;
+      } catch (err) {
+        // An element that was slotted or moved a moment ago may not have been
+        // laid out inside the canvas yet, and a canvas that is scrolled far
+        // off screen has no painted content to draw. Skip the element this
+        // frame and paint again: quickly at first, then twice a second.
+        if (this.#retries++ < 3) requestAnimationFrame(() => this.requestPaint());
+        else {
+          if (this.#retries === 4) console.warn('<canvas-slot>: could not draw', el, err.message);
+          clearTimeout(this.#retryTimer);
+          this.#retryTimer = setTimeout(() => this.requestPaint(), 500);
+        }
+      }
     };
     const renderer = this.onrender ?? defaultRenderer;
     renderer({ ctx, canvas: this.#canvas, width, height, dpr, elements, draw, time: performance.now(), event });
     // Let others (e.g. slot-share.js) react to a finished frame.
     this.dispatchEvent(new CustomEvent('render', { detail: { elements, changed: new Set(event.changedElements ?? []), dpr } }));
   }
+}
+
+// moveBefore() keeps focus, animations and iframes alive across a move, so it
+// is used when the browser has it. One exception, found the hard way in
+// Chrome 157: an element moved out of a drawable canvas and back in with
+// moveBefore() before a frame has been rendered can no longer be drawn ("can
+// only be drawn into its nearest ancestor <canvas>"). A second move of the
+// same element within a frame therefore uses an ordinary insert.
+const justMoved = new WeakSet();
+function move(parent, el, before) {
+  if (parent.moveBefore && el.isConnected && parent.isConnected && !justMoved.has(el)) {
+    try {
+      parent.moveBefore(el, before);
+      justMoved.add(el);
+      requestAnimationFrame(() => requestAnimationFrame(() => justMoved.delete(el)));
+      return;
+    } catch {}
+  }
+  parent.insertBefore(el, before);
 }
 
 function defaultRenderer({ width, elements, draw }) {

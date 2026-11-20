@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>A slot as a mount point in a plain canvas</title>
+
+<style>
+  body { font: 16px/1.5 system-ui; margin: 16px; }
+  #stage { display: block; width: 100%; height: 120px; border: 1px solid #8886; border-radius: 12px; }
+  #card { box-sizing: border-box; width: min(280px, 100%); padding: 10px 14px; border-radius: 10px; background: #e3f1ff; color: #08233f; }
+</style>
+
+<!-- A plain canvas. No custom element and no shadow root. The <slot> does not
+     project anything here: it is only a named place to put things. -->
+<canvas id="stage" content="drawable" layoutsubtree>
+  <slot name="main">
+    <p drawable style="margin:0;color:gray">Nothing mounted. Press the button below.</p>
+  </slot>
+</canvas>
+
+<p>Some page content between the canvas and the card.</p>
+
+<aside id="card" drawable>
+  I am written outside the canvas. <input placeholder="type here" size="9">
+  <button type="button" id="count">Clicked 0×</button>
+</aside>
+
+<p><button type="button" id="toggle">Mount the card in the canvas</button></p>
+
+<script type="module">
+  const canvas = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+  const slot = canvas.querySelector('slot[name="main"]');   // the mount point
+  const card = document.getElementById('card');
+  const mark = document.createComment(' the card lives here ');   // remembers its place
+
+  // moveBefore() moves an element and keeps its focus and state. Fall back to
+  // insertBefore() where the browser does not have it yet.
+  const move = (parent, node, before) =>
+    parent.moveBefore ? parent.moveBefore(node, before) : parent.insertBefore(node, before);
+
+  function mount() {
+    card.before(mark);                                   // leave a marker
+    for (const fallback of slot.children) fallback.hidden = true;
+    move(slot, card, null);                              // into the canvas
+    canvas.requestPaint();
+  }
+
+  function unmount() {
+    move(mark.parentNode, card, mark);                   // back to the marker
+    mark.remove();
+    for (const fallback of slot.children) fallback.hidden = false;
+    canvas.requestPaint();
+  }
+
+  // Keep the canvas as sharp as the screen.
+  new ResizeObserver(() => {
+    canvas.width = canvas.clientWidth * devicePixelRatio;
+    canvas.height = canvas.clientHeight * devicePixelRatio;
+    canvas.requestPaint();
+  }).observe(canvas);
+
+  // Draw whatever is in the mount point and not hidden.
+  canvas.addEventListener('paint', () => {
+    ctx.reset();
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    let y = 16;
+    for (const el of slot.children) {
+      if (el.hidden) continue;
+      try {
+        ctx.drawElementImage(el, 16, y, el.offsetWidth, el.offsetHeight);
+      } catch {
+        // Moved a moment ago, or the canvas is far off screen. Try again shortly.
+        setTimeout(() => canvas.requestPaint(), 100);
+      }
+      y += el.offsetHeight + 8;
+    }
+  });
+
+  const toggle = document.getElementById('toggle');
+  toggle.onclick = () => {
+    const mounted = card.parentNode === slot;
+    mounted ? unmount() : mount();
+    toggle.textContent = mounted ? 'Mount the card in the canvas' : 'Put the card back';
+  };
+
+  let clicks = 0;
+  const button = document.getElementById('count');
+  button.onclick = () => (button.textContent = `Clicked ${++clicks}×`);
+</script>
+</html>
