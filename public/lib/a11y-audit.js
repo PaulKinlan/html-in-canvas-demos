@@ -405,3 +405,217 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
     },
   };
 }
+
+// ------------------------------------------------------------- per pattern
+
+export const PATTERN_CHECKS = [
+  ['tree', 'Accessibility tree'],
+  ['order', 'Focus order'],
+  ['find', 'Find in page'],
+  ['select', 'Selection'],
+  ['zoom', 'Zoom'],
+];
+
+const IMPLIED_ROLE = { h1: 'heading', h2: 'heading', h3: 'heading', p: 'paragraph', input: 'textbox', button: 'button', a: 'link', textarea: 'textbox', select: 'combobox' };
+
+/** The canvas that draws an element, by flat-tree ancestry, whatever attributes the pattern uses. */
+function canvasOf(el) {
+  for (let n = flatParent(el); n; n = flatParent(n)) if (n.nodeType === 1 && n.localName === 'canvas') return n;
+  return null;
+}
+
+/** Run fn, and report whether any canvas in the document got a paint event because of it. */
+async function watchPaint(doc, fn) {
+  const win = doc.defaultView;
+  const canvases = deepAll(doc, 'canvas');
+  let painted = 0;
+  const on = () => painted++;
+  await frames(win, 2);
+  for (const c of canvases) c.addEventListener('paint', on);
+  const value = await fn();
+  await frames(win, 3);
+  for (const c of canvases) c.removeEventListener('paint', on);
+  return { value, painted };
+}
+
+/** Did the pixels near `rect` change across fn()? true / false / null when they cannot be read back. */
+async function pixelsChange(doc, canvas, rectOf, fn) {
+  const a = canvas ? pixelHash(canvas, rectOf()) : null;
+  const { value, painted } = await watchPaint(doc, fn);
+  const b = canvas ? pixelHash(canvas, rectOf()) : null;
+  const readable = a && b && (a.opaque || b.opaque);
+  return { value, painted, changed: readable ? a.hash !== b.hash : null };
+}
+
+/**
+ * Audit one pattern fixture (/a11y/pattern.html?p=…): a card with a heading
+ * #s-h, text #s-p, input #s-in, button #s-btn and link #s-a, put into a canvas
+ * one particular way. Reports the five things people ask about first.
+ * @returns {Promise<{ checks: Array<{id, title, status, detail, items}>, tally }>}
+ */
+export async function auditPattern(doc) {
+  const win = doc.defaultView;
+  const res = (id, status, detail, items = []) => ({ id, title: PATTERN_CHECKS.find((c) => c[0] === id)[1], status, detail, items });
+  const tallyOf = (checks) => { const t = { pass: 0, warn: 0, fail: 0, info: 0 }; for (const c of checks) t[c.status]++; return t; };
+
+  // The pixel mirror has no elements to audit; measure that instead of assuming it.
+  if (win.pixelsOnly) {
+    const m = win.pixelsOnly;
+    m.scrollIntoView({ block: 'center', behavior: 'instant' });
+    await frames(win, 3);
+    const r = m.getBoundingClientRect();
+    const hit = deepElementFromPoint(doc, r.left + 90, r.top + 110);
+    const named = m.getAttribute('aria-label') || m.textContent.trim();
+    win.getSelection().removeAllRanges();
+    let found = false;
+    try { found = win.find('quokka', false, false, true); } catch {}
+    const a = win.getSelection().anchorNode;
+    const inSource = !!(a && canvasOf(a.parentElement ?? a) && canvasOf(a.parentElement ?? a) !== m);
+    win.getSelection().removeAllRanges();
+    const checks = [
+      res('tree', 'fail', `the mirror is one <canvas> node${named ? ` named "${named}"` : ' with no name, role or fallback content'}; where it shows a button, elementFromPoint returns <${hit?.localName}>. Nothing drawn in it exists for assistive technology.`),
+      res('order', 'fail', 'nothing in the mirror can take focus. Tab goes to the source element, wherever that is, and its focus ring is copied over as pixels.'),
+      res('find', 'fail', `window.find("quokka") ${found ? `matches ${inSource ? 'only in the source canvas' : 'elsewhere'}` : 'finds nothing'}; the copy of the text in the mirror is not text, so the find bar counts it once and scrolls to the source.`),
+      res('select', 'fail', 'there is no text in the mirror to select or copy; a selection made in the source shows up in it as pixels.'),
+      res('zoom', 'warn', 'the mirror shows whatever resolution it was sent. It can be redrawn larger, but only as a scaled bitmap unless the source re-renders for it.'),
+    ];
+    return { checks, tally: tallyOf(checks) };
+  }
+
+  const parts = { heading: doc.getElementById('s-h'), text: doc.getElementById('s-p'), input: doc.getElementById('s-in'), button: doc.getElementById('s-btn'), link: doc.getElementById('s-a') };
+  const subject = doc.getElementById('subject');
+  if (!subject || Object.values(parts).some((p) => !p)) throw new Error('fixture card not found');
+  const canvas = canvasOf(subject);
+  const canvases = deepAll(doc, 'canvas');
+  const checks = [];
+  subject.scrollIntoView({ block: 'center', behavior: 'instant' });
+  await frames(win, 3);
+
+  // ---- tree
+  {
+    const hidden = [], names = [], misplaced = [];
+    for (const [k, el] of Object.entries(parts)) {
+      if (hiddenFromAT(el) || !el.getClientRects().length || win.getComputedStyle(el).visibility === 'hidden') { hidden.push(k); continue; }
+      const role = el.computedRole ?? IMPLIED_ROLE[el.localName] ?? el.localName;
+      const name = el.computedName ?? accessibleName(el);
+      if (k !== 'text') names.push(`${role} "${name}"`);
+      if (hitTestable(doc, el) === false) misplaced.push(k);
+    }
+    const unnamed = ['input', 'button', 'link'].filter((k) => !(parts[k].computedName ?? accessibleName(parts[k])));
+    const canvasLabel = canvas ? (canvas.getAttribute('aria-label') ? `the canvas is labelled "${canvas.getAttribute('aria-label')}"` : 'the canvas has no label of its own (none needed: its children speak for it)') : 'no canvas ancestor found';
+    const aom = 'computedRole' in parts.button ? 'roles and names read from the browser (computedRole)' : 'roles implied by the markup; see the recorded DevTools check for the real tree';
+    const bits = [`${names.join(', ')}; ${aom}; ${canvasLabel}`];
+    if (hidden.length) bits.push(`${hidden.join(', ')} hidden from assistive technology (aria-hidden, inert or not rendered)`);
+    if (misplaced.length) bits.push(`${misplaced.join(', ')} not found by elementFromPoint at the rectangle the browser reports, so a screen reader's highlight and a magnifier would point at the wrong place`);
+    else if (!hidden.length) bits.push('each one is hit-testable at the rectangle the browser reports, which is where a screen reader draws its highlight');
+    checks.push(res('tree', hidden.length || unnamed.length ? 'fail' : misplaced.length ? 'warn' : 'pass', bits.join('. ')));
+  }
+
+  // ---- order
+  {
+    const want = [parts.input, parts.button, parts.link];
+    // Everything tabbable that this pattern's canvases draw, in flat-tree order.
+    const all = deepAll(doc, FOCUSABLE).filter((e) => canvasOf(e) && e.tabIndex >= 0 && !e.disabled && !hiddenFromAT(e));
+    const ghosts = all.filter((e) => hitTestable(doc, e) === false);
+    const domOrder = want.every((e, i) => !i || (want[i - 1].compareDocumentPosition(e) & 4));
+    const rects = want.map((e) => e.getBoundingClientRect());
+    const visual = [...want.keys()].sort((i, j) => (Math.abs(rects[i].top - rects[j].top) > rects[i].height * 0.6 ? rects[i].top - rects[j].top : rects[i].left - rects[j].left));
+    const visualOk = visual.every((v, i) => v === i);
+    const refused = [], noRing = [], unread = [];
+    const before = deepActive(doc);
+    for (const el of want) {
+      deepActive(doc)?.blur?.();
+      const r = await pixelsChange(doc, canvasOf(el), () => el.getBoundingClientRect(), () => el.focus({ preventScroll: true }));
+      if (deepActive(doc) !== el) refused.push(el);
+      else if (r.changed === false) noRing.push(el);
+      else if (r.changed === null && !r.painted) unread.push(el);
+    }
+    deepActive(doc)?.blur?.();
+    before?.focus?.({ preventScroll: true });
+    const bits = [`DOM order input, button, link ${domOrder ? 'is' : 'is NOT'} the order they are drawn in (${visualOk ? 'top to bottom, left to right' : 'the drawing puts them in a different order'})`];
+    bits.push(refused.length ? `${refused.length} refused focus` : 'all three take focus');
+    if (noRing.length) bits.push(`${noRing.length} show no focus ring in the canvas`);
+    else if (unread.length) bits.push('the canvas pixels cannot be read back here, so the ring was not checked');
+    else if (!refused.length) bits.push('the focus ring is drawn in the canvas each time');
+    bits.push(ghosts.length ? `${ghosts.length} extra Tab stop(s) with no pixels` : 'no Tab stops without pixels');
+    checks.push(res('order', refused.length || noRing.length || ghosts.length || !domOrder ? 'fail' : !visualOk || unread.length ? 'warn' : 'pass', bits.join('; '), ghosts.map(label)));
+  }
+
+  // ---- find
+  const sel = win.getSelection();
+  const textNode = parts.text.firstChild;
+  const word = 'quokka';
+  const wordRange = doc.createRange();
+  wordRange.setStart(textNode, textNode.data.indexOf(word)); wordRange.setEnd(textNode, textNode.data.indexOf(word) + word.length);
+  const hitsText = () => {
+    const r = wordRange.getBoundingClientRect();
+    const hit = deepElementFromPoint(doc, r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && flatContains(parts.text, hit);
+  };
+  {
+    sel.removeAllRanges();
+    const r = await pixelsChange(doc, canvas, () => wordRange.getBoundingClientRect(), () => { try { return win.find(word, false, false, true); } catch { return false; } });
+    const inside = sel.rangeCount && parts.text.contains(sel.anchorNode);
+    sel.removeAllRanges();
+    const where = hitsText();
+    const bits = [`window.find("${word}") ${r.value ? (inside ? 'finds it in the card' : 'finds a match, but not in the card') : 'does not find it'}`,
+      r.changed === true ? 'the match is highlighted in the canvas' : r.changed === false ? 'the match is NOT highlighted in the canvas' : r.painted ? 'the canvas repainted for the match (its pixels cannot be read back to compare)' : 'no repaint was seen for the match',
+      where ? 'the match rectangle is on the drawn text, so the find bar scrolls to the right place' : 'the match rectangle is NOT where the text is drawn'];
+    const bad = !r.value || !inside || r.changed === false;
+    checks.push(res('find', bad ? 'fail' : !where || (r.changed === null && !r.painted) ? 'warn' : 'pass', bits.join('; ') + '. The find bar itself (Ctrl+F) is on the by-hand list.'));
+  }
+
+  // ---- select
+  {
+    sel.removeAllRanges();
+    const range = doc.createRange();
+    range.selectNodeContents(parts.text);
+    const r = await pixelsChange(doc, canvas, () => range.getBoundingClientRect(), () => sel.addRange(range));
+    const copied = sel.toString().trim();
+    sel.removeAllRanges();
+    // Would a pointer drag start in this text? Ask where the caret would go at the drawn word.
+    const wr = wordRange.getBoundingClientRect();
+    let caret = null;
+    try {
+      const p = doc.caretPositionFromPoint?.(wr.left + wr.width / 2, wr.top + wr.height / 2) ?? null;
+      caret = p ? p.offsetNode : doc.caretRangeFromPoint?.(wr.left + wr.width / 2, wr.top + wr.height / 2)?.startContainer ?? null;
+    } catch {}
+    const caretOk = !!caret && parts.text.contains(caret);
+    const whole = copied === parts.text.textContent.trim();
+    const bits = [whole ? `a range over the paragraph copies as "${copied.slice(0, 24)}…"` : `a range over the paragraph gives "${copied.slice(0, 24)}"`,
+      r.changed === true ? 'the highlight is drawn in the canvas' : r.changed === false ? 'the highlight is NOT drawn in the canvas' : r.painted ? 'the canvas repainted for the selection (pixels not readable to compare)' : 'no repaint was seen for the selection',
+      caretOk ? 'a pointer at the drawn word lands in that text, so drag-select starts in the right place' : 'a pointer at the drawn word does not land in the text'];
+    checks.push(res('select', !whole || r.changed === false ? 'fail' : !caretOk || (r.changed === null && !r.painted) ? 'warn' : 'pass', bits.join('; ')));
+  }
+
+  // ---- zoom
+  {
+    const dpr = win.devicePixelRatio;
+    const ratio = (c) => { const r = c.getBoundingClientRect(); return r.width ? c.width / (r.width * dpr) : 1; };
+    const mine = canvases.filter((c) => c.getBoundingClientRect().width >= 24 && (c === canvas || isDrawableCanvas(c)));
+    const before = mine.map(ratio);
+    const prev = doc.documentElement.style.zoom;
+    const sx = win.scrollX, sy = win.scrollY;
+    const w0 = subject.getBoundingClientRect().width;
+    doc.documentElement.style.zoom = '1.5';
+    await frames(win, 4); await sleep(150); await frames(win, 3);
+    subject.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+    await frames(win, 3);
+    const after = mine.map(ratio);
+    const grew = subject.getBoundingClientRect().width / (w0 || 1);
+    const lost = Object.entries(parts).filter(([, el]) => hitTestable(doc, el) === false).map(([k]) => k);
+    doc.documentElement.style.zoom = prev;
+    await frames(win, 3);
+    win.scrollTo(sx, sy);
+    const soft = after.filter((x, i) => x < 0.95 && x < before[i] - 0.02).length;
+    const stale = grew < 1.3;
+    const softBefore = before.filter((x) => x < 0.95).length;
+    const bits = [stale ? `at 150% the page grows but the card's reported box stays ${grew.toFixed(2)}× its size: the pattern places the element with its own transform, which does not include CSS zoom, so the drawing and the hit-test box disagree and clicks near the far edges miss` : `at 150% the card's box is ${grew.toFixed(2)}× as wide, like the page`,
+      soft ? `${soft} of ${mine.length} canvas(es) kept the old bitmap and are stretched: blurry text for anyone who zooms` : `the canvas re-rendered with a backing pixel for every device pixel (${after.map((x) => x.toFixed(2)).join(', ')})`,
+      lost.length ? `${lost.join(', ')} no longer hit-testable where drawn` : 'clicks still land on what is drawn'];
+    if (softBefore && !soft) bits.push(`it was already below one backing pixel per device pixel before zooming (${before.map((x) => x.toFixed(2)).join(', ')})`);
+    checks.push(res('zoom', lost.length ? 'fail' : soft || softBefore || stale ? 'warn' : 'pass', bits.join('; ') + '. This is the CSS zoom property; real browser zoom changes devicePixelRatio instead and is in the recorded check. Pinch zoom and OS text size are on the by-hand list.'));
+  }
+
+  return { checks, tally: tallyOf(checks) };
+}

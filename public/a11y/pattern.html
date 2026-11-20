@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accessibility pattern fixture</title>
+<style>
+  html { font: 15px/1.45 system-ui, sans-serif; color-scheme: light; }
+  body { margin: 0; padding: 12px; background: #fff; color: #1d1c1a; }
+  #what { margin: 0 0 10px; font-size: 13px; color: #555; }
+  #what a { color: inherit; }
+  .card { box-sizing: border-box; width: 300px; max-width: 100%; padding: 12px 14px; border: 1px solid #c9c2b2; border-radius: 10px; background: #fffdf7; color: #222; }
+  .card h3 { margin: 0 0 4px; font-size: 17px; }
+  .card p { margin: 0 0 8px; }
+  .card input, .card button { font: inherit; }
+  .card label { display: block; margin-bottom: 8px; }
+  .card input { width: 150px; }
+  canvas.stagec { display: block; width: 100%; height: 250px; }
+</style>
+</head>
+<body>
+<p id="what"></p>
+<div id="mount"></div>
+<script type="module">
+  // One card, the same in every pattern. /a11y/ finds the parts by id.
+  import { PATTERNS } from '/a11y/patterns.js';
+  const id = new URLSearchParams(location.search).get('p') ?? 'plain';
+  const pattern = PATTERNS.find((p) => p.id === id) ?? PATTERNS[0];
+  const mount = document.getElementById('mount');
+  const card = (attrs = '') => `<section id="subject" class="card" ${attrs}>
+    <h3 id="s-h">Order summary</h3>
+    <p id="s-p">Three quokka lanterns, shipped Tuesday.</p>
+    <label>Name <input id="s-in" autocomplete="off"></label>
+    <button id="s-btn" type="button">Save</button>
+    <a id="s-a" href="#details">Details</a>
+  </section>`;
+  const what = document.getElementById('what');
+  what.innerHTML = `<strong></strong>: <span></span> <a target="_top">See it in a demo</a>.`;
+  what.querySelector('strong').textContent = pattern.title;
+  what.querySelector('span').textContent = pattern.how;
+  what.querySelector('a').href = pattern.demo;
+
+  const frames = (n = 2) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+  /** A 2D drawable canvas that keeps one backing pixel per device pixel, and calls draw(ctx) in CSS px. */
+  function drive(canvas, draw) {
+    const ctx = canvas.getContext('2d');
+    new ResizeObserver(([e]) => {
+      const b = e.devicePixelContentBoxSize?.[0];
+      canvas.width = Math.max(1, b ? b.inlineSize : Math.round(e.contentRect.width * devicePixelRatio));
+      canvas.height = Math.max(1, b ? b.blockSize : Math.round(e.contentRect.height * devicePixelRatio));
+      canvas.requestPaint();
+    }).observe(canvas, { box: 'device-pixel-content-box' });
+    canvas.addEventListener('paint', () => {
+      const s = canvas.width / (canvas.clientWidth || 1); // device pixels per CSS pixel, CSS zoom included
+      ctx.reset(); ctx.scale(s, s);
+      try { draw(ctx); } catch { canvas.requestPaint(); }
+    });
+    canvas.requestPaint();
+    return ctx;
+  }
+  // Always pass the size. drawElementImage(el, x, y) alone draws at the element's size in
+  // DEVICE pixels, so after ctx.scale(devicePixelRatio) it comes out too big on any HiDPI screen.
+  const at = (ctx, el) => ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight);
+  const tilt = (ctx) => { ctx.translate(24, 20); ctx.rotate(-0.03); };
+  const CANVAS = '<canvas class="stagec" content="drawable" layoutsubtree';
+
+  const build = {
+    plain() {
+      mount.innerHTML = `${CANVAS}>${card('drawable')}</canvas>`;
+      const c = mount.firstElementChild, el = c.firstElementChild;
+      drive(c, (ctx) => { tilt(ctx); at(ctx, el); });
+    },
+    async 'canvas-slot'() {
+      await import('/lib/canvas-slot.js');
+      mount.innerHTML = `<canvas-slot style="display:block;height:250px">${card('slot="card"')}</canvas-slot>`;
+      mount.firstElementChild.onrender = ({ ctx, draw }) => { tilt(ctx); draw('card', 0, 0); };
+    },
+    'bare-slot'() {
+      mount.innerHTML = `<div id="host">${card('slot="card" drawable')}</div>`;
+      const host = mount.firstElementChild;
+      const root = host.attachShadow({ mode: 'open' });
+      root.innerHTML = `${CANVAS} style="display:block;width:100%;height:250px"><slot name="card"></slot></canvas>`;
+      const el = host.firstElementChild;
+      drive(root.firstElementChild, (ctx) => { tilt(ctx); at(ctx, el); });
+    },
+    async 'light-slots'() {
+      mount.innerHTML = `<div>${CANVAS} style="display:block;width:100%;height:250px"><slot name="card"></slot></canvas>${card('slot="card" drawable')}</div>`;
+      const c = mount.querySelector('canvas'), el = mount.querySelector('#subject');
+      const { upgrade } = await import('/lib/light-slots.js');
+      upgrade(c);
+      drive(c, (ctx) => { tilt(ctx); at(ctx, el); });
+    },
+    'body-root'() {
+      mount.innerHTML = card();
+      const root = document.body.attachShadow({ mode: 'open' });
+      root.innerHTML = `${CANVAS} style="display:block;width:100%"><div drawable id="page"><slot></slot></div></canvas>`;
+      const c = root.firstElementChild, page = c.firstElementChild;
+      new ResizeObserver(() => { c.style.height = `${page.offsetHeight}px`; }).observe(page);
+      drive(c, (ctx) => at(ctx, page));
+    },
+    overlay() {
+      const c = document.createElement('canvas');
+      c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+      c.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:10';
+      const page = document.createElement('div');
+      page.setAttribute('drawable', '');
+      page.style.cssText = 'width:100vw;box-sizing:border-box;padding:12px;background:#fff';
+      mount.innerHTML = card();
+      document.body.append(c);
+      c.append(page);
+      page.append(what, mount);
+      drive(c, (ctx) => at(ctx, page));
+    },
+    async portal() {
+      mount.innerHTML = `${card()}<p style="margin:10px 0 4px;font-size:13px;color:#555">The same element again, at 70%:</p><dom-portal for="subject" scale="0.7"></dom-portal>`;
+      await import('/lib/dom-portal.js');
+    },
+    async worker() {
+      await import('/lib/canvas-slot.js');
+      mount.innerHTML = `<canvas-slot worker="/a11y/pattern-worker.js" style="display:block;height:250px">${card('slot="card"')}</canvas-slot>`;
+    },
+    async shader() {
+      mount.innerHTML = card('fx="glass"');
+      await import('/lib/shader-fx.js');
+    },
+    async lens() {
+      mount.innerHTML = `<dom-lens mode="magnify" zoom="2" radius="60" pinned x="240" y="36">${card()}</dom-lens>`;
+      await import('/lib/dom-lens.js');
+    },
+    async physical() {
+      mount.innerHTML = `<physical-ui material="paper">${card()}</physical-ui>`;
+      await import('/lib/physical-ui.js');
+    },
+    async transition() {
+      mount.innerHTML = `<live-transition effect="fold">${card()}<section class="card"><h3>Second state</h3><button type="button" id="other">Not on screen yet</button></section></live-transition>`;
+      await import('/lib/live-transition.js');
+    },
+    mirror() {
+      mount.innerHTML = `${CANVAS} style="display:block;width:100%;height:200px">${card('drawable')}</canvas><p style="margin:10px 0 4px;font-size:13px;color:#555">The mirror (pixels only):</p><canvas id="mirror" style="display:block;width:100%;height:200px"></canvas>`;
+      const c = mount.firstElementChild, el = c.firstElementChild, m = mount.querySelector('#mirror');
+      const mctx = m.getContext('2d');
+      drive(c, (ctx) => {
+        ctx.translate(24, 8); at(ctx, el);
+        m.width = c.width; m.height = c.height;
+        requestAnimationFrame(() => mctx.drawImage(c, 0, 0));
+      });
+      window.pixelsOnly = m;
+    },
+  };
+
+  let error = null;
+  try { await (build[pattern.id] ?? build.plain)(); } catch (err) { error = err; }
+  await frames(4);
+  window.pattern = { ...pattern, error: error ? `${error.name}: ${error.message}` : null };
+  document.documentElement.dataset.ready = '';
+</script>
+</body>
+</html>

@@ -56,7 +56,7 @@ window.DEMOS = [
   { group: '3d', href: '/xr/', title: 'WebXR panels', blurb: 'Ordinary HTML as floating panels in a headset, driven by controller rays, with an on-panel keyboard. Runs as a desktop preview and with a built-in headset emulator too.', tags: ['WebXR', 'three.js', 'synthetic input'] },
 
   // --- audit ---
-  { group: 'audit', href: '/a11y/', title: 'Accessibility audit', blurb: 'Is DOM in a canvas still DOM? Probes of focus, selection, find, zoom and forced colours, the same audit run over every demo here, and a short list to try with a screen reader.', tags: ['accessibility tree', 'focus', 'forced-colors'] },
-  { group: 'audit', href: '/capture/', title: 'Element capture', blurb: 'One call turns any element, or a whole ordinary page, into a PNG, a video or a printed page: <code>captureElement()</code>, <code>capturePage()</code>, <code>recordElement()</code>.', tags: ['moveBefore', 'captureStream', 'print'] },
+  { group: 'audit', href: '/a11y/', title: 'Accessibility audit', blurb: 'Is DOM in a canvas still DOM? Probes of focus, selection, find, zoom and forced colours, a table of how each pattern on this site holds up, the same audit run over every demo, and a short list to try with a screen reader.', tags: ['accessibility tree', 'focus', 'forced-colors'] },
+  { group: 'audit', href: '/capture/', title: 'Element capture', blurb: 'One call turns any element, or a whole ordinary page, into a PNG, a video or a printed page: <code>captureElement()</code>, <code>capturePage()</code>, <code>exportVideo()</code> with WebCodecs.', tags: ['moveBefore', 'WebCodecs', 'print'] },
   { group: 'audit', href: '/perf/', title: 'Performance wall', blurb: 'How many live elements a canvas can carry before frames drop, as plain DOM, a 2D canvas and a worker, measured on your device.', tags: ['requestPaint', 'worker', 'fps'] },
 ];
