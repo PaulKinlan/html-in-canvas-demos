@@ -20,12 +20,17 @@
   .bar label { font-size: 14px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
   #count { font: 13px var(--mono); color: var(--muted); }
 
-  #rigbox { position: fixed; left: 0; bottom: 0; z-index: 5; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 44px 30px 44px; }
+  /* The checks run here, on their own fixtures, and only while this box is on screen. It sticks to the top of
+     its own section while they run; it can never sit over the demo above. */
+  #rigbox { position: sticky; top: 8px; z-index: 5; display: inline-block; max-width: 100%; box-sizing: border-box; margin: 12px 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 44px 30px 14px; }
   #rigbox .cap { font: 12px var(--mono); color: var(--muted); position: absolute; left: 10px; top: 6px; }
-  #rigbox.done { position: relative; right: auto; bottom: auto; display: inline-block; margin-top: 12px; }
-  #rig { width: 300px; background: #fff; color: #000; }
+  #rigbox.done { position: relative; top: auto; }
+  @media (max-width: 420px) { #rigbox { padding-left: 13px; padding-right: 13px; } }   /* keep the rig at its full width on a phone */
+  #rig { width: 300px; max-width: 100%; background: #fff; color: #000; margin-bottom: 44px; }
   #rig p { font: 20px/28px monospace; margin: 0; }
-  #spans { position: fixed; left: 8px; top: 64px; opacity: .9; z-index: 4; }
+  #spans { display: flex; flex-wrap: wrap; gap: 4px; max-width: 300px; }
+  #big { width: 300px; max-width: 100%; margin: 44px 0; font-size: 12px; line-height: 1.5; color: var(--ink, #111); }
+  #big h2 { font-size: 15px; margin: 0 0 6px; } #big p { margin: 0 0 6px; }
 </style>
 </head>
 <body>
@@ -85,14 +90,15 @@
 &lt;/script&gt;</code></pre>
 
   <h2>Live tests</h2>
-  <table class="results"><tbody id="tests"></tbody></table>
+  <p class="note" id="checks-note">These run in your browser when this section is on screen, on the small fixtures in the box below. They do not touch the text above.</p>
   <div id="rigbox">
     <div class="cap">test rig</div>
     <glyph-field id="rig" bleed="40" force-motion>
       <p id="rig-p">AVATAR <a id="rig-a" href="#rig-a">link</a> word</p>
     </glyph-field>
+    <div id="spans" aria-hidden="true"></div>
   </div>
-  <div id="spans" aria-hidden="true"></div>
+  <table class="results"><tbody id="tests"></tbody></table>
 
   <h2>What we learned</h2>
   <ul class="findings">
@@ -109,7 +115,7 @@
 </main>
 
 <script type="module">
-  import { banner, supported, runTests } from '/shared/support.js';
+  import { banner, supported, runTests, listTests, onScreen } from '/shared/support.js';
   // The renderer has to be chosen before the element is defined, so it rides in the URL.
   const wantEngine = new URLSearchParams(location.search).get('engine') === 'webgl' ? 'webgl' : '2d';
   document.getElementById('field').setAttribute('engine', wantEngine);
@@ -346,12 +352,11 @@
       },
     },
     {
-      name: 'Every glyph of the text above in flight, with the renderer chosen below the text',
-      why: 'One picture of the block when the text repaints, then one piece of it per glyph per frame.',
+      name: 'Every glyph of a copy of the text above in flight, with the renderer chosen below the text',
+      why: 'One picture of the block when the text repaints, then one piece of it per glyph per frame. The copy lives in the test rig; the text above is left alone.',
       timeout: 15000,
       async run() {
-        await field.whenSettled();
-        field.setAttribute('force-motion', '');
+        const field = await bigRig();
         field.explode({ power: 1.2, hold: 700 });
         const times = [];
         let n = 0;
@@ -361,31 +366,32 @@
         await sleep(600);
         const fps = times.length / ((performance.now() - t0) / 1000);
         field.removeEventListener('glyphframe', on);
-        field.removeAttribute('force-motion');
-        field.assemble();
+        const engine = field.engine;
+        field.remove();
         const avg = times.reduce((a, b) => a + b, 0) / Math.max(1, times.length);
         must(times.length > 5 && avg < 12, `${avg.toFixed(2)} ms per frame over ${times.length} frames`);
-        return `${field.engine}: ${n} particles, ${avg.toFixed(2)} ms of script and draw calls per frame, ${fps.toFixed(0)} frames per second`;
+        return `${engine}: ${n} particles, ${avg.toFixed(2)} ms of script and draw calls per frame, ${fps.toFixed(0)} frames per second`;
       },
     },
     {
       name: 'The canvas is neither blank nor a solid block, at rest and mid-explosion',
-      why: 'Reads the big canvas above back. Text covers a small share of it; a blank or fully opaque canvas means the renderer is broken.',
+      why: 'Reads the canvas of the same copy back. Text covers a small share of it; a blank or fully opaque canvas means the renderer is broken.',
       timeout: 15000,
       async run() {
-        must(!field.fallbackReason, `fell back to plain HTML: ${field.fallbackReason}`);
-        await field.whenSettled(); await frames(3);
-        const rest = await coverageNext(field);
-        field.setAttribute('force-motion', '');
-        field.explode({ power: 1, hold: 600 });
-        await sleep(400);
-        const mid = await coverageNext(field);
-        field.removeAttribute('force-motion');
-        field.assemble();
+        const field = await bigRig();
+        const engine = field.engine, reason = field.fallbackReason;
+        let rest, mid;
+        try {
+          must(!reason, `fell back to plain HTML: ${reason}`);
+          rest = await coverageNext(field);
+          field.explode({ power: 1, hold: 600 });
+          await sleep(400);
+          mid = await coverageNext(field);
+        } finally { field.remove(); }
         const pct = (v) => (v * 100).toFixed(1) + '%';
         must(rest.any > 0.005 && mid.any > 0.005, `canvas is blank: ${pct(rest.any)} drawn at rest, ${pct(mid.any)} mid-explosion`);
         must(rest.opaque < 0.6 && mid.opaque < 0.6, `canvas is a solid block: ${pct(rest.opaque)} opaque at rest, ${pct(mid.opaque)} mid-explosion`);
-        return `${field.engine}: ${pct(rest.any)} of the canvas drawn at rest, ${pct(mid.any)} mid-explosion; opaque ${pct(rest.opaque)} and ${pct(mid.opaque)}`;
+        return `${engine}: ${pct(rest.any)} of the canvas drawn at rest, ${pct(mid.any)} mid-explosion; opaque ${pct(rest.opaque)} and ${pct(mid.opaque)}`;
       },
     },
     {
@@ -491,11 +497,36 @@
     },
   ];
 
+  /** A copy of the demo's text in the test rig, so checks on "the whole text" never move the one being read. */
+  async function bigRig() {
+    document.getElementById('big')?.remove();
+    const big = document.createElement('glyph-field');
+    big.id = 'big';
+    big.setAttribute('bleed', '40'); big.setAttribute('force-motion', ''); big.setAttribute('pointer', 'none');
+    big.setAttribute('engine', field.engine);
+    for (const el of field.children) big.append(el.cloneNode(true));
+    for (const el of big.querySelectorAll('[contenteditable]')) el.removeAttribute('contenteditable');
+    for (const el of big.querySelectorAll('a')) el.tabIndex = -1;
+    big.inert = true;                       // nothing in the copy can take focus or a tap
+    document.getElementById('rigbox').append(big);
+    await frames(6);
+    await big.whenSettled();
+    await frames(3);
+    return big;
+  }
+  const rigbox = document.getElementById('rigbox');
   if (supported) {
     await customElements.whenDefined('glyph-field');
     await document.fonts.ready;
+    listTests(document.getElementById('tests'), tests);   // rows first, so nothing below moves when the checks start
+    const gate = onScreen(rigbox);
+    await gate.seen;
     await frames(6);
-    await runTests(document.getElementById('tests'), tests);
+    await runTests(document.getElementById('tests'), tests, { ready: gate.wait });
+    gate.stop();
+    document.getElementById('big')?.remove();
+    spans.replaceChildren();
+    getSelection().removeAllRanges();
   } else {
     document.getElementById('tests').innerHTML = '<tr><td class="note">Tests need the HTML-in-canvas API. The text above is plain HTML and stays put.</td></tr>';
   }

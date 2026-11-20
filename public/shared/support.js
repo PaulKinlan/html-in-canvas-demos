@@ -20,11 +20,12 @@ export function banner() {
 }
 
 /**
- * Run a list of live tests and render them into a <tbody>.
- * Each test: { name, expect: 'pass'|'fail', why, run: async () => detailString }
- * A test "passes" if run() resolves, "fails" if it throws.
+ * Put the rows for a list of tests on the page without running them, so that a page which starts its
+ * checks later (see onScreen) does not grow, and scroll under the visitor, when they start.
+ * runTests() reuses the rows.
  */
-export async function runTests(tbody, tests) {
+export function listTests(tbody, tests) {
+  if (tbody.__rows?.tests === tests) return tbody.__rows.rows;
   const rows = tests.map((t) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td class="status pending">…</td><td><strong></strong><div class="note"></div></td><td class="note detail"></td>`;
@@ -33,11 +34,23 @@ export async function runTests(tbody, tests) {
     tbody.append(tr);
     return tr;
   });
+  tbody.__rows = { tests, rows };
+  return rows;
+}
+
+/**
+ * Run a list of live tests and render them into a <tbody>.
+ * Each test: { name, expect: 'pass'|'fail', why, run: async () => detailString }
+ * A test "passes" if run() resolves, "fails" if it throws.
+ */
+export async function runTests(tbody, tests, { ready } = {}) {
+  const rows = listTests(tbody, tests);
   const results = [];
   for (const [i, t] of tests.entries()) {
     const tr = rows[i];
     let ok, detail;
     try {
+      if (ready) await ready();   // e.g. wait for the test fixture to be on screen again; not counted against the timeout
       detail = await withTimeout(t.run(), t.timeout ?? 4000);
       ok = true;
     } catch (err) {
@@ -52,6 +65,29 @@ export async function runTests(tbody, tests) {
   }
   window.__results = results;
   return results;
+}
+
+/**
+ * Keep on-load checks away from the demo the visitor is looking at: run them on a fixture that sits in
+ * the page's own "Live tests" section, and only while that fixture is on screen (canvases that are off
+ * screen are not painted, so their checks would time out).
+ *
+ *   const rig = onScreen(document.getElementById('rigbox'));
+ *   await rig.seen;                                    // first time it scrolls into view
+ *   await runTests(tbody, tests, { ready: rig.wait }); // pauses between checks while it is out of view
+ *
+ * Add ?checks to the URL to scroll to the fixture and start at once (handy for automation).
+ */
+export function onScreen(el) {
+  let visible = false, waiters = [];
+  const io = new IntersectionObserver((entries) => {
+    visible = entries.at(-1).isIntersecting;
+    if (visible) { for (const w of waiters) w(); waiters = []; }
+  }, { threshold: 0.6 });
+  io.observe(el);
+  const wait = () => (visible ? Promise.resolve() : new Promise((r) => waiters.push(r)));
+  if (new URLSearchParams(location.search).has('checks')) el.scrollIntoView({ block: 'center' });
+  return { seen: wait(), wait, get visible() { return visible; }, stop: () => io.disconnect() };
 }
 
 export function withTimeout(promise, ms) {

@@ -315,6 +315,7 @@ export class LiveTransition extends HTMLElement {
   #ro; #mo;
   #pointer = null;
   #needsFrame = true;
+  #plain = null;           // why the states are showing as plain HTML instead of through the canvas, or null
 
   constructor() {
     super();
@@ -326,6 +327,33 @@ export class LiveTransition extends HTMLElement {
   get current() { return this.#current; }
   get transitioning() { return !!this.#anim; }
   get canvas() { return this.#canvas; }
+  /** Why the states are showing as plain HTML instead of through the canvas, or null. */
+  get fallbackReason() { return this.#plain; }
+
+  /**
+   * Stop drawing and show the current state as ordinary HTML. The element does this by itself when the
+   * WebGL context is lost (and comes back when it is restored); call it if you can tell the canvas is wrong.
+   * Fires "livefallback" with { reason }. show() still switches states, without an effect.
+   */
+  showPlain(reason = 'asked to') {
+    if (!SUPPORTED || this.#plain || !this.#canvas) return;
+    if (this.#anim) this.#finish(true);
+    this.#plain = String(reason);
+    for (const l of this.#layers) this.shadowRoot.append(l.wrap);
+    this.setAttribute('plain', '');
+    this.dispatchEvent(new CustomEvent('livefallback', { detail: { reason: this.#plain } }));
+  }
+
+  /** Go back to drawing through the canvas after showPlain(). */
+  showCanvas() {
+    if (!this.#plain) return;
+    if (this.#gl.isContextLost()) return;
+    this.#plain = null;
+    for (const l of this.#layers) { this.#canvas.append(l.wrap); l.tex = null; l.tw = l.th = 0; l.fresh = false; }
+    this.removeAttribute('plain');
+    this.#measure();
+    this.dispatchEvent(new CustomEvent('livefallback', { detail: { reason: null } }));
+  }
 
   connectedCallback() {
     if (this.#canvas || this.shadowRoot.childNodes.length) return;
@@ -345,6 +373,8 @@ export class LiveTransition extends HTMLElement {
         .layer { position: absolute; left: ${b}px; top: ${b}px; width: calc(100% - ${2 * b}px); height: calc(100% - ${2 * b}px); pointer-events: auto; overflow: hidden; }
         .layer[hidden] { display: block; visibility: hidden; pointer-events: none; }
         .layer.off { pointer-events: none; }
+        :host([plain]) canvas { display: none; }
+        :host([plain]) .layer { left: 0; top: 0; width: 100%; height: 100%; }
       </style>
       <canvas content="drawable" layoutsubtree></canvas>`;
     this.#canvas = this.shadowRoot.querySelector('canvas');
@@ -355,6 +385,12 @@ export class LiveTransition extends HTMLElement {
     this.#ro = new ResizeObserver(() => this.#measure());
     this.#ro.observe(this);
     this.#canvas.addEventListener('paint', (e) => this.#render(e));
+    // A lost context leaves an empty box where the states were. Show them as plain HTML until it is back.
+    this.#canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); this.showPlain('the WebGL context was lost'); });
+    this.#canvas.addEventListener('webglcontextrestored', () => {
+      try { this.#custom.clear(); this.#initGL(); } catch (err) { this.lastError = err; return; }
+      this.showCanvas();
+    });
     addEventListener('pointermove', this.#onPointer, { passive: true });
     addEventListener('pointerdown', this.#onPointer, { passive: true, capture: true });
     addEventListener('click', this.#onClick, { capture: true });
@@ -384,11 +420,16 @@ export class LiveTransition extends HTMLElement {
     if (to === this.#current) return;
     let effect = opts.effect ?? this.getAttribute('effect') ?? 'fade';
     if (!(effect in LiveTransition.effects) && !(effect in LiveTransition.shaders)) throw new RangeError(`Unknown effect "${effect}"`);
-    if (SUPPORTED && effect in LiveTransition.shaders) this.#shader(LiveTransition.shaders[effect].glsl);   // throws the compile log if the shader is wrong
+    if (SUPPORTED && !this.#plain && effect in LiveTransition.shaders) this.#shader(LiveTransition.shaders[effect].glsl);   // throws the compile log if the shader is wrong
     const duration = Number(opts.duration ?? this.getAttribute('duration') ?? 900);
     if (!opts.force && matchMedia('(prefers-reduced-motion: reduce)').matches) effect = 'fade';
 
     if (!SUPPORTED) return this.#fallbackShow(to);
+    if (this.#plain) {
+      const swap = () => { this.#current = to; this.#applyVisibility(); };
+      if (document.startViewTransition) return document.startViewTransition(swap).finished.catch(() => {});
+      return swap();
+    }
 
     const from = this.#current;
     const fromLayer = this.#layers[from], toLayer = this.#layers[to];
@@ -485,7 +526,7 @@ export class LiveTransition extends HTMLElement {
         wrap.setAttribute('drawable', '');
         const slot = document.createElement('slot');
         wrap.append(slot);
-        this.#canvas.append(wrap);
+        (this.#plain ? this.shadowRoot : this.#canvas).append(wrap);
         layer = { el, wrap, slot, tex: null, tw: 0, th: 0 };
         this.#ro?.observe(el);
       }
@@ -618,7 +659,7 @@ export class LiveTransition extends HTMLElement {
   }
 
   #requestFrame() {
-    if (!SUPPORTED) return;
+    if (!SUPPORTED || this.#plain) return;
     this.#needsFrame = true;
     this.#canvas.requestPaint();
   }
@@ -717,7 +758,8 @@ export class LiveTransition extends HTMLElement {
   #render(event) {
     const gl = this.#gl, a = this.#anim, W = this.#W, H = this.#H;
     const changed = event?.changedElements ? new Set(event.changedElements) : null;
-    if (!W || !H || !this.#layers.length) return;
+    if (!W || !H || !this.#layers.length || this.#plain) return;
+    if (gl.isContextLost()) { this.showPlain('the WebGL context was lost'); return; }
     const from = this.#layers[a ? a.from : this.#current], to = this.#layers[a ? a.to : this.#current];
     try {
       this.#upload(from, 0, changed);

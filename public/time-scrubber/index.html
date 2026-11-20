@@ -35,13 +35,16 @@
   #when.live { color: var(--ok); }
   #stats { font: 13px var(--mono); color: var(--muted); }
 
-  #rigbox { position: fixed; left: 0; bottom: 0; z-index: 5; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 26px 10px 10px; }
+  /* The checks run here, on their own fixtures, and only while this box is on screen. It sticks to the top of
+     its own section while they run; it can never sit over the desk above. */
+  #rigbox { position: sticky; top: 8px; z-index: 5; display: inline-block; max-width: 100%; box-sizing: border-box; margin: 12px 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 26px 10px 10px; }
   #rigbox .cap { font: 12px var(--mono); color: var(--muted); position: absolute; left: 10px; top: 6px; }
-  #rigbox.done { position: relative; right: auto; bottom: auto; display: inline-block; margin-top: 12px; }
-  #rig { width: 320px; height: 160px; background: #fff; }
+  #rigbox.done { position: relative; top: auto; }
+  @media (max-width: 420px) { #rigbox { padding-left: 3px; padding-right: 3px; } }   /* keep the rig at its full width on a phone */
+  #rig { width: 320px; max-width: 100%; height: 160px; background: #fff; }
   .ya { width: 120px; height: 60px; background: rgb(255, 204, 0); font: 13px system-ui; color: #000; }
   .yb { width: 40px; height: 40px; background: rgb(0, 204, 255); }
-  #raws { position: fixed; left: 8px; bottom: 8px; opacity: .3; pointer-events: none; display: flex; gap: 4px; z-index: -1; }
+  #raws { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; min-height: 60px; max-width: 320px; overflow: hidden; }
 </style>
 </head>
 <body>
@@ -74,6 +77,7 @@
     </div>
     <div class="puck" id="puck" data-x="520" data-y="200" role="img" aria-label="Bouncing puck">DOM</div>
   </dom-rewind>
+  <div id="fallback-note" class="note" role="status" hidden></div>
 
   <div class="transport">
     <div class="line">
@@ -113,15 +117,16 @@
 &lt;/script&gt;</code></pre>
 
   <h2>Live tests</h2>
-  <table class="results"><tbody id="tests"></tbody></table>
+  <p class="note">These run in your browser when this section is on screen, on the small fixtures in the box below. They do not touch the desk above.</p>
   <div id="rigbox">
     <div class="cap">test rig</div>
     <dom-rewind id="rig" seconds="20">
       <div class="ya" id="ya" data-x="10" data-y="10">A <input id="ya-in" size="4" value="one" aria-label="Test text"> <input id="ya-check" type="checkbox" aria-label="Test checkbox"> <button id="ya-btn">b</button></div>
       <div class="yb" id="yb" data-x="200" data-y="20"></div>
     </dom-rewind>
+    <div id="raws" aria-hidden="true"></div>
   </div>
-  <div id="raws" aria-hidden="true"></div>
+  <table class="results"><tbody id="tests"></tbody></table>
 
   <h2>What we learned</h2>
   <ul class="findings">
@@ -135,7 +140,7 @@
 </main>
 
 <script type="module">
-  import { banner, supported, runTests } from '/shared/support.js';
+  import { banner, supported, runTests, listTests, onScreen } from '/shared/support.js';
   import '/lib/dom-rewind.js';
   banner();
 
@@ -270,6 +275,32 @@
     return { mid, edges };
   };
 
+  // If the canvas is lost, or comes out empty or as one solid block, show the cards as plain HTML and say so.
+  {
+    const note = document.getElementById('fallback-note');
+    desk.addEventListener('rewindfallback', (e) => {
+      note.hidden = !e.detail.reason;
+      note.textContent = e.detail.reason ? `Showing the cards as plain HTML because ${e.detail.reason}. They still work and can be dragged; recording and scrubbing are off.` : '';
+    });
+    const probe = document.createElement('canvas'), pctx = probe.getContext('2d', { willReadFrequently: true });
+    let last = 0, bad = 0;
+    desk.addEventListener('rewindframe', () => {
+      if (performance.now() - last < 700 || desk.fallbackReason || !desk.children.length) return;
+      last = performance.now();
+      const c = desk.canvas;
+      probe.width = Math.max(1, Math.round(c.width / 8)); probe.height = Math.max(1, Math.round(c.height / 8));
+      pctx.drawImage(c, 0, 0, probe.width, probe.height);
+      const d = pctx.getImageData(0, 0, probe.width, probe.height).data;
+      let any = 0, opaque = 0;
+      for (let i = 3; i < d.length; i += 4) { if (d[i] > 8) any++; if (d[i] > 250) opaque++; }
+      const n = d.length / 4;
+      // The cards cover part of the desk and the rest is clear. Nothing drawn, or everything opaque, is wrong.
+      const wrong = any / n < 0.005 ? 'the canvas came out blank' : opaque / n > 0.98 ? 'the canvas came out as one solid block' : null;
+      bad = wrong ? bad + 1 : 0;
+      if (bad >= 3) desk.showPlain(wrong);                           // three checks in a row (about 2 s), so a slow first paint does not count
+    });
+  }
+
   const tests = [
     {
       name: 'Scrub back and the old frame is on screen; go live and the present returns',
@@ -316,6 +347,37 @@
         must(first.yellow - last.yellow > 500 && last.cyan - first.cyan > 500, `first picture: ${first.yellow} yellow, ${first.cyan} cyan; last: ${last.yellow} yellow, ${last.cyan} cyan`);
         must(near(live, CYAN), `live drawing did not resume: ${live}`);
         return `${got.length} pictures ${first.w}px wide; yellow at 0 s, cyan at ${last.time.toFixed(2)} s; live drawing resumed`;
+      },
+    },
+    {
+      name: 'showPlain() swaps the canvas for ordinary HTML in the same places, and showCanvas() goes back',
+      why: 'What the element does by itself when its canvas context is lost, so a dead canvas is never an empty box.',
+      async run() {
+        const ya = document.getElementById('ya');
+        ya.style.background = '';
+        rig.place(ya, { x: 10, y: 10, rotate: 0 });
+        let reason = null;
+        const on = (e) => { if (e.detail.reason) reason = e.detail.reason; };
+        rig.addEventListener('rewindfallback', on);
+        rig.showPlain('this is a test');
+        await frames(3);
+        const r = rig.getBoundingClientRect(), a = ya.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + 10 + 100, r.y + 10 + 30);
+        rig.place(ya, { x: 40, y: 20 });
+        await frames(2);
+        const b = ya.getBoundingClientRect();
+        rig.place(ya, { x: 10, y: 10 });
+        const hidden = getComputedStyle(rig.canvas).display === 'none';
+        rig.showCanvas();
+        await frames(4);
+        const px = await rigPx(120, 62);
+        rig.removeEventListener('rewindfallback', on);
+        must(reason === 'this is a test' && hidden, `event reason ${reason}, canvas hidden ${hidden}`);
+        must(Math.abs(a.x - r.x - 10) < 1.5 && Math.abs(a.y - r.y - 10) < 1.5, `card is at ${(a.x - r.x).toFixed(1)},${(a.y - r.y).toFixed(1)}, expected 10,10`);
+        must(hit && ya.contains(hit), `the card is not what is under the pointer: ${hit?.tagName}`);
+        must(Math.abs(b.x - r.x - 40) < 1.5, 'place() did not move the plain card');
+        must(!rig.fallbackReason && near(px, YELLOW), `canvas did not draw again: ${px}`);
+        return 'card at 10,10 as HTML, clickable, moves with place(); canvas draws again after showCanvas()';
       },
     },
     {
@@ -531,8 +593,13 @@
 
   if (supported) {
     await customElements.whenDefined('dom-rewind');
+    listTests(document.getElementById('tests'), tests);   // rows first, so nothing below moves when the checks start
+    const gate = onScreen(document.getElementById('rigbox'));
+    await gate.seen;
     await frames(6);
-    await runTests(document.getElementById('tests'), tests);
+    await runTests(document.getElementById('tests'), tests, { ready: gate.wait });
+    gate.stop();
+    raws.replaceChildren();
   } else {
     document.getElementById('tests').innerHTML = '<tr><td class="note">Tests need the HTML-in-canvas API. The cards above still work and can be dragged; nothing is recorded.</td></tr>';
   }
