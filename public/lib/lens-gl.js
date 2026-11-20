@@ -393,11 +393,11 @@ vec4 lens(vec2 p) {
 
   eye: {
     label: 'Fiery eye',
-    blurb: 'A lidless eye wreathed in flame. The page shows through the slit pupil, which looks where the lens is going (pin it and it watches your pointer).',
-    zoom: 1.8,
+    blurb: 'A lidless eye that sets the page alight: letters stream out from it, catch, and burn away at the rim. It looks where the lens is going (pin it and it watches your pointer).',
+    zoom: 1.6,
     mip: true,
     animated: true,
-    reach: () => 1.1,
+    reach: (z) => 1 / z + 0.08,
     density: (z) => Math.min(z, 3),
     glsl: `
 float vnoise(vec2 x) {
@@ -414,39 +414,78 @@ vec3 fire(float t) {
   t = clamp(t, 0.0, 1.0);
   return vec3(smoothstep(0.0, 0.4, t), smoothstep(0.22, 0.8, t) * 0.88, smoothstep(0.68, 1.0, t) * 0.75);
 }
+// How much ink the page has at q: 1 on a dark glyph, 0 on paper.
+float inkAt(vec2 q, float lod) { return clamp(1.0 - luma(srcLod(q, lod).rgb) * 1.04, 0.0, 1.0); }
+// The page is pushed out from the middle: stretched more and more towards the rim.
+float pull(float r) { return r / u_zoom * (1.0 - 0.27 * r * r); }
+
+// The eye itself, in its own unit circle. rgb and how much of it covers the page.
+vec4 eyeball(vec2 p, float t) {
+  float r = length(p);
+  vec2 dir = p / max(r, 1e-4);
+  vec2 e = p * vec2(0.8, 1.25);
+  float er = length(e), R0 = 0.52;
+  vec2 c = u_look * vec2(0.22, 0.1);
+  float f = fbm(e * 3.6 - dir * t * 1.6);
+  float streak = fbm(normalize(p - c + 1e-5) * 5.0 + vec2(er * 2.0 - t * 0.5, t * 0.2));
+  float iris = (0.3 + 1.2 * streak * streak) * (1.25 - er * 1.1);
+  float flames = clamp(f * 2.2 - (er - R0) * 2.1, 0.0, 1.0) * (0.45 + f);
+  float heat = mix(iris, flames, smoothstep(R0 - 0.1, R0 + 0.06, er));
+  heat *= 1.0 - 0.45 * exp(-pow((er - R0 + 0.04) * 14.0, 2.0));
+  vec2 q = (p - c) / vec2(0.17 + 0.025 * sin(t * 1.7), 0.56);
+  q.x /= 1.0 - 0.75 * q.y * q.y;
+  float pd = length(q);
+  heat += exp(-pow((pd - 1.0) * 3.0, 2.0)) * 0.35 * step(1.0, pd);
+  vec3 col = fire(heat);
+  col = mix(col, vec3(0.03, 0.0, 0.0), smoothstep(1.05, 0.9, pd));
+  float cover = max(clamp(heat * 1.8, 0.0, 1.0), smoothstep(1.05, 0.9, pd)) * smoothstep(1.25, 0.95, r);
+  return vec4(col, cover);
+}
+
 vec4 lens(vec2 p) {
   float r = length(p), t = u_time;
   vec2 dir = p / max(r, 1e-4);
-  // The eye is wider than it is tall: measure the fire in a squashed space.
-  vec2 e = p * vec2(0.82, 1.25);
-  float er = length(e);
-  // Heat haze: the page shimmers near the fire and is scorched towards it.
-  float grip = smoothstep(1.0, 0.7, r);
-  vec2 haze = vec2(fbm(p * 6.0 + vec2(0.0, -t * 1.6)), fbm(p * 6.0 + vec2(9.0, -t * 1.3))) - 0.5;
-  vec3 col = src(p + haze * 0.09 * grip).rgb;
-  col *= mix(1.0, 0.12, smoothstep(1.0, 0.45, r));
-  col = mix(col, col * vec3(1.0, 0.55, 0.3), grip * 0.7);
-  // Flames stream outwards from the rim of the iris; the iris itself is streaked.
-  float R0 = 0.5;
-  float f = fbm(e * 4.2 - dir * t * 1.5);
-  vec2 look = u_look * vec2(0.2, 0.1);
-  float streak = fbm(normalize(p - look + 1e-5) * 5.0 + vec2(er * 2.0 - t * 0.5, t * 0.2));
-  float iris = (0.28 + 0.62 * streak * streak * 2.0) * (1.25 - er * 1.1);
-  float flames = clamp(f * 2.1 - (er - R0) * 2.3, 0.0, 1.0) * (0.45 + f);
-  float heat = mix(iris, flames, smoothstep(R0 - 0.1, R0 + 0.06, er));
-  heat *= 1.0 - 0.45 * exp(-pow((er - R0 + 0.04) * 14.0, 2.0));    // a dark rim where the iris ends
-  // The slit pupil, sliding towards whatever the eye is following.
-  vec2 c = look;
-  vec2 q = (p - c) / vec2(0.19 + 0.025 * sin(t * 1.7), 0.56);
-  q.x /= 1.0 - 0.75 * q.y * q.y;                                   // pointed at both ends
-  float pd = length(q);
-  heat += exp(-pow((pd - 1.0) * 3.0, 2.0)) * 0.35 * step(1.0, pd);
-  float af = clamp(heat * 1.7, 0.0, 1.0) * smoothstep(1.0, 0.9, r);
-  col = col * (1.0 - af) + fire(heat) * af;
-  vec3 seen = src((p - c) / u_zoom).rgb * vec3(1.0, 0.86, 0.74);
-  seen *= 1.0 - 0.6 * smoothstep(0.6, 1.0, pd);
-  col = mix(col, seen, smoothstep(1.04, 0.92, pd));
-  return vec4(col, disc(p, 0.0));
+  float n1 = fbm(p * 3.0 + vec2(0.0, -t * 0.4));
+  // The hole burnt in the page has a ragged, creeping edge.
+  float edgeR = min(0.985, 0.87 + 0.24 * (fbm(dir * 2.2 + vec2(t * 0.22, -t * 0.17)) - 0.5));
+  float d = edgeR - r;
+  // The page under the lens, pushed outward and shimmering in the heat.
+  vec2 wob = (vec2(fbm(p * 5.0 + vec2(0.0, -t * 1.4)), fbm(p * 5.0 + vec2(7.0, -t * 1.1))) - 0.5) * 0.06 * r / u_zoom;
+  vec2 q = dir * pull(r) + wob;
+  vec3 page = src(q).rgb;
+  float ink = clamp(1.0 - luma(page) * 1.04, 0.0, 1.0);
+  float halo = inkAt(q, 3.0);
+  // Every letter throws a flame outward: look back towards the eye for ink.
+  float trail = 0.0;
+  for (int i = 1; i <= 6; i++) {
+    float fi = float(i), rr = max(r - fi * 0.028, 0.0);
+    vec2 lick = (vec2(vnoise(p * 13.0 + fi + t * 2.3), vnoise(p * 13.0 - fi - t * 2.0)) - 0.5) * 0.012 * fi / u_zoom;
+    trail += inkAt(dir * pull(rr) + wob + lick, 1.5) * (1.0 - fi / 7.0);
+  }
+  float burn = clamp(smoothstep(0.25, edgeR, r) + (n1 - 0.5) * 0.5, 0.0, 1.0);    // 0 by the eye, 1 at the edge
+  trail *= 0.5 * (0.35 + fbm(p * 9.0 - dir * t * 2.6)) * (0.35 + burn);
+  // Paper scorches from parchment to char; ink goes from soot through ember to white hot, and crumbles.
+  vec3 col = mix(vec3(1.0), page, 0.25) * mix(vec3(0.98, 0.86, 0.66), vec3(0.3, 0.13, 0.05), pow(burn, 1.3));
+  float crumble = smoothstep(burn * 1.2 - 0.3, burn * 1.2, 0.3 + vnoise(p * 42.0 + t * 0.6));
+  vec3 ember = fire(0.3 + burn * 0.8 + 0.12 * sin(t * 4.0 + n1 * 30.0));
+  col = mix(col, vec3(0.07, 0.03, 0.02), ink * (1.0 - burn) * 0.9);
+  col = mix(col, ember, ink * smoothstep(0.1, 0.6, burn) * crumble);
+  col += vec3(1.0, 0.42, 0.08) * max(halo * 1.6 - ink, 0.0) * (0.25 + burn) * 1.3;   // ember glow round each glyph
+  col += fire(0.35 + trail * 1.2) * trail * 1.5;                                      // the flames themselves
+  // Char, then a glowing front, at the edge of the hole.
+  col *= 1.0 - 0.9 * smoothstep(0.15, 0.02, d);
+  col += fire(0.72 + 0.28 * sin(t * 3.0 + n1 * 25.0)) * exp(-pow(d / 0.022, 2.0)) * 1.5;
+  // Sparks fly outward and past the edge.
+  float sp = clamp(pow(vnoise(p * 60.0 - dir * t * 3.2 + 3.0), 34.0) * 6000.0, 0.0, 1.0) * smoothstep(0.5, 0.9, r) * (0.5 + 0.5 * sin(t * 9.0 + n1 * 40.0));
+  col += vec3(1.0, 0.72, 0.3) * sp;
+  // The eye in the middle.
+  vec4 eye = eyeball(p / 0.4, t);
+  col = mix(col, eye.rgb, eye.a);
+  float a = smoothstep(0.0, 0.012, d);
+  float scorch = 0.7 * smoothstep(-0.07, 0.0, d) + sp;
+  vec3 outside = mix(vec3(0.16, 0.06, 0.02), vec3(1.0, 0.6, 0.15), max(sp, exp(-pow(d / 0.022, 2.0))));
+  float alpha = max(a, clamp(scorch, 0.0, 1.0) * (1.0 - a));
+  return vec4(mix(outside, col, a), alpha * disc(p, 0.0));
 }`,
   },
 
