@@ -206,7 +206,7 @@ export class DomPortalSource extends HTMLElement {
   #unitValue = 1;
   #unit(cssWidth) {
     const c = this.#canvas;
-    const key = `${c.width}x${c.height}/${c.clientWidth}x${c.clientHeight}/${Math.round(cssWidth)}`;
+    const key = `${c.width}x${c.height}/${c.clientWidth}x${c.clientHeight}/${Math.round(cssWidth)}/${this.currentCSSZoom}`;
     if (key === this.#unitKey) return this.#unitValue;
     c.updateElementGeometry(this.#content, { canvasTransform: new DOMMatrix() });
     const measured = this.#content.getBoundingClientRect().width;
@@ -221,11 +221,15 @@ export class DomPortalSource extends HTMLElement {
   update(force = false) {
     if (!this.#painted || !this.width || !this.isConnected) return;
     const home = this.getBoundingClientRect();
-    const w = this.width;
-    const h = this.height;
+    // Everything below is in client px, which include CSS zoom; the element's
+    // own size (this.width) and the canvas's style are in layout px, which do
+    // not. z converts between them.
+    const z = this.currentCSSZoom || 1;
+    const w = this.width * z;
+    const h = this.height * z;
     const frames = [];
     for (const p of this.#portals) {
-      const f = p.frame(w, h);
+      const f = p.frame(w, h, z);
       if (f) frames.push(f);
     }
 
@@ -260,12 +264,12 @@ export class DomPortalSource extends HTMLElement {
     const cw = x1 - x0;
     const ch = y1 - y0;
     const style = this.#canvas.style;
-    const left = mode === 'top' ? 0 : x0 - home.left - this.clientLeft;
-    const top = mode === 'top' ? 0 : y0 - home.top - this.clientTop;
+    const left = mode === 'top' ? 0 : (x0 - home.left) / z - this.clientLeft;
+    const top = mode === 'top' ? 0 : (y0 - home.top) / z - this.clientTop;
     if (style.left !== left + 'px') style.left = left + 'px';
     if (style.top !== top + 'px') style.top = top + 'px';
-    if (style.width !== cw + 'px') style.width = cw + 'px';
-    if (style.height !== ch + 'px') style.height = ch + 'px';
+    if (style.width !== cw / z + 'px') style.width = cw / z + 'px';
+    if (style.height !== ch / z + 'px') style.height = ch / z + 'px';
     const pw = Math.max(1, Math.round(cw * dpr));
     const ph = Math.max(1, Math.round(ch * dpr));
     if (this.#canvas.width !== pw || this.#canvas.height !== ph) {
@@ -291,10 +295,11 @@ export class DomPortalSource extends HTMLElement {
     if (active) {
       let { x, y, w: fw, h: fh } = active;
       if (clipped) ({ x, y, w: fw, h: fh } = intersect(active, visibleBox(active.portal)));
-      clip = [(x - active.cx) / active.s, (y - active.cy) / active.s, fw / active.s, fh / active.s];
+      const k2 = active.s * z;
+      clip = [(x - active.cx) / k2, (y - active.cy) / k2, fw / k2, fh / k2];
     } else if (clipped) {
       const v = visibleBox(this);
-      clip = [v.x - home.left, v.y - home.top, v.w, v.h];
+      clip = [(v.x - home.left) / z, (v.y - home.top) / z, v.w / z, v.h / z];
     }
 
     let key = `${home.left - x0},${home.top - y0},${w},${h},${cw},${ch},${mode},${active?.portal.uid ?? 'home'},${clip ? clip.map(Math.round) : ''}`;
@@ -337,9 +342,9 @@ export class DomPortalSource extends HTMLElement {
     }
 
     // One element, one geometry: give it to the copy under the pointer.
-    const m = new DOMMatrix().scale(this.#unit(w));
-    if (active) m.translateSelf(active.cx - x0, active.cy - y0).scaleSelf(active.s);
-    else m.translateSelf(home.left - x0, home.top - y0);
+    const m = new DOMMatrix().scale(this.#unit(this.width));
+    if (active) m.translateSelf(active.cx - x0, active.cy - y0).scaleSelf(active.s * z);
+    else m.translateSelf(home.left - x0, home.top - y0).scaleSelf(z);
     const geometry = { canvasTransform: m };
     if (clip) geometry.canvasClip = new DOMRect(...clip);
     this.#canvas.updateElementGeometry(this.#content, geometry);
@@ -449,11 +454,14 @@ export class DomPortal extends HTMLElement {
     return s > 0 ? s : 1;
   }
 
-  /** Where the copy goes, in client coordinates. */
-  frame(w, h) {
+  /**
+   * Where the copy goes, in client coordinates. w and h are the source's size
+   * in client px and sourceZoom its CSS zoom; s is relative to that size.
+   */
+  frame(w, h, sourceZoom = 1) {
     const r = this.getBoundingClientRect();
     if (!r.width || !r.height) return null;
-    let s = this.scale;
+    let s = (this.scale * (this.currentCSSZoom || 1)) / sourceZoom;
     let cx = r.left, cy = r.top;
     if (this.hasAttribute('fit')) {
       s = Math.min(r.width / w, r.height / h);
