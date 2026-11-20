@@ -46,35 +46,32 @@
     </div>
   </div>
 
-<pre><code>&lt;div id="host"&gt;
-  &lt;template shadowrootmode="open"&gt;
-    &lt;canvas content="drawable"&gt;
-      &lt;slot name="first"&gt;&lt;/slot&gt;
-      &lt;slot name="second"&gt;&lt;/slot&gt;
-    &lt;/canvas&gt;
-  &lt;/template&gt;
+  <details class="source" open data-src="/slot-bare/declarative.html">
+    <summary>The complete page for this demo (paste it into a blank .html file)</summary>
+  </details>
 
-  &lt;section slot="first"  drawable&gt;…&lt;/section&gt;
-  &lt;section slot="second" drawable&gt;…&lt;/section&gt;
-&lt;/div&gt;
+  <h2 id="template">Isn't <code>&lt;template&gt;</code> inert? Why is this canvas live?</h2>
+  <p>
+    A plain <code>&lt;template&gt;</code> is inert: its content sits in a separate fragment, never renders and never runs.
+    A <code>&lt;template shadowrootmode="open"&gt;</code> is a different thing called <strong>declarative shadow DOM</strong>. It is an instruction to the
+    HTML parser: “attach a shadow root to my parent and put my content in it.” The parser does that as it reads the page, and the
+    <code>&lt;template&gt;</code> element itself never ends up in the document. So by the time any script runs, the canvas is a real, live
+    element inside <code>host.shadowRoot</code>, already laid out, with real slots.
+  </p>
+<pre><code>const host = document.getElementById('host');
 
-&lt;script type="module"&gt;
-  const host = document.getElementById('host');
-  const canvas = host.shadowRoot.querySelector('canvas');
-  const ctx = canvas.getContext('2d');
-
-  canvas.onpaint = () =&gt; {
-    ctx.reset();
-    let x = 20;
-    for (const slot of canvas.querySelectorAll('slot'))
-      for (const el of slot.assignedElements()) {
-        // Position them wherever you like. Always pass a size: without one the element is
-        // drawn in canvas pixels, which is too big once the canvas is sized for a high-density screen.
-        ctx.drawElementImage(el, x, 20, el.offsetWidth, el.offsetHeight);
-        x += el.offsetWidth + 20;
-      }
-  };
-&lt;/script&gt;</code></pre>
+host.querySelector('template');          // null: the parser consumed it
+host.shadowRoot;                         // a ShadowRoot, made by the parser
+host.shadowRoot.querySelector('canvas'); // the live canvas, already on screen</code></pre>
+  <p>
+    What the parser does <em>not</em> do is draw. A canvas shows nothing until script draws into it, so the page still needs the four small pieces of
+    init code in the listing above: find the canvas in <code>host.shadowRoot</code>, size it with a <code>ResizeObserver</code>, draw the slotted elements
+    in <code>onpaint</code>, and repaint on <code>slotchange</code>.
+  </p>
+  <p>
+    One catch: only the parser does this. <code>element.innerHTML = '&lt;template shadowrootmode…&gt;'</code> leaves an ordinary inert template. From script, use
+    <code>setHTMLUnsafe()</code>, <code>Document.parseHTMLUnsafe()</code> or <code>attachShadow()</code>. The live tests below check each of these claims.
+  </p>
 
   <p>
     Why the <code>&lt;template&gt;</code>? Because a <code>&lt;slot&gt;</code> only projects content inside a shadow tree.
@@ -89,6 +86,13 @@
     <code>slot="stage"</code>. The page's markup is otherwise untouched. <a href="/slot-bare/body.html">Open it on its own</a>.
   </p>
   <iframe class="sub" src="/slot-bare/body.html" title="Body shadow root demo"></iframe>
+  <details class="source" open data-src="/slot-bare/body.html">
+    <summary>The complete page for this demo (paste it into a blank .html file)</summary>
+  </details>
+  <p>
+    The whole mechanism is the five lines that call <code>document.body.attachShadow()</code>: a canvas holding <code>&lt;slot name="stage"&gt;</code>,
+    then a default <code>&lt;slot&gt;</code> so the rest of the page renders as before. Everything after that is the same sizing and paint code as above.
+  </p>
 
   <h2>Does the bare pattern work? (live)</h2>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
@@ -106,6 +110,8 @@
 
 <script type="module">
   import { banner, nav, runTests, nextPaint, pixel, supported, testStage } from '/shared/support.js';
+  import { sourceViews } from '/shared/source-view.js';
+  sourceViews();
   nav('/slot-bare/');
   banner();
 
@@ -167,6 +173,42 @@
       return host;
     }
     runTests(document.getElementById('results'), [
+      {
+        name: 'The parser consumed the <template shadowrootmode>: the hero canvas is live',
+        why: 'host.querySelector("template") is null, host.shadowRoot exists, and its canvas is connected and laid out.',
+        run: () => {
+          if (host.querySelector('template')) throw new Error('a <template> element is still a child of #host');
+          if (!host.shadowRoot) throw new Error('#host has no shadow root');
+          if (!canvas.isConnected || !canvas.clientWidth) throw new Error('the canvas is not connected or has no size');
+          return `no <template> left, shadowRoot.mode "${host.shadowRoot.mode}", canvas ${canvas.clientWidth}×${canvas.clientHeight} CSS px`;
+        },
+      },
+      {
+        name: 'A plain <template> (no shadowrootmode) stays inert',
+        why: 'The comparison: its canvas lives in template.content, outside the document.',
+        run: () => {
+          const wrap = document.createElement('div');
+          wrap.setHTMLUnsafe(`<div><template>${CANVAS('<slot name="a"></slot>')}</template></div>`);
+          testStage().append(wrap);
+          const d = wrap.firstElementChild;
+          const t = d.querySelector('template');
+          if (!t || d.shadowRoot) throw new Error('expected an inert template and no shadow root');
+          const c = t.content.querySelector('canvas');
+          if (!c || c.isConnected) throw new Error('expected the canvas to be disconnected inside template.content');
+          return 'template kept, no shadow root, canvas.isConnected false';
+        },
+      },
+      {
+        name: 'innerHTML does not make a declarative shadow root (expected ✗)',
+        why: 'Only the parser, setHTMLUnsafe() and parseHTMLUnsafe() honour shadowrootmode.',
+        run: () => {
+          const wrap = document.createElement('div');
+          wrap.innerHTML = `<div><template shadowrootmode="open">${CANVAS('<slot name="a"></slot>')}</template></div>`;
+          testStage().append(wrap);
+          if (!wrap.firstElementChild.shadowRoot) throw new Error('no shadow root: innerHTML left an ordinary inert <template>');
+          return 'shadow root attached';
+        },
+      },
       {
         name: 'Declarative shadow DOM: <canvas><slot name> + <div slot drawable>',
         why: 'The pattern above, built from an HTML string with no element definitions.',
