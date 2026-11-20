@@ -1,0 +1,81 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Transport echo (remote origin)</title>
+<body style="margin:0;font:11px ui-monospace,monospace;background:#111;color:#9f9;padding:4px">
+<span id="o"></span> · received <span id="n">0</span>
+<script type="module">
+// Receives a transported thing from another origin, tries to turn it into
+// pixels, and reports the pixel it read plus an ImageBitmap of what it saw.
+document.getElementById('o').textContent = location.origin;
+let n = 0;
+const W = 240, H = 80;
+function sample(drawable, dw = W, dh = H) {
+  const oc = new OffscreenCanvas(W, H);
+  const ctx = oc.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(drawable, 0, 0, dw, dh);
+  return { px: Array.from(ctx.getImageData(14, 14, 1, 1).data), bitmap: oc.transferToImageBitmap() };
+}
+async function videoFrom(stream) {
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.srcObject = stream;
+  await v.play();
+  await new Promise((r) => v.requestVideoFrameCallback(r));
+  return v;
+}
+addEventListener('message', async (e) => {
+  const m = e.data;
+  if (!m || m.type !== 'echo') return;
+  document.getElementById('n').textContent = ++n;
+  const reply = (ok, detail, extra = {}, transfer = []) => e.source.postMessage({ type: 'echo-result', id: m.id, ok, detail, ...extra }, '*', transfer);
+  try {
+    let out;
+    const p = m.payload;
+    const tag = Object.prototype.toString.call(p);
+    if (m.kind === 'bitmap' || m.kind === 'frame') {
+      out = sample(p);
+      p.close?.();
+    } else if (m.kind === 'track') {
+      const v = await videoFrom(new MediaStream([p]));
+      out = sample(v);
+    } else if (m.kind === 'stream') {
+      const reader = p.getReader();
+      const { value } = await reader.read();
+      out = sample(value);
+      value.close?.();
+      reader.cancel();
+    } else if (m.kind === 'elementimage-bitmap') {
+      out = sample(await createImageBitmap(p));
+    } else if (m.kind === 'elementimage-draw') {
+      const c = document.createElement('canvas');
+      c.setAttribute('content', 'drawable');
+      c.width = W; c.height = H;
+      document.body.append(c);
+      c.getContext('2d').drawElementImage(p, 0, 0);
+      out = sample(c);
+    } else if (m.kind === 'offscreen+elementimage') {
+      // We own the sender's canvas now. Draw their snapshot into it, then try
+      // to get the pixels back out and return them.
+      const ctx = p.canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawElementImage(p.img, 0, 0);
+      const bmp = await createImageBitmap(p.canvas);
+      out = sample(bmp);
+    } else if (m.kind === 'bytes') {
+      const data = new ImageData(new Uint8ClampedArray(p.buffer), p.width, p.height);
+      out = sample(await createImageBitmap(data));
+    } else if (m.kind === 'blob') {
+      out = sample(await createImageBitmap(p));
+    } else {
+      throw new Error('unknown kind ' + m.kind);
+    }
+    reply(true, `${location.host} got ${tag}`, out, [out.bitmap]);
+  } catch (err) {
+    reply(false, `${err.name}: ${err.message}`);
+  }
+});
+// A value that can't be deserialized here (e.g. a VideoFrame from another
+// origin) never reaches 'message'; it fires 'messageerror' instead.
+addEventListener('messageerror', (e) => {
+  parent.postMessage({ type: 'echo-messageerror', origin: e.origin }, '*');
+});
+parent.postMessage({ type: 'echo-ready' }, '*');
+</script>
