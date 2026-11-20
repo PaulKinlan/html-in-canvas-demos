@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slots into canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  canvas-slot.hero { height: 420px; }
+  canvas-slot.hero [slot] { width: 320px; }
+  .note-card { font: 15px/1.5 system-ui; padding: 14px 16px; border-radius: 10px; background: #fff7e6; color: #2a2116; border: 1px solid #e8d7b5; }
+  .note-card h3 { margin: 0 0 4px; font-size: 18px; }
+  .form-card { padding: 14px 16px; border-radius: 10px; background: #e9f3ff; color: #10243d; border: 1px solid #b9d3f0; font: 15px/1.4 system-ui; }
+  .form-card label { display: block; margin-bottom: 6px; font-weight: 600; }
+  .form-card input { font: inherit; padding: 4px 8px; width: 180px; }
+  .form-card button { background: #10243d; color: white; border: 0; }
+  .quote-card { padding: 14px 16px; border-radius: 10px; background: #eef8ee; color: #163016; border: 1px solid #bfdcbf; font: italic 16px/1.5 Georgia, serif; }
+  canvas-slot.swap { height: 140px; }
+  canvas-slot.swap [slot], .pool > * { width: 300px; }
+  .pool { display: flex; gap: 12px; flex-wrap: wrap; }
+  .pool > * { padding: 10px 14px; border-radius: 8px; border: 1px dashed var(--line); }
+  #variants { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+  #variants > * { height: 70px; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>1 · Slotting DOM into a canvas</h1>
+  <p class="lede">
+    HTML-in-canvas wants the drawn DOM to be a descendant of the <code>&lt;canvas&gt;</code>. A shadow root lets
+    the canvas live in the shadow tree while your content stays in the light DOM: each named
+    <code>&lt;slot&gt;</code> inside the canvas pulls in the matching child, and that child is drawn with
+    <code>drawElementImage()</code>. The text below is real DOM: select it, tab to the input, type, click.
+  </p>
+
+  <div class="stage">
+    <canvas-slot class="hero" id="hero">
+      <article slot="note" class="note-card">
+        <h3>Light-DOM content</h3>
+        This card is a child of <code>&lt;canvas-slot&gt;</code>, not of the canvas. A
+        <code>&lt;slot name="note"&gt;</code> inside the shadow canvas reprojects it.
+      </article>
+      <form slot="form" class="form-card" onsubmit="event.preventDefault()">
+        <label for="name">Still a working form</label>
+        <input id="name" placeholder="Type here…">
+        <button id="count" type="button">Clicked 0×</button>
+      </form>
+      <blockquote slot="quote" class="quote-card">
+        “The slot is display: contents, so the slotted element becomes the canvas's layout child.”
+      </blockquote>
+    </canvas-slot>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <label><input type="checkbox" id="wobble" checked> Animate (renderer runs every frame)</label>
+  </div>
+
+<pre><code>&lt;canvas-slot&gt;
+  &lt;article slot="note"&gt;…&lt;/article&gt;
+  &lt;form slot="form"&gt;…&lt;/form&gt;
+&lt;/canvas-slot&gt;
+
+hero.onrender = ({ ctx, width, elements, draw, time }) =&gt; {
+  ctx.rotate(Math.sin(time / 900) * 0.04);
+  draw('note', 20, 20);   // drawElementImage(lightDomChild, …)
+  draw('form', 60, 170);
+};</code></pre>
+
+  <h2>Re-slotting: move content in and out of the canvas</h2>
+  <p>Changing an element's <code>slot</code> attribute reassigns it. Nothing is cloned or moved in the DOM, the canvas just gets a <code>slotchange</code> and repaints.</p>
+  <div class="stage">
+    <canvas-slot class="swap" id="swap"></canvas-slot>
+  </div>
+  <div class="pool" id="pool" style="margin-top:12px">
+    <div style="background:#fde2e4;color:#3a0d12">🍓 Strawberry: <b>bold</b> text, <a href="#">a link</a></div>
+    <div style="background:#e2f0cb;color:#1f2d0b">🥝 Kiwi: <input placeholder="an input" style="width:120px"></div>
+    <div style="background:#cde7f0;color:#0b2530">🫐 Blueberry: <progress value="0.6"></progress></div>
+  </div>
+  <p class="note">Click a card above to slot it into the canvas (only one at a time, it takes <code>slot="current"</code>).</p>
+
+  <h2>What works with slots (live, in your browser)</h2>
+  <div id="variants"></div>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Takeaways</h2>
+  <ul class="findings" id="takeaways">
+    <li><strong>Slotted light-DOM elements can be drawn directly.</strong> <code>drawElementImage(lightChild)</code> works when the light child is assigned to a slot inside the canvas, because layout and paint use the flat tree.</li>
+    <li><strong>The <code>&lt;slot&gt;</code> itself can't be the drawable.</strong> It is <code>display: contents</code>, so it has no box and no paint record ("No cached paint record for element"). Put <code>drawable</code> on the slotted element, or on a real wrapper element in the shadow tree around the slot.</li>
+    <li><strong>A shadow wrapper works too.</strong> <code>&lt;div drawable&gt;&lt;slot&gt;&lt;/slot&gt;&lt;/div&gt;</code> inside the canvas draws everything slotted into it as one image, which is handy when you don't want to touch the author's markup.</li>
+    <li><strong>The limit is the host's children.</strong> A slot can only reproject children of its shadow host. It does not let you pull an arbitrary element from elsewhere in the page into the canvas; for that, see the OffscreenCanvas and cross-tab demos.</li>
+    <li><strong>Hit testing, focus and selection follow the drawn position</strong>, because <code>drawElementImage</code> updates the element's geometry automatically.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/canvas-slot.js';
+  import { banner, nav, runTests, nextPaint, pixel, supported } from '/shared/support.js';
+  nav('/slot/');
+  banner();
+
+  // ---- Hero ----
+  const hero = document.getElementById('hero');
+  let n = 0;
+  document.getElementById('count').onclick = (e) => (e.target.textContent = `Clicked ${++n}×`);
+  hero.onrender = ({ ctx, width, height, draw, time }) => {
+    const t = wobble.checked ? time : 0;
+    const cards = [
+      ['note', 24, 24, -0.05],
+      ['form', Math.min(width - 340, 360), 70, 0.04],
+      ['quote', 60, 250, 0.02],
+    ];
+    for (const [name, x, y, rot] of cards) {
+      ctx.save();
+      ctx.translate(x + 160, y + 50);
+      ctx.rotate(rot + Math.sin(t / 900 + x) * 0.03);
+      ctx.translate(-160, -50);
+      ctx.shadowColor = 'rgba(0,0,0,0.25)';
+      ctx.shadowBlur = 18;
+      ctx.shadowOffsetY = 6;
+      draw(name, 0, Math.sin(t / 700 + y) * 4);
+      ctx.restore();
+    }
+  };
+  const wobble = document.getElementById('wobble');
+  const syncAnim = () => (hero.animate = wobble.checked);
+  wobble.onchange = syncAnim;
+  syncAnim();
+
+  // ---- Re-slotting ----
+  const swap = document.getElementById('swap');
+  const pool = document.getElementById('pool');
+  swap.onrender = ({ ctx, draw, elements, dpr }) => {
+    const el = elements.get('current');
+    if (!el) {
+      ctx.fillStyle = getComputedStyle(document.body).color;
+      ctx.font = '15px system-ui';
+      ctx.fillText('Nothing slotted. Click a card below.', 16, 30);
+      return;
+    }
+    // Draw it three times: normal, scaled, and a cropped strip.
+    draw(el, 12, 12);
+    draw(el, 330, 12, el.offsetWidth * 0.6, el.offsetHeight * 0.6);
+    // Source rect is in canvas-grid pixels (CSS px × canvas.width / clientWidth).
+    ctx.drawElementImage(el, 0, 0, 120 * dpr, 30 * dpr, 330, 70, 120, 30);
+  };
+  pool.addEventListener('click', (e) => {
+    const card = e.target.closest('#pool > *, #swap > *');
+    if (!card || e.target.matches('input, a')) return;
+    e.preventDefault();
+    const current = swap.querySelector('[slot=current]');
+    if (current) {
+      current.removeAttribute('slot');
+      current.removeAttribute('drawable');
+      pool.append(current);
+    }
+    if (card !== current) {
+      card.setAttribute('slot', 'current');
+      swap.append(card);
+    }
+  });
+  swap.addEventListener('click', (e) => {
+    const card = e.target.closest('[slot=current]');
+    if (!card || e.target.matches('input, a')) return;
+    card.removeAttribute('slot');
+    card.removeAttribute('drawable');
+    pool.append(card);
+  });
+
+  // ---- Live experiments ----
+  const variants = document.getElementById('variants');
+  function makeHost(innerCanvasHTML, lightHTML) {
+    const host = document.createElement('div');
+    host.innerHTML = lightHTML;
+    const root = host.attachShadow({ mode: 'open', slotAssignment: innerCanvasHTML.includes('manual') ? 'manual' : 'named' });
+    root.innerHTML = `<canvas content="drawable" layoutsubtree width="420" height="140" style="width:210px;height:70px">${innerCanvasHTML.replace('manual', '')}</canvas>`;
+    variants.append(host);
+    const canvas = root.querySelector('canvas');
+    return { host, root, canvas, ctx: canvas.getContext('2d') };
+  }
+  const box = 'style="background:#fc0;color:#000;padding:6px;width:180px;font:12px system-ui"';
+  async function drawAndCheck({ canvas, ctx }, getEl) {
+    await nextPaint(canvas);
+    ctx.reset();
+    ctx.drawElementImage(getEl(), 10, 10);
+    const px = pixel(ctx, 14, 14);
+    if (px === '0,0,0,0') throw new Error('drew nothing (transparent pixel)');
+    return `pixel at (14,14) = ${px}`;
+  }
+
+  if (supported) {
+    runTests(document.getElementById('results'), [
+      {
+        name: 'Draw a slotted light-DOM element directly',
+        why: 'Light child has slot="a" and drawable; shadow canvas contains <slot name="a">.',
+        run: () => {
+          const v = makeHost('<slot name="a"></slot>', `<div slot="a" drawable ${box}>light child</div>`);
+          return drawAndCheck(v, () => v.host.firstElementChild);
+        },
+      },
+      {
+        name: 'Slotted element without the drawable attribute',
+        why: 'Is the drawable opt-in needed on the light-DOM element?',
+        run: () => {
+          const v = makeHost('<slot name="a"></slot>', `<div slot="a" ${box}>no drawable attr</div>`);
+          return drawAndCheck(v, () => v.host.firstElementChild);
+        },
+      },
+      {
+        name: 'Mark the <slot> itself drawable',
+        why: 'Slots are display: contents so they have no box of their own.',
+        run: () => {
+          const v = makeHost('<slot name="a" drawable></slot>', `<div slot="a" ${box}>slot is drawable</div>`);
+          return drawAndCheck(v, () => v.root.querySelector('slot'));
+        },
+      },
+      {
+        name: 'Drawable wrapper in the shadow tree around the slot',
+        why: '<div drawable><slot></slot></div> inside the canvas, light child untouched.',
+        run: () => {
+          const v = makeHost('<div drawable id="w"><slot name="a"></slot></div>', `<div slot="a" ${box}>wrapped by shadow div</div>`);
+          return drawAndCheck(v, () => v.root.getElementById('w'));
+        },
+      },
+      {
+        name: 'Manual slot assignment (slot.assign())',
+        why: 'Imperative slotting: assign any host child to a slot without a slot attribute.',
+        run: () => {
+          const v = makeHost('manual<slot></slot>', `<div drawable ${box}>manually assigned</div>`);
+          v.root.querySelector('slot').assign(v.host.firstElementChild);
+          return drawAndCheck(v, () => v.host.firstElementChild);
+        },
+      },
+      {
+        name: 'captureElementImage() of a slotted element',
+        why: 'The ElementImage snapshot is what we transfer to workers and frames in later demos.',
+        run: async () => {
+          const v = makeHost('<slot name="a"></slot>', `<div slot="a" drawable ${box}>captured</div>`);
+          await nextPaint(v.canvas);
+          const img = v.canvas.captureElementImage(v.host.firstElementChild);
+          v.ctx.reset();
+          v.ctx.drawElementImage(img, 10, 10);
+          return `ElementImage drawn, pixel = ${pixel(v.ctx, 14, 14)}`;
+        },
+      },
+      {
+        name: 'Hit testing lands on the slotted element at its drawn position',
+        why: 'drawElementImage updates geometry, so elementFromPoint should find the light child where it is drawn.',
+        run: async () => {
+          const v = makeHost('<slot name="a"></slot>', `<div slot="a" drawable ${box}>hit me</div>`);
+          await nextPaint(v.canvas);
+          v.ctx.reset();
+          v.ctx.drawElementImage(v.host.firstElementChild, 40, 40); // canvas px; CSS px is half (canvas is 2x)
+          v.host.scrollIntoView({ block: 'center' });
+          await nextPaint(v.canvas);
+          const r = v.canvas.getBoundingClientRect();
+          const scale = r.width / v.canvas.width;
+          const hit = document.elementFromPoint(r.x + 44 * scale, r.y + 44 * scale);
+          window.scrollTo(0, 0);
+          if (hit !== v.host.firstElementChild) throw new Error(`elementFromPoint returned ${hit?.tagName ?? null}`);
+          return `elementFromPoint → the slotted <div> (drawn offset 40,40)`;
+        },
+      },
+      {
+        name: 'Slot an element that lives elsewhere in the page',
+        why: 'Can a slot reproject an element that is not a child of the host?',
+        run: () => {
+          const v = makeHost('manual<slot></slot>', '');
+          const outsider = document.querySelector('#pool > *');
+          v.root.querySelector('slot').assign(outsider);
+          const assigned = v.root.querySelector('slot').assignedElements().length;
+          if (!assigned) throw new Error('slot.assign() silently ignores non-children: assignedElements() is empty');
+          return 'assigned';
+        },
+      },
+    ]);
+  }
+</script>
+</body>
+</html>
