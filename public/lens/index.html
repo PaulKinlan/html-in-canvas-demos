@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A lens over live DOM</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .controls { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin: 14px 0; font-size: 14px; }
+  .controls fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 4px; }
+  .controls legend { float: left; margin-right: 8px; color: var(--muted); padding: 0; }
+  .controls label.seg { border: 1px solid var(--line); padding: 4px 10px; border-radius: 6px; cursor: pointer; background: var(--card); }
+  .controls label.seg:has(input:checked) { border-color: var(--fg); font-weight: 600; }
+  .controls label.seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .controls label.seg:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .controls output { font: 12px var(--mono); color: var(--muted); min-width: 3ch; display: inline-block; }
+  #stats { font: 12px var(--mono); color: var(--muted); margin-left: auto; }
+
+  .specimen { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: clamp(14px, 4vw, 28px); display: grid; grid-template-columns: 1.2fr 1fr; gap: 28px; }
+  @media (max-width: 720px) { .specimen { grid-template-columns: 1fr; } }
+  .specimen h2 { margin: 0 0 8px; font-size: 26px; letter-spacing: -0.02em; }
+  .specimen p { margin: 0 0 12px; }
+  .fine { font-size: 7px; line-height: 1.35; color: var(--muted); column-count: 2; column-gap: 14px; text-align: justify; }
+  .micro { font-size: 4px; letter-spacing: 0.02em; color: var(--muted); }
+  .specimen form { display: grid; gap: 10px; align-content: start; font-size: 14px; }
+  .specimen input[type=text], .specimen select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); width: 100%; }
+  .specimen table { border-collapse: collapse; font: 8px var(--mono); width: 100%; }
+  .specimen td, .specimen th { border: 1px solid var(--line); padding: 2px 4px; text-align: right; }
+  .specimen th { text-align: left; color: var(--muted); font-weight: 400; }
+  .specimen svg { width: 100%; height: 70px; display: block; }
+  .swatches { display: flex; gap: 2px; }
+  .swatches i { flex: 1; height: 10px; }
+  #fixtures { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  #fixtures > * { border: 1px solid var(--line); background: #fff; color: #000; }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>A lens over live DOM</h1>
+  <p class="lede">
+    Move the pointer over the card. The loupe is not a screenshot: the browser replays the element's paint record at the
+    lens's scale, so the 4px text is re-rasterized sharp, and everything under the glass is still the real page. Click the
+    button through the lens, type in the field, or press <kbd>Tab</kbd> and the lens follows focus. On a touch screen, drag a
+    finger across the card: the lens rides above your finger and the page does not scroll (switch the lens off to scroll from the card).
+  </p>
+
+  <div class="controls">
+    <fieldset>
+      <legend>Lens</legend>
+      <label class="seg"><input type="radio" name="mode" value="magnify" checked>Magnifier</label>
+      <label class="seg"><input type="radio" name="mode" value="fisheye">Fisheye</label>
+      <label class="seg"><input type="radio" name="mode" value="xray">X-ray</label>
+    </fieldset>
+    <label>Zoom <input type="range" id="zoom" min="1.2" max="8" step="0.1" value="3"> <output id="zoomOut">3×</output></label>
+    <label>Radius <input type="range" id="radius" min="40" max="220" step="2" value="120"> <output id="radiusOut">120</output></label>
+    <label><input type="checkbox" id="pin"> Pin the lens</label>
+    <label><input type="checkbox" id="on" checked> Lens on</label>
+    <span id="stats"></span>
+  </div>
+
+  <dom-lens id="lens" zoom="3" radius="120" bleed="60">
+    <section class="specimen">
+      <div>
+        <h2>Specimen sheet</h2>
+        <p>Regular text, then the small print. Everything here is ordinary markup inside a <code>&lt;dom-lens&gt;</code> element.</p>
+        <p class="fine">
+          The quick brown fox jumps over the lazy dog. Sphinx of black quartz, judge my vow. Pack my box with five dozen liquor jugs.
+          How vexingly quick daft zebras jump. The five boxing wizards jump quickly. Jackdaws love my big sphinx of quartz.
+          Terms apply. Past performance is not a guide to future results. Contains small parts. Objects in the lens are closer than they appear.
+          Do not operate heavy machinery while reading 7px type. Void where prohibited. Batteries not included. Some assembly required.
+        </p>
+        <p class="micro">This line is set at four pixels. If you can read it without the lens, the lens is on. HTML-in-canvas replays paint records, so scale is free.</p>
+        <div class="swatches" aria-hidden="true">
+          <i style="background:#d2491f"></i><i style="background:#e8a33d"></i><i style="background:#f3d36b"></i><i style="background:#7fb069"></i><i style="background:#3a7d7b"></i><i style="background:#2f4b7c"></i><i style="background:#665191"></i>
+        </div>
+        <svg viewBox="0 0 300 70" role="img" aria-label="A tiny line chart">
+          <polyline fill="none" stroke="currentColor" stroke-width="0.6" points="0,60 20,52 40,55 60,40 80,44 100,30 120,34 140,22 160,28 180,15 200,20 220,12 240,18 260,8 280,10 300,4"/>
+          <g font-size="3" fill="currentColor"><text x="100" y="27">100: 30</text><text x="180" y="12">180: 15</text><text x="260" y="5">260: 8</text></g>
+        </svg>
+      </div>
+      <form onsubmit="event.preventDefault()">
+        <label for="who">A real text field</label>
+        <input type="text" id="who" placeholder="Type through the lens…">
+        <label for="pick">A real select</label>
+        <select id="pick"><option>Magnifier</option><option>Fisheye</option><option>X-ray</option></select>
+        <button type="button" id="hit">Clicked 0×</button>
+        <table>
+          <tr><th>id</th><th>w</th><th>h</th><th>ms</th></tr>
+          <tr><th>a91f</th><td>1280</td><td>720</td><td>3.21</td></tr>
+          <tr><th>c07e</th><td>640</td><td>360</td><td>0.98</td></tr>
+          <tr><th>e3b2</th><td>1920</td><td>1080</td><td>7.44</td></tr>
+          <tr><th>04d8</th><td>320</td><td>180</td><td>0.31</td></tr>
+        </table>
+      </form>
+    </section>
+  </dom-lens>
+
+<pre><code>&lt;script type="module" src="/lib/dom-lens.js"&gt;&lt;/script&gt;
+
+&lt;dom-lens mode="fisheye" zoom="3" radius="120"&gt;
+  &lt;section&gt;…your markup, unchanged…&lt;/section&gt;
+&lt;/dom-lens&gt;</code></pre>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li><strong>The content is slotted, not moved.</strong> Your markup stays a child of <code>&lt;dom-lens&gt;</code>. A shadow root holds a canvas with one drawable wrapper around a <code>&lt;slot&gt;</code>, sized to the content.</li>
+    <li><strong>Magnifier:</strong> draw the content once at rest, then again inside a circular clip with a scale about the lens centre. Two <code>drawElementImage()</code> calls per frame.</li>
+    <li><strong>Fisheye:</strong> a fisheye is not an affine transform, and <code>drawElementImage()</code> only takes one. So the lens is cut into a polar mesh of triangles and the element is drawn once per triangle, clipped, with the affine transform that maps that triangle's source onto the screen. Neighbouring triangles share edges, so the image is continuous, and each one is re-rasterized, so it is vector-sharp. A shader would be one draw but would magnify a fixed-resolution texture. Any warp can be drawn this way.</li>
+    <li><strong>X-ray:</strong> inside the clip the content is drawn faded and inverted, with the live layout boxes of every element on top (interactive ones in amber). It is a devtools overlay you can aim.</li>
+    <li><strong>Hit testing:</strong> the pointer is the fixed point of the magnification, so the element under the cursor is the one you see there. For a pinned lens the element's geometry is switched to the magnified transform while the pointer is inside it.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <div id="fixtures"></div>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+</main>
+
+<script type="module">
+  import '/lib/dom-lens.js';
+  import { banner, nav, runTests, supported } from '/shared/support.js';
+  nav('/lens/');
+  banner();
+
+  const lens = document.getElementById('lens');
+  const $ = (id) => document.getElementById(id);
+  let clicks = 0;
+  $('hit').onclick = (e) => (e.target.textContent = `Clicked ${++clicks}×`);
+  for (const r of document.querySelectorAll('input[name=mode]')) r.onchange = () => lens.setAttribute('mode', r.value);
+  $('pick').onchange = (e) => {
+    const v = e.target.value.toLowerCase().replace('magnifier', 'magnify').replace('x-ray', 'xray');
+    lens.setAttribute('mode', v);
+    document.querySelector(`input[name=mode][value=${v}]`).checked = true;
+  };
+  $('zoom').oninput = (e) => { lens.setAttribute('zoom', e.target.value); $('zoomOut').textContent = (+e.target.value).toFixed(1) + '×'; };
+  $('radius').oninput = (e) => { lens.setAttribute('radius', e.target.value); $('radiusOut').textContent = e.target.value; };
+  $('on').onchange = (e) => lens.toggleAttribute('off', !e.target.checked);
+  $('pin').onchange = (e) => {
+    if (e.target.checked) {
+      lens.setAttribute('x', Math.round(lens.offsetWidth * 0.3));
+      lens.setAttribute('y', Math.round(lens.offsetHeight * 0.62));
+      lens.setAttribute('pinned', '');
+    } else lens.removeAttribute('pinned');
+  };
+  if (innerWidth < 600) { $('radius').value = 80; $('radius').oninput({ target: $('radius') }); }
+  setInterval(() => {
+    if (lens.live) $('stats').textContent = `${lens.drawCalls} draw call${lens.drawCalls === 1 ? '' : 's'} / frame · ${(lens.frameMs ?? 0).toFixed(1)}ms · hit testing: ${lens.hitTesting ?? 'rest'}`;
+  }, 250);
+
+  // ---- Live checks ----
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const fixtures = $('fixtures');
+  async function fixture(attrs, html) {
+    const el = document.createElement('dom-lens');
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    el.innerHTML = html;
+    fixtures.append(el);
+    for (let i = 0; i < 40 && !el.ready; i++) await sleep(25);
+    if (!el.ready) throw new Error('surface never became ready');
+    await sleep(60);
+    return el;
+  }
+  const px = (el, x, y) => Array.from(el.ctx.getImageData(Math.round(x * el.scale), Math.round(y * el.scale), 1, 1).data);
+  const isYellow = (p) => p[0] > 240 && p[1] > 190 && p[1] < 220 && p[2] < 20;
+  const dot = '<div style="height:120px;position:relative;background:#fff"><div style="position:absolute;left:50px;top:50px;width:10px;height:10px;background:rgb(255,204,0)"></div><button id="B" style="position:absolute;left:140px;top:20px;font-size:8px;padding:0 2px">tiny</button></div>';
+  const text = '<div style="height:120px;background:#fff;color:#000;font:6px/1.2 Georgia,serif;padding:44px 0 0 20px">Sphinx of black quartz, judge my vow</div>';
+  // Fraction of pixels that are neither ink nor paper: high means blurry.
+  function softness(el, x, y, w, h) {
+    const d = el.ctx.getImageData(Math.round(x * el.scale), Math.round(y * el.scale), Math.round(w * el.scale), Math.round(h * el.scale)).data;
+    let mid = 0, ink = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const l = (d[i] + d[i + 1] + d[i + 2]) / 3;
+      if (l < 70) ink++;
+      else if (l < 200) mid++;
+    }
+    return { mid, ink, ratio: mid / Math.max(1, ink) };
+  }
+
+  if (supported) {
+    runTests($('results'), [
+      {
+        name: 'The lens magnifies the live element',
+        why: 'A 10px square at (50,50), lens at (55,55), zoom 4. 14px to the right is white without the lens and yellow through it.',
+        run: async () => {
+          const el = await fixture({ pinned: '', x: 55, y: 55, zoom: 4, radius: 40, off: '' }, dot);
+          const before = px(el, 69, 55);
+          el.removeAttribute('off');
+          await sleep(80);
+          const after = px(el, 69, 55);
+          if (isYellow(before) || !isYellow(after)) throw new Error(`before ${before}, after ${after}`);
+          return `pixel at (69,55): ${before.slice(0, 3)} → ${after.slice(0, 3)}`;
+        },
+      },
+      {
+        name: 'Magnified text is re-rasterized, not upscaled',
+        why: '6px text at zoom 6, against the same pixels captured at 1× and stretched with drawImage. Fewer in-between pixels per ink pixel means sharper edges.',
+        run: async () => {
+          const el = await fixture({ pinned: '', x: 60, y: 48, zoom: 6, radius: 44, off: '' }, text);
+          const bmp = await createImageBitmap(el.canvas);
+          el.removeAttribute('off');
+          await sleep(80);
+          const vector = softness(el, 30, 30, 60, 36);
+          const ref = document.createElement('canvas');
+          ref.width = el.canvas.width; ref.height = el.canvas.height;
+          const rctx = ref.getContext('2d', { willReadFrequently: true });
+          rctx.imageSmoothingQuality = 'high';
+          const s = el.scale;
+          rctx.translate(60 * s, 48 * s); rctx.scale(6, 6); rctx.translate(-60 * s, -48 * s);
+          rctx.drawImage(bmp, 0, 0);
+          const stretched = softness({ ctx: rctx, scale: s }, 30, 30, 60, 36);
+          if (!vector.ink) throw new Error('no text found in the lens');
+          if (vector.ratio > stretched.ratio * 0.7) throw new Error(`not sharper: lens ${vector.ratio.toFixed(2)}, stretched ${stretched.ratio.toFixed(2)}`);
+          return `soft pixels per ink pixel: lens ${vector.ratio.toFixed(2)}, stretched bitmap ${stretched.ratio.toFixed(2)}`;
+        },
+      },
+      {
+        name: 'Fisheye as a mesh of clipped affine triangles',
+        why: 'One drawElementImage() per triangle of a polar mesh. The centre is magnified, the rim is not.',
+        run: async () => {
+          const el = await fixture({ mode: 'fisheye', pinned: '', x: 55, y: 55, zoom: 4, radius: 45, rings: 4 }, dot);
+          const centre = px(el, 66, 55);
+          if (!isYellow(centre)) throw new Error(`pixel 11px from centre is ${centre}`);
+          return `${el.drawCalls} draw calls per frame for a 4-ring mesh (${el.frameMs.toFixed(1)}ms); centre magnified`;
+        },
+      },
+      {
+        name: 'X-ray finds the live layout boxes',
+        why: 'Inside the lens the element tree is outlined from getBoundingClientRect().',
+        run: async () => {
+          const el = await fixture({ mode: 'xray', pinned: '', x: 100, y: 50, zoom: 1.5, radius: 90 }, dot);
+          if (el.boxesDrawn < 3) throw new Error(`only ${el.boxesDrawn} boxes`);
+          return `${el.boxesDrawn} element boxes outlined`;
+        },
+      },
+      {
+        name: 'Follow mode: the element under the pointer is the one you see',
+        why: 'The pointer is the fixed point of the scale, so no geometry tricks are needed.',
+        run: async () => {
+          const el = await fixture({ zoom: 4, radius: 40 }, dot);
+          const b = el.querySelector('#B');
+          el.scrollIntoView({ block: 'center' });
+          await sleep(60);
+          const r = b.getBoundingClientRect();
+          const x = r.left + r.width / 2, y = r.top + r.height / 2;
+          el.pointTo(x, y);
+          await sleep(80);
+          const hit = document.elementFromPoint(x, y);
+          el.pointTo(null);
+          if (hit !== b) throw new Error(`elementFromPoint found ${hit?.localName}`);
+          return 'elementFromPoint at the lens centre → the button shown there';
+        },
+      },
+      {
+        name: 'Pinned lens: clicks land on the magnified drawing',
+        why: 'With the pointer inside a pinned lens the element geometry switches to the lens transform.',
+        run: async () => {
+          const el = await fixture({ pinned: '', x: 150, y: 28, zoom: 3, radius: 50 }, dot);
+          const b = el.querySelector('#B');
+          el.scrollIntoView({ block: 'center' });
+          await sleep(60);
+          const host = el.getBoundingClientRect();
+          // The button's left edge is about 10px left of the lens centre; magnified 3×, that is 30px left.
+          const x = host.left + 150 - 18, y = host.top + 28;
+          const before = document.elementFromPoint(x, y);
+          el.pointTo(x, y);
+          await sleep(150);
+          const during = document.elementFromPoint(x, y);
+          el.pointTo(null);
+          await sleep(80);
+          scrollTo(0, 0);
+          if (before === b) throw new Error('point was already on the button at rest');
+          if (during !== b) throw new Error(`with the pointer in the lens, found ${during?.localName}`);
+          return `18px left of centre: ${before?.localName} at rest, the button while the pointer is in the lens`;
+        },
+      },
+      {
+        name: 'Edits repaint through the lens',
+        why: 'Changing the DOM fires a paint event on the canvas, and the lens redraws in the same frame.',
+        run: async () => {
+          const el = await fixture({ pinned: '', x: 55, y: 55, zoom: 4, radius: 40 }, dot);
+          el.querySelector('div > div').style.background = 'rgb(0,120,255)';
+          await sleep(120);
+          const p = px(el, 69, 55);
+          if (!(p[2] > 240 && p[0] < 20)) throw new Error(`lens still shows ${p}`);
+          return `lens pixel is now ${p.slice(0, 3)}`;
+        },
+      },
+      {
+        name: 'A 6000px tall element',
+        why: 'The canvas backing store is capped; the content is drawn at a lower scale rather than failing.',
+        run: async () => {
+          const el = await fixture({ pinned: '', x: 20, y: 5990, zoom: 2, radius: 30 }, '<div style="height:6000px;background:linear-gradient(#fff 0 5980px, rgb(255,204,0) 5980px)"></div>');
+          const scroller = document.createElement('div');
+          scroller.style.cssText = 'height:120px;overflow:auto';
+          el.replaceWith(scroller);
+          scroller.append(el);
+          scroller.scrollTop = 6000;
+          await sleep(200);
+          const p = px(el, 20, 5995);
+          if (!isYellow(p)) throw new Error(`bottom pixel ${p}`);
+          return `canvas ${el.canvas.width}×${el.canvas.height} at scale ${el.scale.toFixed(2)}`;
+        },
+      },
+    ]);
+  }
+</script>
+</body>
+</html>
