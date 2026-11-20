@@ -54,6 +54,7 @@
     <button type="button" id="gust">Gust</button>
     <span id="stats"></span>
   </div>
+  <p id="route"></p>
 
   <div class="bench">
     <div class="tile">
@@ -104,7 +105,7 @@
     <ol>
       <li data-code="#markup"><b>Wrap a form in <code>&lt;physical-ui material="…"&gt;</code>.</b> The form is ordinary HTML and keeps working.</li>
       <li data-code="#page"><b>Load the element.</b> Wind and gusts are optional. <code>all</code> is the three elements.</li>
-      <li data-code="/lib/surface.js#texture"><b>Inside the element: the form becomes a WebGL texture</b> that is drawn on a simulated mesh.</li>
+      <li data-code="/lib/surface.js#texture"><b>Inside the element: the form becomes a texture</b> that is drawn on a simulated mesh. This is the WebGL route; on WebGPU the call is <code>device.queue.drawElementImageToTexture({ source }, { texture })</code>.</li>
       <li data-code="/lib/physical-ui.js#geometry"><b>Inside the element: hit testing follows the mesh.</b> Find the triangle under the pointer, work out the affine matrix that carries its flat shape to its bent shape, and hand that to <code>updateElementGeometry()</code>. A click then lands on the control you see.</li>
       <li data-code="/lib/physical-ui.js"><b>The whole element.</b></li>
     </ol>
@@ -119,6 +120,7 @@
   <h2>How it works</h2>
   <ul class="findings">
     <li><strong>The form is a texture on a mesh.</strong> <code>texElementSubImage2D()</code> uploads the element whenever it repaints (typing, focus rings, the caret). The mesh is a grid of point masses joined by distance constraints, stepped with Verlet integration and lit from its surface normals.</li>
+    <li><strong>WebGPU first, WebGL behind it.</strong> The mesh shader is written in both WGSL and GLSL. The element uses WebGPU when the browser has a real adapter that passes a self-test and accepts the first frame, and WebGL otherwise; the line under the wind control says which and why, and <code>backend="webgpu|webgl"</code> names one by hand. The simulation and hit testing are the same code either way.</li>
     <li><strong>Materials are parameters.</strong> Jelly has soft links and a spring to home. Cloth has stiff links, a pinned top edge and a pendulum-like pull home that weakens down the sheet. Paper adds bending links so it folds instead of stretching.</li>
     <li><strong>Hit testing uses the triangle under the pointer.</strong> An element only has one transform, and a wobbling mesh is not one transform. But only the point under the cursor matters, so each frame the element's geometry is set to the affine transform of the mesh triangle the pointer is over. The control you see under the cursor is the one you click.</li>
     <li><strong>At rest it is exactly the layout box,</strong> and the simulation stops. Nothing runs until you touch it. With reduced motion on, it never moves.</li>
@@ -135,6 +137,8 @@
   // #endregion page
   import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn } from '/shared/support.js';
   import { supportedGL } from '/lib/surface.js';
+  import { routeSwitch } from '/shared/route-switch.js';
+  import { pictureDifference } from '/lib/gpu-util.js';
   nav('/physical/');
   banner();
   const $ = (id) => document.getElementById(id);
@@ -151,6 +155,8 @@
   $('wind').oninput = (e) => { $('cloth').setAttribute('wind', e.target.value); $('paper').setAttribute('wind', e.target.value * 0.3); $('jelly').setAttribute('wind', e.target.value * 0.25); };
   $('gust').onclick = () => all.forEach((el) => el.gust?.(1));
   // #endregion page
+  // "Drawn with": the backend attribute. Without it each element takes WebGPU when the page has a usable device, else WebGL.
+  routeSwitch($('route'), { targets: () => all });
   setInterval(() => {
     if (!all[0].live) return;
     $('stats').textContent = all.map((el) => `${el.material}: ${el.stats.awake ? 'simulating' : 'asleep'}, hit testing by ${el.stats.hit}`).join(' · ');
@@ -161,6 +167,8 @@
   const fixtures = supportedGL ? checkBench() : null;
   async function fixture(material, attrs = '') {
     const wrap = document.createElement('div');
+    // The checks below are about the WebGL route unless they name another one.
+    if (!attrs.includes('backend=')) attrs += ' backend="webgl"';
     wrap.innerHTML = `<physical-ui material="${material}" ${attrs} style="width:180px"><div class="chip">${material} <input aria-label="Test field" style="width:70px" value="abc"><button>b</button></div></physical-ui>`;
     const el = wrap.firstElementChild;
     fixtures.append(el);
@@ -309,6 +317,40 @@
           el.removeAttribute('wind');
           if (off < 1) throw new Error(`max displacement only ${off.toFixed(2)}px`);
           return `max displacement ${off.toFixed(1)}px in a 0.5 breeze`;
+        },
+      },
+      {
+        name: 'WebGPU draws the same materials as WebGL',
+        why: 'Each material built twice, backend="webgl" and backend="webgpu", poked in the same place and stepped the same six frames. The WebGPU one draws into a texture that is read back from the GPU, and every pixel is compared. Needs a WebGPU adapter.',
+        timeout: 20000,
+        run: async () => {
+          const parts = [];
+          for (const material of ['jelly', 'cloth', 'paper']) {
+            const gl = await fixture(material, 'backend="webgl"');
+            const gpu = await fixture(material, 'backend="webgpu" offscreen');
+            if (gpu.backend !== 'webgpu') throw new Error(`WebGPU is not in use: ${gpu.gpuNote || 'it did not start'}`);
+            gl.poke(60, 20, 3); gpu.poke(60, 20, 3);
+            for (let i = 0; i < 6; i++) { gl.render(1000 + i * 16); gpu.render(1000 + i * 16); }
+            const d = pictureDifference(await gl.readback(), await gpu.readback());
+            if (d.ink < 0.05) throw new Error(`${material}: WebGPU drew nothing`);
+            if (d.mean > 1.5) throw new Error(`${material}: mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+            parts.push(`${material} ${d.mean.toFixed(2)}`);
+          }
+          return `mid-wobble, mean difference per channel of 255: ${parts.join(', ')}`;
+        },
+      },
+      {
+        name: 'WebGPU on screen: the form shown in a WebGPU canvas',
+        why: 'What the three demos above use when WebGPU is picked. Fails where the adapter is missing or software only; the demos then use WebGL.',
+        timeout: 8000,
+        run: async () => {
+          const el = await fixture('jelly', 'backend="webgpu"');
+          if (el.backend !== 'webgpu') throw new Error(`not used here: ${el.gpuNote || 'WebGPU did not start'}. Drawn with ${el.backend} instead`);
+          await sleep(150);
+          const p = read(el, 6, 6);
+          if (el.backend !== 'webgpu') throw new Error(`WebGPU gave up: ${el.gpuNote}`);
+          if (!isYellow(p)) throw new Error(`WebGPU showed the wrong picture: pixel ${p}`);
+          return `pixel ${p.slice(0, 3)} from a WebGPU canvas`;
         },
       },
       stillDrawn(() => all.map((el) => ({

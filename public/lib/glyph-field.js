@@ -17,11 +17,17 @@
 // links and accessibility tree, and a selection highlight travels with the
 // glyphs it covers.
 //
-// Two renderers, chosen with the engine attribute before the element connects:
+// Three renderers, chosen with the engine attribute before the element connects:
 //   engine="2d" (default)  the block is drawn into the 2D canvas, copied to an
 //                          ImageBitmap atlas, and glyphs are drawImage() calls.
 //   engine="webgl"         the block is a texture (texElementSubImage2D) and
 //                          glyphs are instanced quads.
+//   engine="webgpu"        the block is a GPUTexture (drawElementImageToTexture)
+//                          and glyphs are instanced quads in WGSL.
+//   engine="auto"          WebGPU when /shared/backend.js says it is usable,
+//                          otherwise 2D (the WebGL renderer came out as a solid
+//                          block on one Android phone, so it has to be asked for).
+// .engine says which one is drawing and .gpuNote why WebGPU is not.
 //
 // When every particle is home the whole element is drawn in one call and the
 // animation loop stops. If the canvas context is lost the element shows its
@@ -33,6 +39,25 @@ const SUPPORTED =
   'drawElementImage' in CanvasRenderingContext2D.prototype &&
   'updateElementGeometry' in HTMLCanvasElement.prototype;
 const WEBGL_OK = typeof WebGL2RenderingContext !== 'undefined' && 'texElementSubImage2D' in WebGL2RenderingContext.prototype;
+
+// The same instanced quad as the GLSL below: one instance per glyph.
+const WGSL = `
+struct V { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@group(0) @binding(0) var<uniform> view: vec4f;   // xy: canvas size in CSS px
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var tex: texture_2d<f32>;
+@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) box: vec4f, @location(1) src: vec4f, @location(2) rot: vec2f) -> V {
+  var corners = array<vec2f, 4>(vec2f(-0.5, -0.5), vec2f(0.5, -0.5), vec2f(-0.5, 0.5), vec2f(0.5, 0.5));
+  let corner = corners[vi];
+  var p = corner * box.zw;
+  p = vec2f(p.x * rot.x - p.y * rot.y, p.x * rot.y + p.y * rot.x) + box.xy;
+  let c = p / view.xy * 2.0 - 1.0;
+  var o: V;
+  o.pos = vec4f(c.x, -c.y, 0.0, 1.0);
+  o.uv = src.xy + (corner + 0.5) * src.zw;
+  return o;
+}
+@fragment fn fs(i: V) -> @location(0) vec4f { return textureSample(tex, samp, i.uv); }`;
 
 const VS = `#version 300 es
 layout(location = 0) in vec2 aCorner;   // unit quad, -0.5..0.5
@@ -55,11 +80,16 @@ uniform sampler2D uTex;
 out vec4 o;
 void main() { o = texture(uTex, vUV); }`;
 
+import { supportedGPU, GPUCanvas, GPUElementTexture, BLEND_OVER, watchFrame } from './gpu-util.js';
+import { webgpu } from '../shared/backend.js';
+
 const REPLACED = 'img, svg, video, canvas, input, button, select, textarea, hr, [data-particle]';
 const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 
 export class GlyphField extends HTMLElement {
   static supported = SUPPORTED;
+
+  #gpu = null; #gpuTex = null; #gpuPipeline = null; #gpuView = null; #gpuInst = null; #gpuInstSize = 0; #gpuBind = null; #gpuChecked = false; #gpuNote = '';
 
   #canvas; #engine = '2d'; #ctx; #atlas = null; #atlasBusy = false; #plain = null; #gl; #uView; #inst; #tex; #tw = 0; #th = 0; #dirtyTex = true; #wrap; #sizer;
   #bleed = 80; #dpr = 1; #W = 0; #H = 0;
@@ -80,8 +110,10 @@ export class GlyphField extends HTMLElement {
 
   get supported() { return SUPPORTED; }
   get canvas() { return this.#canvas; }
-  /** "2d" or "webgl": the renderer in use. */
+  /** "2d", "webgl" or "webgpu": the renderer in use ("starting" while WebGPU is being asked for). */
   get engine() { return this.#engine; }
+  /** Why WebGPU is not drawing this element ('' when it is, or was not asked for). */
+  get gpuNote() { return this.#gpuNote; }
   /** Why the element is showing plain HTML instead of the canvas, or null. */
   get fallbackReason() { return this.#plain; }
   /** Particles as plain data: { text, x, y, w, h, dx, dy, rotate }. */
@@ -114,31 +146,18 @@ export class GlyphField extends HTMLElement {
     this.#canvas = this.shadowRoot.querySelector('canvas');
     this.#wrap = this.shadowRoot.querySelector('.wrap');
     this.#sizer = this.shadowRoot.querySelector('.sizer');
-    this.#engine = this.getAttribute('engine') === 'webgl' && WEBGL_OK ? 'webgl' : '2d';
-    try {
-      if (this.#engine === 'webgl') this.#initGL(); else this.#ctx = this.#canvas.getContext('2d');
-      if (!this.#gl && !this.#ctx) throw new Error('no canvas context');
-    } catch (err) {
-      this.#goPlain(`could not start the ${this.#engine} renderer: ${err.message}`);
-    }
-    // A lost context leaves a canvas that draws nothing (or garbage). Show the text as plain HTML until it is back.
-    for (const type of ['webglcontextlost', 'contextlost']) {
-      this.#canvas.addEventListener(type, (e) => { e.preventDefault(); this.#goPlain('the canvas context was lost'); });
-    }
-    for (const type of ['webglcontextrestored', 'contextrestored']) {
-      this.#canvas.addEventListener(type, () => {
-        try { if (this.#engine === 'webgl') this.#initGL(); } catch (err) { this.#goPlain(`could not restart: ${err.message}`); return; }
-        this.#leavePlain();
-      });
-    }
+    this.#wireCanvas();
+    this.#startEngine();
     this.#ro = new ResizeObserver(() => this.#resize());
     this.#ro.observe(this.#wrap);
     this.#ro.observe(this);
+    // Take the text's height now: waiting for the observer leaves one frame where the element is 0px tall and the page below it jumps.
+    this.#resize();
     this.#mo = new MutationObserver(() => { this.#stale = true; this.#marks = []; });
     this.#mo.observe(this, { childList: true, subtree: true, characterData: true });
     document.fonts?.ready.then(() => { this.#stale = true; this.#canvas.requestPaint(); });
-    this.#canvas.addEventListener('paint', (e) => this.#paint(e));
     document.addEventListener('selectionchange', this.#onSelection);
+    addEventListener('webgpulost', this.#onGPULost);
     this.addEventListener('pointermove', (e) => {
       const r = this.getBoundingClientRect();
       this.#pointer = { x: e.clientX - r.x, y: e.clientY - r.y, down: e.buttons !== 0 };
@@ -149,6 +168,81 @@ export class GlyphField extends HTMLElement {
 
   disconnectedCallback() {
     document.removeEventListener('selectionchange', this.#onSelection);
+    removeEventListener('webgpulost', this.#onGPULost);
+  }
+
+  #onGPULost = () => { if (this.#engine === 'webgpu') this.#leaveGPU(webgpu.reason || 'the WebGPU device was lost'); };
+
+  #wireCanvas() {
+    const canvas = this.#canvas;
+    canvas.addEventListener('paint', (e) => { if (canvas === this.#canvas) this.#paint(e); });
+    // A lost context leaves a canvas that draws nothing (or garbage). Show the text as plain HTML until it is back.
+    for (const type of ['webglcontextlost', 'contextlost']) {
+      canvas.addEventListener(type, (e) => { if (canvas !== this.#canvas) return; e.preventDefault(); this.#goPlain('the canvas context was lost'); });
+    }
+    for (const type of ['webglcontextrestored', 'contextrestored']) {
+      canvas.addEventListener(type, () => {
+        if (canvas !== this.#canvas) return;
+        try { if (this.#engine === 'webgl') this.#initGL(); } catch (err) { this.#goPlain(`could not restart: ${err.message}`); return; }
+        this.#leavePlain();
+      });
+    }
+  }
+
+  // Pick the renderer. WebGPU has to be asked for (a device, and whether it really works here), so that route starts a moment later.
+  #startEngine() {
+    const want = this.getAttribute('engine');
+    const startGL = () => {
+      this.#engine = (want === 'webgl' || want === 'webgpu') && WEBGL_OK ? 'webgl' : '2d';
+      try {
+        if (this.#engine === 'webgl') this.#initGL(); else this.#ctx = this.#canvas.getContext('2d');
+        if (!this.#gl && !this.#ctx) throw new Error('no canvas context');
+      } catch (err) {
+        this.#goPlain(`could not start the ${this.#engine} renderer: ${err.message}`);
+      }
+    };
+    if (want !== 'webgpu' && want !== 'auto') return startGL();
+    if (!supportedGPU) { this.#gpuNote = 'this browser cannot put an element into a WebGPU texture'; return startGL(); }
+    this.#engine = 'starting';
+    const canvas = this.#canvas;
+    const offscreen = this.hasAttribute('offscreen');
+    webgpu({ force: offscreen }).then((gpu) => {
+      if (canvas !== this.#canvas || this.#engine !== 'starting') return;
+      if (gpu && !gpu.lost) {
+        try {
+          this.#initGPU(gpu, !offscreen);
+          this.#engine = 'webgpu';
+          this.#gpuNote = '';
+        } catch (err) {
+          this.#gpuNote = err.message;
+        }
+      } else this.#gpuNote = webgpu.reason || 'WebGPU did not start';
+      if (this.#engine !== 'webgpu') startGL();
+      this.#dirtyTex = true;
+      this.#canvas.requestPaint();
+    });
+  }
+
+  // WebGPU stopped working (device lost, or it rejected the first frame): carry on with WebGL on a fresh canvas.
+  #leaveGPU(reason) {
+    if (this.#engine !== 'webgpu') return;
+    this.#gpuNote = reason;
+    this.#gpuTex?.destroy(); this.#gpu?.destroy();
+    this.#gpu = this.#gpuTex = this.#gpuPipeline = this.#gpuBind = this.#gpuInst = null;
+    const old = this.#canvas, canvas = old.cloneNode(false);
+    canvas.append(...old.childNodes);
+    old.replaceWith(canvas);
+    this.#canvas = canvas;
+    this.#wireCanvas();
+    this.#engine = WEBGL_OK && this.getAttribute('engine') !== 'auto' ? 'webgl' : '2d';
+    this.#tw = this.#th = 0; this.#dirtyTex = true;
+    try {
+      if (this.#engine === 'webgl') this.#initGL(); else this.#ctx = canvas.getContext('2d');
+    } catch (err) {
+      this.#goPlain(`could not start the ${this.#engine} renderer: ${err.message}`);
+    }
+    this.dispatchEvent(new CustomEvent('glyphengine', { detail: { engine: this.#engine, reason } }));
+    canvas.requestPaint();
   }
 
   // ------------------------------------------------------------ public API
@@ -465,8 +559,37 @@ export class GlyphField extends HTMLElement {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   }
 
+  #initGPU(gpu, present) {
+    const g = (this.#gpu = new GPUCanvas(this.#canvas, gpu, { present }));
+    const { device } = g;
+    const module = device.createShaderModule({ code: WGSL });
+    this.#gpuPipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: {
+        module, entryPoint: 'vs',
+        buffers: [{ arrayStride: 40, stepMode: 'instance', attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x4' }, { shaderLocation: 1, offset: 16, format: 'float32x4' }, { shaderLocation: 2, offset: 32, format: 'float32x2' }] }],
+      },
+      fragment: { module, entryPoint: 'fs', targets: [{ format: g.format, blend: BLEND_OVER }] },
+      primitive: { topology: 'triangle-strip' },
+    });
+    this.#gpuView = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.#gpuTex = new GPUElementTexture(device, this.#canvas, this.#wrap);
+    this.#gpuChecked = false;
+    this.#tw = this.#th = 0;
+  }
+
+  /** The last frame as ImageData. With the offscreen attribute on a WebGPU element this reads the GPU texture; otherwise it copies the canvas. */
+  async readback() {
+    if (this.#engine === 'webgpu' && !this.#gpu.present) return this.#gpu.read();
+    const c = document.createElement('canvas');
+    c.width = this.#canvas.width; c.height = this.#canvas.height;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(this.#canvas, 0, 0);
+    return ctx.getImageData(0, 0, c.width, c.height);
+  }
+
   #paint(event) {
-    if (!this.#W || this.#plain) return;
+    if (!this.#W || this.#plain || this.#engine === 'starting') return;
     if (this.#gl?.isContextLost?.()) { this.#goPlain('the canvas context was lost'); return; }
     this.#map();
     const now = performance.now();
@@ -483,7 +606,7 @@ export class GlyphField extends HTMLElement {
     const changed = event?.changedElements;
     const repainted = this.#dirtyTex || !changed || [...changed].includes(this.#wrap);
     try {
-      if (this.#engine === 'webgl') this.#paintGL(repainted); else this.#paint2D(repainted);
+      if (this.#engine === 'webgpu') this.#paintGPU(repainted); else if (this.#engine === 'webgl') this.#paintGL(repainted); else this.#paint2D(repainted);
     } catch (err) {
       this.lastError = err; // usually "not painted yet"; the next paint event tries again
       return;
@@ -543,21 +666,7 @@ export class GlyphField extends HTMLElement {
       gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, wrap);
       this.#dirtyTex = false;
     }
-    let data;
-    if (!this.#running) {
-      // Everything is home: one quad, texel for texel the same as plain text.
-      data = new Float32Array([b + W / 2, b + H / 2, W, H, 0, 0, 1, 1, 1, 0]);
-    } else {
-      const parts = this.#parts;
-      data = new Float32Array(parts.length * 10);
-      let i = 0;
-      for (const p of parts) {
-        data[i++] = b + p.hx + p.x + p.w / 2; data[i++] = b + p.hy + p.y + p.h / 2;
-        data[i++] = p.w; data[i++] = p.h;
-        data[i++] = p.hx / W; data[i++] = p.hy / H; data[i++] = p.w / W; data[i++] = p.h / H;
-        data[i++] = Math.cos(p.r) * p.s; data[i++] = Math.sin(p.r) * p.s;
-      }
-    }
+    const data = this.#instances();
     gl.viewport(0, 0, this.#canvas.width, this.#canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -565,6 +674,69 @@ export class GlyphField extends HTMLElement {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#inst);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, data.length / 10);
+  }
+
+  /** Ten floats per quad: centre, size, source rectangle in the texture, rotation. Shared by the WebGL and WebGPU renderers. */
+  #instances() {
+    const b = this.#bleed, W = this.#W, H = this.#H;
+    // Everything is home: one quad, texel for texel the same as plain text.
+    if (!this.#running) return new Float32Array([b + W / 2, b + H / 2, W, H, 0, 0, 1, 1, 1, 0]);
+    const parts = this.#parts;
+    const data = new Float32Array(parts.length * 10);
+    let i = 0;
+    for (const p of parts) {
+      data[i++] = b + p.hx + p.x + p.w / 2; data[i++] = b + p.hy + p.y + p.h / 2;
+      data[i++] = p.w; data[i++] = p.h;
+      data[i++] = p.hx / W; data[i++] = p.hy / H; data[i++] = p.w / W; data[i++] = p.h / H;
+      data[i++] = Math.cos(p.r) * p.s; data[i++] = Math.sin(p.r) * p.s;
+    }
+    return data;
+  }
+
+  #paintGPU(repainted) {
+    const g = this.#gpu, b = this.#bleed, W = this.#W, H = this.#H;
+    if (!g || g.lost) return;
+    const { device } = g;
+    const frame = () => {
+      // The text is one texture. It only needs a new upload when the browser repainted it.
+      if (repainted || !this.#gpuTex.width) {
+        const size = this.#canvas.getElementImageDefaultSize(this.#wrap);
+        const max = device.limits.maxTextureDimension2D;
+        if (size.width > max || size.height > max) { this.#goPlain(`the text needs a ${Math.ceil(size.width)}×${Math.ceil(size.height)} texture and this GPU stops at ${max}`); return; }
+        this.#gpuTex.update();
+        this.#dirtyTex = false;
+      }
+      const data = this.#instances();
+      if (data.byteLength > this.#gpuInstSize) {
+        this.#gpuInst?.destroy();
+        this.#gpuInstSize = Math.max(4096, 2 ** Math.ceil(Math.log2(data.byteLength)));
+        this.#gpuInst = device.createBuffer({ size: this.#gpuInstSize, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      }
+      device.queue.writeBuffer(this.#gpuInst, 0, data);
+      device.queue.writeBuffer(this.#gpuView, 0, new Float32Array([W + 2 * b, H + 2 * b, 0, 0]));
+      if (!this.#gpuBind || this.#gpuBind.view !== this.#gpuTex.view) {
+        this.#gpuBind = {
+          view: this.#gpuTex.view,
+          group: device.createBindGroup({
+            layout: this.#gpuPipeline.getBindGroupLayout(0),
+            entries: [{ binding: 0, resource: { buffer: this.#gpuView } }, { binding: 1, resource: device.createSampler({ magFilter: 'linear', minFilter: 'linear' }) }, { binding: 2, resource: this.#gpuTex.view }],
+          }),
+        };
+      }
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({ colorAttachments: [{ view: g.view(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] }] });
+      pass.setPipeline(this.#gpuPipeline);
+      pass.setBindGroup(0, this.#gpuBind.group);
+      pass.setVertexBuffer(0, this.#gpuInst, 0, data.byteLength);
+      pass.draw(4, data.length / 10);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+      g.shown((why) => this.#gpu === g && this.#leaveGPU(why));
+    };
+    if (this.#gpuChecked) return frame();
+    // The first frame is watched: a browser whose WebGPU rejects it goes to WebGL, with the reason.
+    watchFrame(device, frame, (problem) => this.#gpu === g && this.#leaveGPU(`WebGPU rejected the first frame: ${problem}`));
+    this.#gpuChecked = true;
   }
 }
 

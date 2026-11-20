@@ -7,12 +7,32 @@
 <link rel="stylesheet" href="/shared/style.css">
 <link rel="stylesheet" href="/three-form/ui.css">
 <script>
-  // Pick the three.js build before any module loads: ?renderer=webgpu swaps the whole renderer.
-  window.__gpu = new URLSearchParams(location.search).get('renderer') === 'webgpu';
-  const map = document.createElement('script');
-  map.type = 'importmap';
-  map.textContent = JSON.stringify({ imports: { three: window.__gpu ? '/vendor/three/three.webgpu.js' : '/vendor/three/three.module.js' } });
-  document.currentScript.after(map);
+  // Pick the three.js build before the page's module loads: the renderer is the whole build.
+  // ?renderer=webgpu|webgl names one. Without it /shared/backend.js says whether WebGPU is
+  // really usable here (a real adapter that passes a self-test), and WebGL is used otherwise.
+  {
+    const params = new URLSearchParams(location.search);
+    const asked = params.get('renderer');
+    const start = (gpu, why) => {
+      window.__gpu = gpu;
+      window.__gpuAuto = asked !== 'webgpu' && asked !== 'webgl';
+      window.__gpuWhy = params.get('gpufail') || why || '';
+      const map = document.createElement('script');
+      map.type = 'importmap';
+      map.textContent = JSON.stringify({ imports: { three: gpu ? '/vendor/three/three.webgpu.js' : '/vendor/three/three.module.js' } });
+      document.head.append(map);
+      const run = () => {
+        const main = document.createElement('script');
+        main.type = 'module';
+        main.src = '/three-form/main.js';
+        document.head.append(main);
+      };
+      if (document.readyState === 'loading') addEventListener('DOMContentLoaded', run);
+      else run();
+    };
+    if (asked === 'webgpu' || asked === 'webgl') start(asked === 'webgpu');
+    else import('/shared/backend.js').then((m) => m.webgpu().then((gpu) => start(!!gpu, m.webgpu.reason)), () => start(false, 'the backend picker did not load'));
+  }
 </script>
 </head>
 <body>
@@ -37,6 +57,7 @@
     <label class="ctl"><input id="drone" type="checkbox"> Fly a drone past the screen</label>
     <label class="ctl"><input id="spin" type="checkbox"> Slow orbit</label>
     <span class="seg" role="group" aria-label="Renderer">
+      <a id="r-auto" href="?">Best available</a>
       <a id="r-webgl" href="?renderer=webgl">WebGL</a>
       <a id="r-webgpu" href="?renderer=webgpu">WebGPU</a>
     </span>
@@ -48,6 +69,7 @@
     <!-- #endregion canvas -->
     <div id="hud" class="hud"></div>
   </div>
+  <p class="note" id="route-note" role="status" style="min-height:2.9em"></p>
   <p class="note">Drag empty space to orbit, wheel or pinch to zoom. Everything on a screen is live: hover states, the caret and the clock repaint the texture.</p>
   <details class="show-code">
     <summary>Show the code <small>HTML on three.js meshes</small></summary>
@@ -154,6 +176,5 @@ renderer.setAnimationLoop(() =&gt; { surfaces.update(); renderer.render(scene, c
   </ul>
 </main>
 
-<script type="module" src="/three-form/main.js"></script>
 </body>
 </html>

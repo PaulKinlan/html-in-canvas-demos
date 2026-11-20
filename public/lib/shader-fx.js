@@ -34,21 +34,31 @@
 // fx can also point at a shader: fx="#script-id" or fx="url(/fx/wobble.frag)".
 //
 // How: the element is wrapped in <fx-surface>, which slots it into a canvas
-// (see surface.js). Two backends:
+// (see surface.js). Three backends:
+//   webgpu  the canvas is WebGPU; queue.drawElementImageToTexture() uploads the
+//           DOM into a GPUTexture and the effect's WGSL draws it. One device
+//           for the whole page, so there is no limit on surfaces.
 //   direct  the canvas is WebGL; texElementSubImage2D uploads the DOM straight
-//           into a texture. Fastest, but a page only gets about 16 contexts.
+//           into a texture. A page only gets about 16 contexts.
 //   shared  the canvas is 2D; the DOM is drawn with drawElementImage, copied
 //           into ONE page-wide WebGL context, shaded, and drawn back. No limit.
-// The first few surfaces go direct, the rest share. Force one with
-// fx-backend="direct|shared" on the element.
+// WebGPU is used when /shared/backend.js says it really works here and the
+// effect has WGSL source (every built-in one does; your own needs a `wgsl`
+// next to its `glsl`). Otherwise the first few surfaces go direct and the rest
+// share. Force one with fx-backend="webgpu|direct|shared" on the element, or
+// fx-backend="gl" for "WebGL either way, never WebGPU".
+// surface.backend says which is in use and surface.gpuNote why WebGPU is not.
 //
 // The element stays where layout put it for hit testing: effects are visual.
 
 import { SurfaceElement, ElementTexture, supported, supportedGL } from './surface.js';
-import { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, inverseHomography, setupQuad, compileEffect, setEffectUniforms, sharedGL } from './effects.js';
+import { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, inverseHomography, setupQuad, compileEffect, setEffectUniforms, sharedGL, hasWGSL, gpuEffect, gpuSampler, WGSL_UNIFORM_SIZE, packWGSLUniforms } from './effects.js';
+import { supportedGPU, GPUCanvas, GPUElementTexture, watchFrame } from './gpu-util.js';
+import { webgpu } from '../shared/backend.js';
 
 export { effects, defineEffect };
 
+const KINDS = ['webgpu', 'gl', 'direct', 'shared'];
 const MAX_DIRECT = 8;
 let liveDirect = 0;
 
@@ -58,6 +68,23 @@ onEffectChange((name) => {
 });
 
 const shared = sharedGL;
+
+// The page's WebGPU device, once /shared/backend.js has answered: { gpu } with
+// gpu null when WebGPU is not usable. Surfaces made after that start at once.
+let gpuAnswer = null;
+let gpuBroken = ''; // set when WebGPU started but could not draw an element here
+function askGPU(force = false) {
+  return webgpu({ force }).then((gpu) => {
+    if (!force) gpuAnswer = { gpu };
+    return gpu;
+  });
+}
+if (supportedGPU && supported) {
+  askGPU();
+  addEventListener('webgpulost', () => {
+    for (const s of instances) if (s.backend === 'webgpu') s.leaveGPU(webgpu.reason || 'the WebGPU device was lost');
+  });
+}
 
 export class FxSurface extends SurfaceElement {
   static instances = instances;
@@ -69,7 +96,14 @@ export class FxSurface extends SurfaceElement {
     return liveDirect;
   }
 
-  backend = null; // 'direct' | 'shared'
+  backend = null; // 'webgpu' | 'direct' | 'shared'
+  /** Why this surface is not drawn by WebGPU ('' when it is, or was not asked yet). */
+  gpuNote = '';
+  #gpu = null; // GPUCanvas
+  #gpuTex = null;
+  #gpuUniforms = null;
+  #gpuBind = null;
+  #gpuChecked = false;
   #programs = new Map();
   #texture = null;
   #pointer = null;
@@ -96,8 +130,68 @@ export class FxSurface extends SurfaceElement {
     return this.#error;
   }
 
+  get #want() {
+    return this.target.getAttribute('fx-backend') ?? this.getAttribute('fx-backend');
+  }
+  // Tests on machines that cannot show a WebGPU canvas: draw to a texture and read it back.
+  get #offscreen() {
+    return this.hasAttribute('fx-offscreen') || this.target.hasAttribute('fx-offscreen');
+  }
+
   createContext(canvas) {
-    const want = this.target.getAttribute('fx-backend') ?? this.getAttribute('fx-backend');
+    const want = this.#want;
+    this.#wanted = KINDS.includes(want) ? want : null;
+    this.#dropGPU();
+    if (want === 'direct' || want === 'shared' || want === 'gl') {
+      this.gpuNote = `fx-backend="${want}" was asked for`;
+      return this.#contextGL(canvas, want === 'gl' ? null : want);
+    }
+    if (!supportedGPU) {
+      this.gpuNote = 'this browser cannot put an element into a WebGPU texture';
+      return this.#contextGL(canvas, null);
+    }
+    if (gpuBroken) {
+      this.gpuNote = gpuBroken;
+      return this.#contextGL(canvas, null);
+    }
+    const start = (gpu) => {
+      if (!gpu || gpu.lost) this.gpuNote = webgpu.reason || 'WebGPU did not start';
+      else if (want !== 'webgpu' && !hasWGSL(this.effectName)) this.gpuNote = `the effect "${this.rawEffect}" has no WGSL source`;
+      else {
+        try {
+          this.#gpu = new GPUCanvas(canvas, gpu, { present: !this.#offscreen });
+          this.backend = 'webgpu';
+          this.gpuNote = '';
+          this.#gpuChecked = false;
+          return this.#gpu.context;
+        } catch (err) {
+          this.gpuNote = err.message;
+        }
+      }
+      return this.#contextGL(canvas, null);
+    };
+    const force = this.#offscreen;
+    if (gpuAnswer && !force) return start(gpuAnswer.gpu);
+    return askGPU(force).then(start);
+  }
+
+  #dropGPU() {
+    this.#gpuTex?.destroy();
+    this.#gpu?.destroy();
+    this.#gpu = this.#gpuTex = this.#gpuUniforms = this.#gpuBind = null;
+  }
+
+  /** Stop using WebGPU on this surface and start again on WebGL (called when the device is lost or rejects a frame). */
+  leaveGPU(reason) {
+    if (this.backend !== 'webgpu') return;
+    this.#dropGPU();
+    this.backend = null;
+    gpuBroken ||= reason;
+    this.dispatchEvent(new CustomEvent('fxfallback', { detail: { from: 'webgpu', reason }, bubbles: true }));
+    this.swapCanvas();
+  }
+
+  #contextGL(canvas, want) {
     const direct = want ? want === 'direct' : supportedGL && liveDirect < MAX_DIRECT;
     if (direct && supportedGL) {
       const gl = canvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false });
@@ -105,14 +199,18 @@ export class FxSurface extends SurfaceElement {
         this.backend = 'direct';
         liveDirect++;
         setupQuad(gl);
+        this.#programs = new Map();
+        this.#texture = null;
         canvas.addEventListener('webglcontextlost', (e) => {
+          if (canvas !== this.canvas) return;
           e.preventDefault();
           this.#programs = new Map();
           this.#texture = null;
-          this.#lost = setTimeout(() => this.fallBackToPlain('WebGL context lost'), 1500);
+          this.#lost = setTimeout(() => canvas === this.canvas && this.fallBackToPlain('WebGL context lost'), 1500);
         });
         canvas.addEventListener('webglcontextrestored', () => {
           clearTimeout(this.#lost);
+          if (canvas !== this.canvas) return;
           setupQuad(gl);
           this.contentDirty = true;
           this.invalidate();
@@ -141,13 +239,18 @@ export class FxSurface extends SurfaceElement {
       if (this.adopted && !this.querySelector(':scope > [fx]')) FxSurface.release(this);
       else this.effectChanged();
     });
-    this.#mo.observe(this, { attributes: true, subtree: true, attributeFilter: ['fx', 'style', 'class'] });
+    this.#mo.observe(this, { attributes: true, subtree: true, attributeFilter: ['fx', 'fx-backend', 'style', 'class'] });
   }
 
   disconnected() {
     FxSurface.instances.delete(this);
     this.#io?.disconnect();
     this.#mo?.disconnect();
+    if (this.backend === 'webgpu') {
+      this.#dropGPU();
+      this.ctx = null;
+      this.backend = null;
+    }
     if (this.backend === 'direct' && this.ctx) {
       liveDirect = Math.max(0, liveDirect - 1);
       this.ctx.getExtension('WEBGL_lose_context')?.loseContext();
@@ -159,7 +262,22 @@ export class FxSurface extends SurfaceElement {
   effectChanged() {
     this.#signature = '';
     this.#error = null;
+    // The backend attribute may have changed too: a different kind of context needs a different canvas.
+    const want = this.#want;
+    const kind = KINDS.includes(want) ? want : null;
+    if (this.backend && kind !== this.#wanted) return this.#restart();
     this.invalidate();
+  }
+  #wanted = null;
+
+  #restart() {
+    if (this.backend === 'direct') {
+      liveDirect = Math.max(0, liveDirect - 1);
+      this.ctx?.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+    this.#dropGPU();
+    this.backend = null;
+    this.swapCanvas();
   }
 
   #onMove = (e) => {
@@ -232,9 +350,15 @@ export class FxSurface extends SurfaceElement {
     // An effect that moves the element (tilt) says where, so hit testing follows.
     const matrix = def.geometry?.({ width: this.width, height: this.height, pointer: this.#pointer, hover: this.#hover, progress, amount, x, y }) ?? null;
     const uniforms = { progress, amount, time, pointer: p, clicks, x, y, inv: inverseHomography(matrix) };
+    if (this.backend === 'webgpu' && !hasWGSL(name) && this.#want !== 'webgpu') {
+      // Only GLSL for this effect: this surface moves to WebGL, the others stay.
+      this.gpuNote = `the effect "${this.rawEffect}" has no WGSL source`;
+      this.#restart();
+      return false;
+    }
+    const draw = (n) => (this.backend === 'webgpu' ? this.#renderGPU(n, uniforms) : this.backend === 'direct' ? this.#renderDirect(n, uniforms) : this.#renderShared(n, uniforms));
     try {
-      if (this.backend === 'direct') this.#renderDirect(name, uniforms);
-      else this.#renderShared(name, uniforms);
+      draw(name);
       this.#error = null;
     } catch (err) {
       if (/paint record/i.test(err?.message ?? '')) throw err;
@@ -243,8 +367,7 @@ export class FxSurface extends SurfaceElement {
       this.#error = err;
       if (name !== 'none') {
         try {
-          if (this.backend === 'direct') this.#renderDirect('none', uniforms);
-          else this.#renderShared('none', uniforms);
+          draw('none');
         } catch {}
       }
     }
@@ -264,6 +387,67 @@ export class FxSurface extends SurfaceElement {
       size: [this.width, this.height],
       hover: this.#hover,
     });
+  }
+
+  // DOM → GPUTexture → the effect's WGSL, on the page's shared device.
+  #renderGPU(name, uniforms) {
+    const g = this.#gpu;
+    if (!g || g.lost) return;
+    const { device } = g;
+    const frame = () => {
+      this.#gpuTex ??= new GPUElementTexture(device, this.canvas, this.content);
+      if (this.contentDirty || !this.#gpuTex.width) this.#gpuTex.update();
+      const pipeline = gpuEffect(device, g.format, name);
+      this.#gpuUniforms ??= device.createBuffer({ size: WGSL_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      const s = this.scale;
+      device.queue.writeBuffer(this.#gpuUniforms, 0, packWGSLUniforms({
+        ...uniforms,
+        canvas: [this.canvas.width / s, this.canvas.height / s],
+        origin: [this.bleed, this.bleed],
+        texSize: [this.#gpuTex.width / s, this.#gpuTex.height / s],
+        size: [this.width, this.height],
+        hover: this.#hover,
+      }, s));
+      if (!this.#gpuBind || this.#gpuBind.pipeline !== pipeline || this.#gpuBind.view !== this.#gpuTex.view) {
+        this.#gpuBind = {
+          pipeline,
+          view: this.#gpuTex.view,
+          group: device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [{ binding: 0, resource: { buffer: this.#gpuUniforms } }, { binding: 1, resource: gpuSampler(device) }, { binding: 2, resource: this.#gpuTex.view }],
+          }),
+        };
+      }
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({ colorAttachments: [{ view: g.view(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 0] }] });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, this.#gpuBind.group);
+      pass.draw(3);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+      g.shown((why) => this.#gpu === g && this.leaveGPU(why));
+    };
+    if (this.#gpuChecked) return frame();
+    // The first frame is watched: a browser whose WebGPU rejects the element upload goes to WebGL, with the reason.
+    watchFrame(device, frame, (problem) => this.#gpu === g && this.leaveGPU(`WebGPU rejected the first frame: ${problem}`));
+    this.#gpuChecked = true;
+  }
+
+  /** The last frame as ImageData. Needs fx-offscreen on a WebGPU surface; other backends copy the canvas. */
+  async readback() {
+    if (this.backend === 'webgpu' && this.#gpu && !this.#gpu.present) {
+      this.#signature = '';
+      this.contentDirty = true;
+      this.#forced = true;
+      try {
+        this.render(performance.now());
+      } finally {
+        this.#forced = false;
+      }
+      return this.#gpu.read();
+    }
+    const ctx = this.snapshot();
+    return ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
   }
 
   // #region render
@@ -325,6 +509,7 @@ function adopt(el) {
   // context choice depends on has to be on the host already.
   const attrs = { bleed };
   if (el.hasAttribute('fx-backend')) attrs['fx-backend'] = el.getAttribute('fx-backend');
+  if (el.hasAttribute('fx-offscreen')) attrs['fx-offscreen'] = '';
   const host = FxSurface.adopt(el, attrs);
   host.adopted = true;
 }

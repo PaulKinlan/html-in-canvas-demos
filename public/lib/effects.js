@@ -339,6 +339,60 @@ export function packWGSLUniforms(v, scale) {
   return f;
 }
 
+/** True when a registered effect also has WGSL source, so WebGPU can draw it. */
+export function hasWGSL(name) {
+  return !!effects.get(name)?.wgsl;
+}
+
+const gpuPipelines = new WeakMap(); // GPUDevice -> Map("name|format" -> { def, pipeline, error })
+
+/**
+ * The render pipeline for a named effect on a device (cached per device).
+ * Throws when the effect has no WGSL, or when an earlier compile of it failed.
+ * Bind group 0: the U uniform buffer, a sampler, the element's texture.
+ */
+export function gpuEffect(device, format, name) {
+  const def = effects.get(name);
+  if (!def?.wgsl) throw new Error(`effect "${name}" has no WGSL source`);
+  let cache = gpuPipelines.get(device);
+  if (!cache) gpuPipelines.set(device, (cache = new Map()));
+  const key = `${name}|${format}`;
+  let entry = cache.get(key);
+  if (entry && entry.def === def) {
+    if (entry.error) throw entry.error;
+    return entry.pipeline;
+  }
+  const module = device.createShaderModule({ code: WGSL_HEAD + def.wgsl + WGSL_TAIL });
+  const over = { srcFactor: 'one', dstFactor: 'one-minus-src-alpha' };
+  entry = {
+    def,
+    error: null,
+    pipeline: device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module, entryPoint: 'fx_vs' },
+      fragment: { module, entryPoint: 'fx_fs', targets: [{ format, blend: { color: over, alpha: over } }] },
+    }),
+  };
+  // Compile errors arrive later. Remember them, so the next frame shows the element unshaded instead of nothing.
+  module.getCompilationInfo?.().then(
+    (info) => {
+      const errors = info.messages.filter((m) => m.type === 'error');
+      if (errors.length) entry.error = new Error(`WGSL compile failed: ${errors.map((m) => `${m.lineNum}: ${m.message}`).join('; ')}`);
+    },
+    () => {},
+  );
+  cache.set(key, entry);
+  return entry.pipeline;
+}
+
+/** The sampler effects use, one per device. */
+export function gpuSampler(device) {
+  let cache = gpuPipelines.get(device);
+  if (!cache) gpuPipelines.set(device, (cache = new Map()));
+  if (!cache.sampler) cache.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+  return cache.sampler;
+}
+
 // ---- built-in effects ------------------------------------------------------
 
 defineEffect('none', {
@@ -453,6 +507,26 @@ defineEffect('glass', {
     col.rgb += col.a * exp(-dot(q, q) / 1500.0) * 0.07 * u_hover;
     return col;
   }`,
+  wgsl: `fn sdBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p) - b + r; return length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - r; }
+  fn fx(p: vec2f) -> vec4f {
+    let c = u.size * 0.5;
+    let rad = min(22.0, min(c.x, c.y));
+    let d = -sdBox(p - c, c, rad);
+    let e = vec2f(1.0, 0.0);
+    let n = normalize(vec2f(sdBox(p - c + e.xy, c, rad) - sdBox(p - c - e.xy, c, rad), sdBox(p - c + e.yx, c, rad) - sdBox(p - c - e.yx, c, rad)) + 1e-5);
+    let rim = 1.0 - smoothstep(0.0, min(26.0, min(c.x, c.y) * 0.8), d);
+    let bend = rim * rim * 16.0 * u.amount;
+    let q = p - u.pointer;
+    let bead = -q * exp(-dot(q, q) / 3200.0) * 0.38 * u.hover * u.amount;
+    let s = p - n * bend + bead;
+    var col = tex(s);
+    col.r = tex(s + n * bend * 0.18).r;
+    col.b = tex(s - n * bend * 0.18).b;
+    let light = dot(n, normalize(vec2f(-0.5, -0.85)));
+    var rgb = col.rgb + col.a * pow(rim, 2.5) * (0.28 * max(light, 0.0) + 0.1 * max(-light, 0.0));
+    rgb += col.a * exp(-dot(q, q) / 1500.0) * 0.07 * u.hover;
+    return vec4f(rgb, col.a);
+  }`,
 });
 
 defineEffect('haze', {
@@ -465,6 +539,12 @@ defineEffect('haze', {
     float rise = mix(1.0, 0.45, clamp(p.y / u_size.y, 0.0, 1.0));
     vec4 col = tex(p + d * 9.0 * rise * u_amount);
     return col;
+  }`,
+  wgsl: `fn fx(p: vec2f) -> vec4f {
+    let q = p * 0.028 + vec2f(0.0, u.time * 1.3);
+    let d = vec2f(fbm(q) - 0.5, fbm(q + 31.7) - 0.5);
+    let rise = mix(1.0, 0.45, clamp(p.y / u.size.y, 0.0, 1.0));
+    return tex(p + d * 9.0 * rise * u.amount);
   }`,
 });
 
@@ -488,6 +568,24 @@ defineEffect('crt', {
     col.rgb = col.rgb * 1.3 * scan * mask * vig * flicker + col.a * roll;
     col.rgb += col.a * vec3(0.0, 0.012, 0.004);
     return col;
+  }`,
+  wgsl: `fn fx(p: vec2f) -> vec4f {
+    let uv = p / u.size * 2.0 - 1.0;
+    let k = 0.06 * u.amount;
+    let w = uv * (1.0 + k * dot(uv.yx, uv.yx));
+    let s = (w * 0.5 + 0.5) * u.size;
+    let split = 1.2 * u.amount;
+    var col = tex(s);
+    col.r = tex(s + vec2f(split, 0.0)).r;
+    col.b = tex(s - vec2f(split, 0.0)).b;
+    let scan = 0.86 + 0.14 * sin(s.y * 3.14159 / 1.5);
+    let mask = 0.94 + 0.06 * sin(s.x * 3.14159 / 1.0);
+    let vig = 1.0 - smoothstep(0.75, 1.7, length(w));
+    let flicker = 0.985 + 0.015 * sin(u.time * 50.0) + 0.02 * step(0.995, hash(vec2f(floor(u.time * 30.0), 1.0)));
+    let roll = 0.04 * smoothstep(0.0, 0.06, abs(fract(s.y / u.size.y - u.time * 0.12) - 0.5) - 0.44);
+    var rgb = col.rgb * 1.3 * scan * mask * vig * flicker + col.a * roll;
+    rgb += col.a * vec3f(0.0, 0.012, 0.004);
+    return vec4f(rgb, col.a);
   }`,
 });
 
@@ -545,6 +643,35 @@ const CURL = {
       } else {
         vec4 front = tex(p + dir * ((D - R * asin(s)) - u));
         col = vec4(front.rgb * (1.0 - 0.45 * s), front.a);
+      }
+    }
+    return col;
+  }`,
+  wgsl: `fn fx(p: vec2f) -> vec4f {
+    let PI = 3.14159265;
+    let dir = normalize(vec2f(-1.0, -0.62));
+    let R = clamp(min(u.size.x, u.size.y) * 0.14, 12.0, 46.0);
+    let L = dot(-u.size, dir);
+    let D = u.progress * (L + PI * R + 4.0);
+    let along = dot(p - u.size, dir);
+    let d = along - D;
+    if (u.progress <= 0.0) { return tex(p); }
+    var col = vec4f(0.0);
+    if (d >= 0.0) {
+      col = tex(p);
+      col = vec4f(col.rgb * (1.0 - 0.28 * exp(-d / (R * 0.9))), col.a);
+      let back = tex(p + dir * ((D - PI * R - d) - along));
+      if (back.a > 0.0) { col = vec4f(mix(back.rgb, vec3f(back.a), 0.78) * 0.95, back.a); }
+    } else if (d > -R) {
+      let s = -d / R;
+      let a2 = R * (PI - asin(s));
+      let back = tex(p + dir * ((D - a2) - along));
+      if (back.a > 0.0) {
+        let shade = 0.72 + 0.28 * sqrt(1.0 - s * s);
+        col = vec4f(mix(back.rgb, vec3f(back.a), 0.78) * shade, back.a);
+      } else {
+        let front = tex(p + dir * ((D - R * asin(s)) - along));
+        col = vec4f(front.rgb * (1.0 - 0.45 * s), front.a);
       }
     }
     return col;

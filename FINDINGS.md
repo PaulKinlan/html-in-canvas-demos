@@ -209,6 +209,27 @@ Without CPU throttling the same sweep runs at 59 frames a second for the shader 
 
 Not verified here: frame times on a real phone GPU, and whether Chrome on Android keeps the canvas-to-texture copy on the GPU for a sub-rectangle. The WebGPU route has only been checked by texture readback on a software adapter: presenting it on screen, and its speed against WebGL, need a real device (the speed test on the page times both).
 
+## WebGPU across the shader demos (`/shader-css/`, `/slot-effects/`, `/particles/`, `/transitions/`, `/physical/`, `/three-form/`)
+
+Every demo that put an element through a WebGL shader now has a WebGPU route as well, picked by itself when `shared/backend.js` says WebGPU is usable, with WebGL (and 2D where there was one) behind it. Each page has a "Drawn with" switch and a line saying what is drawing and, when that is not WebGPU, why.
+
+| Experiment | Result | Notes |
+|---|---|---|
+| `GPUQueue.drawElementImageToTexture({ source: element }, { texture })` | works | Chromium 157. The texture is `rgba8unorm` with `COPY_DST`, `RENDER_ATTACHMENT` and `TEXTURE_BINDING`, sized from `canvas.getElementImageDefaultSize(el)`. Row 0 is the top of the element and the pixels are premultiplied. The canvas must hold a `webgpu` context, even if nothing is ever shown on it. |
+| `fx` effects in WGSL against GLSL | same picture | none, ripple, glass, dissolve: 0.00 mean difference per channel of 255. curl 0.17, haze 0.20, tilt 0.58, crt 0.50 (the last two are animated or antialiased differently). |
+| `<physical-ui>` mesh in WGSL, 4x MSAA | same picture | jelly, cloth, paper: 0.04 at rest, 0.05 to 0.13 mid-wobble. The simulation and hit testing do not change. |
+| `<live-transition>` in WGSL | same picture | fade, morph, burn, ripple, pixelate, swirl 0.00; fold 0.05; shatter 0.14. A shader effect given only as GLSL moves the element to WebGL. |
+| `<glyph-field engine="webgpu">`, instanced quads | same picture at rest | `engine="auto"` (the `/particles/` default now) is WebGPU, else the 2D atlas. WebGL is skipped by `auto` because it came out as a solid block on one Android phone. |
+| `<canvas-slot effect>` and the `fx` attribute | WebGPU by default when usable | Only when every effect in use has WGSL source; a GLSL-only custom effect keeps that element on WebGL and the note says so. `backend="gl"` / `fx-backend="gl"` pins WebGL. |
+| Switching route on a live element | works | A canvas keeps its first context type, so the element swaps in a cloned canvas and moves its children across. Focus, form state and listeners stay. |
+| Falling back by itself | works | Three guards: the first frame runs inside a validation error scope; the `webgpulost` event; and the first two shown frames are copied to a 24px 2D canvas, and if both are empty the element goes to WebGL with "WebGPU showed an empty canvas". The reason is on `element.gpuNote`. |
+| Showing a WebGPU canvas in the headless test browser | fails | With `--enable-unsafe-webgpu --enable-unsafe-swiftshader` the adapter is SwiftShader. Render passes into textures work; `submit()` of a pass into any canvas texture (DOM or OffscreenCanvas, main thread or worker) destroys the device, with 15 sets of flags tried. So the comparisons above render to a texture and read it back (`offscreen` / `fx-offscreen` attributes). |
+| A lost device and the rest of the page | collateral damage | Losing the device also loses every WebGL context and large 2D canvas on the page, even when the device lived in a worker. A cross-site iframe is spared. This is why `webgpu()` refuses software adapters. |
+| three `WebGPURenderer` picked by itself | wired, not verified | `/three-form/` loads the WebGPU build when `webgpu()` passes. If the renderer does not start, falls back inside three, or loses its device, the page reloads on WebGL and shows the reason. |
+| WebXR on WebGPU | not possible here | `XRGPUBinding` is missing in Chromium 157, so `/xr/` stays on three's `WebGLRenderer`. |
+
+Not verified here, because the cloud browser cannot show a WebGPU canvas: every on-screen WebGPU path, its speed against WebGL, and three's `WebGPURenderer`. Each page has two checks for a real device: "the same picture as WebGL" (off-screen, pixel by pixel) and "on screen" (reads the shown canvas). On the cloud browser the first passes with the software adapter and the second fails with the reason.
+
 ## Transitions and motion (`/transitions/`, `/time-scrubber/`, `/particles/`)
 
 | Experiment | Result | Why |
@@ -443,7 +464,7 @@ Measured in headless Chromium 157 with software rendering, three.js r187 (vendor
 | Scene objects occluding a surface | app's job | The DOM does not know about the drone in front of the screen. Raycast, and park the element off-canvas. `clearElementGeometry()` did not remove the old hit region. |
 | Moving the geometry of a focused text field | scrolls the page | Scroll anchoring follows the field. `overflow-anchor: none` on the canvas stops it. |
 | Element of a WebGL canvas copied into a `GPUTexture` on a separate device | works | Checked by reading the texture back. Top-left origin, unscaled. |
-| three `WebGPURenderer` drawing those textures | not verified | Any WebGPU render pass loses the device in this software GPU. Needs real hardware: `/three-form/?renderer=webgpu`. |
+| three `WebGPURenderer` drawing those textures | not verified | Showing a WebGPU canvas loses the device in this software GPU (render passes into textures are fine). Needs real hardware: `/three-form/` picks it by itself when WebGPU is usable, and `?renderer=webgpu` forces it. |
 | `drawElementImage` under a zoom transform, 40% to 800% | works | Text is re-rasterised (no in-between pixels at 800%) and hit testing follows the transform. |
 | Same-origin iframes as canvas children | works | They paint, take clicks, typing and wheel at any zoom, and a change inside one fires the board's `paint` naming that tile. Other HTML-in-canvas pages, a WebGL scene and the board itself nest. |
 | Pointer and wheel events over an iframe tile | swallowed | They never reach the parent, so pan and zoom need a cover element until the tile is activated. |

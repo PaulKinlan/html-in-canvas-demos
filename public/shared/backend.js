@@ -19,21 +19,24 @@
 // texture and never present).
 
 let attempt = null;
+let forcedAttempt = null;
 
 /** The page's shared WebGPU device, or null. Never throws. */
 export function webgpu({ force = false } = {}) {
-  if (force && attempt && !attempt.forced) attempt = null;
-  if (!attempt) {
-    attempt = open(force);
-    attempt.forced = force;
-  }
-  return attempt;
+  attempt ??= open(false);
+  if (!force) return attempt;
+  // A forced device is the page's own when that works, else one that skipped
+  // the rules. It is never handed to a caller that did not ask for it: showing
+  // a canvas with it could destroy it, and every WebGL context with it.
+  forcedAttempt ??= attempt.then((gpu) => gpu ?? open(true));
+  return forcedAttempt;
 }
+/** Why the page's device (the one webgpu() gives without force) is not usable. Empty when it is. */
 webgpu.reason = '';
 
 async function open(force) {
   const no = (reason) => {
-    webgpu.reason = reason;
+    if (!force) webgpu.reason = reason;
     return null;
   };
   try {
@@ -47,7 +50,7 @@ async function open(force) {
     const gpu = { device, adapter, format: navigator.gpu.getPreferredCanvasFormat(), lost: false, software: !!software };
     device.lost.then((e) => {
       gpu.lost = true;
-      webgpu.reason = `the WebGPU device was lost (${e.message || e.reason})`;
+      if (!force) webgpu.reason = `the WebGPU device was lost (${e.message || e.reason})`;
       dispatchEvent(new CustomEvent('webgpulost', { detail: e }));
     });
     if (!force) {
@@ -57,7 +60,7 @@ async function open(force) {
         return no(problem);
       }
     }
-    webgpu.reason = '';
+    if (!force) webgpu.reason = '';
     return gpu;
   } catch (err) {
     return no(`WebGPU failed to start (${err.message})`);

@@ -81,6 +81,7 @@
     </canvas-slot>
     <!-- #endregion hero -->
   </div>
+  <p id="route"></p>
 
 <pre><code>&lt;script type="module" src="/lib/canvas-slot.js"&gt;&lt;/script&gt;
 
@@ -217,8 +218,10 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
 
   <h2>WebGPU backend</h2>
   <p>
-    <code>backend="webgpu"</code> draws each slot with <code>queue.drawElementImageToTexture()</code> and a WGSL version of the effect
-    (<code>fn fx(p: vec2f) -&gt; vec4f</code>). Built-in WGSL: tilt, ripple, dissolve. If WebGPU cannot start or the device is lost, the element
+    Every effect slot on this page uses WebGPU by itself when the page has a usable device (a real adapter that passes a self-test) and each
+    of its effects has WGSL source; the switch under the first demo names a route by hand and says why WebGPU is not in use.
+    <code>backend="webgpu"</code>, as below, asks for it outright. It draws each slot with <code>queue.drawElementImageToTexture()</code> and a WGSL version of the effect
+    (<code>fn fx(p: vec2f) -&gt; vec4f</code>). Built-in WGSL: tilt, ripple, dissolve, glass, haze, crt, page-curl. If WebGPU cannot start, rejects the first frame or loses the device, the element
     falls back to WebGL by itself.
   </p>
   <div class="stage">
@@ -230,7 +233,7 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
 
   <h2 id="how">How it works</h2>
   <ul class="findings">
-    <li><strong>Same element, same markup.</strong> <code>&lt;canvas-slot&gt;</code> without <code>effect</code> behaves exactly as before (2D context, <code>onrender</code>). With it, the canvas gets a WebGL2 context instead and the shader code is loaded on demand.</li>
+    <li><strong>Same element, same markup.</strong> <code>&lt;canvas-slot&gt;</code> without <code>effect</code> behaves exactly as before (2D context, <code>onrender</code>). With it, the canvas gets a WebGPU or WebGL2 context instead and the shader code is loaded on demand.</li>
     <li><strong>Each slot is a texture.</strong> <code>texElementSubImage2D()</code> uploads a slot only when the browser says it repainted. One full-canvas quad per slot runs the effect's fragment shader and is blended over the last.</li>
     <li><strong>No render loop to write.</strong> Slots stack as they do without an effect; set <code>onrender</code> only if you want to place them. The element repaints itself while an effect is moving and sleeps when nothing changes.</li>
     <li><strong>CSS is the control surface.</strong> The four <code>--fx-*</code> properties are read from each slotted element every frame while it is on screen. A paint happens only when one changed.</li>
@@ -248,6 +251,7 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
   // #endregion page
   import '/lib/shader-fx.js';
   import { defineEffect, effects } from '/lib/effects.js';
+  import { routeSwitch } from '/shared/route-switch.js';
   import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn, supported } from '/shared/support.js';
   nav('/slot-effects/');
   banner();
@@ -305,6 +309,13 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
   };
   glsl.addEventListener('input', () => { if ($('wobbleSlot').effects) $('wobbleSlot').effects.error = null; }, true);
 
+  // "Drawn with": the backend attribute on every effect slot above. Without it the element takes WebGPU when the page has a usable device.
+  routeSwitch($('route'), {
+    targets: () => document.querySelectorAll('main canvas-slot[effect]:not(#gpuSlot)'),
+    values: { webgpu: 'webgpu', webgl: 'gl' },
+    active: (el) => el.mode,
+    note: (el) => el.gpuNote,
+  });
   $('gpuSlot').addEventListener('effectfallback', (e) => ($('gpuStatus').dataset.fallback = `${e.detail.from} gave up (${e.detail.reason})`));
   setInterval(() => {
     const g = $('gpuSlot');
@@ -316,6 +327,8 @@ defineEffect('shared-tint', { glsl: `vec4 fx(vec2 p) { … }` });</code></pre>
   const fixtures = supported ? checkBench() : null;
   async function fixture(attrs = '', inner = '<div slot="a" class="chip">chip <button>b</button></div>', { wait = true } = {}) {
     const holder = document.createElement('div');
+    // The checks below are about the WebGL routes unless they name another one.
+    if (attrs.includes('effect=') && !attrs.includes('backend=')) attrs += ' backend="gl"';
     holder.innerHTML = `<canvas-slot ${attrs}>${inner}</canvas-slot>`;
     const cs = holder.firstElementChild;
     fixtures.append(cs);

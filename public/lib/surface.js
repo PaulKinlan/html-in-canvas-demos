@@ -54,7 +54,10 @@ const CSS = `
 `;
 
 export class SurfaceElement extends HTMLElement {
-  /** '2d' or 'webgl2'. Subclasses may also override createContext(). */
+  /**
+   * '2d' or 'webgl2'. Subclasses may also override createContext(), which may
+   * return a promise (choosing WebGPU means asking for a device first).
+   */
   static contextType = '2d';
   static contextAttributes = undefined;
   static defaultBleed = 0;
@@ -103,6 +106,8 @@ export class SurfaceElement extends HTMLElement {
   #raf = 0;
   #painted = false;
   #sized = false;
+  #canvasRO = null;
+  #starting = 0;
 
   /** True when the canvas path is active (false: plain <slot> fallback). */
   live = false;
@@ -136,7 +141,12 @@ export class SurfaceElement extends HTMLElement {
     this.#sizer = this.#root.getElementById('sizer');
     this.canvas = this.#root.querySelector('canvas');
     this.content = this.#root.getElementById('content');
-    this.canvas.addEventListener('paint', () => {
+    this.#wire(this.canvas);
+  }
+
+  #wire(canvas) {
+    canvas.addEventListener('paint', () => {
+      if (canvas !== this.canvas) return;
       this.#painted = true;
       this.contentDirty = true;
       // Draw in the same frame as the DOM change rather than one frame late.
@@ -147,15 +157,70 @@ export class SurfaceElement extends HTMLElement {
     // A 2D canvas can lose its context too (GPU reset, memory pressure on a
     // phone). Give it a moment to come back, then show the plain element.
     let lost = 0;
-    this.canvas.addEventListener('contextlost', () => {
-      lost = setTimeout(() => this.fallBackToPlain('canvas context lost'), 1500);
+    canvas.addEventListener('contextlost', () => {
+      if (canvas !== this.canvas) return;
+      lost = setTimeout(() => canvas === this.canvas && this.fallBackToPlain('canvas context lost'), 1500);
     });
-    this.canvas.addEventListener('contextrestored', () => {
+    canvas.addEventListener('contextrestored', () => {
       clearTimeout(lost);
+      if (canvas !== this.canvas) return;
       this.contentDirty = true;
       this.canvas.requestPaint();
       this.invalidate();
     });
+  }
+
+  /**
+   * Start again on a new canvas. A canvas keeps the first kind of context it
+   * is given, so moving between 2D, WebGL and WebGPU (or leaving a dead
+   * context behind) means a fresh one. The content moves across untouched and
+   * createContext() is asked again.
+   */
+  swapCanvas() {
+    if (!this.live || !this.canvas) return;
+    const old = this.canvas;
+    const canvas = old.cloneNode(false);
+    canvas.append(...old.childNodes);
+    this.#canvasRO?.unobserve(old);
+    old.replaceWith(canvas);
+    this.canvas = canvas;
+    this.ctx = null;
+    this.#painted = false;
+    this.contentDirty = true;
+    this.#wire(canvas);
+    if (this.#canvasRO) this.#observeCanvas();
+    if (this.isConnected) this.#startContext(false);
+  }
+
+  #observeCanvas() {
+    try {
+      this.#canvasRO.observe(this.canvas, { box: 'device-pixel-content-box' });
+    } catch {
+      this.#canvasRO.observe(this.canvas);
+    }
+  }
+
+  // createContext() may answer later. Sizing does not wait for it: only drawing does.
+  #startContext(first) {
+    const token = ++this.#starting;
+    const go = (ctx) => {
+      if (token !== this.#starting || !this.isConnected || !this.live) return;
+      this.ctx = ctx;
+      if (!ctx) return this.fallBackToPlain('no context');
+      if (first) this.connected?.();
+      this.contentDirty = true;
+      this.canvas.requestPaint();
+      this.invalidate();
+    };
+    if (this.ctx) return go(this.ctx);
+    let made;
+    try {
+      made = this.createContext(this.canvas);
+    } catch (err) {
+      return this.fallBackToPlain(err.message);
+    }
+    if (made && typeof made.then === 'function') made.then(go, (err) => token === this.#starting && this.fallBackToPlain(err.message));
+    else go(made);
   }
 
   /** Switch to the plain fallback at runtime (e.g. the GL context was lost for good). */
@@ -174,11 +239,6 @@ export class SurfaceElement extends HTMLElement {
     if (!this.live) return;
     this.bleed = Number(this.getAttribute('bleed') ?? this.constructor.defaultBleed) || 0;
     this.canvas.style.setProperty('--surface-bleed', this.bleed + 'px');
-    if (!this.ctx) {
-      this.ctx = this.createContext(this.canvas);
-      if (!this.ctx) return this.fallBackToPlain('no context');
-    }
-
     const contentRO = new ResizeObserver(([entry]) => {
       const box = entry.borderBoxSize?.[0];
       const w = box ? box.inlineSize : entry.contentRect.width;
@@ -211,14 +271,10 @@ export class SurfaceElement extends HTMLElement {
       this.canvas.requestPaint();
       this.invalidate();
     });
-    try {
-      canvasRO.observe(this.canvas, { box: 'device-pixel-content-box' });
-    } catch {
-      canvasRO.observe(this.canvas);
-    }
+    this.#canvasRO = canvasRO;
+    this.#observeCanvas();
     this.#observers.push(contentRO, canvasRO);
-    this.connected?.();
-    this.canvas.requestPaint();
+    this.#startContext(true);
   }
 
   disconnectedCallback() {
@@ -227,8 +283,10 @@ export class SurfaceElement extends HTMLElement {
   }
 
   #teardown() {
+    this.#starting++;
     for (const o of this.#observers) o.disconnect();
     this.#observers = [];
+    this.#canvasRO = null;
     cancelAnimationFrame(this.#raf);
     this.#raf = 0;
   }
@@ -238,7 +296,7 @@ export class SurfaceElement extends HTMLElement {
   }
 
   get ready() {
-    return this.live && this.#painted && this.#sized && this.width > 0;
+    return this.live && !!this.ctx && this.#painted && this.#sized && this.width > 0;
   }
 
   /** Ask for a render on the next animation frame. */
