@@ -244,6 +244,9 @@ export function provideSlots({ policy = () => 'ask', themeable = {}, remember = 
       s.facade?.onmessage?.(m);
     };
 
+    // Set before the decision below: several of its branches return early.
+    api.tell = (data) => s.scopes.length && !s.ended && link.send({ t: 'app', data });
+
     if (!surface) {
       // No HTML-in-canvas here: nothing can be sent, so this stays an
       // ordinary frame that the embedder shows as it is. No consent needed,
@@ -361,8 +364,6 @@ export function provideSlots({ policy = () => 'ask', themeable = {}, remember = 
       link.send({ t: 'attention', on: true, reason: 'confirm', label, popup: popupUrl(), min: ASK_MIN });
       return true;
     }
-
-    api.tell = (data) => s.scopes.length && !s.ended && link.send({ t: 'app', data });
 
     function end() {
       s.ended = true;
