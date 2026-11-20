@@ -12,6 +12,8 @@
 const FOCUSABLE = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [tabindex], [contenteditable=""], [contenteditable=true]';
 
 export const CHECKS = [
+  ['calm', 'Loads without moving or taking focus'],
+  ['blank', 'Canvases show something'],
   ['dom', 'Real DOM, not just pixels'],
   ['hit', 'Drawn where the browser thinks it is'],
   ['ghost', 'No invisible tab stops'],
@@ -148,6 +150,67 @@ function is2D(canvas) {
   try { return !!canvas.getContext('2d'); } catch { return false; }
 }
 
+/**
+ * What a canvas is showing: 'drawn', 'blank' (nothing, fully transparent), 'solid' (one flat
+ * colour, the "white box"), 'lost' (WebGL context lost) or 'unreadable'.
+ * WebGL canvases are sampled inside animation frames, where their buffer is still intact.
+ * @returns {Promise<{ state: string, colour?: string }>}
+ */
+export async function canvasState(canvas, { tries = 6 } = {}) {
+  const win = canvas.ownerDocument.defaultView;
+  let flat = true;
+  try { flat = !!canvas.getContext('2d'); } catch { flat = false; } // throws once transferred to a worker
+  if (!flat) {
+    try {
+      const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+      if (gl?.isContextLost()) return { state: 'lost' };
+    } catch {}
+  }
+  const sample = () => {
+    try {
+      const n = 24;
+      const scratch = canvas.ownerDocument.createElement('canvas');
+      scratch.width = n; scratch.height = n;
+      const ctx = scratch.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(canvas, 0, 0, n, n);
+      const d = ctx.getImageData(0, 0, n, n).data;
+      let opaque = 0, same = true;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] > 8) opaque++;
+        if (Math.abs(d[i] - d[0]) > 6 || Math.abs(d[i + 1] - d[1]) > 6 || Math.abs(d[i + 2] - d[2]) > 6 || Math.abs(d[i + 3] - d[3]) > 6) same = false;
+      }
+      if (!opaque) return { state: 'blank' };
+      if (same) return { state: 'solid', colour: `rgb(${d[0]}, ${d[1]}, ${d[2]})` };
+      return { state: 'drawn' };
+    } catch { return { state: 'unreadable' }; }
+  };
+  if (!canvas.width || !canvas.height) return { state: 'blank' };
+  let last = sample();
+  if (flat || last.state === 'drawn') return last;
+  // Not 2D: outside a frame the buffer reads as empty. Look again from inside a few frames.
+  for (let i = 0; i < tries && last.state !== 'drawn'; i++) {
+    await new Promise((r) => win.requestAnimationFrame(r));
+    const s = sample();
+    if (s.state === 'drawn' || s.state === 'solid' || last.state === 'unreadable') last = s;
+  }
+  return last.state === 'blank' ? { state: 'unreadable' } : last;
+}
+
+/**
+ * Keep a phone's on-screen keyboard down while the audit focuses things: inputmode="none"
+ * until the returned list is passed to unhush(), which must be after the element is blurred.
+ */
+function hush(el, undo) {
+  if (!('inputMode' in el) && !el.isContentEditable) return;
+  undo.push([el, el.getAttribute('inputmode')]);
+  el.setAttribute('inputmode', 'none');
+}
+function unhush(undo) {
+  for (const [el, had] of undo.splice(0)) {
+    if (had === null) el.removeAttribute('inputmode'); else el.setAttribute('inputmode', had);
+  }
+}
+
 function inViewport(win, r) {
   return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < win.innerHeight && r.left < win.innerWidth;
 }
@@ -176,8 +239,11 @@ const result = (id, status, detail, items = []) => ({ id, title: CHECKS.find((c)
 /**
  * Audit one document. It is scrolled, focused and (briefly) zoomed while this runs.
  * @param {Document} doc same-origin, rendered (not display: none), ideally ≥ 800×500
+ * @param {object} [opts] fresh (default true): the document has just loaded and nobody has touched it,
+ *   so its scroll position and focus can be judged ("calm"). Inputs are focused with inputmode="none",
+ *   so a phone's keyboard stays down.
  */
-export async function auditDocument(doc, { maxControls = 14 } = {}) {
+export async function auditDocument(doc, { maxControls = 14, fresh = true } = {}) {
   const win = doc.defaultView;
   const canvases = deepAll(doc, 'canvas');
   const drawable = canvases.filter(isDrawableCanvas);
@@ -188,6 +254,55 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
     if (o && o.root === el) roots.push({ el, canvas: o.canvas });
   }
   const checks = [];
+
+  // ---- calm: measured first, before this audit moves anything. Has the page stayed where it loaded?
+  if (fresh) {
+    const active = deepActive(doc);
+    const focused = active && active !== doc.body && active !== doc.documentElement ? active : null;
+    const typing = focused && (focused.matches('input:not([type=button]):not([type=checkbox]):not([type=radio]):not([type=range]):not([type=submit]), textarea, select') || focused.isContentEditable);
+    const scrolled = !win.location.hash && (win.scrollY > 2 || win.scrollX > 2);
+    let shift = 0;
+    try {
+      // Buffered layout-shift entries: how much the page jumped about while loading and testing itself.
+      const entries = await new Promise((res) => {
+        const po = new win.PerformanceObserver((list) => { res(list.getEntries()); po.disconnect(); });
+        po.observe({ type: 'layout-shift', buffered: true });
+        setTimeout(() => { res(po.takeRecords()); po.disconnect(); }, 150);
+      });
+      for (const e of entries) if (!e.hadRecentInput) shift += e.value;
+    } catch {}
+    const bits = [
+      scrolled ? `the page scrolled itself to ${Math.round(win.scrollX) ? `${Math.round(win.scrollX)}, ` : ''}${Math.round(win.scrollY)}px` : 'still at the top',
+      focused ? `${label(focused)} has focus without anyone touching the page${typing ? ': on a phone that opens the keyboard' : ''}` : 'nothing has taken focus',
+      `layout shift while loading ${shift.toFixed(2)}${shift > 0.25 ? ' (the page visibly jumps about)' : shift > 0.1 ? ' (noticeable)' : ''}`,
+    ];
+    checks.push(result('calm', scrolled || typing || shift > 0.25 ? 'fail' : focused || shift > 0.1 ? 'warn' : 'pass', bits.join('; ')));
+  } else checks.push(result('calm', 'info', 'not measured: the page was not freshly loaded'));
+
+  // ---- blank: every canvas big enough to be the demo should be showing something
+  {
+    const big = canvases.filter((c) => { const r = c.getBoundingClientRect(); return r.width >= 48 && r.height >= 48 && win.getComputedStyle(c).visibility !== 'hidden' && Number(win.getComputedStyle(c).opacity) > 0.05; });
+    const bad = [], idle = [], unread = [];
+    let drawn = 0;
+    for (const c of big) {
+      const st = await canvasState(c);
+      if (st.state === 'drawn') { drawn++; continue; }
+      if (st.state === 'unreadable') { unread.push(c); continue; }
+      const what = `${label(c)}: ${st.state === 'lost' ? 'WebGL context lost' : st.state === 'solid' ? `one solid colour, ${st.colour}` : 'blank'}`;
+      // A canvas that holds live elements, or has lost its context, should never be empty.
+      // A plain canvas may just be waiting for the visitor to do something.
+      const holds = isDrawableCanvas(c) && roots.some((r) => r.canvas === c);
+      (holds || st.state === 'lost' ? bad : idle).push(what);
+    }
+    if (!big.length) checks.push(result('blank', 'info', 'no canvases to look at'));
+    else {
+      const bits = [`${drawn} of ${big.length} canvas(es) show a picture`];
+      if (bad.length) bits.push(`${bad.length} that hold live elements are blank or one flat colour, or have lost their WebGL context`);
+      if (idle.length) bits.push(`${idle.length} plain canvas(es) are empty or one flat colour (fine if they are waiting for input)`);
+      if (unread.length) bits.push(`${unread.length} could not be read back (WebGL that is not rendering every frame, or drawn by a worker)`);
+      checks.push(result('blank', bad.length ? 'fail' : idle.length || unread.length ? 'warn' : 'pass', bits.join('; '), [...bad, ...idle]));
+    }
+  }
 
   // ---- dom
   {
@@ -257,6 +372,7 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
     const before = deepActive(doc);
     const sample = controls.slice(0, maxControls);
     const noFocus = [], noRing = [], unreadable = [], moved = [];
+    const hushed = [];
     let ok = 0;
     for (const { el, canvas } of sample) {
       canvas.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
@@ -264,6 +380,7 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
       await frames(win, 2);
       const rect = el.getBoundingClientRect();
       const a = pixelHash(canvas, rect);
+      hush(el, hushed);
       el.focus({ preventScroll: true });
       await frames(win, 3);
       if (deepActive(doc) !== el) { noFocus.push(el); continue; }
@@ -276,6 +393,7 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
       else unreadable.push(el);
     }
     deepActive(doc)?.blur?.();
+    unhush(hushed);
     before?.focus?.({ preventScroll: true });
     const extra = controls.length > sample.length ? ` (first ${sample.length} of ${controls.length})` : '';
     if (!sample.length) checks.push(result('focus', 'info', 'no focusable controls inside drawn elements'));
@@ -552,15 +670,18 @@ export async function auditPattern(doc) {
     const visual = [...want.keys()].sort((i, j) => (Math.abs(rects[i].top - rects[j].top) > rects[i].height * 0.6 ? rects[i].top - rects[j].top : rects[i].left - rects[j].left));
     const visualOk = visual.every((v, i) => v === i);
     const refused = [], noRing = [], unread = [];
+    const hushed = [];
     const before = deepActive(doc);
     for (const el of want) {
       deepActive(doc)?.blur?.();
+      hush(el, hushed);
       const r = await pixelsChange(doc, canvasOf(el), () => el.getBoundingClientRect(), () => el.focus({ preventScroll: true }));
       if (deepActive(doc) !== el) refused.push(el);
       else if (r.changed === false) noRing.push(el);
       else if (r.changed === null && !r.painted) unread.push(el);
     }
     deepActive(doc)?.blur?.();
+    unhush(hushed);
     before?.focus?.({ preventScroll: true });
     const bits = [`DOM order input, button, link ${domOrder ? 'is' : 'is NOT'} the order they are drawn in (${visualOk ? 'top to bottom, left to right' : 'the drawing puts them in a different order'})`];
     bits.push(refused.length ? `${refused.length} refused focus` : 'all three take focus');
