@@ -119,6 +119,7 @@ For a new demo page:
 - Put `<script src="/shared/nav.js"></script>` first in `<body>`. It reserves the menu's space and holds the first paint until your module scripts have built the page.
 - Add one line for it in `public/shared/demos.js` (menu and homepage) and one entry in `public/shared/learn.js` (what it teaches, what to read first, the calls to look for). The menu script puts the "What this page covers" box under the page's `<p class="lede">`, so write one.
 - In the first paragraph, say what the demo does and how to use it. Put the demo above the test tables.
+- `runTests()` puts its results table in a `<details>` with the pass count in the summary line. It is closed on screens narrower than 700 px.
 - Live checks run on their own fixtures, out of flow (fixed or absolute, or a hidden copy of the page with `lib/check-fixture.js`). They never call `scrollIntoView()`, `scrollTo()` or `focus()` on the page the reader is looking at, and never insert or remove anything in the flow above the results.
 - Do not size a canvas stage with `dvh`: it changes every time a phone's URL bar moves. Use `svh`.
 - Only assign `canvas.width` and `canvas.height` when the size really changed. Assigning clears the canvas.

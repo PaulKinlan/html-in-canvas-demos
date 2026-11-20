@@ -13,6 +13,8 @@
 //
 // Add ?checks to the URL to scroll to the fixture and start at once (handy for automation).
 
+import { foldChecks } from '/shared/support.js';
+
 export function onScreen(el) {
   let visible = false, waiters = [];
   const io = new IntersectionObserver((entries) => {
@@ -31,6 +33,7 @@ export function onScreen(el) {
     /** Show the list of checks straight away, as waiting rows. runTests() replaces them with its own. */
     reserve(tbody, tests) {
       reserved = tbody;
+      foldChecks(tbody);
       tbody.replaceChildren(...tests.map((t) => {
         const tr = document.createElement('tr');
         tr.innerHTML = '<td class="status pending">… waiting</td><td><strong></strong><div class="note"></div></td><td class="note detail"></td>';

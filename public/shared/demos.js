@@ -13,13 +13,16 @@
 // Keep each entry on a single line and add new ones at the END of a group, so
 // branches that add demos in parallel merge cleanly. New group? Add it to
 // GROUPS, then use its key.
+// Groups are listed in reading order: the API, then drawing techniques, then
+// sending DOM to other contexts, then measurements. The menu, the homepage and
+// the previous/next arrows all follow this order (see the sort at the end).
 window.DEMO_GROUPS = [
   ['start', 'Start here'],
   ['slots', 'Slots'],
-  ['contexts', 'Workers, tabs and origins'],
   ['primitives', 'UI primitives'],
   ['motion', 'Transitions and motion'],
   ['3d', '3D and shaders'],
+  ['contexts', 'Workers, tabs and origins'],
   ['audit', 'Accessibility, capture and performance'],
 ];
 
@@ -66,3 +69,11 @@ window.DEMOS = [
   { group: 'audit', href: '/capture/', title: 'Element capture', blurb: 'One call turns any element, or a whole ordinary page, into a PNG, a video or a printed page: <code>captureElement()</code>, <code>capturePage()</code>, <code>exportVideo()</code> with WebCodecs.', tags: ['moveBefore', 'WebCodecs', 'print'] },
   { group: 'audit', href: '/perf/', title: 'Performance wall', blurb: 'How many live elements a canvas can carry before frames drop, as plain DOM, a 2D canvas and a worker, measured on your device.', tags: ['requestPaint', 'worker', 'fps'] },
 ];
+
+// Put the entries in group order, keeping the order within each group, so the
+// previous/next arrows walk the menu from top to bottom.
+{
+  const order = new Map(window.DEMO_GROUPS.map(([key], i) => [key, i]));
+  const rank = (d) => order.get(d.group) ?? order.size;
+  window.DEMOS = window.DEMOS.map((d, i) => [d, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(([d]) => d);
+}
