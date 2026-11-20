@@ -264,6 +264,7 @@ export class LiveCard extends HTMLElement {
     this.#frame.src = src.href;
   }
 
+  // #region connect
   #onMessage = (e) => {
     if (e.source !== this.#frame.contentWindow || e.origin !== this.#origin) return;
     if (e.data?.type === 'card-ready') {
@@ -276,6 +277,7 @@ export class LiveCard extends HTMLElement {
       this.#link.send({ t: 'hello', frames: 'bitmap' });
     }
   };
+  // #endregion connect
 
   #fallback(reason) {
     // Plain iframe: everything still works, minus the effects.
@@ -367,12 +369,14 @@ export class LiveCard extends HTMLElement {
     if (fx === 1 || fx === 3) this.#raf = requestAnimationFrame(this.#draw);
   };
 
+  // #region pointer
   #pointer(kind, e) {
     const r = this.#canvas.getBoundingClientRect();
     const p = this.toCard((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
     if (kind === 'down' && (p.x < 0 || p.y < 0 || p.x > 1 || p.y > 1)) return (this.#down = false);
     this.#link?.send({ t: 'pointer', kind, x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) });
   }
+  // #endregion pointer
 
   // Real, focusable elements inside the canvas (its fallback content), one
   // per interactive element of the card. They are what assistive technology

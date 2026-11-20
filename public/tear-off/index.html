@@ -50,6 +50,24 @@
     <li><strong>Stream it and replay input.</strong> The element never leaves. HTML-in-canvas gives its pixels on every <code>paint</code>; they travel as <code>ImageBitmap</code>s, video or JPEGs and input comes back as small messages. This works over anything that carries a message, including routes with no window reference at all.</li>
   </ul>
 
+  <details class="show-code">
+    <summary>Show the code <small>tearing a widget off</small></summary>
+    <p>Each widget is ordinary markup inside a <code>&lt;live-region&gt;</code>. <code>w.surface</code> is that region's surface, <code>w.content</code> the widget's root element and <code>win</code> the window just opened.</p>
+    <ol>
+      <li data-code="#imports"><b>Load the pieces.</b></li>
+      <li data-code="#popup"><b>Stream to a popup (same or another origin): post it a <code>MessagePort</code> and serve the surface on the other end.</b></li>
+      <li data-code="/tear-off/window.html"><b>The window it opens.</b> A <code>&lt;live-view&gt;</code> and a few ways to get connected. It holds no DOM from this page.</li>
+      <li data-code="#move"><b>Or move the real element.</b> <code>append()</code> into the other window's document adopts the node. No canvas involved.</li>
+      <li data-code="#video"><b>Or float it as a video.</b> The surface is a <code>MediaStream</code>, so classic Picture-in-Picture works.</li>
+      <li data-code="#room"><b>Or share it with a tab that has no link to this one</b>, through a relay room and then WebRTC.</li>
+      <li data-code="/lib/live-surface.js#shadow"><b>Inside <code>&lt;live-region&gt;</code>: a shadow root with a drawable canvas and a slot.</b> Your markup is slotted into the canvas, so it can be drawn without being moved.</li>
+      <li data-code="/lib/live-surface.js#paint"><b>Inside: on every <code>paint</code> event, draw the element.</b></li>
+      <li data-code="/lib/live-surface.js#mirror"><b>Inside: copy the pixels to a second canvas, and black out private fields.</b> That second canvas is the only thing that ever leaves the page.</li>
+      <li data-code="/lib/live-surface.js#out"><b>Inside: hand the copy out as an <code>ImageBitmap</code> or a <code>MediaStream</code>.</b></li>
+      <li data-code="/lib/live-surface.js#input"><b>Inside: replay the input that comes back on the real elements.</b></li>
+      <li data-code="/lib/live-surface.js"><b>The whole library.</b></li>
+    </ol>
+  </details>
   <h2>What reaches another window (live)</h2>
   <p class="note">These run in your browser now, using frames as stand-ins for the other window where a real popup would need a click.</p>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
@@ -69,10 +87,12 @@
 </main>
 
 <script type="module">
+  // #region imports
   import { supported, serve } from '/lib/live-surface.js';
   import { portLink, directLinkPair } from '/lib/live-view.js';
   import { shareInRoom, newRoomId } from '/lib/live-link.js';
   import { connectBroker } from '/lib/slot-share.js';
+  // #endregion imports
   import { otherOrigin } from '/lib/live-origins.js';
   import { WIDGETS, wireWidgets } from '/shared/live-widgets.js';
   import { banner, nav, runTests, withTimeout, apart, isBench } from '/shared/support.js';
@@ -230,6 +250,7 @@
       needSurface(w);
       const origin = route === 'popup-xorigin' ? REMOTE : location.origin;
       if (!origin) throw new Error('no second origin on this host');
+      // #region popup
       const id = newRoomId();
       const win = opened(window.open(`${origin}/tear-off/window.html?direct=${id}`, `tear-${w.name}`, features(w, at)));
       let stop = null;
@@ -240,6 +261,7 @@
         win.postMessage({ type: 'live-port' }, origin, [port2]);
       };
       addEventListener('message', onReady);
+      // #endregion popup
       ghost(w, 'Live in another window');
       const unwatch = watchClosed(win, () => w.dock?.());
       done(route === 'popup-xorigin' ? `Streaming to a window on ${new URL(origin).host}.` : 'Streaming to a popup over a MessagePort.', () => {
@@ -273,6 +295,7 @@
     } else if (route === 'popup-move' || route === 'pip-move') {
       const win = route === 'pip-move' ? await pipWindow(w) : opened(window.open('', `tear-${w.name}`, features(w, at)));
       scaffold(win, w, '');
+      // #region move
       // append() adopts the node into the popup's document. Nothing is cloned.
       win.document.body.append(w.content);
       const placeholder = Object.assign(document.createElement('div'), { className: 'placeholder', textContent: 'The real element is in the other window.' });
@@ -281,6 +304,7 @@
         placeholder.remove();
         w.region.append(w.content);
       };
+      // #endregion move
       win.addEventListener('pagehide', () => w.dock?.());
       const unwatch = watchClosed(win, () => w.dock?.());
       done(route === 'pip-move' ? 'The real DOM is in a Document PiP window.' : 'The real DOM is in a popup.', () => {
@@ -290,12 +314,14 @@
       });
     } else if (route === 'pip-video') {
       needSurface(w);
+      // #region video
       const video = Object.assign(document.createElement('video'), { muted: true, playsInline: true, className: 'pip' });
       video.srcObject = w.surface.stream(30);
       w.card.append(video);
       await video.play();
       w.surface.requestPaint();
       await video.requestPictureInPicture();
+      // #endregion video
       // Buttons on a video PiP window are Media Session actions. Map each to
       // the widget button that declares data-media="<action>".
       const actions = [];
@@ -327,10 +353,12 @@
       needSurface(w);
       const origin = route === 'tab-xorigin' ? REMOTE : location.origin;
       if (!origin) throw new Error('no second origin on this host');
+      // #region room
       const room = newRoomId();
       const session = await shareInRoom(w.surface, room, { kind: 'ws', title: w.title });
       const url = `${origin}/tear-off/window.html?via=ws&room=${room}${origin === location.origin ? '' : `&api=${encodeURIComponent(location.origin)}`}`;
       window.open(url, '_blank', 'noopener');
+      // #endregion room
       ghost(w, 'Live in another tab');
       session.on('state', (id, state) => status(w, `Relay room ${room}: WebRTC ${state}.`, { away: true }));
       done(`Relay room ${room}: waiting for the tab.`, () => session.stop());

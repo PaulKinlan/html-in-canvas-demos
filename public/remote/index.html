@@ -33,6 +33,7 @@
 
   <div class="split">
     <div class="stage">
+      <!-- #region markup -->
       <live-region id="region">
         <div id="panel">
           <div class="lw lw-mixer"><h3>Living room</h3>
@@ -44,6 +45,7 @@
           <form class="lw lw-notes"><h3>Queue</h3><input name="note" placeholder="Add a song, press Enter" aria-label="Add a song" autocomplete="off"><ul></ul></form>
         </div>
       </live-region>
+      <!-- #endregion markup -->
       <p id="where" role="status">Not shared yet.</p>
     </div>
     <aside class="card">
@@ -57,6 +59,22 @@
     </aside>
   </div>
 
+  <details class="show-code">
+    <summary>Show the code <small>one element on another device</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Wrap the part of the page to share in <code>&lt;live-region&gt;</code>.</b></li>
+      <li data-code="#share"><b>Share its surface in a room.</b> <code>room</code> is a short random code. The link in the QR code is the viewer page with that code after the <code>#</code>.</li>
+      <li data-code="/remote/view.html#view"><b>The phone's page: a <code>&lt;live-view&gt;</code>.</b> It needs no HTML-in-canvas.</li>
+      <li data-code="/remote/view.html#join"><b>The phone's page: join the same room.</b></li>
+      <li data-code="/lib/live-link.js#share"><b>Inside <code>shareInRoom()</code>: a WebRTC video track of the surface for each viewer</b>, with a data channel for input, and relayed JPEGs when WebRTC cannot connect.</li>
+      <li data-code="/lib/live-surface.js#shadow"><b>Inside <code>&lt;live-region&gt;</code>: a shadow root with a drawable canvas and a slot.</b> Your markup is slotted into the canvas, so it can be drawn without being moved.</li>
+      <li data-code="/lib/live-surface.js#paint"><b>Inside: on every <code>paint</code> event, draw the element.</b></li>
+      <li data-code="/lib/live-surface.js#mirror"><b>Inside: copy the pixels to a second canvas, and black out private fields.</b> That second canvas is the only thing that ever leaves the page.</li>
+      <li data-code="/lib/live-surface.js#out"><b>Inside: hand the copy out as an <code>ImageBitmap</code> or a <code>MediaStream</code>.</b></li>
+      <li data-code="/lib/live-surface.js#input"><b>Inside: replay the input that comes back on the real elements.</b></li>
+      <li data-code="/lib/live-surface.js"><b>The whole library.</b></li>
+    </ol>
+  </details>
   <h2>How it travels</h2>
   <ol>
     <li><strong>Capture.</strong> The panel sits in a <code>&lt;live-region&gt;</code>, whose shadow root paints it through an HTML-in-canvas canvas. Every <code>paint</code> copies the result to a second canvas, and <code>captureStream()</code> turns that into a video track. No screen-capture prompt, and nothing outside the element is in the picture.</li>
@@ -80,16 +98,20 @@
 
 <script src="/lib/vendor/qrcode.js"></script>
 <script type="module">
+  // #region share
   import { supported } from '/lib/live-surface.js';
   import { shareInRoom, newRoomId } from '/lib/live-link.js';
+  // #endregion share
   import { wireWidgets } from '/shared/live-widgets.js';
   import { banner, nav, runTests, apart, isBench } from '/shared/support.js';
   nav('/remote/');
   banner();
   wireWidgets();
 
+  // #region share
   const region = document.getElementById('region');
   const surface = region.surface;
+  // #endregion share
   const where = document.getElementById('where');
   const list = document.getElementById('viewers');
   const relay = document.getElementById('relay');
@@ -140,12 +162,16 @@
     if (!surface) {
       where.textContent = 'This browser cannot share the element (no HTML-in-canvas). You can still open the viewer to see what the other end looks like.';
     }
+    // #region share
     const url = new URL(`/remote/view.html${relay.checked ? '?transport=relay' : ''}#${room}`, location.href).href;
+    // #endregion share
     document.getElementById('link').href = url;
     document.getElementById('code').textContent = room;
     drawQr(url);
     if (!surface) return;
+    // #region share
     session = await shareInRoom(surface, room, { kind: 'auto', transport: relay.checked ? 'relay' : 'auto', title: 'Living room' });
+    // #endregion share
     window.session = session;
     where.textContent =
       session.signal.kind === 'ws'

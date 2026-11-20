@@ -30,12 +30,14 @@ const PRIVATE = '[data-private], input[type=password]';
 const INTERACTIVE = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=link], [role=checkbox], [role=tab], [contenteditable=""], [contenteditable=true], [tabindex]:not([tabindex="-1"])';
 const TEXTUAL = new Set(['text', 'search', 'url', 'tel', 'email', 'password', 'number', '']);
 
+// #region shadow
 const SHADOW = `<style>
   :host { display: block; }
   canvas { display: block; width: 100%; height: 0; }
   /* Canvas children are shrink-to-fit by default; fill the canvas like a block would. */
   #box { display: flow-root; width: 100%; box-sizing: border-box; }
 </style><canvas part="canvas" content="drawable" layoutsubtree><div id="box" part="box" drawable><slot></slot></div></canvas>`;
+// #endregion shadow
 
 // Layout properties copied from a host onto the inner box when an existing
 // element is converted, so a grid or flex container keeps laying out its
@@ -168,6 +170,7 @@ export class LiveSurface extends EventTarget {
     tick();
   }
 
+  // #region paint
   #paint() {
     const ctx = this.#ctx;
     const dpr = this.#dpr;
@@ -198,6 +201,7 @@ export class LiveSurface extends EventTarget {
     this.#watchBlank(time);
     this.dispatchEvent(new CustomEvent('frame', { detail: { width: this.width, height: this.height } }));
   }
+  // #endregion paint
 
   /** Is the shareable copy one flat colour (64 samples)? */
   isBlank() {
@@ -231,6 +235,7 @@ export class LiveSurface extends EventTarget {
     }
   }
 
+  // #region mirror
   // The clean, shareable copy. drawImage(canvas) is synchronous, so the copy
   // is taken between the 1:1 draw and the local effect.
   #copyToMirror() {
@@ -260,6 +265,7 @@ export class LiveSurface extends EventTarget {
       m.fill();
     }
   }
+  // #endregion mirror
 
   #drawOverlays(ctx, time) {
     this.#highlights = this.#highlights.filter((h) => h.until > time);
@@ -334,15 +340,19 @@ export class LiveSurface extends EventTarget {
     this.requestPaint();
   }
 
+  // #region out
   /** An ImageBitmap of the shareable copy. */
   bitmap() {
     return createImageBitmap(this.mirror);
   }
+  // #endregion out
 
+  // #region out
   /** A MediaStream of the shareable copy (for <video>, Picture-in-Picture, WebRTC, recording). */
   stream(fps = 30) {
     return this.mirror.captureStream(fps);
   }
+  // #endregion out
 
   /** A JPEG/WebP/PNG blob of the shareable copy. */
   blob(type = 'image/jpeg', quality = 0.7) {
@@ -422,6 +432,7 @@ export class LiveSurface extends EventTarget {
    *   { t:'choose', id, value }
    *   { t:'act', kind:'click'|'fill'|'focus', id, value }      by describe() id
    */
+  // #region input
   input(msg, from) {
     if (!this.acceptInput(msg, from)) return { t: 'refused', what: msg.t };
     this.dispatchEvent(new CustomEvent('input', { detail: { msg, from } }));
@@ -457,6 +468,7 @@ export class LiveSurface extends EventTarget {
     }
     return null;
   }
+  // #endregion input
 
   #pointer({ kind, x, y, dx = 0, dy = 0 }) {
     const lx = x * this.width;
