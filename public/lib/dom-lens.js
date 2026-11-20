@@ -166,6 +166,7 @@ export class DomLens extends SurfaceElement {
     return 1 / (1 / z + (1 - 1 / z) * t * t);
   }
 
+  // #region render
   render() {
     const { ctx, content, scale: s, width: w, height: h, bleed: b } = this;
     const lens = this.lens;
@@ -313,6 +314,7 @@ export class DomLens extends SurfaceElement {
     if (calls > 8) this.#msPerDraw = this.#msPerDraw * 0.7 + (this.frameMs / calls) * 0.3;
     return false;
   }
+  // #endregion render
 
   /** Element boxes in content px. Read while geometry is at rest. */
   #measure() {
@@ -371,6 +373,7 @@ export class DomLens extends SurfaceElement {
  * Draw through one triangle of a warp mesh. Each corner is [dx, dy, sx, sy]:
  * where it is on screen and which point of the source it shows.
  */
+// #region triangle
 function triangle(ctx, a, b, c, draw) {
   const [x0, y0, u0, v0] = a, [x1, y1, u1, v1] = b, [x2, y2, u2, v2] = c;
   const det = (u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0);
@@ -396,6 +399,7 @@ function triangle(ctx, a, b, c, draw) {
   draw();
   ctx.restore();
 }
+// #endregion triangle
 
 let sheet;
 function touchSheet() {
