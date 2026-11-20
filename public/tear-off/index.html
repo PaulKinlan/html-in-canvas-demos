@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tear-off widgets</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/shared/live-widgets.css">
+<style>
+  .board { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; align-items: start; }
+  .widget { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px; }
+  .widget > header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; position: relative; }
+  .grip { cursor: grab; user-select: none; font-size: 18px; line-height: 1; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); }
+  .grip:hover { color: var(--fg); border-color: var(--fg); }
+  .widget h2 { font-size: 15px; margin: 0; flex: 1; }
+  .routes > summary { list-style: none; cursor: pointer; font-size: 13px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; }
+  .routes > summary::-webkit-details-marker { display: none; }
+  .routes[open] > summary { border-color: var(--fg); }
+  .routes > div { position: absolute; z-index: 5; right: 0; top: 34px; width: min(330px, 86vw); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 10px 30px #0003; display: grid; gap: 2px; }
+  .routes h4 { margin: 6px 8px 2px; font: 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .routes button { text-align: left; border: 0; background: none; padding: 6px 8px; font-size: 14px; }
+  .routes button:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
+  .routes button small { display: block; color: var(--muted); font-size: 12px; }
+  .widget > footer { font: 12px var(--mono); color: var(--muted); margin-top: 8px; display: flex; gap: 8px; align-items: center; min-height: 26px; flex-wrap: wrap; }
+  .widget > footer button { font: 12px var(--mono); padding: 2px 8px; }
+  .widget[data-away] { border-style: dashed; }
+  live-region:empty::after, .gone { content: ''; }
+  .placeholder { font: 14px system-ui; color: var(--muted); padding: 28px 12px; text-align: center; border: 1px dashed var(--line); border-radius: 12px; }
+  video.pip { position: absolute; width: 2px; height: 2px; opacity: 0; pointer-events: none; }
+  #crash { color: var(--bad); }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Tear-off widgets</h1>
+  <p class="lede">
+    Three ordinary widgets. Pull one out of the page, into a new window, an always-on-top window, another tab, or another origin, and it keeps
+    working: what you do out there is sent back and happens to the real element here. Drag a grip <span aria-hidden="true">⠿</span> outside this
+    window, onto the <a href="/tear-off/dock.html" target="_blank" rel="noopener">dock tab</a>, or pick a route from the menu.
+  </p>
+
+  <div class="board" id="board"></div>
+
+  <h2>The routes</h2>
+  <p>There are only two ways for a piece of a page to appear in another window, and this page does both.</p>
+  <ul class="findings">
+    <li><strong>Move the real element.</strong> A window you opened is a same-origin document you can reach, so <code>popup.document.body.append(element)</code> adopts the live node. Its listeners, timers and state come with it, because they belong to this page's script. It is real DOM out there: selectable, accessible, native input. It only works while a window reference exists, on the same origin.</li>
+    <li><strong>Stream it and replay input.</strong> The element never leaves. HTML-in-canvas gives its pixels on every <code>paint</code>; they travel as <code>ImageBitmap</code>s, video or JPEGs and input comes back as small messages. This works over anything that carries a message, including routes with no window reference at all.</li>
+  </ul>
+
+  <h2>What reaches another window (live)</h2>
+  <p class="note">These run in your browser now, using frames as stand-ins for the other window where a real popup would need a click.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+  <p class="note">
+    One experiment is not run automatically because it can take the tab down:
+    <button id="crash" type="button">Adopt a whole painted live-region into another document</button> <span id="crash-out"></span>
+  </p>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>Interaction does get back to the origin without any window link.</strong> A <code>noopener</code> tab reaches the source over <code>BroadcastChannel</code> (ImageBitmaps clone across it), through a <code>SharedWorker</code> that hands both tabs one end of a <code>MessageChannel</code>, or through the Worker's relay room. Even <code>localStorage</code> events work as a transport.</li>
+    <li><strong>Across origins with no link, you need a meeting point.</strong> The relay room works anywhere. A frame from the source's origin embedded in the other page can also bridge to <code>BroadcastChannel</code>. Browsers that partition third-party storage are expected to cut that bridge when the two pages are different sites; headless Chromium 157 did not, so check the row above in your own browser.</li>
+    <li><strong>A scripted <code>about:blank</code> popup needs no messaging at all.</strong> The opener calls into the popup's document directly and hands it ImageBitmaps by reference.</li>
+    <li><strong>The source page has to be on screen for streaming.</strong> <code>paint</code> stops when the tab is hidden, so a streamed widget freezes while you are in another tab. Moving the real DOM into a Picture-in-Picture window does not have that problem, because the element is then painted by that window.</li>
+    <li><strong>Video Picture-in-Picture is view only, but not button-less.</strong> Media Session actions show as buttons on the video window, and this page maps them to the widget's own buttons.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { supported, serve } from '/lib/live-surface.js';
+  import { portLink, directLinkPair } from '/lib/live-view.js';
+  import { shareInRoom, newRoomId } from '/lib/live-link.js';
+  import { connectBroker } from '/lib/slot-share.js';
+  import { otherOrigin } from '/lib/live-origins.js';
+  import { WIDGETS, wireWidgets } from '/shared/live-widgets.js';
+  import { banner, nav, runTests, withTimeout } from '/shared/support.js';
+  nav('/tear-off/');
+  banner();
+
+  const REMOTE = otherOrigin();
+  const pageId = Math.random().toString(36).slice(2, 8);
+  const board = document.getElementById('board');
+  const widgets = new Map();
+
+  const ROUTES = [
+    ['New window (window.open)'],
+    ['popup-stream', 'Stream pixels over a MessagePort', 'The DOM stays here. Clicks and keys come back on the port.'],
+    ['popup-scripted', 'about:blank, scripted from this page', 'No file and no messages: this page reaches into the popup.'],
+    ['popup-move', 'Move the real DOM there', 'The element itself is adopted by the popup document.'],
+    ['popup-xorigin', 'A window on another origin', 'Port handed over with postMessage. Needs the second origin.'],
+    ['Always on top'],
+    ['pip-move', 'Document Picture-in-Picture, real DOM', 'Keeps working while this tab is in the background.'],
+    ['pip-stream', 'Document Picture-in-Picture, streamed', 'Pixels and input, like the popup.'],
+    ['pip-video', 'Video Picture-in-Picture', 'View only. Media keys become the widget\'s buttons.'],
+    ['A tab with no link to this one (noopener)'],
+    ['tab-bc', 'BroadcastChannel', 'Same origin. ImageBitmaps are cloned to every listener.'],
+    ['tab-sw', 'SharedWorker hands over a MessagePort', 'Same origin. After the introduction the tabs talk directly.'],
+    ['tab-ws', 'Worker relay room, then WebRTC', 'Any browser or device that has the link.'],
+    ['tab-xorigin', 'Another origin, through the relay', 'No opener and no shared storage: only a server can introduce them.'],
+  ];
+
+  for (const [name, title] of [['timer', 'Focus timer'], ['notes', 'Notes'], ['mixer', 'Mixer']]) {
+    const card = document.createElement('article');
+    card.className = 'widget';
+    card.dataset.name = name;
+    card.innerHTML = `<header>
+        <span class="grip" draggable="true" title="Drag out of the window, or onto the dock tab" aria-label="Drag ${title} out of the page">⠿</span>
+        <h2>${title}</h2>
+        <details class="routes"><summary>Tear off</summary><div>${ROUTES.map(([id, label, hint]) => (label ? `<button type="button" data-route="${id}">${label}<small>${hint}</small></button>` : `<h4>${id}</h4>`)).join('')}</div></details>
+      </header>
+      <live-region>${WIDGETS[name]}</live-region>
+      <footer><span class="where">Here.</span></footer>`;
+    board.append(card);
+    const region = card.querySelector('live-region');
+    const w = { name, title, card, region, surface: region.surface, where: card.querySelector('.where'), dock: null, content: region.firstElementChild, bc: `tear:${pageId}:${name}`, lastInput: '' };
+    widgets.set(name, w);
+    card.querySelector('.routes').addEventListener('click', (e) => {
+      const route = e.target.closest('button')?.dataset.route;
+      if (!route) return;
+      card.querySelector('.routes').open = false;
+      tear(w, route).catch((err) => status(w, `${route}: ${err.message}`));
+    });
+    setupDrag(w);
+    if (!w.surface) continue;
+    // Always listening, costs nothing until a viewer says hello.
+    serve(w.surface, portLink(new BroadcastChannel(w.bc)), { title, persistent: true, peer: 'broadcast' });
+    try {
+      connectBroker({ role: 'publisher', channel: w.bc, onPort: (port) => serve(w.surface, portLink(port), { title, peer: 'shared-worker' }) });
+    } catch {}
+    w.surface.addEventListener('input', (e) => {
+      const m = e.detail.msg;
+      w.lastInput = `${m.t}${m.kind ? ' ' + m.kind : ''}${m.key ? ' ' + m.key : ''} from ${e.detail.from}`;
+      refresh(w);
+    });
+    w.surface.addEventListener('consumers', () => refresh(w));
+  }
+  wireWidgets(board);
+  window.widgets = widgets;
+
+  function status(w, text, { away = false } = {}) {
+    w.state = text;
+    w.card.toggleAttribute('data-away', away);
+    refresh(w);
+  }
+  function refresh(w) {
+    const n = w.surface?.consumers ?? 0;
+    w.where.textContent = `${w.state ?? 'Here.'}${n ? ` · ${n} viewer${n > 1 ? 's' : ''}` : ''}${w.lastInput ? ` · last input: ${w.lastInput}` : ''}`;
+    let back = w.card.querySelector('footer button');
+    if (w.dock && !back) {
+      back = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Bring back' });
+      back.onclick = () => w.dock?.();
+      w.card.querySelector('footer').append(back);
+    } else if (!w.dock) back?.remove();
+  }
+
+  // While a streamed widget is away, the copy left here is drawn faded with a
+  // label. It is the same element, still live and still clickable.
+  function ghost(w, label) {
+    if (!w.surface) return;
+    w.surface.render = ({ ctx, draw, width, height }) => {
+      ctx.globalAlpha = 0.3;
+      draw();
+      ctx.globalAlpha = 1;
+      ctx.font = '600 13px system-ui';
+      const tw = ctx.measureText(label).width + 20;
+      ctx.fillStyle = '#1d1c1a';
+      ctx.beginPath();
+      ctx.roundRect((width - tw) / 2, height / 2 - 14, tw, 28, 14);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, width / 2, height / 2);
+    };
+    w.surface.requestPaint();
+  }
+  function unghost(w) {
+    if (!w.surface) return;
+    w.surface.render = null;
+    w.surface.requestPaint();
+  }
+
+  const features = (w, at) => {
+    const width = Math.round((w.surface?.width ?? 300) + 24);
+    const height = Math.round((w.surface?.height ?? 180) + 70);
+    const left = Math.round(at?.x ?? window.screenX + window.outerWidth + 12);
+    const top = Math.round(at?.y ?? window.screenY + 120);
+    return `popup,width=${width},height=${height},left=${left},top=${top}`;
+  };
+  const needSurface = (w) => {
+    if (!w.surface) throw new Error('needs HTML-in-canvas (try "Move the real DOM" instead)');
+  };
+  const opened = (win) => {
+    if (!win) throw new Error('the browser blocked the popup: allow popups for this site, or use the menu rather than a long drag');
+    return win;
+  };
+
+  // Write a tiny document into a blank same-origin window we own.
+  function scaffold(win, w, body) {
+    const sheets = [...document.querySelectorAll('link[rel=stylesheet]')].map((l) => `<link rel="stylesheet" href="${l.href}">`).join('');
+    win.document.open();
+    win.document.write(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${w.title}</title>${sheets}
+      <style>body{margin:0;padding:10px;background:var(--bg)}</style></head><body>${body}</body></html>`);
+    win.document.close();
+  }
+
+  // Popups close, tabs navigate, PiP windows are dismissed: notice and dock.
+  function watchClosed(win, dock) {
+    const timer = setInterval(() => win.closed && (clearInterval(timer), dock()), 400);
+    return () => clearInterval(timer);
+  }
+
+  async function tear(w, route, at) {
+    w.dock?.();
+    const done = (text, dock, opts = { away: true }) => {
+      w.dock = () => {
+        w.dock = null;
+        try {
+          dock();
+        } catch {}
+        unghost(w);
+        status(w, 'Here.');
+      };
+      status(w, text, opts);
+    };
+
+    if (route === 'popup-stream' || route === 'popup-xorigin') {
+      needSurface(w);
+      const origin = route === 'popup-xorigin' ? REMOTE : location.origin;
+      if (!origin) throw new Error('no second origin on this host');
+      const id = newRoomId();
+      const win = opened(window.open(`${origin}/tear-off/window.html?direct=${id}`, `tear-${w.name}`, features(w, at)));
+      let stop = null;
+      const onReady = (e) => {
+        if (e.source !== win || e.data?.type !== 'viewer-ready' || e.data.id !== id) return;
+        const { port1, port2 } = new MessageChannel();
+        stop = serve(w.surface, portLink(port1), { title: w.title, peer: route === 'popup-xorigin' ? 'other-origin window' : 'popup' });
+        win.postMessage({ type: 'live-port' }, origin, [port2]);
+      };
+      addEventListener('message', onReady);
+      ghost(w, 'Live in another window');
+      const unwatch = watchClosed(win, () => w.dock?.());
+      done(route === 'popup-xorigin' ? `Streaming to a window on ${new URL(origin).host}.` : 'Streaming to a popup over a MessagePort.', () => {
+        unwatch();
+        removeEventListener('message', onReady);
+        stop?.();
+        win.close();
+      });
+    } else if (route === 'popup-scripted' || route === 'pip-stream') {
+      needSurface(w);
+      const win = route === 'pip-stream' ? await pipWindow(w) : opened(window.open('', `tear-${w.name}`, features(w, at)));
+      scaffold(win, w, '<live-view></live-view>');
+      // The popup shares this page's module map? No: it is its own document,
+      // so it loads its own copy of the element.
+      const script = win.document.createElement('script');
+      script.type = 'module';
+      script.src = new URL('/lib/live-view.js', location.href).href;
+      win.document.head.append(script);
+      await win.customElements.whenDefined('live-view');
+      const [here, there] = directLinkPair();
+      const stop = serve(w.surface, here, { title: w.title, peer: route === 'pip-stream' ? 'pip window' : 'scripted popup' });
+      win.document.querySelector('live-view').connect(there, { frames: 'bitmap' });
+      ghost(w, route === 'pip-stream' ? 'Live in a PiP window' : 'Live in another window');
+      const unwatch = watchClosed(win, () => w.dock?.());
+      win.addEventListener('pagehide', () => w.dock?.());
+      done(route === 'pip-stream' ? 'Streaming into a Document PiP window by direct calls.' : 'Driving an about:blank popup by direct calls.', () => {
+        unwatch();
+        stop();
+        win.close();
+      });
+    } else if (route === 'popup-move' || route === 'pip-move') {
+      const win = route === 'pip-move' ? await pipWindow(w) : opened(window.open('', `tear-${w.name}`, features(w, at)));
+      scaffold(win, w, '');
+      // append() adopts the node into the popup's document. Nothing is cloned.
+      win.document.body.append(w.content);
+      const placeholder = Object.assign(document.createElement('div'), { className: 'placeholder', textContent: 'The real element is in the other window.' });
+      w.region.append(placeholder);
+      const home = () => {
+        placeholder.remove();
+        w.region.append(w.content);
+      };
+      win.addEventListener('pagehide', () => w.dock?.());
+      const unwatch = watchClosed(win, () => w.dock?.());
+      done(route === 'pip-move' ? 'The real DOM is in a Document PiP window.' : 'The real DOM is in a popup.', () => {
+        unwatch();
+        home();
+        win.close();
+      });
+    } else if (route === 'pip-video') {
+      needSurface(w);
+      const video = Object.assign(document.createElement('video'), { muted: true, playsInline: true, className: 'pip' });
+      video.srcObject = w.surface.stream(30);
+      w.card.append(video);
+      await video.play();
+      w.surface.requestPaint();
+      await video.requestPictureInPicture();
+      // Buttons on a video PiP window are Media Session actions. Map each to
+      // the widget button that declares data-media="<action>".
+      const actions = [];
+      for (const button of w.content.querySelectorAll('[data-media]')) {
+        for (const action of button.dataset.media === 'play' ? ['play', 'pause'] : [button.dataset.media]) {
+          try {
+            navigator.mediaSession.setActionHandler(action, () => {
+              button.click();
+              navigator.mediaSession.playbackState = w.content.hasAttribute('data-running') ? 'playing' : 'paused';
+            });
+            actions.push(action);
+          } catch {}
+        }
+      }
+      video.addEventListener('leavepictureinpicture', () => w.dock?.(), { once: true });
+      done(`In a video PiP window (view only${actions.length ? `; media buttons: ${actions.join(', ')}` : ''}).`, () => {
+        for (const a of actions) navigator.mediaSession.setActionHandler(a, null);
+        if (document.pictureInPictureElement === video) document.exitPictureInPicture();
+        for (const t of video.srcObject.getTracks()) t.stop();
+        video.remove();
+      }, { away: false });
+    } else if (route === 'tab-bc' || route === 'tab-sw') {
+      needSurface(w);
+      const via = route === 'tab-bc' ? 'bc' : 'sw';
+      window.open(`/tear-off/window.html?via=${via}&ch=${encodeURIComponent(w.bc)}`, '_blank', 'noopener');
+      ghost(w, 'Live in another tab');
+      done(via === 'bc' ? 'A noopener tab is fed over BroadcastChannel.' : 'A noopener tab got a MessagePort from the SharedWorker.', () => {});
+    } else if (route === 'tab-ws' || route === 'tab-xorigin') {
+      needSurface(w);
+      const origin = route === 'tab-xorigin' ? REMOTE : location.origin;
+      if (!origin) throw new Error('no second origin on this host');
+      const room = newRoomId();
+      const session = await shareInRoom(w.surface, room, { kind: 'ws', title: w.title });
+      const url = `${origin}/tear-off/window.html?via=ws&room=${room}${origin === location.origin ? '' : `&api=${encodeURIComponent(location.origin)}`}`;
+      window.open(url, '_blank', 'noopener');
+      ghost(w, 'Live in another tab');
+      session.on('state', (id, state) => status(w, `Relay room ${room}: WebRTC ${state}.`, { away: true }));
+      done(`Relay room ${room}: waiting for the tab.`, () => session.stop());
+      w.share = { room, url, session };
+    } else {
+      throw new Error('unknown route');
+    }
+  }
+  window.tear = (name, route, at) => tear(widgets.get(name), route, at);
+
+  async function pipWindow(w) {
+    if (!('documentPictureInPicture' in window)) throw new Error('Document Picture-in-Picture is not available in this browser');
+    return documentPictureInPicture.requestWindow({ width: Math.round((w.surface?.width ?? 300) + 24), height: Math.round((w.surface?.height ?? 180) + 24) });
+  }
+
+  // Dragging the grip: the drag data names a BroadcastChannel, so any tab on
+  // this origin that understands it (the dock) can show the widget, and the
+  // URL form means dropping on the tab strip opens a viewer tab. Dropping
+  // outside every window opens a popup where you let go.
+  function setupDrag(w) {
+    const grip = w.card.querySelector('.grip');
+    grip.addEventListener('dragstart', (e) => {
+      const url = new URL(`/tear-off/window.html?via=bc&ch=${encodeURIComponent(w.bc)}`, location.href).href;
+      e.dataTransfer.setData('application/x-live-widget', JSON.stringify({ ch: w.bc, name: w.title }));
+      e.dataTransfer.setData('text/uri-list', url);
+      e.dataTransfer.setData('text/plain', url);
+      e.dataTransfer.effectAllowed = 'copyMove';
+      if (w.surface) e.dataTransfer.setDragImage(w.surface.mirror, 10, 10);
+    });
+    grip.addEventListener('dragend', (e) => {
+      const outside = e.screenX < window.screenX || e.screenX > window.screenX + window.outerWidth || e.screenY < window.screenY || e.screenY > window.screenY + window.outerHeight;
+      if (e.dataTransfer.dropEffect === 'none' && outside) {
+        tear(w, w.surface ? 'popup-stream' : 'popup-move', { x: e.screenX - 20, y: e.screenY - 20 }).catch((err) => status(w, err.message));
+      } else if (e.dataTransfer.dropEffect !== 'none') {
+        ghost(w, 'Live in another tab');
+        w.dock = () => {
+          w.dock = null;
+          unghost(w);
+          status(w, 'Here.');
+        };
+        status(w, 'Dropped on another tab, fed over BroadcastChannel.', { away: true });
+      }
+    });
+  }
+
+  // ---- Live checks ----
+  const hiddenFrames = document.createElement('div');
+  hiddenFrames.style.cssText = 'position:fixed;right:8px;bottom:8px;display:flex;gap:4px;opacity:.01;pointer-events:none';
+  document.body.append(hiddenFrames);
+  function frame(src) {
+    const f = document.createElement('iframe');
+    f.style.cssText = 'width:320px;height:220px;border:0';
+    hiddenFrames.append(f);
+    return new Promise((resolve, reject) => {
+      f.onload = () => resolve(f);
+      f.onerror = reject;
+      f.src = src;
+    });
+  }
+  const until = async (fn, ms = 3000) => {
+    const end = performance.now() + ms;
+    while (performance.now() < end) {
+      const v = await fn();
+      if (v) return v;
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    return null;
+  };
+  // Click the first button of a widget through a <live-view> in another document.
+  async function clickThrough(view, label) {
+    const item = await until(() => view.meta?.map.find((m) => m.name.startsWith(label)));
+    if (!item) throw new Error('no element map arrived');
+    const target = view.surfaceElement;
+    const r = target.getBoundingClientRect();
+    const win = view.ownerDocument.defaultView;
+    const at = { clientX: r.left + (item.rect.x + item.rect.w / 2) * r.width, clientY: r.top + (item.rect.y + item.rect.h / 2) * r.height, bubbles: true, composed: true, button: 0, pointerId: 1 };
+    target.dispatchEvent(new win.PointerEvent('pointerdown', at));
+    target.dispatchEvent(new win.PointerEvent('pointerup', at));
+  }
+  const timerText = () => widgets.get('timer').content.querySelector('output').value;
+
+  if (supported) {
+    const t = widgets.get('timer');
+    const viewerRoundTrip = async (src, how) => {
+      const f = await frame(src);
+      const view = await until(() => f.contentWindow.view);
+      if (!(await until(() => view.frames > 0, 4000))) throw new Error('no frames arrived');
+      const before = timerText();
+      await clickThrough(view, '+1 min');
+      if (!(await until(() => timerText() !== before))) throw new Error('frames arrived, but the click did not come back');
+      const frames = view.frames;
+      view.disconnect();
+      f.remove();
+      return `${frames} frame(s) over ${how}; a click there changed the timer here from ${before} to ${timerText()}`;
+    };
+    runTests(document.getElementById('results'), [
+      {
+        name: 'BroadcastChannel: frames out, clicks back, no window reference',
+        why: 'The other document only knows a channel name.',
+        run: () => viewerRoundTrip(`/tear-off/window.html?via=bc&ch=${encodeURIComponent(t.bc)}`, 'BroadcastChannel'),
+        timeout: 9000,
+      },
+      {
+        name: 'SharedWorker introduces two documents, then they talk port to port',
+        why: 'A MessagePort transfers frames instead of cloning them.',
+        run: () => viewerRoundTrip(`/tear-off/window.html?via=sw&ch=${encodeURIComponent(t.bc)}`, 'a brokered MessagePort'),
+        timeout: 9000,
+      },
+      {
+        name: 'Worker relay room: frames out, clicks back',
+        why: 'The only route that also works across browsers and devices. Needs the Worker.',
+        run: async () => {
+          const room = newRoomId();
+          const session = await shareInRoom(t.surface, room, { kind: 'ws', title: t.title });
+          try {
+            return await viewerRoundTrip(`/tear-off/window.html?via=ws&room=${room}`, 'the relay room and WebRTC');
+          } finally {
+            session.stop();
+          }
+        },
+        timeout: 15000,
+      },
+      {
+        name: 'This page draws straight into another document\'s canvas',
+        why: 'What a scripted about:blank popup does: no messages at all.',
+        run: async () => {
+          const f = await frame('about:blank');
+          const c = f.contentDocument.body.appendChild(f.contentDocument.createElement('canvas'));
+          c.width = t.surface.mirror.width;
+          c.height = t.surface.mirror.height;
+          const ctx = c.getContext('2d');
+          ctx.drawImage(t.surface.mirror, 0, 0);
+          const px = Array.from(ctx.getImageData(8, 8, 1, 1).data).join(',');
+          f.remove();
+          if (px === '0,0,0,0') throw new Error('nothing was drawn');
+          return `drawImage(mirror) across documents, pixel ${px}`;
+        },
+      },
+      {
+        name: 'Move the real element to another document and back',
+        why: 'Listeners and state belong to this page\'s script, so they should survive adoption.',
+        run: async () => {
+          const f = await frame('about:blank');
+          const n = widgets.get('notes');
+          const input = n.content.querySelector('input');
+          input.value = 'kept';
+          f.contentDocument.body.append(n.content);
+          const moved = n.content.ownerDocument === f.contentDocument;
+          const before = n.content.querySelectorAll('li').length;
+          n.content.requestSubmit();
+          const after = n.content.querySelectorAll('li').length;
+          n.region.append(n.content);
+          f.remove();
+          if (!moved) throw new Error('the node was not adopted');
+          if (after !== before + 1) throw new Error('the submit listener did not run in the other document');
+          return `adopted, input kept its value, submit handler ran there (${before} → ${after} notes), then moved back`;
+        },
+      },
+      {
+        name: 'A moved element is painted by a canvas in its new document',
+        why: 'Can the destination stream it onward? It needs its own live-region there.',
+        run: async () => {
+          const f = await frame('/tear-off/window.html');
+          const win = f.contentWindow;
+          await win.eval(`import('/lib/live-surface.js')`);
+          const region = win.document.createElement('live-region');
+          win.document.body.append(region);
+          const m = widgets.get('mixer');
+          region.append(m.content);
+          const ok = await until(() => region.surface?.frames > 0 && region.surface.mirror.width > 1, 3000);
+          const frames = region.surface?.frames ?? 0;
+          m.region.append(m.content);
+          f.remove();
+          if (!ok) throw new Error('the destination canvas never painted it');
+          return `painted ${frames} time(s) by a live-region in the other document`;
+        },
+        timeout: 8000,
+      },
+      {
+        name: 'localStorage events as a transport',
+        why: 'No channel API at all: a JPEG data URL in a storage event. Not a good idea, but does it work?',
+        run: async () => {
+          const f = await frame('about:blank');
+          const got = new Promise((r) => f.contentWindow.addEventListener('storage', (e) => e.key === 'tear-frame' && r(e.newValue)));
+          localStorage.setItem('tear-frame', t.surface.dataURL('image/jpeg', 0.5) + '#' + Math.random());
+          const value = await withTimeout(got, 2000);
+          localStorage.removeItem('tear-frame');
+          f.remove();
+          return `a ${Math.round(value.length / 1024)} KB frame arrived in the other document's storage event`;
+        },
+      },
+      {
+        name: 'Other origin, no link: a bridge frame from our origin inside their page',
+        why: 'The other page embeds a frame from this origin, which uses BroadcastChannel. Storage partitioning may block it when the two are different sites.',
+        run: async () => {
+          if (!REMOTE) throw new Error('no second origin on this host');
+          const tag = newRoomId();
+          const inner = `${location.origin}/tear-off/window.html?via=bc&ch=${encodeURIComponent(t.bc)}&report=${tag}`;
+          const got = new Promise((r) => addEventListener('message', (e) => e.data?.type === 'viewer-frames' && e.data.tag === tag && r(e.data.n)));
+          const f = await frame(`${REMOTE}/tear-off/bridge.html?src=${encodeURIComponent(inner)}`);
+          const sameSite = new URL(REMOTE).hostname.split('.').slice(-3).join('.') === location.hostname.split('.').slice(-3).join('.');
+          try {
+            const n = await withTimeout(got, 4000);
+            return `${n} frame(s) reached a frame nested inside ${new URL(REMOTE).host} (${sameSite ? 'same site, so not partitioned' : 'different site'})`;
+          } catch {
+            throw new Error(`no frames reached the bridge inside ${new URL(REMOTE).host} (${sameSite ? 'same site' : 'different site: BroadcastChannel looks partitioned'})`);
+          } finally {
+            f.remove();
+          }
+        },
+        timeout: 9000,
+      },
+      {
+        name: 'Document Picture-in-Picture is available',
+        why: 'An always-on-top window that is a real same-origin document.',
+        run: async () => {
+          if (!('documentPictureInPicture' in window)) throw new Error('not in this browser');
+          return 'documentPictureInPicture.requestWindow() exists (needs a click to open)';
+        },
+      },
+      {
+        name: 'The shareable copy is a MediaStream (video PiP, recording)',
+        why: 'captureStream() on a canvas that is not in the document.',
+        run: async () => {
+          const stream = t.surface.stream(30);
+          const video = Object.assign(document.createElement('video'), { muted: true, srcObject: stream });
+          await video.play();
+          t.surface.requestPaint();
+          await until(() => video.videoWidth > 0, 2500);
+          const size = `${video.videoWidth}×${video.videoHeight}`;
+          for (const tr of stream.getTracks()) tr.stop();
+          if (!video.videoWidth) throw new Error('no video frames');
+          return `${size} video; requestPictureInPicture ${'requestPictureInPicture' in video ? 'available' : 'missing'}; mediaSession ${'mediaSession' in navigator ? 'available' : 'missing'}`;
+        },
+        timeout: 6000,
+      },
+    ]).then(() => {
+      // Leave the widgets as they were found.
+      t.content.querySelector('[data-act=reset]').click();
+      widgets.get('notes').content.querySelector('ul').replaceChildren();
+      for (const w of widgets.values()) {
+        w.lastInput = '';
+        refresh(w);
+      }
+    });
+  }
+
+  // Opt-in: an earlier experiment found adoptNode() of a painted drawable
+  // canvas can crash the tab.
+  document.getElementById('crash').onclick = async () => {
+    const out = document.getElementById('crash-out');
+    const f = await frame('about:blank');
+    try {
+      const m = widgets.get('mixer');
+      f.contentDocument.body.append(m.region);
+      await new Promise((r) => setTimeout(r, 500));
+      m.card.querySelector('header').after(m.region);
+      out.textContent = 'Survived: the live-region was adopted and moved back.';
+    } catch (err) {
+      out.textContent = `${err.name}: ${err.message}`;
+    }
+  };
+</script>
+</body>
+</html>

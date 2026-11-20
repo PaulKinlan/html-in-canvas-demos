@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Torn-off widget</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  body { margin: 0; }
+  main { max-width: none; padding: 10px; display: grid; gap: 8px; justify-items: start; }
+  #bar { font: 12px var(--mono); color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #bar button { font: 12px var(--mono); padding: 2px 8px; }
+  live-view[stalled] { filter: grayscale(1) opacity(0.6); }
+  .frameless #bar { display: none; }
+  .frameless main { padding: 0; }
+</style>
+</head>
+<body>
+<main>
+  <live-view id="view"></live-view>
+  <div id="bar"><span id="how">Connecting…</span><span id="fps"></span><button id="back" hidden>Send back</button></div>
+</main>
+<script type="module">
+  // The window a widget is torn off into. It holds no DOM from the source
+  // page: frames arrive, input goes back. How they travel depends on the URL:
+  //   ?direct            a MessagePort posted by the opener (same or cross origin)
+  //   ?via=bc&ch=…       BroadcastChannel: no window reference needed
+  //   ?via=sw&ch=…       SharedWorker introduces us and hands over a MessagePort
+  //   ?via=ws&room=…     the Worker's relay room, then WebRTC (add &api=<origin> if the source is on another origin)
+  import { portLink } from '/lib/live-view.js';
+  const q = new URLSearchParams(location.search);
+  const view = document.getElementById('view');
+  const how = document.getElementById('how');
+  if (q.has('frameless')) document.body.classList.add('frameless');
+  const say = (text) => (how.textContent = text);
+
+  view.addEventListener('meta', (e) => (document.title = e.detail.title || 'Torn-off widget'));
+  view.addEventListener('sourcevisibility', (e) => say(e.detail === 'visible' ? window.__via : 'The source tab is hidden, so it has stopped painting. Bring it back into view.'));
+  view.addEventListener('bye', () => say('The widget went back to its page.'));
+  let last = 0;
+  setInterval(() => {
+    document.getElementById('fps').textContent = `${view.frames - last} frames/s`;
+    last = view.frames;
+  }, 1000);
+  const connected = (via) => say((window.__via = via));
+  // Test harnesses embed this page in a frame and ask it to report progress.
+  if (q.has('report') && parent !== window) view.addEventListener('frame', () => parent.postMessage({ type: 'viewer-frames', tag: q.get('report'), n: view.frames }, '*'));
+
+  if (q.has('direct')) {
+    if (!opener) say('This window was opened without an opener, so nobody can post it a port.');
+    else {
+      addEventListener('message', (e) => {
+        if (e.source !== opener || e.data?.type !== 'live-port') return;
+        view.connect(portLink(e.ports[0]));
+        connected(`MessagePort posted by the opener (${e.origin === location.origin ? 'same origin' : 'cross-origin: ' + e.origin})`);
+        document.getElementById('back').hidden = false;
+      });
+      opener.postMessage({ type: 'viewer-ready', id: q.get('direct') }, '*');
+    }
+  } else if (q.get('via') === 'bc') {
+    view.connect(portLink(new BroadcastChannel(q.get('ch'))), { frames: 'bitmap' });
+    connected('BroadcastChannel (no link to the source window)');
+  } else if (q.get('via') === 'sw') {
+    const { connectBroker } = await import('/lib/slot-share.js');
+    try {
+      connectBroker({ role: 'viewer', channel: q.get('ch'), onPort: (port) => (view.connect(portLink(port)), connected('MessagePort handed over by a SharedWorker')) });
+      say('Waiting for the source tab…');
+    } catch (err) {
+      say(err.message);
+    }
+  } else if (q.get('via') === 'ws') {
+    const { watchRoom, setApiOrigin } = await import('/lib/live-link.js');
+    if (q.get('api')) setApiOrigin(q.get('api'));
+    try {
+      const session = await watchRoom(view, q.get('room'), { kind: 'ws', transport: q.get('transport') ?? 'auto' });
+      window.session = session;
+      session.on('state', (state) => connected(`Worker relay room: ${state}`));
+      say('Joined the relay room, waiting for the source…');
+    } catch (err) {
+      say(`Could not reach the relay: ${err.message}`);
+    }
+  } else {
+    say('Nothing to show: open this from the tear-off demo.');
+  }
+  document.getElementById('back').onclick = () => window.close();
+  addEventListener('pagehide', () => view.disconnect());
+  window.view = view;
+</script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent console</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1100px; }
+  .console { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .console { grid-template-columns: minmax(0, 1fr); } }
+  .screen { padding: 16px; display: grid; gap: 10px; justify-items: start; }
+  live-view { box-shadow: 0 0 0 1px var(--line); border-radius: 8px; overflow: hidden; }
+  live-view[stalled] { filter: grayscale(1) opacity(0.6); }
+  #state { font: 13px var(--mono); color: var(--muted); }
+  .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+  .tools button[aria-pressed=true] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  #outline { list-style: none; margin: 0; padding: 0; font-size: 13px; max-height: 220px; overflow: auto; }
+  #outline li { padding: 4px 0; border-top: 1px solid var(--line); display: flex; gap: 6px; align-items: baseline; }
+  #outline li button { font-size: 11px; padding: 0 6px; }
+  #outline .role { font: 11px var(--mono); color: var(--muted); min-width: 62px; }
+  #log { height: 200px; overflow-y: auto; display: grid; gap: 6px; align-content: start; font-size: 14px; margin: 8px 0; }
+  .msg { padding: 6px 9px; border-radius: 10px; max-width: 92%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.me { background: color-mix(in srgb, var(--accent) 16%, transparent); justify-self: end; }
+  .msg.them { background: color-mix(in srgb, var(--fg) 8%, transparent); justify-self: start; }
+  .msg.sys { color: var(--muted); font-size: 12px; justify-self: center; }
+  #chat { display: flex; gap: 6px; }
+  #chat input { flex: 1; min-width: 0; font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  h2 { font-size: 15px; margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1 style="font-size:26px">Agent console</h1>
+  <p class="note">You are seeing one element of a customer's page, chosen by them. Fields the page marked private are blacked out before they leave the customer's browser. This console needs no special browser support.</p>
+  <div class="console">
+    <div class="stage screen">
+      <div id="state" role="status">Connecting…</div>
+      <live-view id="view" readonly aria-label="The customer's shared region"></live-view>
+      <div class="tools">
+        <button id="mode-point" type="button" aria-pressed="true">Point</button>
+        <button id="mode-control" type="button" aria-pressed="false" disabled>Control</button>
+        <span class="note" id="hint">Move over the picture to show the customer your pointer. Click to ring an element.</span>
+      </div>
+    </div>
+    <aside class="card">
+      <h2>What is in the region</h2>
+      <ul id="outline" aria-label="Controls in the shared region"><li class="note">Nothing yet.</li></ul>
+      <h2 style="margin-top:14px">Chat</h2>
+      <div id="log" role="log" aria-live="polite"></div>
+      <form id="chat"><input id="text" placeholder="Message the customer" aria-label="Message" autocomplete="off"><button>Send</button></form>
+    </aside>
+  </div>
+</main>
+<script type="module">
+  import '/lib/live-view.js';
+  import { watchRoom } from '/lib/live-link.js';
+  const $ = (id) => document.getElementById(id);
+  const view = $('view');
+  const room = location.hash.slice(1).toLowerCase().replace(/[^a-z0-9-]/g, '');
+  let session = null;
+  let mode = 'point';
+  let allowed = false;
+
+  const say = (kind, text) => {
+    const div = Object.assign(document.createElement('div'), { className: `msg ${kind}`, textContent: text });
+    $('log').append(div);
+    $('log').scrollTop = $('log').scrollHeight;
+  };
+  function setMode(next) {
+    mode = next;
+    view.readOnly = mode === 'point';
+    $('mode-point').setAttribute('aria-pressed', mode === 'point');
+    $('mode-control').setAttribute('aria-pressed', mode === 'control');
+    $('hint').textContent = mode === 'point' ? 'Move over the picture to show the customer your pointer. Click to ring an element.' : 'Your clicks and typing now act on the customer\'s page.';
+  }
+  $('mode-point').onclick = () => setMode('point');
+  $('mode-control').onclick = () => allowed && setMode('control');
+
+  // Pointing: the pointer is drawn on the customer's canvas, not in their DOM.
+  window.pointAt = (x, y) => view.send({ t: 'cursor', x, y, label: 'Agent' });
+  window.act = (kind, id, value) => view.send({ t: 'act', kind, id, value });
+  view.addEventListener('hover', (e) => {
+    if (e.detail) view.send({ t: 'cursor', x: e.detail.x, y: e.detail.y, label: 'Agent' });
+    else view.send({ t: 'cursor', off: true });
+    view._last = e.detail;
+  });
+  view.addEventListener('pointerup', () => {
+    if (mode !== 'point' || !view._last) return;
+    const item = view.elementAt(view._last.x, view._last.y);
+    view.send(item ? { t: 'highlight', id: item.id } : { t: 'highlight', rect: { x: view._last.x - 0.05, y: view._last.y - 0.05, w: 0.1, h: 0.1 } });
+  });
+  view.addEventListener('refused', () => say('sys', 'The customer has not allowed control: that input was refused.'));
+
+  // The element list is real semantics from the customer's DOM, so the agent
+  // (or a screen reader the agent uses) is not limited to a picture.
+  view.addEventListener('meta', (e) => {
+    const list = $('outline');
+    list.replaceChildren(
+      ...e.detail.map.map((item) => {
+        const li = document.createElement('li');
+        const role = Object.assign(document.createElement('span'), { className: 'role', textContent: item.role });
+        const name = Object.assign(document.createElement('span'), { textContent: `${item.name || '(unnamed)'}${item.value != null && item.value !== '' ? `: ${item.value}` : ''}` });
+        name.style.flex = '1';
+        const ring = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Show', title: 'Ring this element on the customer\'s page' });
+        ring.onclick = () => view.send({ t: 'highlight', id: item.id });
+        li.append(role, name, ring);
+        return li;
+      }),
+    );
+  });
+
+  if (!room) $('state').textContent = 'No session code in the link.';
+  else {
+    try {
+      session = await watchRoom(view, room, { kind: 'auto' });
+      window.session = session;
+      $('state').textContent = `Session ${room}: ${session.state}`;
+      session.on('state', (text) => ($('state').textContent = `Session ${room}: ${text}`));
+      session.on('message', (from, msg) => {
+        if (msg.t === 'chat' && typeof msg.text === 'string') say('them', msg.text.slice(0, 2000));
+        else if (msg.t === 'control') {
+          allowed = !!msg.allowed;
+          $('mode-control').disabled = !allowed;
+          if (!allowed) setMode('point');
+          say('sys', allowed ? 'The customer has allowed you to click and type.' : 'You can look and point only.');
+        }
+      });
+    } catch (err) {
+      $('state').textContent = `Could not join: ${err.message}`;
+    }
+  }
+  $('chat').onsubmit = (e) => {
+    e.preventDefault();
+    const text = $('text').value.trim();
+    if (!text || !session) return;
+    $('text').value = '';
+    say('me', text);
+    session.send({ t: 'chat', text });
+  };
+  window.view = view;
+</script>
+</body>
+</html>

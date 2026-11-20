@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote component</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/shared/live-widgets.css">
+<style>
+  .split { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(240px, 300px); gap: 16px; align-items: start; }
+  @media (max-width: 700px) { .split { grid-template-columns: minmax(0, 1fr); } }
+  #panel { display: grid; gap: 10px; padding: 10px; }
+  #qr { display: block; width: 100%; max-width: 240px; aspect-ratio: 1; margin: 0 auto 8px; background: #fff; border-radius: 10px; padding: 10px; box-sizing: border-box; image-rendering: pixelated; }
+  .code { font: 700 26px/1 var(--mono); letter-spacing: 0.12em; text-align: center; }
+  .join { text-align: center; }
+  .join a { font-size: 13px; word-break: break-all; }
+  #viewers { font: 13px var(--mono); margin: 10px 0 0; padding: 0; list-style: none; }
+  #viewers li { padding: 6px 0; border-top: 1px solid var(--line); }
+  #viewers li span { color: var(--muted); display: block; }
+  .opts { font-size: 14px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  #where { font: 13px var(--mono); color: var(--muted); }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Remote component</h1>
+  <p class="lede">
+    One element of this page, live on your phone. Scan the code: the panel below is streamed over WebRTC, and your taps and typing on the phone
+    are sent back and happen to the real element here. The phone runs no special browser features, and it only ever receives this one element.
+  </p>
+
+  <div class="split">
+    <div class="stage">
+      <live-region id="region">
+        <div id="panel">
+          <div class="lw lw-mixer"><h3>Living room</h3>
+            <label>Volume <input type="range" min="0" max="100" value="40" aria-label="Volume"><output>40</output></label>
+            <label><input type="checkbox"> Mute</label>
+            <label>Preset <select aria-label="Preset"><option>Flat</option><option>Bass boost</option><option>Podcast</option></select></label>
+            <div class="lw-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+          <form class="lw lw-notes"><h3>Queue</h3><input name="note" placeholder="Add a song, press Enter" aria-label="Add a song" autocomplete="off"><ul></ul></form>
+        </div>
+      </live-region>
+      <p id="where" role="status">Not shared yet.</p>
+    </div>
+    <aside class="card">
+      <canvas id="qr" width="10" height="10" role="img" aria-label="QR code for the viewer link"></canvas>
+      <div class="code" id="code">········</div>
+      <p class="join"><a id="link" target="_blank" rel="noopener">Open the viewer in a new tab</a></p>
+      <div class="opts">
+        <label><input type="checkbox" id="relay"> Force relay (no WebRTC)</label>
+      </div>
+      <ul id="viewers" aria-label="Connected viewers"></ul>
+    </aside>
+  </div>
+
+  <h2>How it travels</h2>
+  <ol>
+    <li><strong>Capture.</strong> The panel sits in a <code>&lt;live-region&gt;</code>, whose shadow root paints it through an HTML-in-canvas canvas. Every <code>paint</code> copies the result to a second canvas, and <code>captureStream()</code> turns that into a video track. No screen-capture prompt, and nothing outside the element is in the picture.</li>
+    <li><strong>Introduce.</strong> Both ends open a WebSocket to a room on the Worker (a Durable Object), which relays the WebRTC offer, answer and ICE candidates.</li>
+    <li><strong>Stream.</strong> Video goes peer to peer. Input comes back on an <code>RTCDataChannel</code> as normalised coordinates and keys, and is replayed on the real DOM.</li>
+    <li><strong>Fall back.</strong> If the peers can't connect, the phone asks for relayed frames instead: JPEGs sent through the same WebSocket at a few frames a second.</li>
+  </ol>
+
+  <h2>Does it work here (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>Only the source needs HTML-in-canvas.</strong> The viewer is a <code>&lt;video&gt;</code> and a few event listeners, so it runs on any phone.</li>
+    <li><strong>Controls that open native UI need help.</strong> A <code>&lt;select&gt;</code> popup or an on-screen keyboard belongs to the device in your hand, not the source. The source sends the options and the viewer shows its own native picker; a map of the element's fields tells the viewer when to raise its keyboard.</li>
+    <li><strong>The element map is the part pixels can't carry.</strong> Alongside video the source sends roles, names and positions of the interactive elements, read from the real DOM. That is enough to rebuild an accessible outline at the far end.</li>
+    <li><strong>The source tab must stay visible.</strong> A hidden tab stops painting, so the stream freezes. The viewer is told and says so.</li>
+    <li><strong>Without a TURN server some networks won't connect.</strong> That is what the relay fallback is for. It costs one Durable Object message per frame.</li>
+  </ul>
+</main>
+
+<script src="/lib/vendor/qrcode.js"></script>
+<script type="module">
+  import { supported } from '/lib/live-surface.js';
+  import { shareInRoom, newRoomId } from '/lib/live-link.js';
+  import { wireWidgets } from '/shared/live-widgets.js';
+  import { banner, nav, runTests } from '/shared/support.js';
+  nav('/remote/');
+  banner();
+  wireWidgets();
+
+  const region = document.getElementById('region');
+  const surface = region.surface;
+  const where = document.getElementById('where');
+  const list = document.getElementById('viewers');
+  const relay = document.getElementById('relay');
+  let session = null;
+  let room = sessionStorage.getItem('remote-room') ?? newRoomId();
+  sessionStorage.setItem('remote-room', room);
+
+  function drawQr(text) {
+    const qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    const n = qr.getModuleCount();
+    const canvas = document.getElementById('qr');
+    canvas.width = canvas.height = n;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, n, n);
+    ctx.fillStyle = '#000';
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (qr.isDark(y, x)) ctx.fillRect(x, y, 1, 1);
+  }
+
+  const stats = new Map();
+  async function renderViewers() {
+    if (!session) return;
+    const rows = [];
+    for (const [id, v] of session.viewers) {
+      let line = v.pc ? `WebRTC ${v.state}` : 'relayed frames';
+      if (v.pc?.connectionState === 'connected') {
+        const report = await v.pc.getStats();
+        for (const s of report.values()) {
+          if (s.type === 'outbound-rtp' && s.kind === 'video') {
+            const prev = stats.get(id);
+            const kbps = prev ? Math.round(((s.bytesSent - prev.bytes) * 8) / Math.max(1, s.timestamp - prev.t)) : 0;
+            stats.set(id, { bytes: s.bytesSent, t: s.timestamp });
+            line += `, ${s.frameWidth ?? '?'}×${s.frameHeight ?? '?'}, ${Math.round(s.framesPerSecond ?? 0)} fps, ${kbps} kbit/s`;
+          }
+        }
+      }
+      rows.push(`<li>viewer ${id}<span>${line}; input over ${v.link.via}</span><span>${v.last ?? 'no input yet'}</span></li>`);
+    }
+    list.innerHTML = rows.join('') || '<li><span>No viewers yet.</span></li>';
+  }
+  setInterval(renderViewers, 1000);
+
+  async function start() {
+    session?.stop();
+    session = null;
+    if (!surface) {
+      where.textContent = 'This browser cannot share the element (no HTML-in-canvas). You can still open the viewer to see what the other end looks like.';
+    }
+    const url = new URL(`/remote/view.html${relay.checked ? '?transport=relay' : ''}#${room}`, location.href).href;
+    document.getElementById('link').href = url;
+    document.getElementById('code').textContent = room;
+    drawQr(url);
+    if (!surface) return;
+    session = await shareInRoom(surface, room, { kind: 'auto', transport: relay.checked ? 'relay' : 'auto', title: 'Living room' });
+    window.session = session;
+    where.textContent =
+      session.signal.kind === 'ws'
+        ? `Sharing in room ${room} through this site's relay. Any device with the link can join.`
+        : `No relay server on this host, so the room is a BroadcastChannel: only tabs in this browser can join.`;
+    session.on('viewer', renderViewers);
+    session.on('gone', renderViewers);
+    surface.addEventListener('input', (e) => {
+      const v = session?.viewers.get(e.detail.from);
+      const m = e.detail.msg;
+      if (v) v.last = `last input: ${m.t}${m.kind ? ' ' + m.kind : ''}${m.key ? ' ' + m.key : ''}${m.data ? ' "' + m.data + '"' : ''}`;
+    });
+    renderViewers();
+  }
+  relay.onchange = start;
+  await start();
+
+  // ---- Live checks: a viewer in a frame stands in for the phone ----
+  if (supported) {
+    const until = async (fn, ms = 3000) => {
+      const end = performance.now() + ms;
+      while (performance.now() < end) {
+        const v = await fn();
+        if (v) return v;
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      return null;
+    };
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;right:8px;bottom:8px;opacity:.01;pointer-events:none';
+    document.body.append(holder);
+    async function phone(params) {
+      const f = document.createElement('iframe');
+      f.style.cssText = 'width:360px;height:520px;border:0';
+      holder.append(f);
+      await new Promise((r) => ((f.onload = r), (f.src = `/remote/view.html?${params}#${room}`)));
+      const view = await until(() => f.contentWindow.view);
+      return { f, view, win: f.contentWindow, close: () => f.remove() };
+    }
+    const tap = (p, item) => {
+      const el = p.view.surfaceElement;
+      const r = el.getBoundingClientRect();
+      const at = { clientX: r.left + (item.rect.x + item.rect.w / 2) * r.width, clientY: r.top + (item.rect.y + item.rect.h / 2) * r.height, bubbles: true, composed: true, button: 0, pointerId: 1 };
+      el.dispatchEvent(new p.win.PointerEvent('pointerdown', at));
+      el.dispatchEvent(new p.win.PointerEvent('pointerup', at));
+    };
+    const mute = document.querySelector('#panel input[type=checkbox]');
+    const song = document.querySelector('#panel input[name=note]');
+
+    runTests(document.getElementById('results'), [
+      {
+        name: 'A relay room is reachable',
+        why: 'Durable Object WebSocket on this site. Without it only same-browser tabs can join.',
+        run: async () => {
+          if (session.signal.kind !== 'ws') throw new Error('no /api/x/room here; using BroadcastChannel instead');
+          return `joined room ${room} as ${session.signal.id}`;
+        },
+      },
+      {
+        name: 'WebRTC: the element arrives as video, a tap comes back on the data channel',
+        why: 'captureStream() of the shareable copy → RTCPeerConnection → <video>.',
+        run: async () => {
+          const p = await phone('transport=rtc');
+          try {
+            if (!(await until(() => p.win.session?.via === 'webrtc' && p.view.meta && p.view.link?.via === 'datachannel', 9000))) throw new Error(`not connected: ${p.win.session?.state ?? 'no session'}`);
+            const video = p.view.surfaceElement;
+            await until(() => video.videoWidth > 0, 4000);
+            const before = mute.checked;
+            tap(p, p.view.meta.map.find((m) => m.role === 'checkbox'));
+            if (!(await until(() => mute.checked !== before))) throw new Error('video arrived, but the tap did not change the checkbox');
+            mute.click();
+            return `${video.videoWidth}×${video.videoHeight} video; the tap toggled Mute here over the ${p.view.link.via}`;
+          } finally {
+            p.close();
+          }
+        },
+        timeout: 16000,
+      },
+      {
+        name: 'Phone keyboard: text typed at the far end lands in the real input',
+        why: 'On-screen keyboards send input events, not key events.',
+        run: async () => {
+          const p = await phone('transport=rtc');
+          try {
+            if (!(await until(() => p.view.meta && p.view.link?.via === 'datachannel', 9000))) throw new Error('not connected');
+            tap(p, p.view.meta.map.find((m) => m.editable));
+            await until(() => document.activeElement === song, 1500);
+            const keys = p.view.shadowRoot.querySelector('textarea');
+            for (const ch of 'Hey') keys.dispatchEvent(new p.win.InputEvent('input', { data: ch, inputType: 'insertText' }));
+            keys.dispatchEvent(new p.win.InputEvent('input', { inputType: 'deleteContentBackward' }));
+            const got = await until(() => song.value === 'He' && song.value, 2000);
+            const value = song.value;
+            song.value = '';
+            song.blur();
+            if (!got) throw new Error(`input holds "${value}"`);
+            return `typed "Hey", deleted one: the input here holds "${value}"`;
+          } finally {
+            p.close();
+          }
+        },
+        timeout: 14000,
+      },
+      {
+        name: 'A <select> opens a native picker at the far end',
+        why: 'The popup can\'t be streamed, so the options are sent instead.',
+        run: async () => {
+          const p = await phone('transport=rtc');
+          const select = document.querySelector('#panel select');
+          try {
+            if (!(await until(() => p.view.meta && p.view.link?.via === 'datachannel', 9000))) throw new Error('not connected');
+            tap(p, p.view.meta.map.find((m) => m.role === 'combobox'));
+            const dialog = p.view.shadowRoot.querySelector('dialog');
+            if (!(await until(() => dialog.open, 2000))) throw new Error('no picker opened');
+            const n = dialog.querySelectorAll('option').length;
+            dialog.querySelector('select').value = 'Podcast';
+            dialog.close('ok');
+            if (!(await until(() => select.value === 'Podcast', 2000))) throw new Error('the choice did not come back');
+            select.value = 'Flat';
+            select.dispatchEvent(new Event('change'));
+            return `picker with ${n} options opened there; choosing "Podcast" changed the select here`;
+          } finally {
+            p.close();
+          }
+        },
+        timeout: 14000,
+      },
+      {
+        name: 'Relay fallback: JPEG frames through the room, no WebRTC',
+        why: 'For networks where peers can\'t connect and there is no TURN server.',
+        run: async () => {
+          const p = await phone('transport=relay');
+          try {
+            if (!(await until(() => p.view.frames > 0 && p.view.meta, 6000))) throw new Error(`no frames: ${p.win.session?.state ?? 'no session'}`);
+            const before = mute.checked;
+            tap(p, p.view.meta.map.find((m) => m.role === 'checkbox'));
+            if (!(await until(() => mute.checked !== before))) throw new Error('frames arrived, but the tap did not come back');
+            mute.click();
+            return `${p.view.frames} relayed frame(s) on a canvas; the tap came back through the room`;
+          } finally {
+            p.close();
+          }
+        },
+        timeout: 12000,
+      },
+      {
+        name: 'Private fields are blacked out before they leave',
+        why: 'Anything marked data-private, and password inputs, are covered in the shareable copy.',
+        run: async () => {
+          const secret = Object.assign(document.createElement('p'), { textContent: 'card 4242 4242 4242 4242' });
+          secret.dataset.private = '';
+          secret.style.cssText = 'margin:0;background:#fff;color:#000';
+          document.getElementById('panel').append(secret);
+          try {
+            const frame = new Promise((r) => surface.addEventListener('frame', r, { once: true }));
+            surface.requestPaint();
+            await frame;
+            await new Promise((r) => setTimeout(r, 150));
+            const base = surface.box.getBoundingClientRect();
+            const r = secret.getBoundingClientRect();
+            const k = surface.mirror.width / base.width;
+            const px = Array.from(surface.mirror.getContext('2d').getImageData((r.x - base.x + r.width / 2) * k, (r.y - base.y + r.height / 2) * k, 1, 1).data).join(',');
+            if (px !== '17,17,17,255') throw new Error(`pixel there is ${px}`);
+            return `the element's pixels in the outgoing frame are ${px}`;
+          } finally {
+            secret.remove();
+          }
+        },
+      },
+    ]);
+  }
+</script>
+</body>
+</html>

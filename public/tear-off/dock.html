@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Widget dock</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  #zone { min-height: 320px; border: 2px dashed var(--line); border-radius: 14px; padding: 16px; display: flex; flex-wrap: wrap; gap: 16px; align-content: flex-start; }
+  #zone.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  #zone:empty::before { content: 'Drag a widget\'s grip from the tear-off page and drop it here.'; color: var(--muted); margin: auto; }
+  figure { margin: 0; }
+  figcaption { font: 12px var(--mono); color: var(--muted); margin-top: 4px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1 style="font-size:26px">Widget dock</h1>
+  <p class="lede">A different tab with no link to the tear-off page. Drop a widget here and it is shown over a <code>BroadcastChannel</code> named in the drag data.</p>
+  <div id="zone"></div>
+</main>
+<script type="module">
+  import { portLink } from '/lib/live-view.js';
+  const zone = document.getElementById('zone');
+  const TYPE = 'application/x-live-widget';
+  zone.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer.types.includes(TYPE)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    zone.classList.add('over');
+  });
+  zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('over');
+    let info;
+    try {
+      info = JSON.parse(e.dataTransfer.getData(TYPE));
+    } catch {
+      return;
+    }
+    if (typeof info?.ch !== 'string') return;
+    const figure = document.createElement('figure');
+    const view = document.createElement('live-view');
+    const caption = document.createElement('figcaption');
+    caption.textContent = `${info.name ?? 'widget'} · BroadcastChannel`;
+    figure.append(view, caption);
+    zone.append(figure);
+    view.connect(portLink(new BroadcastChannel(info.ch)), { frames: 'bitmap' });
+    view.addEventListener('bye', () => figure.remove());
+  });
+  window.zone = zone;
+</script>
+</body>
+</html>

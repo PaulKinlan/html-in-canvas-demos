@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support widget</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  /* A pretend account page. Nothing in it knows about sharing. */
+  .app { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .app > header { display: flex; gap: 12px; align-items: center; padding: 12px 16px; background: #14342b; color: #eaf5ef; }
+  .app > header strong { font-size: 17px; letter-spacing: -0.01em; }
+  .app > header span { margin-left: auto; font-size: 13px; opacity: 0.8; }
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; padding: 14px; }
+  .panel { background: #fbfaf7; color: #1d1c1a; border: 1px solid #ddd8cf; border-radius: 12px; padding: 14px 16px; font-size: 15px; }
+  .panel h3 { margin: 0 0 10px; font-size: 16px; }
+  .panel label { display: grid; gap: 3px; font-size: 13px; color: #55524c; margin-bottom: 8px; }
+  .panel input[type=text], .panel select { box-sizing: border-box; width: 100%; min-width: 0; font: 15px system-ui; padding: 6px 8px; border: 1px solid #b9b3a8; border-radius: 6px; background: #fff; color: #1d1c1a; }
+  .panel button { font: 600 14px system-ui; padding: 7px 14px; border-radius: 7px; border: 1px solid #14342b; background: #14342b; color: #fff; cursor: pointer; }
+  .panel button.quiet { background: #fff; color: #14342b; }
+  .panel .check { display: flex; gap: 8px; align-items: center; color: #1d1c1a; font-size: 15px; }
+  .err { color: #a3261c; background: #fdecea; border-radius: 6px; padding: 6px 8px; font-size: 14px; margin: 0 0 10px; }
+  .ok { color: #1f6b34; background: #e7f5ea; border-radius: 6px; padding: 6px 8px; font-size: 14px; margin: 0 0 10px; }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .bars { display: flex; align-items: flex-end; gap: 6px; height: 90px; margin: 6px 0 4px; }
+  .bars i { flex: 1; background: #2f7d5b; border-radius: 3px 3px 0 0; }
+  .bars i:last-child { background: #d2491f; }
+  .big { font: 700 30px/1 system-ui; margin: 0 0 2px; }
+  .muted { color: #6b6760; font-size: 13px; margin: 0; }
+  .picking [data-shareable] { cursor: crosshair; outline: 2px dashed #d2491f88; outline-offset: 3px; }
+  .picking [data-shareable]:hover { outline: 3px solid #d2491f; }
+  [data-sharing] { outline: 3px solid #d2491f; outline-offset: 3px; }
+
+  /* The support widget. */
+  #widget { position: fixed; right: 16px; bottom: 16px; z-index: 20; width: min(360px, calc(100vw - 32px)); font-size: 14px; }
+  #launch { float: right; font: 600 15px system-ui; padding: 10px 16px; border-radius: 999px; border: 0; background: #d2491f; color: #fff; box-shadow: 0 6px 20px #0004; cursor: pointer; }
+  #sheet { background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px #0005; display: grid; max-height: min(620px, calc(100vh - 32px)); grid-template-rows: auto auto 1fr auto; overflow: hidden; }
+  #sheet > header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  #sheet > header strong { flex: 1; }
+  #sheet header button { padding: 2px 8px; font-size: 13px; }
+  .tabs { display: flex; gap: 4px; padding: 8px 12px 0; }
+  .tabs button { flex: 1; font-size: 13px; padding: 5px 6px; border-radius: 6px 6px 0 0; border-bottom: 0; }
+  .tabs button[aria-selected=true] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  #sees { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  #sees p { margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+  #thumb { display: block; max-width: 100%; max-height: 120px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  #sees .row { margin-top: 6px; }
+  #sees button { font-size: 13px; padding: 4px 10px; }
+  #log { overflow-y: auto; padding: 10px 12px; display: grid; gap: 8px; align-content: start; min-height: 120px; }
+  .msg { padding: 7px 10px; border-radius: 10px; max-width: 92%; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.me { background: color-mix(in srgb, var(--accent) 16%, transparent); justify-self: end; }
+  .msg.them { background: color-mix(in srgb, var(--fg) 8%, transparent); justify-self: start; }
+  .msg.sys { color: var(--muted); font-size: 12px; justify-self: center; text-align: center; padding: 0; }
+  .msg .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .msg .acts button { font-size: 12px; padding: 3px 8px; }
+  #ask { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--line); }
+  #ask input { flex: 1; font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); min-width: 0; }
+  #human { padding: 0 12px 10px; font-size: 13px; display: grid; gap: 6px; }
+  #human code { font-size: 15px; letter-spacing: 0.08em; }
+  #pickhint { float: right; display: flex; gap: 10px; align-items: center; background: #1d1c1a; color: #fff; padding: 10px 14px; border-radius: 999px; box-shadow: 0 6px 20px #0004; }
+  #pickhint button { font-size: 13px; padding: 2px 10px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Support widget</h1>
+  <p class="lede">
+    Share one part of a page with a support agent, or with an AI model, instead of your whole screen. Open the widget, click the panel you need
+    help with, and only that element is sent: live, with private fields blacked out, and with no screen-sharing prompt.
+  </p>
+
+  <div class="app" id="app">
+    <header><strong>Fernhill Energy</strong><span>Account 20-4471 · Sam Okafor</span></header>
+    <div class="panels">
+      <section class="panel" id="usage" data-shareable aria-labelledby="h-usage">
+        <h3 id="h-usage">Your usage</h3>
+        <p class="big">412 kWh</p>
+        <p class="muted">so far in November, 18% more than October</p>
+        <div class="bars" role="img" aria-label="Usage for the last six months, highest this month"><i style="height:48%"></i><i style="height:42%"></i><i style="height:40%"></i><i style="height:55%"></i><i style="height:74%"></i><i style="height:92%"></i></div>
+        <label>Tariff <select id="tariff" aria-label="Tariff"><option>Standard variable</option><option>Fixed 12 months</option><option>Night saver</option></select></label>
+      </section>
+      <section class="panel" id="billing" data-shareable aria-labelledby="h-billing">
+        <h3 id="h-billing">Payment method</h3>
+        <p class="err" id="bill-status" role="status">Your last payment of £86.20 was declined on 14 November.</p>
+        <form id="bill-form">
+          <label>Name on card <input type="text" id="cardname" value="Sam Okafor" autocomplete="off"></label>
+          <label>Card number <input type="text" id="cardnumber" value="4929 1034 7781 2265" data-private inputmode="numeric" autocomplete="off"></label>
+          <div class="two">
+            <label>Expires <input type="text" id="expiry" value="09/26" autocomplete="off"></label>
+            <label>Security code <input type="text" id="cvc" value="318" data-private autocomplete="off"></label>
+          </div>
+          <button id="pay" type="submit">Retry payment</button>
+        </form>
+      </section>
+      <section class="panel" id="prefs" data-shareable aria-labelledby="h-prefs">
+        <h3 id="h-prefs">Preferences</h3>
+        <label class="check"><input type="checkbox" id="paperless"> Paperless bills</label>
+        <label class="check"><input type="checkbox" id="alerts" checked> Email me when usage is high</label>
+        <p class="muted" style="margin:10px 0">Meter reading due by 28 November.</p>
+        <label>Meter reading <input type="text" id="reading" placeholder="e.g. 48213" inputmode="numeric" autocomplete="off"></label>
+        <button class="quiet" id="submit-reading" type="button">Submit reading</button>
+        <p class="muted" id="reading-status" role="status" style="margin-top:8px"></p>
+      </section>
+    </div>
+  </div>
+
+  <h2>How it works</h2>
+  <ol>
+    <li><strong>Pick.</strong> Clicking a panel gives that element a shadow root containing a canvas and a slot. Its children stay where they are in the document and are painted through the canvas, which is what makes their pixels available. Nothing is cloned or re-rendered.</li>
+    <li><strong>Redact.</strong> Each frame is copied to a second canvas, where anything marked <code>data-private</code> (and every password field) is covered. Only that copy leaves the page. The same rule withholds their values from the element list.</li>
+    <li><strong>Send pixels and meaning.</strong> A person gets live video over WebRTC. A model gets a JPEG. Both also get a list of the region's controls, read from the real DOM: role, name, value. That list is what lets either of them say "the Retry payment button" and have it mean something.</li>
+    <li><strong>Act with permission.</strong> The agent's pointer is drawn on the canvas for you to see. Clicks and typing from the agent are refused until you allow them. The model can only propose a click or a value; you press the button that makes it happen.</li>
+  </ol>
+
+  <h2>Checks (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>Element sharing is a different permission model from screen sharing.</strong> The page chooses what can be shared, the user chooses which part, and nothing else is ever in the frame: no other tabs, no notifications, no address bar.</li>
+    <li><strong>The page can redact, because it knows its own DOM.</strong> A screen recorder sees pixels. This sees elements, so "never send the card number" is a selector.</li>
+    <li><strong>A model does better with the DOM beside the picture.</strong> The picture shows layout and state; the element list gives exact labels and values and gives the model something to point at and act on.</li>
+    <li><strong>Any element with a shadow root to spare can be converted in place.</strong> Grid and flex containers need their layout properties copied to the inner box. Elements that already have a shadow root, or cannot have one, need a wrapper instead.</li>
+    <li><strong>The sharing tab must stay visible.</strong> It is the page's own paint that is being sent, so a hidden tab sends nothing.</li>
+  </ul>
+</main>
+
+<div id="widget">
+  <button id="launch" type="button" aria-expanded="false" aria-controls="sheet">Get help</button>
+  <div id="pickhint" hidden role="status">Tap a highlighted panel <button id="pickcancel" type="button">Cancel</button></div>
+  <section id="sheet" hidden aria-label="Support">
+    <header><strong>Fernhill support</strong><button id="close" type="button" aria-label="Close support">Close</button></header>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-ai" aria-selected="true">Ask the assistant</button>
+      <button type="button" role="tab" id="tab-human" aria-selected="false">Talk to a person</button>
+    </div>
+    <div>
+      <div id="sees">
+        <p id="sees-text">Nothing is shared yet. Choose the part of the page you need help with.</p>
+        <canvas id="thumb" hidden aria-label="Exactly what is being shared"></canvas>
+        <div class="row"><button id="pick" type="button">Choose what to share</button><button id="stop" type="button" hidden>Stop sharing</button></div>
+      </div>
+      <div id="human" hidden>
+        <span id="human-state">Start a session and give the code to the agent.</span>
+        <div class="row"><button id="start" type="button">Start a session</button><a id="agent-link" target="_blank" rel="noopener" hidden>Open the agent console</a></div>
+        <label class="check" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="control"> Let the agent click and type in the shared part</label>
+      </div>
+    </div>
+    <div id="log" role="log" aria-live="polite"></div>
+    <form id="ask"><input id="q" placeholder="Ask about what you shared" aria-label="Message" autocomplete="off"><button>Send</button></form>
+  </section>
+</div>
+
+<script type="module">
+  import { attachSurface, supported } from '/lib/live-surface.js';
+  import { shareInRoom, newRoomId } from '/lib/live-link.js';
+  import { banner, nav, runTests } from '/shared/support.js';
+  nav('/support/');
+  banner();
+  const $ = (id) => document.getElementById(id);
+
+  // ---- The pretend app ----
+  $('bill-form').onsubmit = (e) => {
+    e.preventDefault();
+    const s = $('bill-status');
+    const good = /^(0[1-9]|1[0-2])\/(2[7-9]|[3-9]\d)$/.test($('expiry').value.trim());
+    s.className = good ? 'ok' : 'err';
+    s.textContent = good ? 'Payment of £86.20 taken. Thank you.' : 'Declined again: this card expired in 09/26. Update the expiry date or use another card.';
+  };
+  $('submit-reading').onclick = () => {
+    const v = $('reading').value.trim();
+    $('reading-status').textContent = /^\d{4,6}$/.test(v) ? `Reading ${v} submitted.` : 'Enter the 4 to 6 digits shown on your meter.';
+  };
+
+  // ---- The widget ----
+  const state = { surface: null, el: null, tab: 'ai', history: [], session: null, room: null };
+  window.supportState = state;
+  const log = $('log');
+  function say(kind, text, actions = []) {
+    const div = Object.assign(document.createElement('div'), { className: `msg ${kind}`, textContent: text });
+    if (actions.length) {
+      const row = Object.assign(document.createElement('div'), { className: 'acts' });
+      for (const a of actions) {
+        const b = Object.assign(document.createElement('button'), { type: 'button', textContent: a.label });
+        b.onclick = () => {
+          b.disabled = true;
+          a.run();
+        };
+        row.append(b);
+      }
+      div.append(row);
+    }
+    log.append(div);
+    log.scrollTop = log.scrollHeight;
+    return div;
+  }
+  $('launch').onclick = () => {
+    $('sheet').hidden = false;
+    $('launch').hidden = true;
+    if (!log.children.length) say('them', 'Hi Sam. Choose the part of the page you want help with, then ask me about it. I only see what you share.');
+  };
+  $('close').onclick = () => {
+    $('sheet').hidden = true;
+    $('launch').hidden = false;
+  };
+  for (const tab of ['ai', 'human']) {
+    $(`tab-${tab}`).onclick = () => {
+      state.tab = tab;
+      $('tab-ai').setAttribute('aria-selected', tab === 'ai');
+      $('tab-human').setAttribute('aria-selected', tab === 'human');
+      $('human').hidden = tab !== 'human';
+      $('q').placeholder = tab === 'ai' ? 'Ask about what you shared' : 'Message the agent';
+    };
+  }
+
+  // Picking: any element marked shareable. Converting it is one call.
+  function pick() {
+    if (!supported) return say('sys', 'This browser cannot share an element (no HTML-in-canvas).');
+    document.body.classList.add('picking');
+    // Get out of the way: on a phone the sheet covers the page.
+    $('sheet').hidden = true;
+    $('pickhint').hidden = false;
+    const onClick = (e) => {
+      if (e.target.id === 'pickcancel') return done();
+      const el = e.target.closest('[data-shareable]');
+      if (!el) return;
+      e.preventDefault();
+      e.stopPropagation();
+      done();
+      share(el);
+    };
+    const onKey = (e) => e.key === 'Escape' && done();
+    const done = () => {
+      document.body.classList.remove('picking');
+      $('sheet').hidden = false;
+      $('pickhint').hidden = true;
+      removeEventListener('click', onClick, true);
+      removeEventListener('keydown', onKey);
+      if (!state.surface) $('sees-text').textContent = 'Nothing is shared yet. Choose the part of the page you need help with.';
+    };
+    addEventListener('click', onClick, true);
+    addEventListener('keydown', onKey);
+  }
+  $('pick').onclick = pick;
+
+  const thumb = $('thumb');
+  function drawThumb() {
+    const m = state.surface?.mirror;
+    if (!m?.width) return;
+    const k = Math.min(1, 330 / m.width, 240 / m.height) ;
+    thumb.width = Math.round(m.width * k);
+    thumb.height = Math.round(m.height * k);
+    thumb.getContext('2d').drawImage(m, 0, 0, thumb.width, thumb.height);
+  }
+
+  function share(el) {
+    unshare();
+    state.el = el;
+    state.surface = attachSurface(el);
+    // Remote input is refused unless the user ticks the box; things the user
+    // approves here come in as 'local'.
+    state.surface.acceptInput = (msg, from) => from === 'local' || $('control').checked;
+    state.surface.addEventListener('frame', drawThumb);
+    state.surface.requestPaint();
+    el.toggleAttribute('data-sharing', true);
+    thumb.hidden = false;
+    $('stop').hidden = false;
+    $('pick').textContent = 'Share a different part';
+    const name = el.querySelector('h3')?.textContent ?? 'this part';
+    $('sees-text').textContent = `Sharing "${name}" only. This is exactly what leaves the page:`;
+    say('sys', `You are sharing "${name}".`);
+    if (state.session) startSession();
+  }
+  function unshare() {
+    if (!state.surface) return;
+    state.surface.removeEventListener('frame', drawThumb);
+    state.el.removeAttribute('data-sharing');
+    state.session?.stop();
+    state.session = null;
+    state.surface = state.el = null;
+    thumb.hidden = true;
+    $('stop').hidden = true;
+    $('pick').textContent = 'Choose what to share';
+    $('sees-text').textContent = 'Nothing is shared now.';
+    $('human-state').textContent = 'Start a session and give the code to the agent.';
+    $('agent-link').hidden = true;
+  }
+  $('stop').onclick = () => {
+    unshare();
+    say('sys', 'Sharing stopped.');
+  };
+
+  // ---- Variant 1: a model ----
+  // The model's reply may end with POINT / CLICK / FILL lines naming element ids.
+  function parseActions(answer) {
+    const actions = [];
+    const text = answer
+      .split('\n')
+      .filter((line) => {
+        const m = line.trim().match(/^(POINT|CLICK|FILL)\s+(e\d+)(?:\s+(.*))?$/);
+        if (m) actions.push({ kind: m[1].toLowerCase(), id: m[2], value: m[3]?.replace(/^["']|["']$/g, '') });
+        return !m;
+      })
+      .join('\n')
+      .trim();
+    return { text, actions };
+  }
+  function present(answer, who = 'them') {
+    const { text, actions } = parseActions(answer);
+    const map = state.surface?.describe() ?? [];
+    const buttons = [];
+    for (const a of actions) {
+      const item = map.find((m) => m.id === a.id);
+      if (!item) continue;
+      if (a.kind === 'point') state.surface.highlight(a.id);
+      else {
+        buttons.push({
+          label: a.kind === 'click' ? `Allow: press "${item.name}"` : `Allow: type "${a.value}" into "${item.name}"`,
+          run: () => {
+            state.surface.highlight(a.id, { ms: 1500 });
+            state.surface.input({ t: 'act', kind: a.kind, id: a.id, value: a.value }, 'local');
+            say('sys', a.kind === 'click' ? `Pressed "${item.name}".` : `Typed into "${item.name}".`);
+          },
+        });
+      }
+    }
+    say(who, text || '(no text)', buttons);
+    return { text, actions };
+  }
+  window.present = present;
+
+  // With no model available (a static host, or local dev), answer from the
+  // element list alone so the rest of the flow can still be tried.
+  function offlineAnswer(question, map) {
+    const controls = map.map((m) => `${m.role} "${m.name}"${m.value ? ` (${m.value})` : ''}`).join(', ');
+    const target = map.find((m) => m.role === 'button');
+    return `(Offline stand-in: no vision model on this host, so this answer comes from the element list only.)\nI can see these controls: ${controls || 'none'}.${target ? `\nPOINT ${target.id}` : ''}`;
+  }
+
+  async function askModel(question) {
+    const map = state.surface.describe();
+    const image = state.surface.dataURL('image/jpeg', 0.8, 1200);
+    const pending = say('them', 'Looking at what you shared…');
+    let answer;
+    let note = '';
+    try {
+      const res = await fetch('/api/x/vision', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image, question, elements: map.map(({ id, role, name, value }) => ({ id, role, name, value })), history: state.history }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      answer = data.answer;
+      note = `${data.model}, ${Math.round(image.length / 1024)} KB picture, ${map.length} elements`;
+    } catch (err) {
+      answer = offlineAnswer(question, map);
+      note = `model unavailable: ${err.message}`;
+    }
+    pending.remove();
+    const shown = present(answer);
+    say('sys', note);
+    state.history.push({ role: 'user', content: question }, { role: 'assistant', content: shown.text });
+    return { answer, note };
+  }
+  window.askModel = askModel;
+
+  // ---- Variant 2: a person ----
+  async function startSession() {
+    if (!state.surface) return say('sys', 'Choose what to share first.');
+    state.session?.stop();
+    state.room ??= newRoomId();
+    const session = (state.session = await shareInRoom(state.surface, state.room, { kind: 'auto', title: state.el.querySelector('h3')?.textContent ?? 'Shared region' }));
+    const url = new URL(`/support/agent.html#${state.room}`, location.href).href;
+    $('agent-link').href = url;
+    $('agent-link').hidden = false;
+    $('human-state').innerHTML = `Session code <code>${state.room}</code>${session.signal.kind === 'bc' ? ' (no relay server here: same browser only)' : ''}. Waiting for an agent.`;
+    session.on('viewer', () => {
+      $('human-state').innerHTML = `Session <code>${state.room}</code>: an agent is watching.`;
+      say('sys', 'An agent joined. They can see the shared part and point at it.');
+      session.broadcast({ t: 'control', allowed: $('control').checked });
+    });
+    session.on('gone', () => say('sys', 'The agent left.'));
+    session.on('message', (from, msg) => {
+      if (msg.t === 'chat' && typeof msg.text === 'string') say('them', msg.text.slice(0, 2000));
+    });
+    state.surface.addEventListener('input', (e) => {
+      if (e.detail.from !== 'local' && e.detail.msg.t !== 'pointer') return;
+    });
+  }
+  $('start').onclick = startSession;
+  $('control').onchange = () => {
+    state.session?.broadcast({ t: 'control', allowed: $('control').checked });
+    say('sys', $('control').checked ? 'The agent may now click and type in the shared part.' : 'The agent can only look and point.');
+  };
+
+  $('ask').onsubmit = (e) => {
+    e.preventDefault();
+    const text = $('q').value.trim();
+    if (!text) return;
+    $('q').value = '';
+    say('me', text);
+    if (state.tab === 'human') {
+      if (!state.session) return say('sys', 'Start a session first.');
+      state.session.broadcast({ t: 'chat', text });
+    } else if (!state.surface) say('them', 'Choose what to share first, so I have something to look at.');
+    else askModel(text);
+  };
+
+  // ---- Live checks ----
+  if (supported) {
+    const until = async (fn, ms = 3000) => {
+      const end = performance.now() + ms;
+      while (performance.now() < end) {
+        const v = await fn();
+        if (v) return v;
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      return null;
+    };
+    const rectOf = (el) => {
+      const r = el.getBoundingClientRect();
+      return [r.x, r.y + scrollY, r.width, r.height].map(Math.round).join(',');
+    };
+    const holder = document.createElement('div');
+    holder.style.cssText = 'position:fixed;left:8px;bottom:8px;opacity:.01;pointer-events:none';
+    document.body.append(holder);
+    let status = null;
+
+    runTests($('results'), [
+      {
+        name: 'Convert an ordinary element in place',
+        why: 'attachSurface() adds a shadow root; the children must not move in the DOM or on screen.',
+        run: async () => {
+          const el = $('usage');
+          const child = $('tariff');
+          const before = rectOf(child);
+          const surface = attachSurface(el);
+          if (!(await until(() => surface.frames > 0 && surface.mirror.width > 1))) throw new Error('the element never painted through its canvas');
+          await until(() => false, 150);
+          const after = rectOf(child);
+          if (child.closest('section') !== el) throw new Error('the child left its parent');
+          if (before !== after) throw new Error(`the child moved: ${before} → ${after}`);
+          return `painted through a canvas (${surface.mirror.width}×${surface.mirror.height} px copy); a child's box is unchanged at ${after}`;
+        },
+      },
+      {
+        name: 'Convert a grid container without breaking its layout',
+        why: 'The children become children of an inner box, which has to inherit the grid.',
+        run: async () => {
+          const grid = document.createElement('div');
+          grid.style.cssText = 'display:grid;grid-template-columns:1fr 2fr;gap:10px;width:300px';
+          grid.innerHTML = '<span style="background:#fc0">a</span><span style="background:#0cf">b</span>';
+          holder.append(grid);
+          const before = rectOf(grid.lastElementChild);
+          const surface = attachSurface(grid);
+          await until(() => surface.frames > 0);
+          await until(() => false, 150);
+          const after = rectOf(grid.lastElementChild);
+          grid.remove();
+          if (before !== after) throw new Error(`second cell moved: ${before} → ${after}`);
+          return `second grid cell stayed at ${after}`;
+        },
+      },
+      {
+        name: 'Private fields are covered in the outgoing picture and withheld from the element list',
+        why: 'The card number and security code are marked data-private.',
+        run: async () => {
+          const surface = attachSurface($('billing'));
+          await until(() => surface.frames > 0 && surface.mirror.width > 1);
+          await until(() => false, 200);
+          const base = surface.box.getBoundingClientRect();
+          const r = $('cardnumber').getBoundingClientRect();
+          const k = surface.mirror.width / base.width;
+          const px = Array.from(surface.mirror.getContext('2d').getImageData((r.x - base.x + 30) * k, (r.y - base.y + r.height / 2) * k, 1, 1).data).join(',');
+          const item = surface.describe().find((m) => m.name === 'Card number');
+          if (px !== '17,17,17,255') throw new Error(`card number pixel is ${px}`);
+          if (item?.value !== '[redacted]') throw new Error(`element list holds "${item?.value}"`);
+          return `pixel over the card number is ${px}; the list says "${item.value}"; the name on the card is still "${surface.describe().find((m) => m.name === 'Name on card').value}"`;
+        },
+      },
+      {
+        name: 'An agent in another document sees the region and can point at it',
+        why: 'Video over the relay room; the pointer is drawn on the user\'s canvas.',
+        run: async () => {
+          share($('billing'));
+          await startSession();
+          const f = document.createElement('iframe');
+          f.style.cssText = 'width:700px;height:500px;border:0';
+          holder.append(f);
+          await new Promise((r) => ((f.onload = r), (f.src = `/support/agent.html#${state.room}`)));
+          window.agentFrame = f;
+          const view = await until(() => f.contentWindow.view);
+          if (!(await until(() => view.meta && view.frames > 0, 9000))) throw new Error('the agent console got no frames');
+          f.contentWindow.pointAt(0.5, 0.5);
+          if (!(await until(() => state.surface.cursors.length > 0, 3000))) throw new Error('no agent pointer appeared');
+          return `agent console is showing ${view.meta.w}×${view.meta.h} "${view.meta.title}" with ${view.meta.map.length} described controls; its pointer is drawn here`;
+        },
+        timeout: 16000,
+      },
+      {
+        name: 'The agent\'s click is refused until the user allows it',
+        why: 'View-only by default.',
+        run: async () => {
+          const f = window.agentFrame;
+          const view = f.contentWindow.view;
+          const before = $('bill-status').textContent;
+          f.contentWindow.act('click', view.meta.map.find((m) => m.name === 'Retry payment').id);
+          await until(() => false, 600);
+          if ($('bill-status').textContent !== before) throw new Error('the click went through without permission');
+          $('control').checked = true;
+          $('control').onchange();
+          f.contentWindow.act('click', view.meta.map.find((m) => m.name === 'Retry payment').id);
+          const changed = await until(() => $('bill-status').textContent !== before, 3000);
+          $('control').checked = false;
+          $('control').onchange();
+          if (!changed) throw new Error('the click did nothing even after permission');
+          return `refused while view-only; after ticking the box the same click pressed the real button ("${$('bill-status').textContent.slice(0, 40)}…")`;
+        },
+        timeout: 9000,
+      },
+      {
+        name: 'A vision model answers a question about the shared region',
+        why: 'Workers AI on this site\'s Worker. Fails on hosts without it.',
+        run: async () => {
+          status = await fetch('/api/x/status').then((r) => r.json()).catch(() => null);
+          if (!status?.ai) throw new Error(status ? 'this deployment has no Workers AI binding' : 'no /api/x here (static host)');
+          const { answer, note } = await askModel('What is the problem shown here, in one sentence?');
+          if (/Offline stand-in/.test(answer)) throw new Error(note);
+          return `${note}: "${answer.replace(/\s+/g, ' ').slice(0, 160)}"`;
+        },
+        timeout: 40000,
+      },
+      {
+        name: 'A proposed action waits for approval, then runs on the real DOM',
+        why: 'The model can only name an element and a value.',
+        run: async () => {
+          if (!state.surface) share($('billing'));
+          const map = state.surface.describe();
+          const expiry = map.find((m) => m.name === 'Expires');
+          const retry = map.find((m) => m.name === 'Retry payment');
+          const old = $('expiry').value;
+          present(`The card has expired.\nPOINT ${expiry.id}\nFILL ${expiry.id} 09/29\nCLICK ${retry.id}`);
+          await until(() => false, 200);
+          if ($('expiry').value !== old) throw new Error('the value changed before approval');
+          const buttons = [...log.lastElementChild.querySelectorAll('.acts button')];
+          if (buttons.length !== 2) throw new Error(`expected 2 approval buttons, found ${buttons.length}`);
+          buttons[0].click();
+          buttons[1].click();
+          const ok = await until(() => $('expiry').value === '09/29' && $('bill-status').className === 'ok', 2000);
+          const result = `expiry "${$('expiry').value}", status "${$('bill-status').textContent}"`;
+          $('expiry').value = old;
+          $('bill-status').className = 'err';
+          $('bill-status').textContent = 'Your last payment of £86.20 was declined on 14 November.';
+          if (!ok) throw new Error(result);
+          return `nothing happened until both were approved; then ${result}`;
+        },
+      },
+    ]).then(() => {
+      window.agentFrame?.remove();
+      unshare();
+      log.replaceChildren();
+      state.history.length = 0;
+    });
+  }
+</script>
+</body>
+</html>
