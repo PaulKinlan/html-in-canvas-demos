@@ -325,7 +325,7 @@ export class LiveTransition extends HTMLElement {
     this.#mo.observe(this, { childList: true });
     this.#ro = new ResizeObserver(() => this.#measure());
     this.#ro.observe(this);
-    this.#canvas.addEventListener('paint', () => this.#render());
+    this.#canvas.addEventListener('paint', (e) => this.#render(e));
     addEventListener('pointermove', this.#onPointer, { passive: true });
     addEventListener('pointerdown', this.#onPointer, { passive: true, capture: true });
   }
@@ -467,6 +467,7 @@ export class LiveTransition extends HTMLElement {
       const on = i === this.#current || (a && (i === a.from || i === a.to));
       l.wrap.hidden = !on;
       l.wrap.inert = !on;
+      if (!on) l.fresh = false;
       l.wrap.classList.remove('off');
       l.el.toggleAttribute('data-live-active', i === this.#current);
     });
@@ -607,8 +608,10 @@ export class LiveTransition extends HTMLElement {
     return new DOMMatrix().translate(this.#bleed, this.#bleed).multiply(m);
   }
 
-  #upload(layer, unit) {
+  #upload(layer, unit, changed) {
     const gl = this.#gl;
+    // A state's texture is still good if the browser has not repainted it since the last upload.
+    if (layer.tex && layer.fresh && changed && !changed.has(layer.wrap)) return;
     const size = this.#canvas.getElementImageDefaultSize(layer.wrap);
     const w = Math.max(1, Math.ceil(size.width)), h = Math.max(1, Math.ceil(size.height));
     gl.activeTexture(gl.TEXTURE0 + unit);
@@ -626,7 +629,9 @@ export class LiveTransition extends HTMLElement {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
       layer.tw = w; layer.th = h;
     }
+    layer.fresh = false;
     gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, layer.wrap);
+    layer.fresh = true;
   }
 
   #burnFront(a) { return a.p * 1.3 - 0.14; }
@@ -638,13 +643,14 @@ export class LiveTransition extends HTMLElement {
     return this.#burnFront(a) - t;
   }
 
-  #render() {
+  #render(event) {
     const gl = this.#gl, a = this.#anim, W = this.#W, H = this.#H;
+    const changed = event?.changedElements ? new Set(event.changedElements) : null;
     if (!W || !H || !this.#layers.length) return;
     const from = this.#layers[a ? a.from : this.#current], to = this.#layers[a ? a.to : this.#current];
     try {
-      this.#upload(from, 0);
-      if (a) this.#upload(to, 1);
+      this.#upload(from, 0, changed);
+      if (a) this.#upload(to, 1, changed);
     } catch (err) {
       // No paint record yet (the state was only just made visible). Try again next frame.
       this.lastError = err;

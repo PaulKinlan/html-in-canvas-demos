@@ -83,6 +83,9 @@ export function nav(current) {
     ['/cross-tab/', '3 · Cross-tab'],
     ['/cross-origin/', '4 · Cross-origin'],
     ['/transports/', '5 · Transport lab'],
+    ['/transitions/', 'Transitions'],
+    ['/time-scrubber/', 'Time scrubber'],
+    ['/particles/', 'Particles'],
   ];
   const header = document.createElement('header');
   header.className = 'site';

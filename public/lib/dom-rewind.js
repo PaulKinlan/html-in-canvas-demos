@@ -74,7 +74,10 @@ export class DomRewind extends HTMLElement {
     if (!SUPPORTED) {
       // Plain fallback: children are positioned with transforms, nothing is recorded.
       this.shadowRoot.innerHTML = `<style>:host{display:block;position:relative;overflow:hidden}::slotted(*){position:absolute;left:0;top:0}</style><slot></slot>`;
-      for (const el of this.children) this.#items.set(el, { el, x: 0, y: 0, rotate: 0 });
+      for (const el of this.children) {
+        this.#items.set(el, { el, x: 0, y: 0, rotate: 0 });
+        this.place(el, { x: Number(el.dataset.x ?? 0), y: Number(el.dataset.y ?? 0), rotate: Number(el.dataset.rotate ?? 0) });
+      }
       return;
     }
     this.shadowRoot.innerHTML = `
