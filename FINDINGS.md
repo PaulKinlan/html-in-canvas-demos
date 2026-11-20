@@ -103,6 +103,17 @@ Things that bit:
 
 - A text selection inside an `fx` element is painted into its WebGL texture (about 2,000 pixels change when a heading is selected), so selection highlight goes through the shader. The find-in-page highlight itself cannot be triggered from script (`window.find()` only makes a selection), so whether it is painted still needs a person with the find bar open.
 
+### Touch, top layer and live checks on a phone
+
+- **A drawable canvas in the top layer takes its content out of the page's scroll chain.** With `layer="top"` the portal canvas is a popover, and its child content is hit tested there. A wheel or a finger on a document that sits inside a scrolling box then scrolls the page, not the box, so the minimap demo could not be scrolled on a phone. `<dom-portal-source>` now puts the chain back by hand: it finds the nearest scrolling ancestor with room (starting from the copy under the pointer), scrolls it on wheel, and pans it on touch with a short fling. `touch-action: pinch-zoom` on the content keeps the browser from panning the page under the finger.
+- **A finger does not hover.** Portal hit testing follows the last pointer position, so after a tap on a copy the geometry stayed on that copy and the next touch on the source hit nothing. The pointer is now forgotten 350ms after a touch ends (long enough for the tap's click to land).
+- **Live checks must not touch the page a visitor is using.** `scrollIntoView()` for `elementFromPoint()`, `focus()` and `scrollTo(0, 0)` at the end all fight a person on a phone. Checks on these pages now build fixtures in a small panel fixed to the bottom of the window (`checkBench()` in `shared/support.js`), which is in the viewport without scrolling, and remove it when done. Each check starts with an empty bench so canvases and GPU contexts are given back.
+- **A canvas clipped away by `overflow: hidden` is not painted.** Twenty fixtures in a bench with a capped height left ten without a picture until the bench was allowed to grow.
+- **The first frame can come before the canvas has its real size.** On a 2.6× screen a shader slot drew one frame at the default buffer size, was resized (which clears it), and was blank until the next paint. Wait a few frames after the first before reading pixels.
+- **A dying WebGL context fails shader compiles with an empty log before `isContextLost()` turns true.** Treating that as a broken shader cached the failure and left the effect off. An empty log is now treated as a lost context and not remembered.
+- **Lost or blank canvases say so.** Surfaces fall back to plain HTML with a short note when a 2D or WebGL context does not come back; the portal source swaps in a fresh canvas up to three times, then shows plain HTML and inert copies. Every page ends with a check that the visible demos still have pixels, and switches a blank one to plain HTML.
+- **`fx-backend` on an adopted element was ignored**, because the wrapper connects before the element is moved into it. It only showed once fixtures stopped piling up (the page used to hit the direct-context limit by accident).
+
 ### Named effects and shader slots (`/slot-effects/`)
 
 `<canvas-slot effect="tilt">` extends the existing element: without the attribute nothing changes. 15 live checks.

@@ -30,7 +30,7 @@
   .specimen svg { width: 100%; height: 70px; display: block; }
   .swatches { display: flex; gap: 2px; }
   .swatches i { flex: 1; height: 10px; }
-  #fixtures { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  #fixtures { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
   #fixtures > * { border: 1px solid var(--line); background: #fff; color: #000; }
 </style>
 </head>
@@ -113,13 +113,12 @@
   </ul>
 
   <h2>Live checks</h2>
-  <div id="fixtures"></div>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
 </main>
 
 <script type="module">
   import '/lib/dom-lens.js';
-  import { banner, nav, runTests, supported } from '/shared/support.js';
+  import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn, supported } from '/shared/support.js';
   nav('/lens/');
   banner();
 
@@ -150,7 +149,7 @@
 
   // ---- Live checks ----
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const fixtures = $('fixtures');
+  const fixtures = supported ? checkBench() : null;
   async function fixture(attrs, html) {
     const el = document.createElement('dom-lens');
     for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
@@ -178,7 +177,7 @@
   }
 
   if (supported) {
-    runTests($('results'), [
+    runTests($('results'), onBench(fixtures, [
       {
         name: 'The lens magnifies the live element',
         why: 'A 10px square at (50,50), lens at (55,55), zoom 4. 14px to the right is white without the lens and yellow through it.',
@@ -239,7 +238,6 @@
         run: async () => {
           const el = await fixture({ zoom: 4, radius: 40 }, dot);
           const b = el.querySelector('#B');
-          el.scrollIntoView({ block: 'center' });
           await sleep(60);
           const r = b.getBoundingClientRect();
           const x = r.left + r.width / 2, y = r.top + r.height / 2;
@@ -257,7 +255,6 @@
         run: async () => {
           const el = await fixture({ pinned: '', x: 150, y: 28, zoom: 3, radius: 50 }, dot);
           const b = el.querySelector('#B');
-          el.scrollIntoView({ block: 'center' });
           await sleep(60);
           const host = el.getBoundingClientRect();
           // The button's left edge is about 10px left of the lens centre; magnified 3×, that is 30px left.
@@ -268,7 +265,6 @@
           const during = document.elementFromPoint(x, y);
           el.pointTo(null);
           await sleep(80);
-          scrollTo(0, 0);
           if (before === b) throw new Error('point was already on the button at rest');
           if (during !== b) throw new Error(`with the pointer in the lens, found ${during?.localName}`);
           return `18px left of centre: ${before?.localName} at rest, the button while the pointer is in the lens`;
@@ -315,7 +311,13 @@
           return `canvas ${el.canvas.width}×${el.canvas.height} at scale ${el.scale.toFixed(2)}`;
         },
       },
-    ]);
+      stillDrawn(() => [...document.querySelectorAll('main dom-lens')].map((el, i) => ({
+        name: el.id || `lens ${i + 1}`,
+        note: 'plain HTML',
+        ink: () => (el.live ? inkFraction(el.ctx) : null),
+        rescue: () => el.fallBackToPlain('it drew nothing'),
+      }))),
+    ])).then(() => fixtures.done());
   }
 </script>
 </body>

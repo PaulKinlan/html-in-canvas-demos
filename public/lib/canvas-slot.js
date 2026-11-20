@@ -235,7 +235,29 @@ export class CanvasSlot extends HTMLElement {
   }
 
   requestPaint() {
-    if (SUPPORTED) this.#canvas.requestPaint();
+    if (SUPPORTED && !this.#gaveUp) this.#canvas.requestPaint();
+  }
+
+  #gaveUp = false;
+  /**
+   * Give up on the canvas at run time (it was lost for good, or draws
+   * nothing): the slots move out of it, so the content is ordinary HTML,
+   * with a short note saying why.
+   */
+  showPlain(reason = 'the canvas stopped drawing') {
+    if (this.#gaveUp || this.#mode === 'worker') return;
+    this.#gaveUp = true;
+    this.#loading++;
+    this.#fx?.destroy();
+    this.#fx = null;
+    cancelAnimationFrame(this.#raf);
+    for (const slot of this.#slots.values()) this.#root.append(slot);
+    const note = document.createElement('small');
+    note.setAttribute('part', 'notice');
+    note.style.cssText = 'display:block;font:11px system-ui;opacity:.7;margin-top:2px';
+    note.textContent = `Shown as plain HTML (${reason}).`;
+    this.#root.append(note);
+    this.setAttribute('plain', reason);
   }
 
   /** Keep firing paint every frame (for animated renderers). */
