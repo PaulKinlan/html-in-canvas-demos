@@ -720,6 +720,7 @@ export class LiveTransition extends HTMLElement {
     return new DOMMatrix().translate(this.#bleed, this.#bleed).multiply(m);
   }
 
+  // #region upload
   #upload(layer, unit, changed) {
     const gl = this.#gl;
     // A state's texture is still good if the browser has not repainted it since the last upload.
@@ -745,6 +746,7 @@ export class LiveTransition extends HTMLElement {
     gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, layer.wrap);
     layer.fresh = true;
   }
+  // #endregion upload
 
   #burnFront(a) { return a.p * 1.3 - 0.14; }
   #burnMaxD(a) {
@@ -870,6 +872,7 @@ export class LiveTransition extends HTMLElement {
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, clientX: e.clientX, clientY: e.clientY, view: window }));
   };
 
+  // #region route
   /** Point the browser's hit testing at whichever state is under the pointer, with that piece's transform. */
   #route() {
     const a = this.#anim;
@@ -886,6 +889,7 @@ export class LiveTransition extends HTMLElement {
       if (mine) this.#canvas.updateElementGeometry(l.wrap, { canvasTransform: this.#place(hit.matrix) });
     }
   }
+  // #endregion route
 }
 
 /** The 2D affine matrix that maps three source points onto three destination points. */
