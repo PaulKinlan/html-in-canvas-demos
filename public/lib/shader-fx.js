@@ -266,6 +266,7 @@ export class FxSurface extends SurfaceElement {
     });
   }
 
+  // #region render
   // DOM → texture on this canvas's own WebGL context.
   #renderDirect(name, uniforms) {
     const gl = this.ctx;
@@ -282,6 +283,7 @@ export class FxSurface extends SurfaceElement {
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
+  // #endregion render
 
   // DOM → this 2D canvas → the shared WebGL context → back to this canvas.
   #renderShared(name, uniforms) {

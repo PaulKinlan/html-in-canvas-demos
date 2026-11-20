@@ -6,14 +6,15 @@
 <title>Remote component</title>
 <style>
   :root { color-scheme: light dark; }
-  html, body { margin: 0; height: 100%; }
+  html, body { margin: 0; min-height: 100%; }
+  body { min-height: 100dvh; }
   body { font: 15px/1.4 system-ui, sans-serif; background: #161514; color: #eee; display: flex; flex-direction: column; }
   header { padding: 10px 14px; font-size: 13px; color: #aaa; display: flex; gap: 10px; align-items: center; }
   header b { color: #fff; font-weight: 600; }
   #dot { width: 9px; height: 9px; border-radius: 50%; background: #c80; flex: none; }
   #dot.on { background: #4c6; }
   #dot.off { background: #c44; }
-  main { flex: 1; display: grid; place-items: center; padding: 12px; min-height: 0; }
+  main { flex: 1; display: grid; place-items: center; padding: 12px; min-height: 240px; }
   live-view { width: min(100%, var(--live-w, 420px) * 1.6); border-radius: 12px; overflow: hidden; box-shadow: 0 10px 40px #0008; }
   live-view[stalled] { filter: grayscale(1) opacity(0.6); }
   [hidden] { display: none !important; }
@@ -21,22 +22,50 @@
   form input { flex: 1; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #555; background: #222; color: #eee; }
   form button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; background: #d2491f; color: #fff; }
   footer { padding: 8px 14px calc(8px + env(safe-area-inset-bottom)); font-size: 12px; color: #888; }
+  #diag { padding: 0 14px; color: #ccc; }
+  #routes { font-size: 13px; margin: 0 0 8px; display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; }
+  #routes a { color: #f0a070; padding: 8px 0; }
+  #routes a[aria-current] { color: #fff; font-weight: 600; text-decoration: none; }
 </style>
 </head>
 <body>
 <header><span id="dot"></span><span><b id="title">Remote component</b> <span id="state">connecting…</span></span></header>
+<!-- #region view -->
 <main><live-view id="view" fit aria-label="Remote component"></live-view></main>
+<!-- #endregion view -->
 <form id="join" hidden><input id="code" placeholder="Room code" autocapitalize="off" autocomplete="off" aria-label="Room code"><button>Join</button></form>
+<section id="diag" aria-label="Connection details">
+  <div id="log"></div>
+  <p id="routes" hidden>Route: <a data-t="auto" href="#">automatic</a><a data-t="rtc" href="#">WebRTC only</a><a data-t="turn" href="#">TURN relay only</a><a data-t="relay" href="#">pictures through the site</a></p>
+</section>
 <footer>This is a picture of an element on another device. Taps and typing are sent back to it. This page needs nothing special: any browser will do.</footer>
 <script type="module">
   // The far end of /remote/. Deliberately plain: no HTML-in-canvas here.
+  // #region join
   import '/lib/live-view.js';
   import { watchRoom } from '/lib/live-link.js';
+  // #endregion join
+  import { connectionLog } from '/lib/live-log.js';
   const q = new URLSearchParams(location.search);
+  // #region join
   const view = document.getElementById('view');
+  // #endregion join
   const state = document.getElementById('state');
   const dot = document.getElementById('dot');
+  // #region join
   const room = (location.hash.slice(1) || q.get('room') || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  // #endregion join
+
+  // #region join
+  const transport = q.get('transport') ?? 'auto';
+  // #endregion join
+  const embedded = top !== window;
+  // The log starts open when this is the whole page (a phone); a frame inside another page keeps it shut.
+  const log = connectionLog(document.getElementById('log'), { open: !embedded });
+  window.log = log;
+  addEventListener('error', (e) => log.add(`page error: ${e.message}`, 'bad'));
+  addEventListener('unhandledrejection', (e) => log.add(`page error: ${e.reason?.message ?? e.reason}`, 'bad'));
+  log.add(`viewer on ${location.host}, ${navigator.onLine ? 'online' : 'OFFLINE'}${navigator.connection?.type ? ', ' + navigator.connection.type : ''}${navigator.connection?.effectiveType ? ' (' + navigator.connection.effectiveType + ')' : ''}; route: ${transport}`);
 
   view.addEventListener('meta', (e) => (document.getElementById('title').textContent = e.detail.title || 'Remote component'));
   view.addEventListener('sourcevisibility', (e) => {
@@ -56,15 +85,30 @@
     };
   } else {
     try {
-      const session = await watchRoom(view, room, { kind: q.get('kind') ?? 'auto', transport: q.get('transport') ?? 'auto', patience: Number(q.get('patience')) || 7000 });
+      const routes = document.getElementById('routes');
+      routes.hidden = false;
+      for (const a of routes.querySelectorAll('a')) {
+        const u = new URL(location.href);
+        u.searchParams.set('transport', a.dataset.t);
+        a.href = u.href;
+        if (a.dataset.t === transport) a.setAttribute('aria-current', 'true');
+      }
+      // #region join
+      const session = await watchRoom(view, room, { kind: q.get('kind') ?? 'auto', transport, patience: Number(q.get('patience')) || 7000 });
+      // #endregion join
       window.session = session;
-      state.textContent = `in room ${room} (${session.signal.kind === 'ws' ? 'relay server' : 'this browser only'}), ${session.state}`;
-      session.on('state', (text, via) => {
-        state.textContent = text;
-        dot.className = via ? 'on' : 'off';
-      });
+      session.on('log', log.add);
+      const alone = session.signal.kind !== 'ws';
+      const show = (text, via) => {
+        // On its own this browser can only meet tabs of itself: say that, not "waiting", or a phone waits for ever.
+        state.textContent = alone && !via ? `cannot reach other devices: ${session.signal.fallback ?? 'no room server here'}` : text;
+        dot.className = via ? 'on' : alone ? 'off' : via === null && /left|failed|lost/.test(text) ? 'off' : '';
+      };
+      show(session.state, session.via);
+      session.on('state', show);
     } catch (err) {
       state.textContent = `could not join: ${err.message}`;
+      log.add(`could not join: ${err.message}`, 'bad');
       dot.className = 'off';
     }
   }

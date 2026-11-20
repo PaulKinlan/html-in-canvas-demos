@@ -20,6 +20,7 @@ export function publish(canvasSlot) {
   const viewers = new Map(); // port -> Set(names)
   let force = true;
 
+  // #region send-frames
   async function sendFrames({ elements, changed, dpr }) {
     if (!viewers.size) return;
     const canvas = canvasSlot.canvas;
@@ -49,6 +50,7 @@ export function publish(canvasSlot) {
   }
 
   canvasSlot.addEventListener('render', (e) => sendFrames(e.detail));
+  // #endregion send-frames
 
   function onMessage(port, msg) {
     if (msg.type === 'subscribe') {
@@ -76,6 +78,7 @@ export function publish(canvasSlot) {
   };
 }
 
+// #region replay
 // Replay a remote input event on the real element.
 function replay(el, msg) {
   const r = el.getBoundingClientRect();
@@ -123,6 +126,7 @@ function replay(el, msg) {
     active.click();
   }
 }
+// #endregion replay
 
 /** <slot-mirror name="…">: shows a remote slot and sends input back. */
 export class SlotMirror extends HTMLElement {

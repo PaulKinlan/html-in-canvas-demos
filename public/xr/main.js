@@ -1,5 +1,7 @@
+// #region panels
 import * as THREE from 'three';
 import { HTMLSurfaces, support } from '/lib/html3d.js';
+// #endregion panels
 import { banner, runTests, supported } from '/shared/support.js';
 import { isFixture, mirror, publish, sampleGL, watchContext } from '/lib/check-fixture.js';
 
@@ -199,6 +201,7 @@ async function start() {
   floor.userData.noOcclude = true;
   room.add(floor);
 
+  // #region panels
   const surfaces = new HTMLSurfaces(renderer, camera, { scene });
   const PX = 600; // CSS px per metre
   const panels = [];
@@ -217,6 +220,7 @@ async function start() {
     panels.push(p);
     return p;
   }
+  // #endregion panels
   const P = {
     form: panel($('p-form'), [0, 1.5, -1.2], [0, 0, 0]),
     log: panel($('p-log'), [-0.98, 1.5, -0.9], [0, 0.72, 0]),
@@ -271,6 +275,7 @@ async function start() {
   const info = { selects: 0, clicks: 0, lastTarget: '', via: '', forced: 0, layer: 'off', sources: '' };
   const describe = (el) => (el ? `<${el.localName}${el.id ? '#' + el.id : ''}${el.dataset?.key ? ' ' + el.dataset.key : ''}>` : 'nothing');
 
+  // #region rays
   const rays = [0, 1].map((i) => {
     const c = renderer.xr.getController(i);
     const line = new THREE.Line(
@@ -324,11 +329,15 @@ async function start() {
     });
     return r;
   });
+  // #endregion rays
 
+  // #region rays
   function setRay(origin, direction) {
     raycaster.ray.origin.copy(origin);
     raycaster.ray.direction.copy(direction).normalize();
   }
+  // #endregion rays
+  // #region rays
   function aim(r) {
     r.c.updateMatrixWorld(true);
     _rot.extractRotation(r.c.matrixWorld);
@@ -340,6 +349,7 @@ async function start() {
     r.line.scale.z = hit ? hit.distance : 3;
     return hit;
   }
+  // #endregion rays
 
   // ------------------------------------------------------------------ session
   let session = null, sess = null;

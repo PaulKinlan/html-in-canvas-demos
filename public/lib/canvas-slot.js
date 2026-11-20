@@ -216,10 +216,12 @@ export class CanvasSlot extends HTMLElement {
 
     const workerUrl = this.getAttribute('worker');
     if (workerUrl) {
+      // #region worker
       this.#worker = new Worker(new URL(workerUrl, document.baseURI), { type: 'module' });
       this.#worker.onmessage = (e) => this.dispatchEvent(new CustomEvent('workermessage', { detail: e.data }));
       const offscreen = this.#canvas.transferControlToOffscreen();
       this.#worker.postMessage({ type: 'init', canvas: offscreen }, [offscreen]);
+      // #endregion worker
       this.#mode = 'worker';
     } else {
       // A canvas that already has a context (the element was moved in the
@@ -385,6 +387,7 @@ export class CanvasSlot extends HTMLElement {
   #onPaint(event) {
     const elements = this.elements;
     if (this.#worker) {
+      // #region worker
       // Capture snapshots for changed elements (or all of them the first time)
       // and transfer them to the worker that owns the OffscreenCanvas.
       const changed = new Set(event.changedElements ?? []);
@@ -404,6 +407,7 @@ export class CanvasSlot extends HTMLElement {
         }
       }
       this.#worker.postMessage({ type: 'paint', images, sizes, time: performance.now() }, transfer);
+      // #endregion worker
       return;
     }
 

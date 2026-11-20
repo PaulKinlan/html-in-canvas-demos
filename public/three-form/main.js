@@ -1,5 +1,7 @@
+// #region setup
 import * as THREE from 'three';
 import { HTMLSurfaces, installThreeShims, support } from '/lib/html3d.js';
+// #endregion setup
 import { banner, nav, runTests } from '/shared/support.js';
 import { isFixture, mirror, publish, sampleGL, watchContext } from '/lib/check-fixture.js';
 
@@ -9,12 +11,15 @@ banner();
 const useGPU = window.__gpu;
 document.getElementById(useGPU ? 'r-webgpu' : 'r-webgl').setAttribute('aria-current', 'true');
 const $ = (id) => document.getElementById(id);
+// #region setup
 const canvas = $('scene');
+// #endregion setup
 const hud = $('hud');
 
 // ------------------------------------------------------------------ renderer
 // Remember what the browser had before any shim, for the report below.
 const native = { texElementImage2D: 'texElementImage2D' in WebGL2RenderingContext.prototype, copyElementImageToTexture: typeof GPUQueue !== 'undefined' && 'copyElementImageToTexture' in GPUQueue.prototype };
+// #region setup
 let renderer, backendName;
 if (useGPU) {
   installThreeShims();
@@ -25,6 +30,7 @@ if (useGPU) {
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   backendName = 'three WebGLRenderer';
 }
+// #endregion setup
 renderer.setPixelRatio(isFixture ? 1 : Math.min(devicePixelRatio, 2)); // the hidden copy that runs the checks stays cheap
 let deviceLost = '';
 renderer.backend?.device?.lost.then((info) => (deviceLost = `WebGPU device lost: ${info.message || info.reason}`));
@@ -136,6 +142,7 @@ drone.visible = false;
 scene.add(drone);
 
 // ------------------------------------------------------------------ surfaces
+// #region setup
 const surfaces = new HTMLSurfaces(renderer, camera, { scene });
 const S = {};
 if (support.paint) {
@@ -146,6 +153,7 @@ if (support.paint) {
 } else {
   for (const m of [laptopScreen, billboardScreen, wallScreen]) m.material.color.set(0x2a2f3c);
 }
+// #endregion setup
 
 // ------------------------------------------------------------------ the documents talk to each other
 const form = $('laptop-ui'), bb = $('billboard-ui');
@@ -327,9 +335,11 @@ function frame(time) {
     drone.position.z += 0.12;
     drone.rotation.y = t * 3;
   }
+  // #region loop
   scene.updateMatrixWorld();
   surfaces.update();
   renderer.render(scene, camera);
+  // #endregion loop
   if (blankProbe) {
     blankProbe(renderer.isWebGLRenderer ? sampleGL(renderer.getContext()) : -1);
     blankProbe = null;
@@ -339,7 +349,9 @@ function frame(time) {
 }
 let blankProbe = null;
 const context = watchContext(canvas, $('stage'));
+// #region loop
 renderer.setAnimationLoop(frame);
+// #endregion loop
 
 // ------------------------------------------------------------------ live tests
 const frames = (n = 2) => new Promise((resolve) => {

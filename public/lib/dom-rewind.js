@@ -289,6 +289,7 @@ export class DomRewind extends HTMLElement {
     return fr[lo];
   }
 
+  // #region record
   #record(event) {
     const changed = new Set(event.changedElements ?? [...this.#items.values()].map((i) => i.wrap));
     let any = this.#dirty || !this.#frames.length;
@@ -321,7 +322,9 @@ export class DomRewind extends HTMLElement {
     while (this.#frames.length > 2 && (this.#frames[1].t < this.#clock - cap || this.#frames.length > 6000)) this.#release(this.#frames.shift());
     this.#dirty = false;
   }
+  // #endregion record
 
+  // #region paint
   #drawItem(ctx, src, w, h, x, y, rotate) {
     ctx.save();
     ctx.translate(x + w / 2, y + h / 2);
@@ -329,7 +332,9 @@ export class DomRewind extends HTMLElement {
     ctx.drawElementImage(src, -w / 2, -h / 2, w, h);
     ctx.restore();
   }
+  // #endregion paint
 
+  // #region paint
   #paint(event) {
     if (this.#exporting || this.#plain) return;
     const now = performance.now();
@@ -373,6 +378,7 @@ export class DomRewind extends HTMLElement {
     }
     this.dispatchEvent(new CustomEvent('rewindframe', { detail: { position: this.#ago, duration: this.duration } }));
   }
+  // #endregion paint
 }
 
 const FIELDS = 'input, textarea, select, details, [contenteditable], [data-rewind-scroll]';

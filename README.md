@@ -52,7 +52,7 @@ Every demo page carries a "What you will learn here" box: what it teaches, what 
 | `/cross-origin/` | Borrowing and lending DOM across origins |
 | `/transports/` | Transport lab: ~50 routes for moving DOM out of its canvas, each tested live |
 | `/portal/` | `<dom-portal for="id">`: one live element drawn twice, interactive in both places |
-| `/lens/` | `<dom-lens>`: fourteen lenses over live DOM (magnifier, ray-traced glass, fisheye, water drop, x-ray, black hole…), sharp at any zoom, one draw and one shader each |
+| `/lens/` | `<dom-lens>`: fifteen lenses over live DOM (magnifier, ray-traced glass, fisheye, water drop, x-ray, black hole…), sharp at any zoom, one draw and one shader each |
 | `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
 | `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
@@ -84,7 +84,8 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/dom-rewind.js`: `<dom-rewind seconds trails>`. `place(el, { x, y, rotate })`, `seek(secondsAgo)`, `replay()`, `restore()`, `oncapture` / `onrestore` for app state. `for await (const { time, bitmap } of rw.frames({ seconds, fps }))` hands the recorded history back as ImageBitmaps for a video encoder. If the canvas context is lost, `<live-transition>` and `<dom-rewind>` show their children as plain HTML until it returns (`fallbackReason`, `showPlain(reason)`, `showCanvas()`, events `livefallback` / `rewindfallback`), as `<glyph-field>` already did.
 - `public/lib/glyph-field.js`: `<glyph-field pointer="repel">`. `explode()`, `rain()`, `vortex()`, `scatter()`, `assemble()`, `highlight(text)`.
 - `public/lib/dom-portal.js`: `<dom-portal for="id" scale="0.5">` mirrors any element; `<dom-portal-source layer="top">` for sources inside clipping ancestors.
-- `public/lib/dom-lens.js`: `<dom-lens mode="magnify|glass|fisheye|…" zoom radius>` around any markup. The lenses are fragment shaders in `public/lib/lens-gl.js` (`LENSES`); add an entry to add a lens.
+- `public/lib/dom-lens.js`: `<dom-lens mode="magnify|glass|fisheye|…" zoom radius>` around any markup. The lenses are fragment shaders: GLSL in `public/lib/lens-gl.js` (`LENSES`) and WGSL in `public/lib/lens-gpu.js` (`WGSL`); add an entry to both to add a lens. WebGPU is used when it works, then WebGL, then 2D.
+- `public/shared/backend.js`: `pickBackend()` and `webgpu()` choose between WebGPU, WebGL and 2D for a page, and share one WebGPU device. WebGPU is only chosen with a real adapter that passes a self-test.
 - `public/lib/shader-fx.js`: the `fx` attribute (`ripple`, `glass`, `haze`, `crt`, `dissolve`, `curl`) and `defineEffect(name, { glsl })`.
 - `public/lib/effects.js`: the effect registry shared by `fx` and `<canvas-slot effect>`. `defineEffect(name, { glsl, wgsl, geometry })`; CSS properties `--fx-progress`, `--fx-amount`, `--fx-x`, `--fx-y`.
 - `public/lib/slot-effects.js`: the shader renderer `<canvas-slot effect>` loads on demand (`backend="webgl|shared|webgpu"`).
@@ -93,7 +94,7 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
 - `public/lib/live-surface.js`: `<live-region>` and `attachSurface(el)` turn any element into a shareable surface (frames, redaction, element map, replayed input). `serve(surface, link)` speaks the protocol.
 - `public/lib/live-view.js`: `<live-view>`, the receiving end. Needs no HTML-in-canvas.
-- `public/lib/live-link.js`: `shareInRoom()` / `watchRoom()` over a relay room, WebRTC with a relayed-JPEG fallback.
+- `public/lib/live-link.js`: `shareInRoom()` / `watchRoom()` over a relay room, WebRTC with a relayed-JPEG fallback. Both emit `log` lines; `public/lib/live-log.js` (`connectionLog(el)`) shows them on the page.
 - `public/lib/live-card.js`: `<live-card src effect>` embeds a cross-origin card through a WebGL shader.
 - `public/lib/slot-view.js` and `public/lib/slot-provider.js`: the cross-site `<slot-view src name>` element and `provideSlots()` for the site being embedded.
 - `public/lib/element-pip.js`: `pipElement(el, { mode })` and `surfaceFor(el)`.
@@ -122,6 +123,37 @@ For a new demo page:
 - Do not size a canvas stage with `dvh`: it changes every time a phone's URL bar moves. Use `svh`.
 - Only assign `canvas.width` and `canvas.height` when the size really changed. Assigning clears the canvas.
 - A page whose checks cannot meet this yet goes in `CHECKS_WAIT_FOR_TAP` in `public/shared/support.js`; its checks then wait for a button. Known exceptions with their reasons are in `tools/jank/allow.json`.
+
+## Show the code
+
+Every demo has a "Show the code" listing under it: numbered steps, each with the code that does it, a Copy button and a link to the lines on GitHub. The listings are cut from the files the page is running when someone opens one, so they cannot drift. `public/shared/show-code.js` does it (loaded by `nav.js`, styles in `shared/style.css`).
+
+Mark the code with region comments, in whichever comment style the file uses there:
+
+```
+<!-- #region markup -->        // #region draw           /* #region styles */
+<canvas-slot>…</canvas-slot>   ctx.drawElementImage(…);  .card { … }
+<!-- #endregion markup -->     // #endregion draw        /* #endregion styles */
+```
+
+Then list the steps in the page:
+
+```html
+<details class="show-code">
+  <summary>Show the code <small>what this listing covers</small></summary>
+  <ol>
+    <li data-code="#markup"><b>What this step does.</b> One line of why.</li>
+    <li data-code="/lib/canvas-slot.js#worker"><b>A region of another file.</b></li>
+    <li data-code="/offscreen/renderer.js"><b>A whole file.</b></li>
+  </ol>
+</details>
+```
+
+`data-code` is `file#region`: no file means this page, no region means the whole file. Using a name more than once in a file shows the pieces together, which is how a listing skips over test scaffolding. Regions may nest. Keep the `<details>` in the page's HTML and closed, so it takes its one line of space from the first paint. `data-lang="glsl"` overrides the language, and `data-code-full` shows a long block without the "Show all lines" cut.
+
+For rows of a results table that each run their own function, `window.showCode.block(fn, 'js', label)` returns a listing of that function's own text (see `rowCode` in `/transports/` and `/a11y/`).
+
+The slot pages use `shared/source-view.js` instead, which shows whole stand-alone example files.
 
 ## Develop and deploy
 

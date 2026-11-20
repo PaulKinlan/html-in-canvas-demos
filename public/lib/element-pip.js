@@ -119,6 +119,7 @@ export async function pipElement(el, { mode = 'auto', width, height, media = {},
     return session;
   };
 
+  // #region move
   if (mode === 'move') {
     const win = await documentPictureInPicture.requestWindow({ width: w, height: h });
     copyStyles(document, win.document);
@@ -131,6 +132,7 @@ export async function pipElement(el, { mode = 'auto', width, height, media = {},
     hole.style.cssText = `display:${getComputedStyle(el).display.startsWith('inline') ? 'inline-flex' : 'flex'};align-items:center;justify-content:center;box-sizing:border-box;width:${rect.width}px;height:${rect.height}px;border:1px dashed color-mix(in srgb, currentColor 40%, transparent);border-radius:10px;font:13px system-ui;opacity:.7;text-align:center;`;
     el.replaceWith(hole);
     win.document.body.append(el); // adopts the node: same element, new document
+  // #endregion move
     let open = true;
     const close = () => {
       if (!open) return;
@@ -148,6 +150,7 @@ export async function pipElement(el, { mode = 'auto', width, height, media = {},
   const surface = held.surface;
   if (!surface) throw new Error('could not make a surface for this element');
 
+  // #region stream
   if (mode === 'stream') {
     const win = await documentPictureInPicture.requestWindow({ width: w, height: h });
     win.document.title = el.getAttribute('aria-label') ?? document.title;
@@ -160,6 +163,7 @@ export async function pipElement(el, { mode = 'auto', width, height, media = {},
     await win.customElements.whenDefined('live-view');
     const [here, there] = directLinkPair();
     const stop = serve(surface, here, { title: win.document.title, peer: 'picture-in-picture' });
+  // #endregion stream
     win.document.querySelector('live-view').connect(there, { frames: 'bitmap' });
     let open = true;
     const close = () => {
@@ -174,6 +178,7 @@ export async function pipElement(el, { mode = 'auto', width, height, media = {},
     return done({ mode, window: win, surface, close, closed });
   }
 
+  // #region video
   // mode === 'video'
   if (!surface.frames) {
     // A fresh surface has not painted yet, and a stream with no frame has no size.
@@ -198,6 +203,7 @@ export async function pipElement(el, { mode = 'auto', width, height, media = {},
   try {
     if (video.readyState < 1) await ready;
     await video.requestPictureInPicture();
+  // #endregion video
   } catch (err) {
     clearInterval(nudge);
     for (const t of video.srcObject.getTracks()) t.stop();

@@ -19,6 +19,7 @@
   #viewers li span { color: var(--muted); display: block; }
   .opts { font-size: 14px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
   #where { font: 13px var(--mono); color: var(--muted); }
+  #log { min-height: 32px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -33,6 +34,7 @@
 
   <div class="split">
     <div class="stage">
+      <!-- #region markup -->
       <live-region id="region">
         <div id="panel">
           <div class="lw lw-mixer"><h3>Living room</h3>
@@ -44,6 +46,7 @@
           <form class="lw lw-notes"><h3>Queue</h3><input name="note" placeholder="Add a song, press Enter" aria-label="Add a song" autocomplete="off"><ul></ul></form>
         </div>
       </live-region>
+      <!-- #endregion markup -->
       <p id="where" role="status">Not shared yet.</p>
     </div>
     <aside class="card">
@@ -56,7 +59,24 @@
       <ul id="viewers" aria-label="Connected viewers"></ul>
     </aside>
   </div>
+  <div id="log"></div>
 
+  <details class="show-code">
+    <summary>Show the code <small>one element on another device</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Wrap the part of the page to share in <code>&lt;live-region&gt;</code>.</b></li>
+      <li data-code="#share"><b>Share its surface in a room.</b> <code>room</code> is a short random code. The link in the QR code is the viewer page with that code after the <code>#</code>.</li>
+      <li data-code="/remote/view.html#view"><b>The phone's page: a <code>&lt;live-view&gt;</code>.</b> It needs no HTML-in-canvas.</li>
+      <li data-code="/remote/view.html#join"><b>The phone's page: join the same room.</b></li>
+      <li data-code="/lib/live-link.js#share"><b>Inside <code>shareInRoom()</code>: a WebRTC video track of the surface for each viewer</b>, with a data channel for input, and relayed JPEGs when WebRTC cannot connect.</li>
+      <li data-code="/lib/live-surface.js#shadow"><b>Inside <code>&lt;live-region&gt;</code>: a shadow root with a drawable canvas and a slot.</b> Your markup is slotted into the canvas, so it can be drawn without being moved.</li>
+      <li data-code="/lib/live-surface.js#paint"><b>Inside: on every <code>paint</code> event, draw the element.</b></li>
+      <li data-code="/lib/live-surface.js#mirror"><b>Inside: copy the pixels to a second canvas, and black out private fields.</b> That second canvas is the only thing that ever leaves the page.</li>
+      <li data-code="/lib/live-surface.js#out"><b>Inside: hand the copy out as an <code>ImageBitmap</code> or a <code>MediaStream</code>.</b></li>
+      <li data-code="/lib/live-surface.js#input"><b>Inside: replay the input that comes back on the real elements.</b></li>
+      <li data-code="/lib/live-surface.js"><b>The whole library.</b></li>
+    </ol>
+  </details>
   <h2>How it travels</h2>
   <ol>
     <li><strong>Capture.</strong> The panel sits in a <code>&lt;live-region&gt;</code>, whose shadow root paints it through an HTML-in-canvas canvas. Every <code>paint</code> copies the result to a second canvas, and <code>captureStream()</code> turns that into a video track. No screen-capture prompt, and nothing outside the element is in the picture.</li>
@@ -74,26 +94,34 @@
     <li><strong>Controls that open native UI need help.</strong> A <code>&lt;select&gt;</code> popup or an on-screen keyboard belongs to the device in your hand, not the source. The source sends the options and the viewer shows its own native picker; a map of the element's fields tells the viewer when to raise its keyboard.</li>
     <li><strong>The element map is the part pixels can't carry.</strong> Alongside video the source sends roles, names and positions of the interactive elements, read from the real DOM. That is enough to rebuild an accessible outline at the far end.</li>
     <li><strong>The source tab must stay visible.</strong> A hidden tab stops painting, so the stream freezes. The viewer is told and says so.</li>
-    <li><strong>Without a TURN server some networks won't connect.</strong> That is what the relay fallback is for. It costs one Durable Object message per frame.</li>
+    <li><strong>STUN is enough for most home networks, not for phones on mobile data.</strong> STUN only tells each device its public address. Mobile carriers and many offices give every destination a different port (symmetric NAT), so the two addresses never match up and the connection fails after about 15 seconds. A TURN server relays the packets instead. This site asks <code>/api/x/ice</code> for servers: STUN always, plus Cloudflare Realtime TURN with one-hour credentials when the Worker has a key.</li>
+    <li><strong>Without TURN there is still the relay fallback.</strong> JPEGs through the room's WebSocket, at one Durable Object message per frame. The viewer switches to it after 7 seconds and moves to video if WebRTC connects later.</li>
+    <li><strong>A phone needs its errors on the page.</strong> Both ends keep a connection log: the room, the servers offered, each kind of candidate found, the route chosen and every error, with a button to copy it.</li>
   </ul>
 </main>
 
 <script src="/lib/vendor/qrcode.js"></script>
 <script type="module">
+  // #region share
   import { supported } from '/lib/live-surface.js';
-  import { shareInRoom, newRoomId } from '/lib/live-link.js';
+  import { shareInRoom, newRoomId, iceConfig } from '/lib/live-link.js';
+  // #endregion share
+  import { connectionLog } from '/lib/live-log.js';
   import { wireWidgets } from '/shared/live-widgets.js';
   import { banner, nav, runTests, apart, isBench } from '/shared/support.js';
   nav('/remote/');
   banner();
   wireWidgets();
 
+  // #region share
   const region = document.getElementById('region');
   const surface = region.surface;
+  // #endregion share
   const where = document.getElementById('where');
   const list = document.getElementById('viewers');
   const relay = document.getElementById('relay');
   let session = null;
+  const log = connectionLog(document.getElementById('log'), { title: 'Connection log (this end)', open: false });
   let room = sessionStorage.getItem('remote-room') ?? newRoomId();
   sessionStorage.setItem('remote-room', room);
 
@@ -140,17 +168,22 @@
     if (!surface) {
       where.textContent = 'This browser cannot share the element (no HTML-in-canvas). You can still open the viewer to see what the other end looks like.';
     }
+    // #region share
     const url = new URL(`/remote/view.html${relay.checked ? '?transport=relay' : ''}#${room}`, location.href).href;
+    // #endregion share
     document.getElementById('link').href = url;
     document.getElementById('code').textContent = room;
     drawQr(url);
     if (!surface) return;
+    // #region share
     session = await shareInRoom(surface, room, { kind: 'auto', transport: relay.checked ? 'relay' : 'auto', title: 'Living room' });
+    // #endregion share
     window.session = session;
+    session.on('log', log.add);
     where.textContent =
       session.signal.kind === 'ws'
-        ? `Sharing in room ${room} through this site's relay. Any device with the link can join.`
-        : `No relay server on this host, so the room is a BroadcastChannel: only tabs in this browser can join.`;
+        ? `Sharing in room ${room}. Any device with the link can join. ${relay.checked ? 'Pictures go through this site.' : session.turn ? 'Devices connect directly, or through a TURN relay when they can\'t.' : 'Devices connect directly when their networks allow it; this site has no TURN relay, so the rest get slower relayed pictures.'}`
+        : `Only tabs in this browser can join: ${session.signal.fallback ?? 'no room server on this host'}.`;
     session.on('viewer', renderViewers);
     session.on('gone', renderViewers);
     surface.addEventListener('input', (e) => {
@@ -213,6 +246,39 @@
         run: async () => {
           if (session.signal.kind !== 'ws') throw new Error('no /api/x/room here; using BroadcastChannel instead');
           return `joined room ${room} as ${session.signal.id}`;
+        },
+      },
+      {
+        name: 'This device can learn its public address (STUN)',
+        apart: false,
+        why: 'Two devices on different networks can only connect directly if each finds the address the internet sees it at. Fails where UDP is blocked.',
+        run: async () => {
+          const cfg = await iceConfig();
+          const pc = new RTCPeerConnection({ iceServers: cfg.iceServers.filter((s) => [].concat(s.urls).some((u) => u.startsWith('stun'))) });
+          const kinds = new Set(), errors = new Set();
+          try {
+            pc.createDataChannel('probe');
+            pc.onicecandidate = (e) => e.candidate?.type && kinds.add(e.candidate.type);
+            pc.onicecandidateerror = (e) => errors.add(`${e.errorCode} ${e.errorText}`);
+            await pc.setLocalDescription(await pc.createOffer());
+            await until(() => kinds.has('srflx') || pc.iceGatheringState === 'complete', 5000);
+            if (!kinds.has('srflx')) throw new Error(`STUN did not answer (${[...errors].join('; ') || 'no error given'}). Found only: ${[...kinds].join(', ') || 'nothing'}`);
+            return `found ${[...kinds].join(' and ')} candidates`;
+          } finally {
+            pc.close();
+          }
+        },
+        timeout: 8000,
+      },
+      {
+        name: 'A TURN relay is on offer for networks STUN cannot cross',
+        apart: false,
+        why: 'Mobile data and many office networks need one. Without it those viewers get relayed pictures instead of video.',
+        run: async () => {
+          const cfg = await iceConfig();
+          const urls = cfg.iceServers.flatMap((s) => [].concat(s.urls)).filter((u) => u.startsWith('turn'));
+          if (!cfg.turn) throw new Error(`${cfg.note || 'no TURN servers'}. The Worker needs the TURN_KEY_ID and TURN_KEY_API_TOKEN secrets`);
+          return `${urls.length} TURN addresses from ${cfg.from}: ${[...new Set(urls.map((u) => u.split('?')[1] ?? 'transport=udp'))].join(', ')}`;
         },
       },
       {

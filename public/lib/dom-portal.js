@@ -453,6 +453,7 @@ export class DomPortalSource extends HTMLElement {
     ctx.clearRect(0, 0, cw, ch);
     let draws = 0;
     try {
+      // #region draw
       // Home.
       ctx.save();
       if (clipped) clipTo(ctx, visibleBox(this), x0, y0);
@@ -472,6 +473,7 @@ export class DomPortalSource extends HTMLElement {
         ctx.restore();
         draws++;
       }
+      // #endregion draw
     } catch (err) {
       if (/paint record/i.test(err?.message ?? '')) {
         this.#painted = false;
@@ -481,6 +483,7 @@ export class DomPortalSource extends HTMLElement {
       throw err;
     }
 
+    // #region geometry
     // One element, one geometry: give it to the copy under the pointer.
     const m = new DOMMatrix().scale(this.#unit(this.width));
     if (active) m.translateSelf(active.cx - x0, active.cy - y0).scaleSelf(active.s * z);
@@ -488,6 +491,7 @@ export class DomPortalSource extends HTMLElement {
     const geometry = { canvasTransform: m };
     if (clip) geometry.canvasClip = new DOMRect(...clip);
     this.#canvas.updateElementGeometry(this.#content, geometry);
+    // #endregion geometry
     if (this.active !== (active?.portal ?? null)) {
       this.active = active?.portal ?? null;
       for (const p of this.#portals) p.toggleAttribute('active', p === this.active);

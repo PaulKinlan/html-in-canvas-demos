@@ -130,7 +130,9 @@ export class SurfaceElement extends HTMLElement {
   }
 
   #build() {
+    // #region wrap
     this.#root.innerHTML = `<style>${CSS}</style><div id="sizer"></div><canvas part="canvas" content="drawable" layoutsubtree><div id="content" part="content" drawable><slot></slot></div></canvas>`;
+    // #endregion wrap
     this.#sizer = this.#root.getElementById('sizer');
     this.canvas = this.#root.querySelector('canvas');
     this.content = this.#root.getElementById('content');
@@ -274,10 +276,12 @@ export class SurfaceElement extends HTMLElement {
    * and getBoundingClientRect() follow what was drawn. `matrix` maps content
    * CSS px to canvas CSS px (the content's rest position is translate(bleed, bleed)).
    */
+  // #region geometry
   setGeometry(matrix) {
     const m = new DOMMatrix().scale(geometryUnit(this.canvas, this.content, this.width)).multiply(matrix ?? this.restMatrix);
     this.canvas.updateElementGeometry(this.content, { canvasTransform: m });
   }
+  // #endregion geometry
 
   get restMatrix() {
     return new DOMMatrix().translate(this.bleed, this.bleed);
@@ -351,6 +355,7 @@ export function program(gl, vertexSrc, fragmentSrc) {
  * Keep a WebGL texture in sync with a drawable element. texElementSubImage2D
  * needs storage allocated at exactly the element's default image size.
  */
+// #region texture
 export class ElementTexture {
   constructor(gl, canvas, element) {
     this.gl = gl;
@@ -381,3 +386,4 @@ export class ElementTexture {
     gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.element);
   }
 }
+// #endregion texture

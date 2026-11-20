@@ -267,6 +267,7 @@ export class HTMLSurfaces {
     }
   }
 
+  // #region upload
   #upload(gl, s) {
     const size = this.canvas.getElementImageDefaultSize
       ? this.canvas.getElementImageDefaultSize(s.element)
@@ -307,9 +308,11 @@ export class HTMLSurfaces {
     s.uploads++;
     this.stats.uploads++;
   }
+  // #endregion upload
 
   // ------------------------------------------------------------- hit testing
 
+  // #region place
   #place(s, matrix) {
     if (!support.geometry) return;
     const m = matrix ?? OFFSTAGE;
@@ -319,6 +322,7 @@ export class HTMLSurfaces {
     this.canvas.updateElementGeometry(s.element, { canvasTransform: m });
     this.stats.geometryUpdates++;
   }
+  // #endregion place
 
   #syncGeometry() {
     if (!this.surfaces.length) return;
@@ -359,6 +363,7 @@ export class HTMLSurfaces {
     }
   }
 
+  // #region place
   /** Element px -> canvas CSS px for the flat face spanned by the mesh's UV corners. */
   #planarMatrix(s, rect) {
     const w = s.element.offsetWidth, h = s.element.offsetHeight;
@@ -396,6 +401,7 @@ export class HTMLSurfaces {
     _m2.premultiply(_m);
     return new DOMMatrix(Array.from(_m2.elements));
   }
+  // #endregion place
 
   /** Element px -> canvas CSS px, exact at the raycast hit, for any UV-mapped mesh. */
   #trackedMatrix(s, hit, rect) {
@@ -571,6 +577,7 @@ export class RayPointer {
     this.where = null;
   }
 
+  // #region ray-pointer
   /** Point the ray. Returns the hit (or null) so the caller can draw a cursor. */
   move(raycaster) {
     const hit = this.surfaces.intersect(raycaster);
@@ -593,6 +600,7 @@ export class RayPointer {
     if (this.drag && where) this.#dragRange(where);
     return hit;
   }
+  // #endregion ray-pointer
 
   down() {
     const where = this.where;

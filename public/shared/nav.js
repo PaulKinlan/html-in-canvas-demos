@@ -153,6 +153,11 @@ html.page-loading body>:not(#site-nav){opacity:0}\
   }
 
   ready(mount);
+  // "Show the code" listings (details.show-code) are filled in by this script
+  // when someone opens one. Loaded here so every page with the menu has it.
+  var sc = document.createElement('script');
+  sc.src = base + 'show-code.js';
+  document.head.appendChild(sc);
   if (window.DEMOS) { start(); learnBox(); }
   else {
     var s = document.createElement('script');

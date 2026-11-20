@@ -34,7 +34,11 @@
 
   <h2>A · The card sends pictures, the host draws them</h2>
   <div class="bench">
-    <div class="stage"><div class="plinth"><live-card id="card" effect="ripple" aria-label="Coffee product card"></live-card></div><p id="said" role="status">Waiting for the card…</p></div>
+    <div class="stage"><div class="plinth">
+      <!-- #region a-markup -->
+      <live-card id="card" effect="ripple" aria-label="Coffee product card"></live-card>
+      <!-- #endregion a-markup -->
+    </div><p id="said" role="status">Waiting for the card…</p></div>
     <div class="controls card">
       <fieldset><legend>Host draws (pixels)</legend>
         <label>Effect <select id="effect"><option value="none">None</option><option value="ripple" selected>Ripple</option><option value="crt">CRT</option><option value="tilt">Tilt</option></select></label>
@@ -60,6 +64,22 @@
     Press Tab: the canvas's fallback content is real buttons and a text field rebuilt from the card's element map.
   </p>
 
+  <details class="show-code">
+    <summary>Show the code <small>the card sends pictures</small></summary>
+    <ol>
+      <li data-code="#a-markup"><b>The host: one element.</b></li>
+      <li data-code="#a-host"><b>The host: point it at the card, then restyle it.</b> <code>effect</code> and <code>tint</code> change how the host draws the pixels. <code>theme</code> asks the card to restyle itself. <code>REMOTE</code> is the other origin.</li>
+      <li data-code="/embed/card.html#markup"><b>The card (other origin): its markup sits in a <code>&lt;live-region&gt;</code>.</b></li>
+      <li data-code="/embed/card.html#serve"><b>The card: serve pictures on the port the host sends, and accept only the theme properties it allows.</b></li>
+      <li data-code="/lib/live-card.js#connect"><b>Inside <code>&lt;live-card&gt;</code>: open the channel when the framed card says it is ready.</b></li>
+      <li data-code="/lib/live-card.js#pointer"><b>Inside <code>&lt;live-card&gt;</code>: run a click backwards through the distortion and send it to the card.</b></li>
+      <li data-code="/lib/live-card.js"><b>The whole element</b>, with the shader.</li>
+      <li data-code="/lib/live-surface.js#shadow"><b>Inside <code>&lt;live-region&gt;</code>: a shadow root with a drawable canvas and a slot.</b> Your markup is slotted into the canvas, so it can be drawn without being moved.</li>
+      <li data-code="/lib/live-surface.js#paint"><b>Inside: on every <code>paint</code> event, draw the element.</b></li>
+      <li data-code="/lib/live-surface.js#mirror"><b>Inside: copy the pixels to a second canvas, and black out private fields.</b> That second canvas is the only thing that ever leaves the page.</li>
+      
+    </ol>
+  </details>
   <h2>B · The card lends its canvas, the host draws inside it</h2>
   <div class="lendbar">
     <label>Host draws it as <select id="lendfx"><option value="wave">a flag</option><option value="spin">a slow spin</option><option value="plain">plain, top left</option></select></label>
@@ -72,6 +92,15 @@
     button, hit-testable wherever this page last drew it.
   </p>
 
+  <details class="show-code">
+    <summary>Show the code <small>the card lends its canvas</small></summary>
+    <ol>
+      <li data-code="/embed/lend.html#markup"><b>The frame (other origin): the card is a child of a drawable canvas.</b></li>
+      <li data-code="/embed/lend.html#lend"><b>The frame: transfer the canvas to the host, then a snapshot on every paint.</b> <code>badge</code> is the card element.</li>
+      <li data-code="#b-receive"><b>The host: keep the canvas and the newest snapshot.</b> This is inside its <code>message</code> listener; <code>m</code> is the message.</li>
+      <li data-code="#b-draw"><b>The host: draw the snapshot any way it likes.</b> The last plain <code>drawElementImage()</code> tells the frame where its button is, so the click is a real click in the frame.</li>
+    </ol>
+  </details>
   <h2>What a host can and can't do (live)</h2>
   <p class="note">The checks that press, type, restyle and resize run on a hidden second copy of this page, so the demo above stays as you left it.</p>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
@@ -87,7 +116,9 @@
 </main>
 
 <script type="module">
+  // #region a-host
   import '/lib/live-card.js';
+  // #endregion a-host
   import { otherOrigin } from '/lib/live-origins.js';
   import { banner, isBench, nav, runTests, supported } from '/shared/support.js';
   nav('/embed/');
@@ -97,7 +128,9 @@
   document.getElementById('o1').textContent = location.host;
   document.getElementById('o2').textContent = new URL(REMOTE).host + (REMOTE === location.origin ? ' (no second origin on this host, so same origin)' : '');
   const $ = (id) => document.getElementById(id);
+  // #region a-host
   const card = $('card');
+  // #endregion a-host
   const said = $('said');
   let app = null;
   card.addEventListener('app', (e) => {
@@ -109,6 +142,7 @@
   });
   card.addEventListener('trouble', (e) => (said.textContent = e.detail));
   card.addEventListener('fallback', (e) => (said.textContent = `Showing the card as a plain frame: ${e.detail}.`));
+  // #region a-host
   card.setAttribute('src', REMOTE + '/embed/card.html');
 
   $('effect').onchange = (e) => (card.effect = e.target.value);
@@ -117,6 +151,7 @@
   const theme = () => (card.theme = { '--card-accent': $('accent').value, '--card-bg': $('bg').value, '--card-fg': $('fg').value, '--card-radius': $('radius').value + 'px', '--card-font': $('font').value });
   for (const id of ['accent', 'bg', 'fg', 'radius', 'font']) $(id).oninput = theme;
   $('width').oninput = (e) => card.style.setProperty('--card-width', e.target.value + 'px');
+  // #endregion a-host
   window.card = card;
 
   // ---- B: draw the lent card ----
@@ -128,6 +163,7 @@
     if (m?.type === 'lend-ready') {
       if (!m.supported) return ($('lendsaid').textContent = 'The frame has no HTML-in-canvas, so it shows nothing to lend.');
       lendFrame.contentWindow.postMessage({ type: 'lend-start' }, REMOTE);
+    // #region b-receive
     } else if (m?.type === 'lend-canvas') {
       lend.ctx = m.canvas.getContext('2d', { willReadFrequently: true });
       m.canvas.addEventListener?.('contextlost', () => ($('lendsaid').textContent = 'The browser dropped the lent canvas. It is redrawn as soon as it comes back.'));
@@ -139,6 +175,7 @@
       lend.img = m.img;
       if (/Could not draw/.test($('lendsaid').textContent)) $('lendsaid').textContent = 'Got a new picture from the frame.';
       lend.size = { width: m.width, height: m.height };
+    // #endregion b-receive
     } else if (m?.type === 'lend-app') {
       lend.follows = m.follows;
       $('lendsaid').textContent = `The frame says: followed ${m.follows} time${m.follows === 1 ? '' : 's'}.`;
@@ -146,6 +183,7 @@
   });
   lendFrame.src = REMOTE + '/embed/lend.html';
 
+  // #region b-draw
   function drawLent(t) {
     requestAnimationFrame(drawLent);
     const { ctx, img, size, box } = lend;
@@ -192,6 +230,7 @@
       lendFrame.contentWindow?.postMessage({ type: 'lend-again' }, REMOTE);
     }
   }
+  // #endregion b-draw
   // A snapshot can also stop being drawable without throwing. If nothing has
   // been drawn for a while although the frame is on screen, ask again.
   setInterval(() => {

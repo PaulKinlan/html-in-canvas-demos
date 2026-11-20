@@ -27,17 +27,29 @@
 
   <h2>A · Their DOM, shown here</h2>
   <p>The iframe publishes its slot over a <code>MessagePort</code> we posted to it. The right-hand view is an <code>&lt;slot-mirror&gt;</code> in this document; click the heart or the input there and type.</p>
+  <!-- #region a-markup -->
   <div class="pair">
     <div class="stage"><h3>cross-origin iframe (the real DOM)</h3><iframe id="remote" title="Remote origin frame"></iframe></div>
     <div class="stage"><h3>&lt;slot-mirror name="widget"&gt; in this page</h3><slot-mirror name="widget" id="view" aria-label="Remote widget"></slot-mirror></div>
   </div>
+  <!-- #endregion a-markup -->
 
+  <details class="show-code">
+    <summary>Show the code <small>their DOM, shown here</small></summary>
+    <ol>
+      <li data-code="#a-markup"><b>This page: an iframe on the other origin and a <code>&lt;slot-mirror&gt;</code>.</b></li>
+      <li data-code="#a-port"><b>This page: post the iframe one end of a <code>MessageChannel</code>, attach the mirror to the other.</b> <code>REMOTE</code> is the other origin.</li>
+      <li data-code="/cross-origin/frame.html#publish-markup"><b>The other origin: its own DOM in its own canvas.</b></li>
+      <li data-code="/cross-origin/frame.html#publish"><b>The other origin: publish the slot on the port it was given.</b> It sends pixels of the drawn element and replays the input that comes back. See <a href="/cross-tab/">Across tabs</a> for what <code>publish()</code> does inside.</li>
+    </ol>
+  </details>
   <h2>B · Our DOM, rendered by them</h2>
   <p>
     The card below is this page's DOM. Its canvas was transferred to the iframe with <code>transferControlToOffscreen()</code>, and on every
     <code>paint</code> we transfer an <code>ElementImage</code> of the card. The other origin does all the drawing (the wave is theirs) and never touches our DOM. The button still works.
   </p>
   <div class="stage">
+    <!-- #region b-markup -->
     <canvas id="lend" content="drawable" layoutsubtree>
       <!-- inert until the other origin is drawing it, so the button is never an invisible Tab stop -->
       <div drawable id="card" inert>
@@ -45,8 +57,18 @@
         Rendered by another origin. <button id="hit" type="button">Clicked 0×</button>
       </div>
     </canvas>
+    <!-- #endregion b-markup -->
   </div>
 
+  <details class="show-code">
+    <summary>Show the code <small>our DOM, drawn by them</small></summary>
+    <ol>
+      <li data-code="#b-markup"><b>This page: a drawable canvas with the card inside it.</b></li>
+      <li data-code="#b-lend"><b>This page: give the other origin the canvas, then a snapshot on every paint.</b> <code>transferControlToOffscreen()</code> and <code>captureElementImage()</code> both produce transferable objects, and <code>postMessage</code> carries them across origins. <code>frame</code> is the iframe and <code>REMOTE</code> its origin.</li>
+      <li data-code="/cross-origin/frame.html#receive"><b>The other origin: keep the canvas and the latest snapshot.</b> This is inside its <code>message</code> listener; <code>m</code> is the message.</li>
+      <li data-code="/cross-origin/frame.html#draw"><b>The other origin: draw the snapshot however it likes.</b> One plain <code>drawElementImage()</code> at the end, fully transparent, sets where clicks land back on our page.</li>
+    </ol>
+  </details>
   <h2>What crosses an origin boundary (live)</h2>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
   <div id="fixtures" style="display:flex;gap:6px;flex-wrap:wrap;opacity:.6;margin-top:8px"></div>
@@ -62,7 +84,9 @@
 </main>
 
 <script type="module">
+  // #region a-port
   import '/lib/slot-share.js';
+  // #endregion a-port
   import { banner, nav, runTests, nextPaint, pixel, supported } from '/shared/support.js';
   nav('/cross-origin/');
   banner();
@@ -87,6 +111,7 @@
   document.getElementById('o2').textContent = new URL(REMOTE).host;
   document.getElementById('me').textContent = location.host.split('.')[0];
 
+  // #region a-port
   const frame = document.getElementById('remote');
   const ready = new Promise((resolve) => {
     addEventListener('message', (e) => {
@@ -94,6 +119,7 @@
     });
   });
   frame.src = REMOTE + '/cross-origin/frame.html';
+  // #endregion a-port
 
   // Ask the frame to do something and wait for its verdict.
   let nextId = 1;
@@ -110,21 +136,26 @@
     });
   }
 
+  // #region a-port
   // ---- A: their DOM here ----
   ready.then(() => {
     const { port1, port2 } = new MessageChannel();
     frame.contentWindow.postMessage({ type: 'port' }, REMOTE, [port2]);
     document.getElementById('view').attach(port1);
   });
+  // #endregion a-port
 
   // ---- B: our DOM, their renderer ----
+  // #region b-lend
   const lend = document.getElementById('lend');
   const card = document.getElementById('card');
+  // #endregion b-lend
   let clicks = 0;
   document.getElementById('hit').onclick = (e) => (e.target.textContent = `Clicked ${++clicks}×`);
   let lent = false;
   if (supported) {
     ready.then(() => {
+      // #region b-lend
       const dpr = devicePixelRatio;
       const r = lend.getBoundingClientRect();
       const off = lend.transferControlToOffscreen();
@@ -140,6 +171,7 @@
         } catch {}
       });
       lend.requestPaint();
+      // #endregion b-lend
     });
   }
 

@@ -295,11 +295,14 @@ export class GlyphField extends HTMLElement {
     this.#canvas.requestPaint();
   }
 
+  // #region home
   #home() {
     if (this.#plain) return;
     this.#canvas.updateElementGeometry(this.#wrap, { canvasTransform: new DOMMatrix().translate(this.#bleed, this.#bleed) });
   }
+  // #endregion home
 
+  // #region map
   /** One particle per grapheme (and per replaced element), from the live layout. */
   #map() {
     if (!this.#stale || !this.#wrap) return;
@@ -344,6 +347,7 @@ export class GlyphField extends HTMLElement {
     this.#parts = parts;
     this.#flag(false);
   }
+  // #endregion map
 
   #onSelection = () => this.#flag();
 
@@ -489,6 +493,7 @@ export class GlyphField extends HTMLElement {
     this.dispatchEvent(new CustomEvent('glyphframe', { detail: { particles: this.#parts.length, moving: this.#running, ms: performance.now() - now, engine: this.#engine } }));
   }
 
+  // #region paint2d
   #paint2D(repainted) {
     const ctx = this.#ctx, dpr = this.#dpr, b = this.#bleed, wrap = this.#wrap, W = this.#W, H = this.#H;
     if (this.#running && (repainted || !this.#atlas) && !this.#atlasBusy) {
@@ -520,6 +525,7 @@ export class GlyphField extends HTMLElement {
       ctx.drawImage(atlas, p.hx * kx, p.hy * ky, p.w * kx, p.h * ky, -p.w / 2, -p.h / 2, p.w, p.h);
     }
   }
+  // #endregion paint2d
 
   #paintGL(repainted) {
     const gl = this.#gl, b = this.#bleed, wrap = this.#wrap, W = this.#W, H = this.#H;
