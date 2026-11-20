@@ -28,6 +28,9 @@ Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-ca
 | `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
 | `/embed/` | Cross-origin cards the host distorts and restyles without DOM access |
 | `/support/` | Share one region of a page with a support agent or a vision model |
+| `/three-form/` | A live form on a laptop screen, a billboard and a curved wall in three.js (WebGL or `?renderer=webgpu`), via `lib/html3d.js` |
+| `/board/` | An infinite zoomable board whose tiles are live notes and iframes |
+| `/xr/` | WebXR panels made of HTML, with controller rays, an on-panel keyboard and a built-in headset emulator (`?emulate=1`) |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
