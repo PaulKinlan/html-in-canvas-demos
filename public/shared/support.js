@@ -82,6 +82,7 @@ export function nav(current) {
     ['/offscreen/', '2 · OffscreenCanvas'],
     ['/cross-tab/', '3 · Cross-tab'],
     ['/cross-origin/', '4 · Cross-origin'],
+    ['/transports/', '5 · Transport lab'],
   ];
   const header = document.createElement('header');
   header.className = 'site';

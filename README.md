@@ -13,6 +13,7 @@ Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-ca
 | `/offscreen/` | `ElementImage` snapshots rendered in a worker; magnifier; pixel mirrors |
 | `/cross-tab/` | Slots streamed to another tab over MessagePorts, with input sent back |
 | `/cross-origin/` | Borrowing and lending DOM across origins |
+| `/transports/` | Transport lab: ~50 routes for moving DOM out of its canvas, each tested live |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
