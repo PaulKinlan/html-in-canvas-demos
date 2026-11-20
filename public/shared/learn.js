@@ -9,7 +9,7 @@
 // as its line in /shared/demos.js:
 //
 //   level   'basics' | 'core' | 'further'
-//   learn   one sentence: what a reader takes away (HTML allowed)
+//   learn   one or two sentences: what the page shows how to do (HTML allowed)
 //   first   hrefs of pages worth reading before this one (optional)
 //   api     the calls and attributes the page turns on (optional)
 //
@@ -20,61 +20,60 @@
   var LEARN = {
     levels: LEVELS,
 
-    // The shortest route from "never used it" to "can build with it".
-    // Each step adds one idea to the ones before it.
+    // The pages to read first, in order.
     path: [
-      { href: '/start/', idea: 'The API itself', why: 'Four moves: opt the canvas in, size it, listen for <code>paint</code>, call <code>drawElementImage()</code>.' },
-      { href: '/slot-bare/', idea: 'Keep your markup outside the canvas', why: 'The drawn element must be inside the canvas. A shadow root and a <code>&lt;slot&gt;</code> lift that limit.' },
-      { href: '/slot/', idea: 'Wrap it in an element', why: '<code>&lt;canvas-slot&gt;</code> does the sizing, painting and retrying, and hands you a render callback.' },
-      { href: '/portal/', idea: 'Where clicks land', why: 'One element has one hit box. <code>updateElementGeometry()</code> moves it to wherever the pointer is.' },
-      { href: '/shader-css/', idea: 'Elements as GPU textures', why: '<code>texElementSubImage2D()</code> puts an element in a fragment shader. Now hit testing is your job.' },
-      { href: '/offscreen/', idea: 'Snapshots and workers', why: '<code>captureElementImage()</code> makes an <code>ElementImage</code> you can transfer to a worker, with one hard limit.' },
-      { href: '/cross-tab/', idea: 'Leaving the document', why: 'Across tabs and origins the DOM travels as pixels one way and input the other.' },
-      { href: '/three-form/', idea: 'Into a 3D scene', why: 'The same texture and the same hit box, on a laptop screen, a billboard and a curved wall.' },
-      { href: '/a11y/', idea: 'What survives', why: 'Focus, selection, find-in-page and the accessibility tree, measured for every pattern on this site.' },
+      { href: '/start/', idea: 'The API', why: 'Mark the canvas, size it, handle <code>paint</code>, call <code>drawElementImage()</code>.' },
+      { href: '/slot-bare/', idea: 'Slots', why: 'A drawn element must be inside the canvas. A shadow root and a <code>&lt;slot&gt;</code> let the markup stay outside it.' },
+      { href: '/slot/', idea: 'A custom element', why: '<code>&lt;canvas-slot&gt;</code> handles sizing, painting and retries, and calls your render function.' },
+      { href: '/portal/', idea: 'Hit testing', why: 'An element has one hit-test region. <code>updateElementGeometry()</code> sets where it is.' },
+      { href: '/shader-css/', idea: 'WebGL textures', why: '<code>texElementSubImage2D()</code> uploads an element as a texture. Hit testing must then be set by hand.' },
+      { href: '/offscreen/', idea: 'Snapshots and workers', why: '<code>captureElementImage()</code> returns an <code>ElementImage</code> that can be transferred to a worker.' },
+      { href: '/cross-tab/', idea: 'Other tabs and origins', why: 'Send pixels to the other document and forward its input events back to the element.' },
+      { href: '/three-form/', idea: '3D', why: 'The same texture upload and hit-test call, used with three.js.' },
+      { href: '/a11y/', idea: 'Accessibility', why: 'Measurements of focus, selection, find-in-page and the accessibility tree for each technique on this site.' },
     ],
 
     pages: {
-      '/start/': { level: 'basics', learn: 'The whole API in one small page you can copy.', api: ['content="drawable"', 'drawable', 'paint', 'drawElementImage()'] },
+      '/start/': { level: 'basics', learn: 'The API calls needed to draw one element, in a 60-line page.', api: ['content="drawable"', 'drawable', 'paint', 'drawElementImage()'] },
 
       // --- slots ---
-      '/slot/': { level: 'basics', learn: 'How a custom element with a shadow canvas draws its ordinary children, and how to move content in and out of it.', first: ['/start/', '/slot-bare/'], api: ['<slot>', 'attachShadow()', 'drawElementImage()', 'requestPaint()'] },
-      '/slot-bare/': { level: 'basics', learn: 'Why the canvas has to sit in a shadow root for a <code>&lt;slot&gt;</code> to work, and the three ways to get one with no library.', first: ['/start/'], api: ['<template shadowrootmode>', '<slot name>', 'paint', 'drawElementImage()'] },
-      '/slot-bare/plain.html': { level: 'basics', learn: 'What the browser does with a slot in a plain canvas (nothing), and the smallest script that makes that markup work.', first: ['/slot-bare/'], api: ['<slot name>', 'moveBefore()', 'MutationObserver'] },
+      '/slot/': { level: 'basics', learn: 'How a custom element with a canvas in its shadow root draws its light-DOM children, and how to move elements in and out of it.', first: ['/start/', '/slot-bare/'], api: ['<slot>', 'attachShadow()', 'drawElementImage()', 'requestPaint()'] },
+      '/slot-bare/': { level: 'basics', learn: 'Why a <code>&lt;slot&gt;</code> in a canvas needs a shadow root, and three ways to create one without a library.', first: ['/start/'], api: ['<template shadowrootmode>', '<slot name>', 'paint', 'drawElementImage()'] },
+      '/slot-bare/plain.html': { level: 'basics', learn: 'A slot in a light-DOM canvas projects nothing. This page shows a script that moves the matching elements in.', first: ['/slot-bare/'], api: ['<slot name>', 'moveBefore()', 'MutationObserver'] },
 
       // --- contexts ---
-      '/offscreen/': { level: 'core', learn: 'How to snapshot elements and draw them from a worker, and why a snapshot only draws into the canvas it came from.', first: ['/start/', '/slot/'], api: ['captureElementImage()', 'ElementImage', 'transferControlToOffscreen()'] },
-      '/cross-tab/': { level: 'core', learn: 'The pattern every cross-document demo uses: send pictures out, send clicks and keys back, replay them on the real element.', first: ['/offscreen/'], api: ['createImageBitmap()', 'MessagePort', 'SharedWorker'] },
-      '/cross-origin/': { level: 'further', learn: 'What may cross an origin boundary in each direction, and the one way a foreign page can draw your DOM.', first: ['/offscreen/', '/cross-tab/'], api: ['postMessage()', 'transferControlToOffscreen()', 'ElementImage'] },
-      '/transports/': { level: 'further', learn: 'A reference table: every route for moving drawn DOM somewhere else, with which ones work and why the others fail.', first: ['/offscreen/', '/cross-tab/'], api: ['ElementImage', 'ImageBitmap', 'VideoFrame', 'captureStream()'] },
-      '/tear-off/': { level: 'further', learn: 'How to choose a route (move the element, stream it, or lend the canvas) when a widget leaves its page.', first: ['/cross-tab/'], api: ['window.open()', 'documentPictureInPicture', 'BroadcastChannel'] },
-      '/remote/': { level: 'further', learn: 'How one element becomes a video track another device can use, and what it takes to bring taps and typing back.', first: ['/cross-tab/'], api: ['captureStream()', 'RTCPeerConnection', 'WebSocket'] },
-      '/embed/': { level: 'further', learn: 'Two ways to restyle content from another origin without reading its DOM, and what each one costs.', first: ['/cross-origin/', '/shader-css/'], api: ['ElementImage', 'transferControlToOffscreen()', 'WebGL'] },
-      '/support/': { level: 'further', learn: 'How to share one region of a page instead of the screen, with redaction done before any pixel leaves.', first: ['/cross-tab/', '/remote/'], api: ['drawElementImage()', 'captureStream()', 'WebRTC'] },
-      '/slot-view/': { level: 'further', learn: 'A protocol for embedding a live piece of another site at its real size and shape, with consent on the providing side.', first: ['/cross-origin/', '/embed/'], api: ['postMessage()', 'ImageBitmap', 'shape-outside'] },
-      '/pip/': { level: 'further', learn: 'Three ways to float one element above other windows, and which keeps it interactive.', first: ['/tear-off/'], api: ['documentPictureInPicture', 'captureStream()', 'moveBefore()'] },
+      '/offscreen/': { level: 'core', learn: 'How to capture elements as <code>ElementImage</code> snapshots and draw them in a worker. A snapshot draws only into its source canvas.', first: ['/start/', '/slot/'], api: ['captureElementImage()', 'ElementImage', 'transferControlToOffscreen()'] },
+      '/cross-tab/': { level: 'core', learn: 'How to show an element in another tab: send <code>ImageBitmap</code> frames over a <code>MessagePort</code>, send pointer and key events back, and dispatch them on the element.', first: ['/offscreen/'], api: ['createImageBitmap()', 'MessagePort', 'SharedWorker'] },
+      '/cross-origin/': { level: 'further', learn: 'What can be sent to another origin, and how a cross-origin frame can draw your elements into a canvas you transfer to it.', first: ['/offscreen/', '/cross-tab/'], api: ['postMessage()', 'transferControlToOffscreen()', 'ElementImage'] },
+      '/transports/': { level: 'further', learn: 'Reference: about fifty ways to move drawn DOM to another context, each tested, with the reason for each failure.', first: ['/offscreen/', '/cross-tab/'], api: ['ElementImage', 'ImageBitmap', 'VideoFrame', 'captureStream()'] },
+      '/tear-off/': { level: 'further', learn: 'Four ways to show a widget in another window (move the element, send frames, stream video, transfer the canvas) and what each supports.', first: ['/cross-tab/'], api: ['window.open()', 'documentPictureInPicture', 'BroadcastChannel'] },
+      '/remote/': { level: 'further', learn: 'How to stream one element to another device with <code>captureStream()</code> and WebRTC, and forward taps and typing back.', first: ['/cross-tab/'], api: ['captureStream()', 'RTCPeerConnection', 'WebSocket'] },
+      '/embed/': { level: 'further', learn: 'Two ways for a host page to apply a shader to content from another origin without access to its DOM, with the limits of each.', first: ['/cross-origin/', '/shader-css/'], api: ['ElementImage', 'transferControlToOffscreen()', 'WebGL'] },
+      '/support/': { level: 'further', learn: 'How to send one element of a page to another person or a vision model, with marked fields blacked out before the frame is sent.', first: ['/cross-tab/', '/remote/'], api: ['drawElementImage()', 'captureStream()', 'WebRTC'] },
+      '/slot-view/': { level: 'further', learn: 'A <code>postMessage</code> protocol for embedding an element from another origin at its own size, with a permission prompt on the providing origin.', first: ['/cross-origin/', '/embed/'], api: ['postMessage()', 'ImageBitmap', 'shape-outside'] },
+      '/pip/': { level: 'further', learn: 'Three ways to put one element in a picture-in-picture window, and which of them accept input.', first: ['/tear-off/'], api: ['documentPictureInPicture', 'captureStream()', 'moveBefore()'] },
 
       // --- primitives ---
-      '/portal/': { level: 'core', learn: 'How to show one live element in two places, and how a single hit box is moved to whichever copy the pointer is over.', first: ['/start/', '/slot/'], api: ['drawElementImage()', 'updateElementGeometry()'] },
-      '/lens/': { level: 'core', learn: 'How to magnify live DOM and keep it sharp: draw it again larger instead of scaling pixels, then bend it in a shader.', first: ['/start/', '/portal/'], api: ['drawElementImage()', 'texImage2D()', 'updateElementGeometry()'] },
-      '/shader-css/': { level: 'core', learn: 'How to run any element through a fragment shader, with CSS custom properties as the uniforms.', first: ['/start/'], api: ['texElementSubImage2D()', 'updateElementGeometry()', '@property'] },
-      '/slot-effects/': { level: 'core', learn: 'How named effects hide the render loop, and how to point a slot at a shader you wrote.', first: ['/slot/', '/shader-css/'], api: ['texElementSubImage2D()', 'drawElementImageToTexture()', '@property'] },
-      '/physical/': { level: 'further', learn: 'How hit testing follows a deforming mesh, so a form on cloth still takes clicks where you see it.', first: ['/shader-css/', '/portal/'], api: ['texElementSubImage2D()', 'updateElementGeometry()'] },
+      '/portal/': { level: 'core', learn: 'How to draw one element in two places, and how to move its hit-test region to the copy under the pointer.', first: ['/start/', '/slot/'], api: ['drawElementImage()', 'updateElementGeometry()'] },
+      '/lens/': { level: 'core', learn: 'How to magnify DOM without blur: draw the element again at the lens zoom, then distort that image in a shader.', first: ['/start/', '/portal/'], api: ['drawElementImage()', 'texImage2D()', 'updateElementGeometry()'] },
+      '/shader-css/': { level: 'core', learn: 'How to draw an element through a fragment shader, with CSS custom properties as the uniforms.', first: ['/start/'], api: ['texElementSubImage2D()', 'updateElementGeometry()', '@property'] },
+      '/slot-effects/': { level: 'core', learn: 'How <code>&lt;canvas-slot effect&gt;</code> applies a named shader to each slot, and how to use your own shader.', first: ['/slot/', '/shader-css/'], api: ['texElementSubImage2D()', 'drawElementImageToTexture()', '@property'] },
+      '/physical/': { level: 'further', learn: 'How to keep hit testing correct for an element drawn on a mesh that changes shape every frame.', first: ['/shader-css/', '/portal/'], api: ['texElementSubImage2D()', 'updateElementGeometry()'] },
 
       // --- motion ---
-      '/transitions/': { level: 'core', learn: 'How to blend two states in a shader while both stay live, and how to decide which one a click reaches.', first: ['/shader-css/'], api: ['texElementSubImage2D()', 'updateElementGeometry()'] },
-      '/time-scrubber/': { level: 'further', learn: 'How to keep a history of DOM frames cheaply, and what it takes to restore real state from a picture.', first: ['/offscreen/'], api: ['ElementImage', 'changedElements', 'createImageBitmap()'] },
-      '/particles/': { level: 'further', learn: 'How to draw text glyph by glyph from one ordinary element, so it stays selectable and searchable.', first: ['/shader-css/'], api: ['Range.getClientRects()', 'texElementSubImage2D()', 'WebGL instancing'] },
+      '/transitions/': { level: 'core', learn: 'How to blend two elements in a shader while both accept input, and how to choose which one a click reaches.', first: ['/shader-css/'], api: ['texElementSubImage2D()', 'updateElementGeometry()'] },
+      '/time-scrubber/': { level: 'further', learn: 'How to keep a ring buffer of frames of an element, and how to restore form state when returning to an earlier frame.', first: ['/offscreen/'], api: ['ElementImage', 'changedElements', 'createImageBitmap()'] },
+      '/particles/': { level: 'further', learn: 'How to draw each glyph of an element separately, using <code>Range</code> rectangles, while the element stays selectable and searchable.', first: ['/shader-css/'], api: ['Range.getClientRects()', 'texElementSubImage2D()', 'WebGL instancing'] },
 
       // --- 3d ---
-      '/three-form/': { level: 'core', learn: 'How to use an element as a three.js texture and keep typing, tabbing and selection working on a surface in 3D.', first: ['/shader-css/', '/portal/'], api: ['texElementSubImage2D()', 'drawElementImageToTexture()', 'updateElementGeometry()'] },
-      '/board/': { level: 'core', learn: 'How far plain 2D goes: a zoom transform re-rasterises every tile sharp, and hit testing follows with no extra code.', first: ['/start/'], api: ['drawElementImage()', 'updateElementGeometry()', '<iframe>'] },
-      '/xr/': { level: 'further', learn: 'How HTML panels work where there is no mouse: controller rays become pointer events on the real elements.', first: ['/three-form/'], api: ['WebXR', 'texElementSubImage2D()', 'PointerEvent'] },
+      '/three-form/': { level: 'core', learn: 'How to use an element as a three.js texture, and how to keep typing, Tab and selection working on a 3D surface.', first: ['/shader-css/', '/portal/'], api: ['texElementSubImage2D()', 'drawElementImageToTexture()', 'updateElementGeometry()'] },
+      '/board/': { level: 'core', learn: 'How to build a zoomable board with 2D <code>drawElementImage()</code> only. Text is rasterised again at each zoom level and hit testing follows the transform.', first: ['/start/'], api: ['drawElementImage()', 'updateElementGeometry()', '<iframe>'] },
+      '/xr/': { level: 'further', learn: 'How to use HTML panels in WebXR, where there is no mouse: convert controller rays to pointer events on the elements.', first: ['/three-form/'], api: ['WebXR', 'texElementSubImage2D()', 'PointerEvent'] },
 
       // --- audit ---
-      '/a11y/': { level: 'core', learn: 'Which accessibility guarantees hold for drawn DOM, which patterns break them, and how to audit your own page.', first: ['/start/'], api: ['accessibility tree', 'focus', 'forced-colors'] },
-      '/capture/': { level: 'core', learn: 'How to turn an element that was never written for canvas into a PNG, a video or a printed page.', first: ['/start/'], api: ['drawElementImage()', 'moveBefore()', 'VideoEncoder'] },
-      '/perf/': { level: 'core', learn: 'What drawing costs: how many live elements a canvas carries on your device, against plain DOM and a worker.', first: ['/start/', '/offscreen/'], api: ['requestPaint()', 'captureElementImage()'] },
+      '/a11y/': { level: 'core', learn: 'Which accessibility features work for drawn DOM, which techniques break them, and how to run the same audit on your own page.', first: ['/start/'], api: ['accessibility tree', 'focus', 'forced-colors'] },
+      '/capture/': { level: 'core', learn: 'How to export any element as a PNG, a video or a printed page by wrapping it in a canvas for one frame.', first: ['/start/'], api: ['drawElementImage()', 'moveBefore()', 'VideoEncoder'] },
+      '/perf/': { level: 'core', learn: 'How many elements a canvas can draw per frame on your device, compared with plain DOM and with a worker.', first: ['/start/', '/offscreen/'], api: ['requestPaint()', 'captureElementImage()'] },
     },
   };
   window.LEARN = LEARN;
@@ -115,18 +114,18 @@
 
     var step = -1;
     for (var i = 0; i < LEARN.path.length; i++) if (LEARN.path[i].href === here) step = i;
-    var html = '<summary><b>What you will learn here</b><span class="lv">' + LEVELS[info.level] +
+    var html = '<summary><b>What this page covers</b><span class="lv">' + LEVELS[info.level] +
       (step >= 0 ? ' · step ' + (step + 1) + ' of ' + LEARN.path.length : '') + '</span></summary><div class="in">' +
       '<p>' + info.learn + '</p>';
     if (info.first && info.first.length) {
       html += '<p><b>Read first:</b> ' + info.first.map(function (h) { return '<a href="' + esc(h) + '">' + esc(title(h)) + '</a>'; }).join(', ') + '</p>';
     }
     if (info.api && info.api.length) {
-      html += '<p><b>Look for:</b> ' + info.api.map(function (a) { return '<code>' + esc(a) + '</code>'; }).join(' ') + '</p>';
+      html += '<p><b>API used:</b> ' + info.api.map(function (a) { return '<code>' + esc(a) + '</code>'; }).join(' ') + '</p>';
     }
     var next = step >= 0 && LEARN.path[step + 1];
     if (next) html += '<p class="next">Next on the <a href="/start/#path">learning path</a>: <a href="' + esc(next.href) + '">' + esc(title(next.href)) + '</a> →</p>';
-    else if (step < 0) html += '<p>New to the API? <a href="/start/">Start here</a>.</p>';
+    else if (step < 0) html += '<p>Tutorial for the API: <a href="/start/">Start here</a>.</p>';
     html += '</div>';
 
     var style = document.createElement('style');

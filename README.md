@@ -8,43 +8,43 @@ Needs Chrome 148+ (desktop or Android) with `chrome://flags/#canvas-draw-element
 
 ## Learn the API
 
-New to HTML-in-canvas? Start at [`/start/`](https://html-in-canvas-demos.kinlan-test.workers.dev/start/): how to turn the API on, a 50-line page you can copy ([`public/start/hello.html`](public/start/hello.html)), the four moves that draw a live element, the mistakes everyone makes once, and a glossary.
+[`/start/`](https://html-in-canvas-demos.kinlan-test.workers.dev/start/) is a tutorial: how to enable the API, a 60-line page that draws one element ([`public/start/hello.html`](public/start/hello.html)), common errors with their fixes, and a glossary.
 
-The whole API in four lines:
+The minimum code:
 
 ```html
-<canvas id="canvas" content="drawable" layoutsubtree>   <!-- 1. the canvas opts in -->
-  <form id="card" drawable> … </form>                   <!--    and the element is inside it -->
+<canvas id="canvas" content="drawable" layoutsubtree>   <!-- 1. mark the canvas -->
+  <form id="card" drawable> … </form>                   <!--    and each element to draw -->
 </canvas>
 <script>
-  canvas.onpaint = () => {                               // 2. fired when the element changes how it looks
+  canvas.onpaint = () => {                               // 2. fires when the element's rendering changes
     const ctx = canvas.getContext('2d');
     ctx.reset();
     ctx.rotate(-0.04);                                   // 3. any canvas transform, clip, shadow or filter
-    ctx.drawElementImage(card, 20, 20, card.offsetWidth, card.offsetHeight);   // 4. draw it; clicks follow
+    ctx.drawElementImage(card, 20, 20, card.offsetWidth, card.offsetHeight);   // 4. draw; also sets hit testing
   };
 </script>
 ```
 
-Then read these in order. Each adds one idea to the ones before:
+Read the demos in this order:
 
-1. [`/start/`](public/start/): the API itself
-2. [`/slot-bare/`](public/slot-bare/): keep your markup outside the canvas with a shadow root and a `<slot>`
-3. [`/slot/`](public/slot/): wrap that in an element, `<canvas-slot>`
-4. [`/portal/`](public/portal/): where clicks land, and `updateElementGeometry()`
-5. [`/shader-css/`](public/shader-css/): elements as GPU textures, `texElementSubImage2D()`
+1. [`/start/`](public/start/): the API
+2. [`/slot-bare/`](public/slot-bare/): draw elements that are outside the canvas, using a shadow root and a `<slot>`
+3. [`/slot/`](public/slot/): the `<canvas-slot>` custom element
+4. [`/portal/`](public/portal/): hit testing and `updateElementGeometry()`
+5. [`/shader-css/`](public/shader-css/): WebGL textures with `texElementSubImage2D()`
 6. [`/offscreen/`](public/offscreen/): `ElementImage` snapshots and workers
-7. [`/cross-tab/`](public/cross-tab/): leaving the document, as pixels out and input back
-8. [`/three-form/`](public/three-form/): into a 3D scene
-9. [`/a11y/`](public/a11y/): what survives, measured
+7. [`/cross-tab/`](public/cross-tab/): other tabs and origins, by sending pixels and forwarding input
+8. [`/three-form/`](public/three-form/): three.js
+9. [`/a11y/`](public/a11y/): accessibility measurements
 
-Every demo page carries a "What you will learn here" box: what it teaches, what to read first and which calls to look for. The text for all of them, and the path above, is in [`public/shared/learn.js`](public/shared/learn.js).
+Every demo page has a "What this page covers" box listing what it shows, which pages to read first and the API calls it uses. The text for the boxes and the list above are in [`public/shared/learn.js`](public/shared/learn.js).
 
 ## The demos
 
 | Demo | What it explores |
 |---|---|
-| `/start/` | Start here: the raw API in one small page, the gotchas, the learning path and a glossary |
+| `/start/` | Tutorial: enable the API, draw one element, common errors, reading order, glossary |
 | `/slot/` | `<canvas-slot>`: light-DOM children slotted into a shadow canvas |
 | `/slot-bare/` | Just `<slot>` in `<canvas>` with declarative shadow DOM; a shadow root on `<body>` |
 | `/offscreen/` | `ElementImage` snapshots rendered in a worker; magnifier; pixel mirrors |
@@ -117,8 +117,8 @@ npm run check:jank -- --json out.json --shots frames/   # full numbers and every
 For a new demo page:
 
 - Put `<script src="/shared/nav.js"></script>` first in `<body>`. It reserves the menu's space and holds the first paint until your module scripts have built the page.
-- Add one line for it in `public/shared/demos.js` (menu and homepage) and one entry in `public/shared/learn.js` (what it teaches, what to read first, the calls to look for). The menu script puts the "What you will learn here" box under the page's `<p class="lede">`, so write one.
-- Say in the first paragraph what the reader can do with the demo, and show the demo before the tables of checks.
+- Add one line for it in `public/shared/demos.js` (menu and homepage) and one entry in `public/shared/learn.js` (what it teaches, what to read first, the calls to look for). The menu script puts the "What this page covers" box under the page's `<p class="lede">`, so write one.
+- In the first paragraph, say what the demo does and how to use it. Put the demo above the test tables.
 - Live checks run on their own fixtures, out of flow (fixed or absolute, or a hidden copy of the page with `lib/check-fixture.js`). They never call `scrollIntoView()`, `scrollTo()` or `focus()` on the page the reader is looking at, and never insert or remove anything in the flow above the results.
 - Do not size a canvas stage with `dvh`: it changes every time a phone's URL bar moves. Use `svh`.
 - Only assign `canvas.width` and `canvas.height` when the size really changed. Assigning clears the canvas.

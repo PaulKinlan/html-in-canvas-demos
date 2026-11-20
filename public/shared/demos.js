@@ -25,7 +25,7 @@ window.DEMO_GROUPS = [
 
 window.DEMOS = [
   // --- start ---
-  { group: 'start', href: '/start/', title: 'Start here', blurb: 'The API in one small page you can copy: how to turn it on, the four moves that draw a live element, where it bites, a learning path through these demos and a glossary.', tags: ['content="drawable"', 'paint', 'drawElementImage'] },
+  { group: 'start', href: '/start/', title: 'Start here', blurb: 'A tutorial: enable the API, draw one element with a 60-line page, common errors and their fixes, the order to read the demos in, and a glossary.', tags: ['content="drawable"', 'paint', 'drawElementImage'] },
 
   // --- slots ---
   { group: 'slots', href: '/slot/', title: '<canvas-slot>', blurb: 'A custom element that slots its light-DOM children into a shadow canvas. They are drawn with effects and stay clickable, focusable and typeable.', tags: ['shadow DOM', 'drawElementImage'] },
