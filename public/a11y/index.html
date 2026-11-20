@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accessibility audit</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1100px; }
+  table.lab { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.lab td, table.lab th { padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+  table.lab td.status { white-space: nowrap; font-weight: 600; width: 92px; }
+  table.lab .detail { font: 12px var(--mono); color: var(--muted); word-break: break-word; max-width: 420px; }
+  .expected, .warn { color: var(--warn); }
+  .info { color: var(--muted); }
+  #matrix { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #matrix th, #matrix td { border-bottom: 1px solid var(--line); padding: 6px 4px; text-align: center; vertical-align: middle; }
+  #matrix th { font-weight: 600; font-size: 12px; line-height: 1.2; vertical-align: bottom; }
+  #matrix th:first-child, #matrix td:first-child { text-align: left; }
+  #matrix td button { font: 600 15px system-ui; border: 0; background: none; padding: 2px 8px; border-radius: 6px; }
+  #matrix td button:hover, #matrix td button[aria-expanded=true] { background: color-mix(in srgb, var(--fg) 10%, transparent); }
+  #matrix tr.explain td { text-align: left; font: 12px/1.5 var(--mono); color: var(--muted); background: color-mix(in srgb, var(--fg) 4%, transparent); padding: 8px 10px; }
+  #matrix tr.explain ul { margin: 4px 0 0; padding-left: 18px; }
+  #stage { width: 100%; height: 460px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+  .tools input[type=text] { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); min-width: 220px; }
+  #env { font: 12px var(--mono); color: var(--muted); }
+  /* Probes need their fixture inside the viewport for elementFromPoint, so the
+     strip is fixed in a corner, nearly invisible, and emptied when they finish. */
+  #lab { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 5; }
+  #lab > * { position: absolute; left: 0; top: 0; opacity: 0.02; }
+  #hands canvas { display: block; width: 100%; height: 300px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  #hands .panel { width: 330px; padding: 14px; font: 15px/1.5 system-ui; background: #fffdf7; color: #222; border: 1px solid #c9c2b2; border-radius: 10px; }
+  #hands .panel label { display: block; margin-top: 6px; }
+  #hands .panel input, #hands .panel select, #hands .panel textarea { font: inherit; }
+  ol.manual { padding-left: 0; list-style: none; display: grid; gap: 8px; }
+  ol.manual li { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: start; }
+  ol.manual li p { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+  ol.manual .verdict { display: flex; gap: 4px; }
+  ol.manual .verdict button { font-size: 13px; padding: 3px 9px; }
+  ol.manual .verdict button[aria-pressed=true] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  h2 small { font: 13px var(--mono); color: var(--muted); font-weight: 400; margin-left: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>Accessibility audit: how real is DOM in a canvas?</h1>
+  <p class="lede">
+    The promise of HTML-in-canvas is that the pixels are still elements: focusable, searchable, selectable, in the accessibility tree.
+    This page checks that claim three ways: probes of the API itself, the same audit run over every demo on this site, and a short list only a person can do.
+  </p>
+  <p id="env"></p>
+
+  <h2>A · What the API gives you <small>probes on small fixtures</small></h2>
+  <p id="scoreA" class="note">running…</p>
+  <table class="lab"><tbody id="tA"></tbody></table>
+
+  <h2>B · Every demo, audited <small>runs in the frame below</small></h2>
+  <p>
+    The demo list is read from the <a href="/">homepage</a>, so a new demo is audited as soon as it is linked there.
+    To audit any other same-origin page, enter its path. Select a cell for the detail.
+  </p>
+  <div class="tools">
+    <button id="rerun" type="button">Run again</button>
+    <label>Audit a path <input type="text" id="path" placeholder="/slot/" autocomplete="off"></label>
+    <button id="add" type="button">Audit</button>
+    <button id="copy" type="button">Copy results as JSON</button>
+    <span id="scoreB" class="note"></span>
+  </div>
+  <p class="legend"><span><b class="pass">✓</b> holds up</span><span><b class="warn">!</b> works with a caveat</span><span><b class="fail">✗</b> broken for some users</span><span><b class="info">–</b> nothing to test</span></p>
+  <div style="overflow-x:auto"><table id="matrix"><thead></thead><tbody></tbody></table></div>
+  <iframe id="stage" title="Demo being audited"></iframe>
+
+  <h2>C · Needs a person <small>about ten minutes</small></h2>
+  <p>
+    None of these can be scripted from a page. The panel is drawn tilted and offset on purpose, so anything positioned from stale geometry shows up in the wrong place.
+    Your verdicts are kept in this browser and included in "Copy results".
+  </p>
+  <div id="hands">
+    <canvas id="hc" content="drawable" layoutsubtree aria-label="Hands-on test panel">
+      <form class="panel" id="hp" drawable onsubmit="return false">
+        <strong>Try me with a screen reader</strong>
+        <label>City <input id="h-city" name="city" list="h-cities" title="Tooltip: where do you live?" autocomplete="address-level2"></label>
+        <datalist id="h-cities"><option>Liverpool<option>Lisbon<option>Lima</datalist>
+        <label>Day <input type="date" id="h-date"> <select id="h-sel" aria-label="Size"><option>Small<option>Medium<option>Large</select></label>
+        <label>Notes <textarea id="h-notes" rows="2" cols="26" spellcheck="true">Teh quick brwon fox</textarea></label>
+        <button type="submit" id="h-go">Send</button> <a href="#hands" id="h-link">A link</a>
+        <span role="status" aria-live="polite" id="h-live"></span>
+      </form>
+    </canvas>
+  </div>
+  <ol class="manual" id="manual"></ol>
+
+  <h2>D · Checked with the DevTools protocol <small>Chromium 157 headless, 2026-11-20</small></h2>
+  <p>Things a page cannot ask about itself, driven from outside the browser while building this audit.</p>
+  <table class="lab"><tbody>
+    <tr><td class="status pass">✓ works</td><td><strong>Accessibility tree</strong><div class="note">Accessibility.getFullAXTree on a canvas with a labelled input, button and link.</div></td><td class="detail">The canvas is a "Canvas" node and its children are ordinary nodes under it: textbox "Name", button "Press me", link, StaticText. Roles and names are the same as outside a canvas.</td></tr>
+    <tr><td class="status pass">✓ works</td><td><strong>Real Tab key</strong><div class="note">Input.dispatchKeyEvent Tab, six times.</div></td><td class="detail">Focus walks the canvas children in DOM order. Each focus change fires a paint event with the right changedElements.</td></tr>
+    <tr><td class="status fail">✗ fails</td><td><strong>Undrawn element in the tree</strong><div class="note">A drawable child the paint handler never draws.</div></td><td class="detail">Still a focusable button in the accessibility tree, still a Tab stop, reported at the canvas origin (its static layout position) rather than without geometry. A sighted keyboard user lands on nothing.</td></tr>
+    <tr><td class="status pass">✓ works</td><td><strong>Real mouse</strong><div class="note">Click, double-click, drag and shift-click at the drawn position.</div></td><td class="detail">Clicks reach the element, a click in a text field puts the caret there, drag selects text.</td></tr>
+    <tr><td class="status pass">✓ works</td><td><strong>IME composition</strong><div class="note">Input.imeSetComposition "にほん", then commit "日本".</div></td><td class="detail">compositionstart, update and end fire; the composing text is painted into the canvas and the committed value is right. Where the candidate window opens needs a real IME.</td></tr>
+    <tr><td class="status pass">✓ works</td><td><strong>Forced colours</strong><div class="note">Emulation of forced-colors: active.</div></td><td class="detail">The drawn element is repainted in system colours (its yellow background becomes Canvas). The explainer lists forced colours as not sensitive, and this build paints them.</td></tr>
+    <tr><td class="status pass">✓ works</td><td><strong>System colours and colour scheme</strong><div class="note">Canvas, CanvasText, AccentColor, light-dark() inside a drawn element.</div></td><td class="detail">All painted with their real values. (The explainer says system colours may be left out; this build does not leave them out.)</td></tr>
+    <tr><td class="status expected">! caveat</td><td><strong>Zoom</strong><div class="note">CSS zoom 2 on the page.</div></td><td class="detail">Layout and hit testing follow, but a canvas with a fixed width attribute keeps its bitmap and is stretched. A canvas has to resize itself (ResizeObserver with device-pixel-content-box) to stay sharp.</td></tr>
+  </tbody></table>
+
+  <h2>What this adds up to</h2>
+  <ul class="findings">
+    <li><strong>The claim mostly holds.</strong> Elements drawn with <code>drawElementImage</code> keep their role, name, focus, caret, selection, find-in-page match and forced-colours rendering, at the place they are drawn, including when rotated or drawn by a worker.</li>
+    <li><strong>The sharp edge is what you do not draw.</strong> Every drawable child stays in the tab order and the accessibility tree whether or not the paint handler draws it. Demos that keep spare elements in the canvas create invisible tab stops. The fix is one attribute (<code>inert</code>) but nothing does it for you.</li>
+    <li><strong>WebGL breaks the link between pixels and elements</strong> until the author calls <code>updateElementGeometry</code>: the texture is on screen but focus rings, hit testing and screen magnifier tracking still point at the element's layout position.</li>
+    <li><strong>Pixels that leave the canvas leave everything behind.</strong> Mirrors, other tabs and other origins receive bitmaps. Those canvases need their own label or a link back to the live element.</li>
+    <li><strong>Zoom is the author's job.</strong> Nothing re-renders a canvas when the page is zoomed; <code>&lt;canvas-slot&gt;</code> does it with a device-pixel ResizeObserver, hand-rolled canvases mostly do not.</li>
+  </ul>
+
+  <div id="lab"></div>
+</main>
+
+<script type="module">
+  import { banner, nav, supported, withTimeout } from '/shared/support.js';
+  import { auditDocument, CHECKS } from '/lib/a11y-audit.js';
+  nav('/a11y/');
+  banner();
+
+  const $ = (s) => document.querySelector(s);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const frames = (n = 2) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
+  const mq = (q) => matchMedia(q).matches;
+  $('#env').textContent = `This browser: devicePixelRatio ${devicePixelRatio} · forced colours ${mq('(forced-colors: active)') ? 'ON' : 'off'} · reduced motion ${mq('(prefers-reduced-motion: reduce)') ? 'ON' : 'off'} · ${mq('(prefers-color-scheme: dark)') ? 'dark' : 'light'} scheme · contrast ${mq('(prefers-contrast: more)') ? 'more' : 'default'}. Turn any of these on in your OS and reload: the checks adapt.`;
+
+  // ------------------------------------------------------------ A: probes
+  const lab = $('#lab');
+  const BOX = 'box-sizing:border-box;width:220px;padding:8px;background:rgb(255,236,170);color:#000;font:14px system-ui';
+  /** A drawable canvas with given children; draw(ctx, els) runs on every paint. */
+  async function rig(html, draw, { w = 420, h = 200, type = '2d' } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+    c.width = w; c.height = h; c.style.cssText = `width:${w}px;height:${h}px`;
+    c.innerHTML = html;
+    lab.replaceChildren(c);
+    const els = [...c.children];
+    let ctx = null;
+    if (type === '2d') {
+      ctx = c.getContext('2d', { willReadFrequently: true });
+      c.addEventListener('paint', () => { ctx.reset(); try { draw(ctx, els, c); } catch (e) { c.__err = e; } });
+    }
+    c.requestPaint();
+    await frames(3);
+    return { c, ctx, els };
+  }
+  const hash = (ctx, el, pad = 5) => {
+    const r = el.getBoundingClientRect(), cr = ctx.canvas.getBoundingClientRect();
+    const d = ctx.getImageData(Math.max(0, r.x - cr.x - pad), Math.max(0, r.y - cr.y - pad), r.width + pad * 2, r.height + pad * 2).data;
+    let h = 0; for (let i = 0; i < d.length; i++) h = (h * 31 + d[i]) | 0;
+    return h;
+  };
+  const rel = (el, c) => { const r = el.getBoundingClientRect(), cr = c.getBoundingClientRect(); return { x: Math.round(r.x - cr.x), y: Math.round(r.y - cr.y), w: Math.round(r.width), h: Math.round(r.height) }; };
+  const hitAtCentre = (el) => { const r = el.getBoundingClientRect(); return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); };
+
+  const probes = [
+    ['Geometry follows the drawing', 'An element drawn at (180, 60): does getBoundingClientRect say so?', async () => {
+      const { c, els } = await rig(`<div drawable style="${BOX}">hello <button>ok</button></div>`, (ctx, [a]) => ctx.drawElementImage(a, 180, 60));
+      const g = rel(els[0], c);
+      if (Math.abs(g.x - 180) > 1 || Math.abs(g.y - 60) > 1) throw new Error(`rect says ${g.x},${g.y}`);
+      const hit = hitAtCentre(els[0].querySelector('button'));
+      if (hit?.localName !== 'button') throw new Error(`elementFromPoint at the button found ${hit?.localName}`);
+      return `rect at ${g.x},${g.y}; elementFromPoint at the drawn button returns the button`;
+    }],
+    ['Rotated and scaled drawing', 'ctx.rotate(0.4), scale(1.3): the rect should be the transformed bounding box and hit testing should follow.', async () => {
+      const { c, els } = await rig(`<div drawable style="${BOX}">hello <button>ok</button></div>`, (ctx, [a]) => { ctx.translate(150, 20); ctx.rotate(0.4); ctx.scale(1.3, 1.3); ctx.drawElementImage(a, 0, 0); });
+      const g = rel(els[0], c);
+      const hit = hitAtCentre(els[0].querySelector('button'));
+      if (g.w <= 230) throw new Error(`rect width ${g.w} is the untransformed size`);
+      if (hit?.localName !== 'button') throw new Error(`elementFromPoint at the rotated button found ${hit?.localName}`);
+      return `bounding box ${g.w}×${g.h} at ${g.x},${g.y}; transform ${c.getElementTransform(els[0]).toString().slice(0, 46)}…; the button is hit-testable under the rotation`;
+    }],
+    ['Focus ring is painted into the canvas', 'focus() a button; the paint event should fire and the pixels around it change.', async () => {
+      const { c, ctx, els } = await rig(`<div drawable style="${BOX}">hello <button>ok</button></div>`, (x, [a]) => x.drawElementImage(a, 40, 40));
+      const b = els[0].querySelector('button');
+      let changed = null;
+      c.addEventListener('paint', (e) => (changed = [...(e.changedElements ?? [])]), { once: true });
+      const h0 = hash(ctx, b);
+      b.focus({ preventScroll: true });
+      await frames(3);
+      const h1 = hash(ctx, b);
+      b.blur();
+      if (document.activeElement === b) throw new Error('could not blur');
+      if (h0 === h1) throw new Error('pixels did not change on focus');
+      return `pixels changed; paint event listed ${changed ? changed.length : 'no'} changed element(s)`;
+    }],
+    ['Typed text and caret are painted', 'Set the selection in an input and insert text.', async () => {
+      const { ctx, els } = await rig(`<div drawable style="${BOX}"><input value="abc" size="10" aria-label="t"></div>`, (x, [a]) => x.drawElementImage(a, 40, 40));
+      const i = els[0].querySelector('input');
+      i.focus({ preventScroll: true }); await frames(3);
+      const h0 = hash(ctx, i);
+      i.setRangeText(' typed', 3, 3, 'end'); await frames(3);
+      const h1 = hash(ctx, i);
+      i.blur();
+      if (h0 === h1) throw new Error('pixels did not change after typing');
+      return `value "${i.value}" is on the canvas`;
+    }],
+    ['Selection highlight is painted', 'Select a text range with the Selection API.', async () => {
+      const { ctx, els } = await rig(`<div drawable style="${BOX}">select these words</div>`, (x, [a]) => x.drawElementImage(a, 40, 40));
+      const h0 = hash(ctx, els[0]);
+      const r = document.createRange(); r.selectNodeContents(els[0]);
+      getSelection().removeAllRanges(); getSelection().addRange(r);
+      await frames(3);
+      const h1 = hash(ctx, els[0]);
+      const text = getSelection().toString();
+      const rr = r.getBoundingClientRect(), er = els[0].getBoundingClientRect();
+      getSelection().removeAllRanges();
+      if (h0 === h1) throw new Error('highlight not painted');
+      if (Math.abs(rr.x - er.x) > 12) throw new Error('range rect is not at the drawn position');
+      return `"${text}" selected, highlighted in the canvas, range rect at the drawn position`;
+    }],
+    ['window.find() reaches text in a canvas', 'The scriptable cousin of find-in-page. (Ctrl+F itself is on the by-hand list.)', async () => {
+      const word = 'zyqxfindme';
+      const { ctx, els } = await rig(`<div drawable style="${BOX}">look for ${word} here</div>`, (x, [a]) => x.drawElementImage(a, 40, 40));
+      getSelection().removeAllRanges();
+      const h0 = hash(ctx, els[0]);
+      const found = window.find(word);
+      await frames(3);
+      const h1 = hash(ctx, els[0]);
+      const inside = els[0].contains(getSelection().anchorNode);
+      getSelection().removeAllRanges();
+      if (!found || !inside) throw new Error(`found: ${found}, inside the canvas element: ${inside}`);
+      if (h0 === h1) throw new Error('match found but not highlighted in the canvas');
+      return 'found, and the match is highlighted in the canvas';
+    }],
+    ['scrollIntoView goes to the drawn position', 'Element laid out at the canvas top but drawn 900px down a tall canvas.', async () => {
+      const { c, els } = await rig(`<div drawable style="${BOX}">far down</div>`, (x, [a]) => x.drawElementImage(a, 10, 900), { w: 300, h: 1000 });
+      const y0 = scrollY;
+      lab.style.position = 'absolute'; lab.style.top = `${y0}px`; // this one has to be able to scroll
+      await frames(2);
+      els[0].scrollIntoView({ block: 'center', behavior: 'instant' });
+      await frames(2);
+      const r = els[0].getBoundingClientRect();
+      const ok = r.top > 0 && r.bottom < innerHeight;
+      const g = rel(els[0], c);
+      lab.style.position = ''; lab.style.top = '';
+      scrollTo(0, y0);
+      if (!ok || g.y < 890) throw new Error(`after scrollIntoView the element rect is at ${Math.round(r.top)} (viewport ${innerHeight}), drawn y ${g.y}`);
+      return 'the viewport scrolled to where the element is drawn, not where it is laid out';
+    }],
+    ['An element that is in the canvas but never drawn', 'Two drawable children; the paint handler draws only the first. Can the second still take focus?', async () => {
+      const { c, els } = await rig(`<div drawable style="${BOX}">drawn</div><div drawable style="${BOX}"><button>ghost</button></div>`, (x, [a]) => x.drawElementImage(a, 40, 40));
+      const b = els[1].querySelector('button');
+      b.focus({ preventScroll: true });
+      const took = document.activeElement === b;
+      const g = rel(b, c);
+      const hit = hitAtCentre(b);
+      b.blur();
+      if (took) throw new Error(`the undrawn button takes focus (and is a Tab stop); its rect claims ${g.x},${g.y} where nothing is painted; elementFromPoint there returns <${hit?.localName}>. Invisible focus.`);
+      return 'undrawn element cannot be focused';
+    }, { expect: 'fail' }],
+    ['…fixed with inert', 'Same canvas, undrawn child marked inert.', async () => {
+      const { els } = await rig(`<div drawable style="${BOX}">drawn</div><div drawable inert style="${BOX}"><button>ghost</button></div>`, (x, [a]) => x.drawElementImage(a, 40, 40));
+      const b = els[1].querySelector('button');
+      b.focus({ preventScroll: true });
+      if (document.activeElement === b) throw new Error('inert child still focusable');
+      return 'inert removes it from focus order (and from the accessibility tree)';
+    }],
+    ['WebGL texture: geometry is not updated for you', 'texElementSubImage2D puts the element in a texture; where does the browser think it is?', async () => {
+      const c = document.createElement('canvas');
+      c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+      c.width = 420; c.height = 200; c.style.cssText = 'width:420px;height:200px';
+      c.innerHTML = `<div drawable style="${BOX}"><button>gl</button></div>`;
+      lab.replaceChildren(c);
+      const gl = c.getContext('webgl2');
+      if (!gl?.texElementSubImage2D) throw new Error('no WebGL2 texElementSubImage2D here');
+      const el = c.firstElementChild;
+      await new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
+      const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 256, 64);
+      gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, el);
+      await frames(3);
+      const hit = hitAtCentre(el.querySelector('button'));
+      const before = hit?.localName;
+      // Say where we "drew" it: 150px right, 100px down.
+      c.updateElementGeometry(el, { canvasTransform: new DOMMatrix().translate(150, 100) });
+      await frames(3);
+      const g = rel(el, c);
+      const hit2 = hitAtCentre(el.querySelector('button'));
+      if (before === 'button') return 'hit-testable straight after texElementSubImage2D';
+      if (hit2?.localName !== 'button' || Math.abs(g.x - 150) > 2) throw new Error(`still not hit-testable after updateElementGeometry (rect ${g.x},${g.y}, hit ${hit2?.localName})`);
+      return `after texElementSubImage2D alone elementFromPoint finds <${before}>: no geometry. After updateElementGeometry({ canvasTransform }) the rect is ${g.x},${g.y} and the button is hit-testable. In 3D that matrix is the author's job every frame.`;
+    }],
+    ['A pixel mirror has nothing behind it', 'drawImage(sourceCanvas) into a second canvas, the way mirrors and other tabs get their copy.', async () => {
+      const { c, els } = await rig(`<div drawable style="${BOX}"><button>real</button></div>`, (x, [a]) => x.drawElementImage(a, 40, 40));
+      const m = document.createElement('canvas'); m.width = 420; m.height = 200; m.style.cssText = 'position:absolute;left:440px;top:0;width:420px;height:200px';
+      lab.append(m); m.getContext('2d').drawImage(c, 0, 0);
+      await frames(2);
+      const r = els[0].querySelector('button').getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + 440 + 5, r.y + 5);
+      if (hit === m) throw new Error('the mirror shows a button, but elementFromPoint there returns the <canvas>: no role, no name, no focus, no text for find-in-page. It needs aria-label or fallback content of its own.');
+      return `mirror resolves to ${hit?.localName}`;
+    }, { expect: 'fail' }],
+    ['Forced colours are painted', 'Only meaningful when forced colours (Windows High Contrast) is on.', async () => {
+      if (!mq('(forced-colors: active)')) return 'forced colours are off on this device, nothing to compare. Turn on a contrast theme and reload; with DevTools emulation the yellow background is repainted as Canvas (see section D).';
+      const { ctx, els } = await rig(`<div drawable style="${BOX}">forced</div>`, (x, [a]) => x.drawElementImage(a, 40, 40));
+      const px = [...ctx.getImageData(44, 44, 1, 1).data];
+      const css = getComputedStyle(els[0]).backgroundColor;
+      if (px[0] === 255 && px[1] === 236 && px[2] === 170) throw new Error(`still author yellow in the canvas while CSS computes ${css}`);
+      return `canvas pixel ${px.slice(0, 3)} matches the forced colour ${css}`;
+    }],
+    ['System colours and colour scheme are painted', 'Canvas, AccentColor and light-dark() inside a drawn element.', async () => {
+      const { ctx, els } = await rig(`<div drawable style="width:120px"><div style="color-scheme:dark;background:Canvas;height:20px"></div><div style="background:AccentColor;height:20px"></div><div style="color-scheme:dark;background:light-dark(rgb(1,2,3),rgb(200,100,50));height:20px"></div></div>`, (x, [a]) => x.drawElementImage(a, 0, 0));
+      const want = [...els[0].children].map((e) => getComputedStyle(e).backgroundColor.match(/[\d.]+/g).slice(0, 3).map((n) => Math.round(+n)).join(','));
+      const got = [10, 30, 50].map((y) => [...ctx.getImageData(10, y, 1, 1).data].slice(0, 3).join(','));
+      const diff = want.filter((w, i) => w !== got[i]).length;
+      if (diff) throw new Error(`computed ${want.join(' | ')} but painted ${got.join(' | ')}`);
+      return `painted exactly as computed: ${got.join(' | ')}`;
+    }],
+    ['Computed role and name (AOM)', 'element.computedRole / computedName, behind a flag.', async () => {
+      const { els } = await rig(`<div drawable style="${BOX}"><button aria-label="Save draft">💾</button></div>`, (x, [a]) => x.drawElementImage(a, 40, 40));
+      const b = els[0].querySelector('button');
+      if (!('computedRole' in b)) return 'not exposed in this browser (needs --enable-blink-features=AccessibilityObjectModel); the accessibility tree was read through DevTools instead, see section D';
+      if (b.computedRole !== 'button' || b.computedName !== 'Save draft') throw new Error(`${b.computedRole} / ${b.computedName}`);
+      return `role "${b.computedRole}", name "${b.computedName}"`;
+    }],
+  ];
+
+  async function runProbes() {
+    const tbody = $('#tA'), score = $('#scoreA');
+    tbody.replaceChildren();
+    const results = [];
+    for (const [name, why, run, opt] of probes) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td class="status pending">…</td><td><strong></strong><div class="note"></div></td><td class="detail"></td>`;
+      tr.querySelector('strong').textContent = name;
+      tr.querySelector('.note').textContent = why;
+      tbody.append(tr);
+      let ok, detail;
+      try { detail = await withTimeout(run(), 8000); ok = true; } catch (err) { ok = false; detail = err.message; }
+      const st = tr.querySelector('.status');
+      st.className = `status ${ok ? 'pass' : opt?.expect === 'fail' ? 'expected' : 'fail'}`;
+      st.textContent = ok ? '✓ works' : opt?.expect === 'fail' ? '✗ hazard' : '✗ fails';
+      tr.querySelector('.detail').textContent = detail;
+      results.push({ name, ok, detail, expect: opt?.expect ?? 'pass' });
+    }
+    lab.replaceChildren();
+    const n = results.filter((r) => r.ok).length;
+    score.textContent = `${n} of ${results.length} hold up. The rest are hazards the API leaves to the author.`;
+    return results;
+  }
+
+  // -------------------------------------------------------- B: demo matrix
+  const stage = $('#stage');
+  const thead = $('#matrix thead'), tbody = $('#matrix tbody');
+  thead.innerHTML = `<tr><th scope="col">Demo</th>${CHECKS.map(([, t]) => `<th scope="col">${t}</th>`).join('')}</tr>`;
+  const SYMBOL = { pass: '✓', warn: '!', fail: '✗', info: '–' };
+  const WORD = { pass: 'holds up', warn: 'caveat', fail: 'broken', info: 'nothing to test' };
+  const reports = new Map();
+
+  async function discover() {
+    const paths = [];
+    // The shared demo registry, when the site has one…
+    try {
+      const src = await (await fetch('/shared/demos.js')).text();
+      if (src.includes('DEMOS')) {
+        await new Promise((res, rej) => { const el = document.createElement('script'); el.src = '/shared/demos.js'; el.onload = res; el.onerror = rej; document.head.append(el); });
+        for (const d of window.DEMOS ?? []) if (d.href?.startsWith('/') && !paths.includes(d.href)) paths.push(d.href);
+      }
+    } catch {}
+    // …and whatever the homepage links to.
+    try {
+      const html = await (await fetch('/')).text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      for (const a of doc.querySelectorAll('a.demo[href^="/"]')) {
+        const p = new URL(a.getAttribute('href'), location.origin).pathname;
+        if (!paths.includes(p)) paths.push(p);
+      }
+    } catch {}
+    for (const extra of new URLSearchParams(location.search).getAll('url')) paths.push(extra);
+    // The audit pages audit themselves too, but not this one (it would recurse).
+    return paths.filter((p) => p !== '/a11y/');
+  }
+
+  async function auditPath(path) {
+    let tr = tbody.querySelector(`tr[data-path="${CSS.escape(path)}"]`);
+    if (!tr) {
+      tr = document.createElement('tr');
+      tr.dataset.path = path;
+      tbody.append(tr);
+    }
+    tr.nextElementSibling?.classList.contains('explain') && tr.nextElementSibling.remove();
+    tr.innerHTML = `<td><a href="${path}">${path}</a></td><td colspan="${CHECKS.length}" class="note" style="text-align:left">loading…</td>`;
+    try {
+      await new Promise((res, rej) => {
+        stage.onload = res; stage.onerror = rej;
+        stage.src = path + (path.includes('?') ? '&' : '?') + 'audit=' + Date.now();
+        setTimeout(() => rej(new Error('did not load in 10s')), 10000);
+      });
+      const doc = stage.contentDocument;
+      if (!doc) throw new Error('not same-origin');
+      tr.lastElementChild.textContent = 'settling…';
+      await sleep(1800); // let the demo's own live tests and first paints finish
+      tr.lastElementChild.textContent = 'auditing…';
+      const report = await withTimeout(auditDocument(doc), 40000);
+      reports.set(path, report);
+      tr.innerHTML = `<td><a href="${path}">${path}</a><div class="note">${report.canvases} canvas · ${report.elements} el · ${report.controls} ctrl</div></td>`;
+      for (const c of report.checks) {
+        const td = document.createElement('td');
+        td.innerHTML = `<button type="button" class="${c.status}" aria-expanded="false" title="${WORD[c.status]}">${SYMBOL[c.status]}<span style="position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden"> ${c.title}: ${WORD[c.status]}</span></button>`;
+        td.firstChild.onclick = () => explain(tr, c, td.firstChild);
+        tr.append(td);
+      }
+    } catch (err) {
+      reports.set(path, { url: path, error: err.message });
+      tr.innerHTML = `<td><a href="${path}">${path}</a></td><td colspan="${CHECKS.length}" class="fail" style="text-align:left">could not audit: ${err.message}</td>`;
+    }
+  }
+  function explain(tr, check, button) {
+    const open = button.getAttribute('aria-expanded') === 'true';
+    for (const b of tr.querySelectorAll('button')) b.setAttribute('aria-expanded', 'false');
+    if (tr.nextElementSibling?.classList.contains('explain')) tr.nextElementSibling.remove();
+    if (open) return;
+    button.setAttribute('aria-expanded', 'true');
+    const row = document.createElement('tr');
+    row.className = 'explain';
+    const td = document.createElement('td');
+    td.colSpan = CHECKS.length + 1;
+    td.textContent = `${check.title}: ${check.detail}`;
+    if (check.items.length) {
+      const ul = document.createElement('ul');
+      for (const i of check.items.slice(0, 12)) ul.append(Object.assign(document.createElement('li'), { textContent: i }));
+      td.append(ul);
+    }
+    row.append(td);
+    tr.after(row);
+  }
+  let running = false;
+  async function runMatrix(paths) {
+    if (running) return;
+    running = true;
+    const y = scrollY;
+    for (const p of paths) {
+      $('#scoreB').textContent = `auditing ${p}…`;
+      await auditPath(p);
+    }
+    stage.src = 'about:blank';
+    const all = [...reports.values()].filter((r) => r.tally);
+    const t = all.reduce((a, r) => ({ pass: a.pass + r.tally.pass, warn: a.warn + r.tally.warn, fail: a.fail + r.tally.fail }), { pass: 0, warn: 0, fail: 0 });
+    $('#scoreB').textContent = `${all.length} page(s): ${t.pass} checks hold up, ${t.warn} with caveats, ${t.fail} broken.`;
+    running = false;
+    void y;
+  }
+  $('#rerun').onclick = async () => { tbody.replaceChildren(); reports.clear(); runMatrix(await discover()); };
+  $('#add').onclick = () => { const p = $('#path').value.trim(); if (p.startsWith('/')) runMatrix([p]); };
+  $('#path').onkeydown = (e) => { if (e.key === 'Enter') $('#add').click(); };
+  $('#copy').onclick = async () => {
+    const data = { when: new Date().toISOString(), userAgent: navigator.userAgent, probes: window.__results?.probes, demos: [...reports.values()], manual: verdicts };
+    await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    $('#scoreB').textContent = 'Copied.';
+  };
+
+  // ------------------------------------------------------- C: by hand
+  const hc = $('#hc'), hp = $('#hp');
+  if (supported) {
+    const hctx = hc.getContext('2d');
+    new ResizeObserver(([e]) => {
+      const b = e.devicePixelContentBoxSize?.[0];
+      hc.width = b ? b.inlineSize : Math.round(e.contentRect.width * devicePixelRatio);
+      hc.height = b ? b.blockSize : Math.round(e.contentRect.height * devicePixelRatio);
+      hc.requestPaint();
+    }).observe(hc, { box: 'device-pixel-content-box' });
+    hc.addEventListener('paint', () => {
+      const s = hc.width / hc.clientWidth;
+      hctx.reset(); hctx.scale(s, s);
+      hctx.translate(Math.max(20, hc.clientWidth / 2 - 150), 26); hctx.rotate(-0.045);
+      try { hctx.drawElementImage(hp, 0, 0); } catch {}
+    });
+    $('#h-go').onclick = () => ($('#h-live').textContent = `Sent at ${new Date().toLocaleTimeString()}`);
+  }
+  const MANUAL = [
+    ['sr-read', 'Screen reader reads the panel', 'With VoiceOver, NVDA, JAWS or TalkBack on, move through the tilted panel. Expect: "City, edit text", "Day, date", "Size, combo box", "Notes", "Send, button", "A link". The canvas itself should be announced at most once.'],
+    ['sr-cursor', 'Screen reader highlight is on the pixels', 'The reader\'s focus rectangle should sit on the tilted control, not at the top-left of the canvas.'],
+    ['sr-live', 'Live region speaks', 'Activate Send. "Sent at …" should be announced without moving focus.'],
+    ['tab', 'Tab order and focus ring', 'Tab through the panel. Order should be City, Day, Size, Notes, Send, link, and each ring should be drawn tilted with the control.'],
+    ['findbar', 'Find in page (Ctrl/Cmd+F)', 'Search for "screen reader". The match inside the canvas should be counted, highlighted on the tilted text, and scrolled to.'],
+    ['select-copy', 'Select and copy', 'Drag across the bold heading in the panel, copy, paste somewhere. The text should come along.'],
+    ['ime', 'IME candidate window', 'With a Japanese, Chinese or Korean input method, type in Notes. Composition underline should be visible (the explainer says distinctive IME formatting may be left out) and the candidate window should open next to the caret, not at the canvas corner.'],
+    ['popups', 'Native popups open in the right place', 'Open the Size dropdown, the date picker and the City suggestions (type "Li"). Each should open attached to its tilted control.'],
+    ['tooltip', 'Tooltip', 'Hover City for a second. The title tooltip should appear by the pointer.'],
+    ['spell', 'Spelling squiggles', 'Click into Notes. "Teh" and "brwon" get red squiggles in a normal textarea; the explainer says spelling markers are left out of canvas painting. Right-click should still offer corrections.'],
+    ['zoom', 'Browser zoom and text size', 'Zoom the page to 200% (Ctrl/Cmd +). The panel should grow, stay sharp and stay clickable where it appears. Then try the OS or browser minimum font size if you use one.'],
+    ['contrast', 'Forced colours / high contrast', 'Turn on a Windows contrast theme (or emulate forced-colors in DevTools → Rendering) and reload. The panel should take system colours like the page around it.'],
+    ['magnifier', 'Screen magnifier follows focus', 'With the OS magnifier following keyboard focus, Tab through the panel. The view should move to each tilted control.'],
+    ['voice', 'Voice control', 'With Voice Control / Voice Access, say "Click Send" or show numbers. The label should sit on the drawn button.'],
+    ['touch', 'Touch and pinch', 'On a phone or tablet: tap each control, long-press text to select, pinch-zoom the page.'],
+  ];
+  let verdicts = {};
+  try { verdicts = JSON.parse(localStorage.getItem('a11y-manual') ?? '{}'); } catch {}
+  const manual = $('#manual');
+  for (const [id, title, how] of MANUAL) {
+    const li = document.createElement('li');
+    li.innerHTML = `<div><strong></strong><p></p></div><div class="verdict" role="group"></div>`;
+    li.querySelector('strong').textContent = title;
+    li.querySelector('p').textContent = how;
+    li.querySelector('.verdict').setAttribute('aria-label', `${title}: your verdict`);
+    for (const v of ['works', 'broken', 'skip']) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = v;
+      b.setAttribute('aria-pressed', String(verdicts[id] === v));
+      b.onclick = () => {
+        verdicts[id] = verdicts[id] === v ? undefined : v;
+        for (const o of li.querySelectorAll('button')) o.setAttribute('aria-pressed', String(verdicts[id] === o.textContent));
+        try { localStorage.setItem('a11y-manual', JSON.stringify(verdicts)); } catch {}
+      };
+      li.querySelector('.verdict').append(b);
+    }
+    manual.append(li);
+  }
+
+  // ------------------------------------------------------------------ go
+  if (supported) {
+    window.__results = {};
+    window.__results.probes = await runProbes();
+    if (!new URLSearchParams(location.search).has('nomatrix')) await runMatrix(await discover());
+    window.__results.demos = [...reports.values()];
+    window.__done = true;
+  } else {
+    $('#scoreA').textContent = 'HTML-in-canvas is not available here, so there is nothing drawn to audit. The by-hand panel below is plain HTML in this browser.';
+    hc.replaceWith(hp);
+    window.__done = true;
+  }
+</script>
+</body>
+</html>
