@@ -328,12 +328,14 @@ export class LiveTransition extends HTMLElement {
     this.#canvas.addEventListener('paint', (e) => this.#render(e));
     addEventListener('pointermove', this.#onPointer, { passive: true });
     addEventListener('pointerdown', this.#onPointer, { passive: true, capture: true });
+    addEventListener('click', this.#onClick, { capture: true });
   }
 
   disconnectedCallback() {
     cancelAnimationFrame(this.#raf);
     removeEventListener('pointermove', this.#onPointer);
     removeEventListener('pointerdown', this.#onPointer, { capture: true });
+    removeEventListener('click', this.#onClick, { capture: true });
   }
 
   // ------------------------------------------------------------ public API
@@ -725,6 +727,21 @@ export class LiveTransition extends HTMLElement {
     const r = this.getBoundingClientRect();
     this.#pointer = { x: e.clientX - r.x, y: e.clientY - r.y };
     if (this.#anim) this.#route();
+  };
+
+  // A tap has no pointer move before it, so its pointerdown is hit tested before the
+  // routing above has moved the hit box. By the time the click arrives the box is
+  // right; if the click went to the wrong element, hand it to the one under the finger.
+  #onClick = (e) => {
+    if (!this.#anim || !e.isTrusted) return;
+    const r = this.getBoundingClientRect();
+    if (!this.pick(e.clientX - r.x, e.clientY - r.y)) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || el === e.target || !this.contains(el) || el === this) return;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    if (el.matches('input, textarea, select, button, a, [contenteditable], [tabindex]')) el.focus();
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, clientX: e.clientX, clientY: e.clientY, view: window }));
   };
 
   /** Point the browser's hit testing at whichever state is under the pointer, with that piece's transform. */

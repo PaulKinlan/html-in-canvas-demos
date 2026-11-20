@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>canvas → slot, plain HTML</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  #stage { display: block; width: 100%; height: max(240px, min(330px, calc(620px - 60vw))); background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  [slot] { width: 250px; padding: 12px 14px; border-radius: 10px; font: 15px/1.45 system-ui; border: 1px solid; box-sizing: border-box; }
+  [slot=first] { background: #fff4d6; color: #2c2205; border-color: #e6cf8a; }
+  [slot=second] { background: #e3f1ff; color: #08233f; border-color: #a9cbee; }
+  [slot] button, [slot] input { font: inherit; max-width: 100%; }
+  #status { font: 14px var(--mono); padding: 10px 14px; border-radius: 8px; margin: 12px 0; }
+  #status.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  #status.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); }
+  .switch { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+  .switch a { padding: 6px 12px; border: 1px solid var(--line); border-radius: 99px; text-decoration: none; color: var(--fg); font-size: 14px; }
+  .switch a[aria-current] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>canvas → slot, nothing else</h1>
+  <p class="lede">
+    The markup you would want to write: a <code>&lt;slot&gt;</code> inside a normal <code>&lt;canvas&gt;</code>, and normal elements elsewhere with a matching
+    <code>slot</code> attribute. No template, no shadow root, no custom element.
+  </p>
+
+  <div class="switch">
+    <a href="/slot-bare/plain.html" id="tab-native">Native: just the markup</a>
+    <a href="/slot-bare/plain.html?upgrade" id="tab-upgrade">With one script: light-slots.js</a>
+  </div>
+
+  <!-- ============ the whole demo ============ -->
+  <canvas id="stage" content="drawable" layoutsubtree>
+    <slot name="first"></slot>
+    <slot name="second"></slot>
+  </canvas>
+
+  <p>This paragraph sits between the canvas and the slotted elements, in the normal document flow.</p>
+
+  <section slot="first">
+    <strong>slot="first"</strong><br>
+    A normal element in the page. <button id="btn" type="button">Clicked 0×</button>
+  </section>
+  <section slot="second">
+    <strong>slot="second"</strong><br>
+    <input placeholder="still an input">
+  </section>
+  <!-- ======================================== -->
+
+  <div id="status">checking…</div>
+
+<pre><code>&lt;canvas id="stage" content="drawable"&gt;
+  &lt;slot name="first"&gt;&lt;/slot&gt;
+  &lt;slot name="second"&gt;&lt;/slot&gt;
+&lt;/canvas&gt;
+
+&lt;section slot="first"&gt;…&lt;/section&gt;
+&lt;section slot="second"&gt;…&lt;/section&gt;
+
+&lt;script type="module"&gt;
+  const stage = document.getElementById('stage');
+  const ctx = stage.getContext('2d');
+
+  stage.onpaint = () =&gt; {
+    ctx.reset();
+    let x = 20;
+    for (const slot of stage.querySelectorAll('slot'))
+      for (const el of slot.assignedElements()) {
+        ctx.drawElementImage(el, x, 20);
+        x += el.offsetWidth + 20;
+      }
+  };
+&lt;/script&gt;
+<span id="extra"></span></code></pre>
+
+  <h2>What is going on</h2>
+  <ul class="findings">
+    <li><strong>Natively, nothing is projected.</strong> A <code>&lt;slot&gt;</code> only does something inside a shadow tree, and then only for children of that tree's host. In a plain document <code>slot.assignedElements()</code> is empty, the sections render in normal flow below, and drawing them throws because they are not inside the canvas. That is why <a href="/slot-bare/">the other demo</a> wraps the canvas in a <code>&lt;template shadowrootmode&gt;</code>.</li>
+    <li><strong>One script makes this exact markup work.</strong> <a href="/lib/light-slots.js"><code>light-slots.js</code></a> attaches a shadow root to the canvas's parent, moves the canvas into it (same element, your references stay valid), and assigns matching siblings to the canvas's slots. Everything else keeps its place.</li>
+    <li><strong>The cost of the workaround:</strong> slotted elements have to share a parent with the canvas (or opt in to being moved with <code>slots="document"</code>), and document CSS reaches the canvas only because the script copies stylesheet rules into the shadow root.</li>
+    <li><strong>The platform gap:</strong> if <code>&lt;canvas content="drawable"&gt;</code> treated its own <code>&lt;slot&gt;</code> children as real slots for elements in the same tree, this page would work with no script at all. Worth proposing on the WICG repo.</li>
+  </ul>
+  <p class="note"><a href="/slot-bare/">← back to the declarative shadow DOM version and the live tests</a></p>
+</main>
+
+<script type="module">
+  // ---- this is all the page's own code ----
+  const stage = document.getElementById('stage');
+  const status = document.getElementById('status');
+  const wantUpgrade = new URLSearchParams(location.search).has('upgrade');
+  document.getElementById(wantUpgrade ? 'tab-upgrade' : 'tab-native').setAttribute('aria-current', 'page');
+  if (wantUpgrade) document.getElementById('extra').textContent = '\n<script type="module" src="/lib/light-slots.js"><\/script>';
+
+  let n = 0;
+  document.getElementById('btn').onclick = (e) => (e.target.textContent = `Clicked ${++n}×`);
+
+  const supported = 'drawElementImage' in CanvasRenderingContext2D.prototype;
+  const report = (ok, text) => { status.className = ok ? 'ok' : 'bad'; status.textContent = text; window.__status = { ok, text }; };
+
+  if (!supported) {
+    report(false, 'HTML-in-canvas is not available in this browser (Chrome with chrome://flags/#canvas-draw-element).');
+  } else {
+    const ctx = stage.getContext('2d');
+    new ResizeObserver(([entry]) => {
+      stage.width = entry.devicePixelContentBoxSize[0].inlineSize;
+      stage.height = entry.devicePixelContentBoxSize[0].blockSize;
+      stage.requestPaint();
+    }).observe(stage, { box: 'device-pixel-content-box' });
+
+    stage.onpaint = () => {
+      const dpr = stage.width / stage.clientWidth;
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      const slots = [...stage.querySelectorAll('slot')];
+      const assigned = slots.map((s) => s.assignedElements());
+      let x = 24, y = 36, drawn = 0, error = null;
+      assigned.flat().forEach((el, i) => {
+        // Wrap to a second row when the canvas is too narrow (phones).
+        if (x > 24 && x + el.offsetWidth > stage.clientWidth - 8) { x = 24; y += el.offsetHeight + 36; }
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(i % 2 ? 0.05 : -0.06);
+        ctx.shadowColor = 'rgba(0,0,0,.25)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 6;
+        try { ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight); drawn++; } catch (err) { error = err; }
+        ctx.restore();
+        x += el.offsetWidth + 32;
+      });
+      const counts = slots.map((s, i) => `${s.name}: ${assigned[i].length}`).join(', ');
+      if (drawn) report(true, `✓ Projected. slot.assignedElements() → ${counts}. ${drawn} element${drawn > 1 ? 's' : ''} drawn into the canvas${wantUpgrade ? ' (upgraded by light-slots.js)' : ' natively'}.`);
+      else report(false, `✗ Not projected. slot.assignedElements() → ${counts}. ${error ? error.message : 'A <slot> in the light DOM is inert, so the canvas has nothing to draw and the sections stay in normal flow.'}`);
+    };
+
+    if (wantUpgrade) await import('/lib/light-slots.js');
+    stage.requestPaint();
+  }
+</script>
+</body>
+</html>

@@ -16,18 +16,21 @@
   .t2 button { font: inherit; }
   #fps { font: 14px var(--mono); }
 
-  canvas-slot#doc { height: 340px; cursor: none; }
-  canvas-slot#doc > article { width: 560px; font: 15px/1.6 Georgia, serif; padding: 16px 20px; background: #fffdf7; color: #222; border: 1px solid #e4dccb; border-radius: 8px; }
+  /* touch-action: none lets a finger drag the lens instead of scrolling the page. */
+  canvas-slot#doc { height: 340px; cursor: none; touch-action: none; }
+  canvas-slot#doc > article { width: min(560px, calc(100vw - 90px)); box-sizing: border-box; font: 15px/1.6 Georgia, serif; padding: 16px 20px; background: #fffdf7; color: #222; border: 1px solid #e4dccb; border-radius: 8px; }
   canvas-slot#doc > article h3 { font: 700 20px/1.2 system-ui; margin: 0 0 8px; }
   canvas-slot#doc > article table { border-collapse: collapse; font: 13px system-ui; margin-top: 8px; }
   canvas-slot#doc > article td, canvas-slot#doc > article th { border: 1px solid #ddd; padding: 3px 8px; }
   .mirrors { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
   .mirrors figure { margin: 0; }
+  .mirrors canvas { max-width: 100%; height: auto; }
   .mirrors canvas { display: block; border: 1px solid var(--line); border-radius: 6px; background: var(--card); }
   .mirrors figcaption { font: 12px var(--mono); color: var(--muted); }
 </style>
 </head>
 <body>
+<script src="/shared/nav.js"></script>
 <main>
   <div id="support"></div>
   <h1>2 · OffscreenCanvas &amp; reprojecting parts of the DOM</h1>
@@ -52,12 +55,12 @@
   <p class="note">While the main thread is blocked the orbit keeps moving (the worker owns the canvas), but the clock freezes: new snapshots only come from the main thread's rendering update. Try clicking the button while it orbits; drawing in the worker updates the element's geometry back on the main thread.</p>
 
   <h2>Reprojecting parts of the DOM</h2>
-  <p>One element, drawn once, then re-used: a magnifier that follows the pointer (source-rect crops of the same snapshot), and plain <code>&lt;canvas&gt;</code> elements elsewhere on the page that copy regions of the source canvas.</p>
+  <p>One element, drawn once, then re-used: a magnifier that follows the pointer or your finger (source-rect crops of the same snapshot), and plain <code>&lt;canvas&gt;</code> elements elsewhere on the page that copy regions of the source canvas.</p>
   <div class="stage">
     <canvas-slot id="doc">
       <article slot="doc">
         <h3>A document, drawn once</h3>
-        <p>Move your pointer over this. The lens redraws a crop of the <em>same</em> <code>drawElementImage()</code> snapshot at 2.5×, clipped to a circle, so it stays sharp. Text stays selectable underneath.</p>
+        <p>Move your pointer over this, or press and drag on a touch screen. The lens redraws a crop of the <em>same</em> <code>drawElementImage()</code> snapshot at 2.5×, clipped to a circle, so it stays sharp. Text stays selectable underneath.</p>
         <table><tr><th>Region</th><th>Q3</th><th>Q4</th></tr><tr><td>North</td><td>1,204</td><td id="live-cell">1,388</td></tr><tr><td>South</td><td>982</td><td>1,045</td></tr></table>
       </article>
     </canvas-slot>
@@ -112,15 +115,30 @@
   // ---- Magnifier + mirrors ----
   const doc = document.getElementById('doc');
   let lens = null;
-  doc.addEventListener('pointermove', (e) => {
+  // Mouse: the lens follows the pointer. Touch and pen: press and drag; the
+  // lens floats above the finger so it isn't covered, and goes away on release.
+  const moveLens = (e) => {
     const r = doc.getBoundingClientRect();
-    lens = { x: e.clientX - r.x, y: e.clientY - r.y };
+    lens = { x: e.clientX - r.x, y: e.clientY - r.y, lift: e.pointerType === 'mouse' ? 0 : 95 };
     doc.requestPaint();
-  });
-  doc.addEventListener('pointerleave', () => {
+  };
+  const clearLens = () => {
     lens = null;
     doc.requestPaint();
+  };
+  doc.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse') {
+      e.preventDefault();
+      doc.setPointerCapture(e.pointerId);
+    }
+    moveLens(e);
   });
+  doc.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse' || doc.hasPointerCapture(e.pointerId)) moveLens(e);
+  });
+  doc.addEventListener('pointerup', (e) => { if (e.pointerType !== 'mouse') clearLens(); });
+  doc.addEventListener('pointercancel', clearLens);
+  doc.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') clearLens(); });
   const m1 = document.getElementById('m1').getContext('2d');
   const m2 = document.getElementById('m2').getContext('2d');
   doc.onrender = ({ ctx, draw, elements, dpr }) => {
@@ -132,16 +150,19 @@
       const R = 70, Z = 2.5;
       // Source rect in canvas-grid pixels around the pointer, drawn magnified.
       const sx = (lens.x - x0) - R / Z, sy = (lens.y - y0) - R / Z;
+      // Where the lens is drawn: on the pointer for a mouse, above it for touch.
+      const lx = lens.x, ly = Math.max(R + 2, lens.y - lens.lift);
       ctx.save();
       ctx.beginPath();
-      ctx.arc(lens.x, lens.y, R, 0, Math.PI * 2);
+      ctx.arc(lx, ly, R, 0, Math.PI * 2);
       ctx.fillStyle = '#fffdf7';
       ctx.fill();
       ctx.clip();
-      ctx.drawElementImage(el, sx * dpr, sy * dpr, (2 * R / Z) * dpr, (2 * R / Z) * dpr, lens.x - R, lens.y - R, 2 * R, 2 * R, { preserveElementGeometry: true });
+      ctx.drawElementImage(el, sx * dpr, sy * dpr, (2 * R / Z) * dpr, (2 * R / Z) * dpr, lx - R, ly - R, 2 * R, 2 * R, { preserveElementGeometry: true });
       ctx.restore();
+      if (lens.lift) { ctx.beginPath(); ctx.arc(lens.x, lens.y, 4, 0, Math.PI * 2); ctx.fillStyle = '#d2491f'; ctx.fill(); }
       ctx.beginPath();
-      ctx.arc(lens.x, lens.y, R, 0, Math.PI * 2);
+      ctx.arc(lx, ly, R, 0, Math.PI * 2);
       ctx.strokeStyle = '#444';
       ctx.lineWidth = 2;
       ctx.stroke();

@@ -10,8 +10,35 @@ const supported =
   !new URLSearchParams(location.search).has('plain');
 
 const mode = document.getElementById('mode');
-const nav = document.getElementById('demos');
 mode.hidden = false;
+
+// Build the index from the shared list: one grid of links per group.
+const grids = [];
+{
+  const root = document.getElementById('demos');
+  const demos = window.DEMOS ?? [];
+  let n = 0;
+  for (const [key, label] of window.DEMO_GROUPS ?? []) {
+    const items = demos.filter((d) => d.group === key);
+    if (!items.length) continue;
+    const h = document.createElement('h2');
+    h.className = 'group-title';
+    h.textContent = label;
+    const grid = document.createElement('nav');
+    grid.className = 'demos';
+    grid.setAttribute('aria-label', label);
+    for (const d of items) {
+      const a = document.createElement('a');
+      a.className = 'demo';
+      a.href = d.href;
+      const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      a.innerHTML = `<span class="num">${String(++n).padStart(2, '0')}</span><h2>${esc(d.title)}</h2><p>${d.blurb ?? ''}</p><span class="tags">${(d.tags ?? []).map((t) => `<span>${esc(t)}</span>`).join('')}</span>`;
+      grid.append(a);
+    }
+    root.append(h, grid);
+    grids.push(grid);
+  }
+}
 
 if (!supported) {
   const forced = new URLSearchParams(location.search).has('plain');
@@ -21,10 +48,10 @@ if (!supported) {
 } else {
   mode.innerHTML =
     '<span><b>Canvas mode.</b> These cards are real links drawn into a canvas with <code>drawElementImage()</code>. Tab through them.</span> <a href="/?plain">See the plain HTML version</a>';
-  enhance();
+  grids.forEach(enhance);
 }
 
-function enhance() {
+function enhance(nav) {
   const cards = [...nav.querySelectorAll('.demo')];
   const root = nav.attachShadow({ mode: 'open' });
   root.innerHTML = `<canvas content="drawable" layoutsubtree style="display:block;width:100%"><slot></slot></canvas>`;
