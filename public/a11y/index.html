@@ -492,7 +492,12 @@
       const doc = stage.contentDocument;
       if (!doc) throw new Error('not same-origin');
       tr.lastElementChild.textContent = 'settling…';
-      await sleep(1800); // let the demo's own live tests and first paints finish
+      // Let the demo's own live tests finish: their fixtures can sit on top of what is being measured.
+      // Pages built on the shared test harness set window.__results (some also __done) when they are done.
+      const w = stage.contentWindow;
+      const t0 = performance.now();
+      while (performance.now() - t0 < 12000 && !(w.__done || (w.__results && performance.now() - t0 > 1800))) await sleep(200);
+      await sleep(performance.now() - t0 < 1800 ? 1800 - (performance.now() - t0) : 400);
       tr.lastElementChild.textContent = 'auditing…';
       const report = await withTimeout(auditDocument(doc), 40000);
       reports.set(path, report);

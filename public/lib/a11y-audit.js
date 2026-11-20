@@ -143,6 +143,11 @@ function pixelHash(canvas, rect, pad = 5) {
   }
 }
 
+/** Is this a 2D canvas? Reading a WebGL canvas back outside its frame gives old pixels, so "no change" there proves nothing. */
+function is2D(canvas) {
+  try { return !!canvas.getContext('2d'); } catch { return false; }
+}
+
 function inViewport(win, r) {
   return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < win.innerHeight && r.left < win.innerWidth;
 }
@@ -266,7 +271,9 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
       const b = pixelHash(canvas, rect2);
       if (!a || !b || (!a.opaque && !b.opaque)) { unreadable.push(el); continue; }
       if (Math.abs(rect2.top - rect.top) > 2 || Math.abs(rect2.left - rect.left) > 2) { moved.push(el); ok++; continue; }
-      if (a.hash === b.hash) noRing.push(el); else ok++;
+      if (a.hash !== b.hash) ok++;
+      else if (is2D(canvas)) noRing.push(el);
+      else unreadable.push(el);
     }
     deepActive(doc)?.blur?.();
     before?.focus?.({ preventScroll: true });
@@ -314,14 +321,21 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
       const a = pixelHash(r.canvas, rect, 2);
       sel.addRange(range);
       await frames(win, 3);
-      const b = pixelHash(r.canvas, range.getBoundingClientRect(), 2);
-      const selected = sel.toString() === text;
+      let b = pixelHash(r.canvas, range.getBoundingClientRect(), 2);
+      // A canvas that draws through a shader or a worker can be a few frames behind.
+      for (let i = 0; i < 4 && a && b && a.hash === b.hash; i++) {
+        await frames(win, 3);
+        b = pixelHash(r.canvas, range.getBoundingClientRect(), 2);
+      }
+      // toString() gives the text as rendered: text-transform changes its case.
+      const same = (x, y) => x.replace(/\s+/g, ' ').trim().toLowerCase() === y.replace(/\s+/g, ' ').trim().toLowerCase();
+      const selected = same(sel.toString(), text);
       sel.removeAllRanges();
       let found = null;
       try { found = win.find(text, false, false, true); } catch {}
       const foundInCanvas = found && sel.rangeCount && !!ownerOf(sel.anchorNode.parentElement ?? sel.anchorNode);
       sel.removeAllRanges();
-      const painted = a && b ? a.hash !== b.hash : null;
+      const painted = a && b ? (a.hash !== b.hash ? true : is2D(r.canvas) ? false : null) : null;
       const bits = [`"${text}": window.find() ${found ? 'finds it' : 'does not find it'}`, `a range over it ${selected ? 'selects' : 'does not select'}`,
         painted === null ? 'canvas pixels are not readable, so the highlight could not be checked' : painted ? 'the selection highlight is painted into the canvas' : 'the highlight is NOT painted into the canvas'];
       checks.push(result('find', !found || !selected || painted === false ? 'fail' : painted === null ? 'warn' : 'pass', bits.join('; ') + (foundInCanvas === false ? ' (the match found first was outside the canvas)' : '')));
@@ -386,9 +400,12 @@ export async function auditDocument(doc, { maxControls = 14 } = {}) {
     const reduce = win.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let aware = /prefers-reduced-motion/.test(doc.documentElement.innerHTML);
     if (!aware) {
-      for (const s of doc.querySelectorAll('script[src], link[rel=stylesheet][href]')) {
+      // Tagged scripts and stylesheets, plus everything the page imported (modules do not appear as tags).
+      const urls = new Set([...doc.querySelectorAll('script[src], link[rel=stylesheet][href]')].map((s) => s.src || s.href));
+      try { for (const e of win.performance.getEntriesByType('resource')) if (/\.(js|mjs|css)(\?|$)/.test(e.name)) urls.add(e.name); } catch {}
+      for (const href of urls) {
         try {
-          const url = new URL(s.src || s.href, doc.baseURI);
+          const url = new URL(href, doc.baseURI);
           if (url.origin !== win.location.origin) continue;
           if (/prefers-reduced-motion/.test(await (await fetch(url)).text())) { aware = true; break; }
         } catch {}
@@ -457,7 +474,7 @@ async function pixelsChange(doc, canvas, rectOf, fn) {
   const { value, painted } = await watchPaint(doc, fn);
   const b = canvas ? pixelHash(canvas, rectOf()) : null;
   const readable = a && b && (a.opaque || b.opaque);
-  return { value, painted, changed: readable ? a.hash !== b.hash : null };
+  return { value, painted, changed: readable ? (a.hash !== b.hash ? true : is2D(canvas) ? false : null) : null };
 }
 
 /**
@@ -594,7 +611,7 @@ export async function auditPattern(doc) {
       caret = p ? p.offsetNode : doc.caretRangeFromPoint?.(wr.left + wr.width / 2, wr.top + wr.height / 2)?.startContainer ?? null;
     } catch {}
     const caretOk = !!caret && parts.text.contains(caret);
-    const whole = copied === parts.text.textContent.trim();
+    const whole = copied.toLowerCase() === parts.text.textContent.trim().toLowerCase();
     const bits = [whole ? `a range over the paragraph copies as "${copied.slice(0, 24)}…"` : `a range over the paragraph gives "${copied.slice(0, 24)}"`,
       r.changed === true ? 'the highlight is drawn in the canvas' : r.changed === false ? 'the highlight is NOT drawn in the canvas' : r.painted ? 'the canvas repainted for the selection (pixels not readable to compare)' : 'no repaint was seen for the selection',
       caretOk ? 'a pointer at the drawn word lands in that text, so drag-select starts in the right place' : 'a pointer at the drawn word does not land in the text'];
