@@ -673,6 +673,7 @@ function backgroundOf(el) {
  * without moving it or its children. Throws if the element can't take a
  * shadow root (wrap it in <live-region> instead).
  */
+// #region attach
 export function attachSurface(host) {
   if (host.surface) return host.surface;
   if (!supported) throw new Error('HTML-in-canvas is not available');
@@ -690,6 +691,7 @@ export function attachSurface(host) {
   host.surface = new LiveSurface(host, root);
   return host.surface;
 }
+// #endregion attach
 
 /** <live-region>: a block whose content can be shared. Plain DOM where the API is missing. */
 export class LiveRegion extends HTMLElement {

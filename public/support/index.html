@@ -82,6 +82,7 @@
         <div class="bars" role="img" aria-label="Usage for the last six months, highest this month"><i style="height:48%"></i><i style="height:42%"></i><i style="height:40%"></i><i style="height:55%"></i><i style="height:74%"></i><i style="height:92%"></i></div>
         <label>Tariff <select id="tariff" aria-label="Tariff"><option>Standard variable</option><option>Fixed 12 months</option><option>Night saver</option></select></label>
       </section>
+      <!-- #region markup -->
       <section class="panel" id="billing" data-shareable aria-labelledby="h-billing">
         <h3 id="h-billing">Payment method</h3>
         <p class="err" id="bill-status" role="status">Your last payment of £86.20 was declined on 14 November.</p>
@@ -95,6 +96,7 @@
           <button id="pay" type="submit">Retry payment</button>
         </form>
       </section>
+      <!-- #endregion markup -->
       <section class="panel" id="prefs" data-shareable aria-labelledby="h-prefs">
         <h3 id="h-prefs">Preferences</h3>
         <label class="check"><input type="checkbox" id="paperless"> Paperless bills</label>
@@ -107,6 +109,21 @@
     </div>
   </div>
 
+  <details class="show-code">
+    <summary>Show the code <small>sharing one panel, not the screen</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The app is ordinary markup.</b> <code>data-shareable</code> marks what may be picked, <code>data-private</code> marks fields that must never leave.</li>
+      <li data-code="#share"><b>Turn the picked element into a surface with one call.</b> <code>el</code> is the panel the user clicked. Input from the other side is refused unless the user ticked the box.</li>
+      <li data-code="#thumb"><b>Show the user exactly what leaves the page.</b> <code>surface.mirror</code> is the redacted copy, an ordinary canvas.</li>
+      <li data-code="#model"><b>For a model: a JPEG of the copy and a list of its elements.</b></li>
+      <li data-code="#person"><b>For a person: share the surface in a room</b> and give them the link.</li>
+      <li data-code="/support/agent.html#view"><b>The agent's page.</b></li>
+      <li data-code="/lib/live-surface.js#attach"><b>Inside <code>attachSurface()</code>: the element gets a shadow root with a drawable canvas and a slot</b>, so its children are drawn without being moved.</li>
+      <li data-code="/lib/live-surface.js#mirror"><b>Inside: the shareable copy, with private fields blacked out.</b></li>
+      <li data-code="/lib/live-surface.js#input"><b>Inside: replaying approved input on the real elements.</b></li>
+      <li data-code="/lib/live-surface.js"><b>The whole library.</b></li>
+    </ol>
+  </details>
   <h2>How it works</h2>
   <ol>
     <li><strong>Pick.</strong> Clicking a panel gives that element a shadow root containing a canvas and a slot. Its children stay where they are in the document and are painted through the canvas, which is what makes their pixels available. Nothing is cloned or re-rendered.</li>
@@ -155,8 +172,10 @@
 </div>
 
 <script type="module">
+  // #region share
   import { attachSurface, supported } from '/lib/live-surface.js';
   import { shareInRoom, newRoomId } from '/lib/live-link.js';
+  // #endregion share
   import { banner, nav, runTests, apart, isBench } from '/shared/support.js';
   nav('/support/');
   banner();
@@ -247,6 +266,7 @@
   $('pick').onclick = pick;
 
   const thumb = $('thumb');
+  // #region thumb
   function drawThumb() {
     const m = state.surface?.mirror;
     if (!m?.width) return;
@@ -255,16 +275,19 @@
     thumb.height = Math.round(m.height * k);
     thumb.getContext('2d').drawImage(m, 0, 0, thumb.width, thumb.height);
   }
+  // #endregion thumb
 
   function share(el) {
     unshare();
     state.el = el;
+    // #region share
     state.surface = attachSurface(el);
     // Remote input is refused unless the user ticks the box; things the user
     // approves here come in as 'local'.
     state.surface.acceptInput = (msg, from) => from === 'local' || $('control').checked;
     state.surface.addEventListener('frame', drawThumb);
     state.surface.requestPaint();
+    // #endregion share
     el.toggleAttribute('data-sharing', true);
     thumb.hidden = false;
     $('stop').hidden = false;
@@ -341,13 +364,17 @@
   }
 
   async function askModel(question) {
+    // #region model
     const map = state.surface.describe();
     const image = state.surface.dataURL('image/jpeg', 0.8, 1200);
+    // #endregion model
     const pending = say('them', 'Looking at what you shared…');
     let answer;
     let note = '';
     try {
+      // #region model
       const res = await fetch('/api/x/vision', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ image, question, elements: map.map(({ id, role, name, value }) => ({ id, role, name, value })), history: state.history }) });
+      // #endregion model
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       answer = data.answer;
@@ -368,9 +395,11 @@
   async function startSession() {
     if (!state.surface) return say('sys', 'Choose what to share first.');
     state.session?.stop();
+    // #region person
     state.room ??= newRoomId();
     const session = (state.session = await shareInRoom(state.surface, state.room, { kind: 'auto', title: state.el.querySelector('h3')?.textContent ?? 'Shared region' }));
     const url = new URL(`/support/agent.html#${state.room}`, location.href).href;
+    // #endregion person
     $('agent-link').href = url;
     $('agent-link').hidden = false;
     $('human-state').innerHTML = `Session code <code>${state.room}</code>${session.signal.kind === 'bc' ? ' (no relay server here: same browser only)' : ''}. Waiting for an agent.`;
