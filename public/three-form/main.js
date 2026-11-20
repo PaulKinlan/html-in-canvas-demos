@@ -213,8 +213,10 @@ function orbitFrom(pos, target) {
   orbit.phi = Math.acos(THREE.MathUtils.clamp(d.y / orbit.radius, -1, 1));
   orbit.theta = Math.atan2(d.x, d.z);
 }
+let currentView = null;
 function view(name, instant = false) {
   const v = VIEWS[name];
+  currentView = name;
   const to = { pos: new THREE.Vector3(...v.pos), target: new THREE.Vector3(...v.target) };
   for (const b of document.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === name));
   if (instant) {
@@ -228,10 +230,22 @@ function view(name, instant = false) {
 for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => view(b.dataset.view));
 view('overview', true);
 
+// Keyboard focus drives the camera. In the overview a text field is a few pixels tall, so
+// tabbing into a document flies to the view where it can be read and its focus ring seen.
+let byKeyboard = false;
+window.addEventListener('keydown', (e) => { if (e.key === 'Tab') byKeyboard = true; }, true);
+window.addEventListener('pointerdown', () => (byKeyboard = false), true);
+canvas.addEventListener('focusin', (e) => {
+  if (!byKeyboard) return;
+  const name = Object.keys(S).find((k) => S[k].element.contains(e.target));
+  if (name && VIEWS[name] && currentView !== name) view(name);
+});
+
 let dragging = null;
 canvas.addEventListener('pointerdown', (e) => {
   if (e.target !== canvas) return; // presses on the documents belong to the documents
   dragging = { x: e.clientX, y: e.clientY };
+  currentView = null;
   canvas.setPointerCapture(e.pointerId);
   canvas.style.cursor = 'grabbing';
   tween = null;

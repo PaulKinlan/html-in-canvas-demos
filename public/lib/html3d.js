@@ -122,6 +122,9 @@ export class HTMLSurfaces {
     this._onLeave = (event) => {
       if (event.pointerType !== 'touch') this.pointer = null;
     };
+    // Keyboard focus can arrive with no pointer and between frames: place geometry right away.
+    this._onFocus = () => this.#syncGeometry();
+    canvas.addEventListener('focusin', this._onFocus);
     canvas.addEventListener('paint', this._onPaint);
     canvas.addEventListener('pointermove', this._onMove, true);
     canvas.addEventListener('pointerdown', this._onMove, true);
@@ -174,6 +177,7 @@ export class HTMLSurfaces {
   dispose() {
     for (const s of [...this.surfaces]) this.remove(s);
     this.canvas.removeEventListener('paint', this._onPaint);
+    this.canvas.removeEventListener('focusin', this._onFocus);
     this.canvas.removeEventListener('pointermove', this._onMove, true);
     this.canvas.removeEventListener('pointerdown', this._onMove, true);
     this.canvas.removeEventListener('pointerleave', this._onLeave);
@@ -309,7 +313,10 @@ export class HTMLSurfaces {
     if (!this.surfaces.length) return;
     const canvas = this.canvas;
     const rect = canvas.getBoundingClientRect();
-    if (this.flat) return this.#flatLayout(rect);
+    // updateElementGeometry() works in the canvas's layout pixels. Client rects are scaled by
+    // CSS zoom, so pointers are read against `rect` and geometry is written against `box`.
+    const box = { width: canvas.clientWidth || rect.width, height: canvas.clientHeight || rect.height };
+    if (this.flat) return this.#flatLayout(box);
 
     const camera = this.camera;
     camera.updateMatrixWorld();
@@ -331,13 +338,13 @@ export class HTMLSurfaces {
       const occluded = under?.has(s.mesh) && top !== s;
       if (occluded) { this.#place(s, null); s.tracked = false; continue; }
       if (s.hit === 'mesh' && top === s) {
-        const m = this.#trackedMatrix(s, hit, rect);
+        const m = this.#trackedMatrix(s, hit, box);
         if (m) { this.#place(s, m); s.tracked = true; continue; }
       }
       // A drag that started on a tracked surface keeps its last geometry until the button is up.
       if (s.hit === 'mesh' && s.tracked && this.buttons) continue;
       s.tracked = false;
-      this.#place(s, this.#planarMatrix(s, rect));
+      this.#place(s, this.#planarMatrix(s, box));
     }
   }
 
@@ -496,8 +503,9 @@ export class HTMLSurfaces {
     const rect = this.canvas.getBoundingClientRect();
     let cx, cy;
     if (this.flat && surface.slot) {
-      cx = rect.left + surface.slot.x + x * surface.slot.k;
-      cy = rect.top + surface.slot.y + y * surface.slot.k;
+      const zoom = rect.width / (this.canvas.clientWidth || rect.width); // CSS zoom, usually 1
+      cx = rect.left + (surface.slot.x + x * surface.slot.k) * zoom;
+      cy = rect.top + (surface.slot.y + y * surface.slot.k) * zoom;
     } else {
       const er = surface.element.getBoundingClientRect();
       cx = er.left + (x / (surface.element.offsetWidth || 1)) * er.width;
