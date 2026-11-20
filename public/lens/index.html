@@ -6,7 +6,19 @@
 <title>A lens over live DOM</title>
 <link rel="stylesheet" href="/shared/style.css">
 <style>
-  .controls { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin: 14px 0; font-size: 14px; }
+  .controls { display: flex; gap: 10px 18px; flex-wrap: wrap; align-items: center; margin: 12px 0; font-size: 14px; }
+  #lenses { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 6px; padding: 2px; border: 0; font-size: 14px; }
+  #lenses label.seg { border: 1px solid var(--line); padding: 5px 11px; border-radius: 999px; cursor: pointer; background: var(--card); white-space: nowrap; }
+  #lenses label.seg:has(input:checked) { border-color: var(--fg); background: var(--fg); color: var(--bg); }
+  #lenses label.seg input { position: absolute; opacity: 0; pointer-events: none; }
+  #lenses label.seg:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* On a phone the picker is one row you swipe sideways, so the card stays on the first screen. */
+  @media (max-width: 720px) { #lenses { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-inline: -16px; padding-inline: 16px; } }
+  #about { font-size: 13px; color: var(--muted); margin: 0 0 10px; min-height: 2.9em; }
+  #about select { font: inherit; margin-left: 6px; }
+  #bench button { font: inherit; padding: 6px 12px; }
+  #benchOut td, #benchOut th { font: 12px var(--mono); padding: 3px 8px; text-align: right; border-bottom: 1px solid var(--line); }
+  #benchOut th:first-child, #benchOut td:first-child { text-align: left; }
   .controls fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 4px; }
   .controls legend { float: left; margin-right: 8px; color: var(--muted); padding: 0; }
   .controls label.seg { border: 1px solid var(--line); padding: 4px 10px; border-radius: 6px; cursor: pointer; background: var(--card); }
@@ -40,28 +52,15 @@
   <div id="support"></div>
   <h1>A lens over live DOM</h1>
   <p class="lede">
-    Move the pointer over the card. The loupe is not a screenshot: the browser replays the element's paint record at the
-    lens's scale, so the 4px text is re-rasterized sharp, and everything under the glass is still the real page. Click the
-    button through the lens, type in the field, or press <kbd>Tab</kbd> and the lens follows focus. On a touch screen, drag a
-    finger across the card: the lens rides above your finger and the page does not scroll (switch the lens off to scroll from the card).
+    Drag across the card. Each lens draws the patch of page under it once, at the lens's own magnification, and a shader bends it,
+    so 4px text comes out sharp and everything under the glass is still the real page.
   </p>
 
-  <div class="controls">
-    <fieldset>
-      <legend>Lens</legend>
-      <label class="seg"><input type="radio" name="mode" value="magnify" checked>Magnifier</label>
-      <label class="seg"><input type="radio" name="mode" value="fisheye">Fisheye</label>
-      <label class="seg"><input type="radio" name="mode" value="xray">X-ray</label>
-    </fieldset>
-    <label>Zoom <input type="range" id="zoom" min="1.2" max="8" step="0.1" value="3"> <output id="zoomOut">3×</output></label>
-    <label>Radius <input type="range" id="radius" min="40" max="220" step="2" value="120"> <output id="radiusOut">120</output></label>
-    <label><input type="checkbox" id="pin"> Pin the lens</label>
-    <label><input type="checkbox" id="on" checked> Lens on</label>
-    <span id="stats"></span>
-  </div>
+  <fieldset id="lenses" aria-label="Lens"></fieldset>
+  <p id="about"></p>
 
   <!-- #region markup -->
-  <dom-lens id="lens" zoom="3" radius="120" bleed="60">
+  <dom-lens id="lens" mode="glass" zoom="2.4" radius="120" bleed="60">
     <section class="specimen">
       <div>
         <h2>Specimen sheet</h2>
@@ -85,7 +84,7 @@
         <label for="who">A real text field</label>
         <input type="text" id="who" placeholder="Type through the lens…">
         <label for="pick">A real select</label>
-        <select id="pick"><option>Magnifier</option><option>Fisheye</option><option>X-ray</option></select>
+        <select id="pick"></select>
         <button type="button" id="hit">Clicked 0×</button>
         <table>
           <tr><th>id</th><th>w</th><th>h</th><th>ms</th></tr>
@@ -99,30 +98,55 @@
   </dom-lens>
   <!-- #endregion markup -->
 
+  <div class="controls">
+    <label>Zoom <input type="range" id="zoom" min="1" max="8" step="0.1" value="2.4"> <output id="zoomOut">2.4×</output></label>
+    <label>Radius <input type="range" id="radius" min="40" max="220" step="2" value="120"> <output id="radiusOut">120</output></label>
+    <label><input type="checkbox" id="pin"> Pin the lens</label>
+    <label><input type="checkbox" id="on" checked> Lens on</label>
+    <span id="stats"></span>
+  </div>
+  <p class="note">
+    Click the button through the lens, type in the field, or press <kbd>Tab</kbd> and the lens follows focus. On a touch screen the lens
+    rides above your finger and the page does not scroll from the card (switch the lens off, or pin it, to scroll from the card).
+  </p>
+
 <pre><code>&lt;script type="module" src="/lib/dom-lens.js"&gt;&lt;/script&gt;
 
-&lt;dom-lens mode="fisheye" zoom="3" radius="120"&gt;
+&lt;dom-lens mode="glass" zoom="2.4" radius="120"&gt;
   &lt;section&gt;…your markup, unchanged…&lt;/section&gt;
 &lt;/dom-lens&gt;</code></pre>
+
+  <h2>How fast is it here?</h2>
+  <p>The fisheye used to be a mesh of clipped triangles: the element's paint record was replayed once per triangle, up to 199 times a frame.
+    Now every lens is two replays and one shader pass. This sweeps the lens across the card each way and times the frames on this device.
+    “Patch px” is the side of the square drawn for the lens: if frames come slowly while the lens moves it is drawn smaller, then sharpened when the lens rests.</p>
+  <div id="bench">
+    <button type="button" id="benchGo">Measure on this device</button>
+    <table id="benchOut" hidden><thead><tr><th>Lens and route</th><th>frames/s</th><th>ms/frame</th><th>worst 5%</th><th>draws</th><th>patch px</th></tr></thead><tbody></tbody></table>
+  </div>
 
   <details class="show-code">
     <summary>Show the code <small>a lens over real markup</small></summary>
     <ol>
       <li data-code="#markup"><b>Wrap any markup in <code>&lt;dom-lens&gt;</code>.</b> The markup is not changed.</li>
-      <li data-code="#page"><b>Load the element and set attributes.</b> <code>mode</code>, <code>zoom</code>, <code>radius</code>, and <code>x</code>, <code>y</code> with <code>pinned</code> to hold the lens still. <code>$</code> is <code>getElementById</code>.</li>
+      <li data-code="#page"><b>Load the element and set attributes.</b> <code>mode</code>, <code>zoom</code>, <code>radius</code>, <code>off</code>, and <code>x</code>, <code>y</code> with <code>pinned</code> to hold the lens still. <code>$</code> is <code>getElementById</code>.</li>
       <li data-code="/lib/surface.js#wrap"><b>Inside: the markup is slotted into a drawable canvas</b> by this shadow root.</li>
-      <li data-code="/lib/dom-lens.js#render"><b>Inside: draw the content once, then again through the lens.</b> The magnifier is a second <code>drawElementImage()</code> inside a circular clip under a scale, so the browser draws the text again at that size and it stays sharp.</li>
-      <li data-code="/lib/dom-lens.js#triangle"><b>Inside, fisheye: one triangle of the mesh.</b> A fisheye is not one transform, so the lens is cut into triangles and each is a clipped draw under its own affine transform.</li>
-      <li data-code="/lib/dom-lens.js"><b>The whole element.</b></li>
+      <li data-code="/lib/dom-lens.js#shader"><b>Inside: draw the patch of page under the lens, magnified, then run it through a shader.</b> <code>drawElementImage()</code> under a scale makes the browser draw the text again at that size, so it is sharp. That square goes to WebGL as a texture, the lens shader bends it, and the result is drawn back over the page.</li>
+      <li data-code="/lib/lens-gl.js#upload"><b>Inside: the patch becomes a texture.</b> It is copied straight out of the 2D canvas.</li>
+      <li data-code="/lib/lens-gl.js#magnify"><b>A lens is one GLSL function.</b> This is the plain magnifier; the glass, fisheye and other lenses are in the same file.</li>
+      <li data-code="/lib/dom-lens.js"><b>The whole element.</b> The shaders are in <a href="/lib/lens-gl.js">/lib/lens-gl.js</a>.</li>
     </ol>
   </details>
   <h2>How it works</h2>
   <ul class="findings">
     <li><strong>The content is slotted, not moved.</strong> Your markup stays a child of <code>&lt;dom-lens&gt;</code>. A shadow root holds a canvas with one drawable wrapper around a <code>&lt;slot&gt;</code>, sized to the content.</li>
-    <li><strong>Magnifier:</strong> draw the content once at rest, then again inside a circular clip with a scale about the lens centre. Two <code>drawElementImage()</code> calls per frame.</li>
-    <li><strong>Fisheye:</strong> a fisheye is not an affine transform, and <code>drawElementImage()</code> only takes one. So the lens is cut into a polar mesh of triangles and the element is drawn once per triangle, clipped, with the affine transform that maps that triangle's source onto the screen. Neighbouring triangles share edges, so the image is continuous, and each one is re-rasterized, so it is vector-sharp. A shader would be one draw but would magnify a fixed-resolution texture. Any warp can be drawn this way.</li>
-    <li><strong>X-ray:</strong> inside the clip the content is drawn faded and inverted, with the live layout boxes of every element on top (interactive ones in amber). It is a devtools overlay you can aim.</li>
+    <li><strong>One magnified draw.</strong> <code>drawElementImage()</code> replays the element's paint record, so drawing it scaled re-rasterizes text and vectors. Each frame the square of page under the lens is drawn once, clipped, at the lens's magnification, into a patch of the same canvas.</li>
+    <li><strong>One shader.</strong> The patch is copied into a WebGL texture and a fragment shader decides, for every pixel of the lens, which point of the patch to show and what to do to its colour. The result is drawn back with <code>drawImage()</code>. All the lenses share one WebGL context. Then the patch is painted over with the page at rest, clipped to that neighbourhood, so the rest of the canvas is never redrawn while the lens moves.</li>
+    <li><strong>Real glass</strong> is ray traced: a ray enters the top spherical face, bends by Snell's law, crosses the glass, bends again leaving the bottom face and runs on to the page. Red, green and blue use slightly different refractive indices, which gives the colour fringes, and the edge distortion is the spherical aberration every simple lens has. The zoom slider moves the lens nearer to or further from the page.</li>
+    <li><strong>Fisheye</strong> is the same pipeline with a smooth radial mapping. <strong>Black hole</strong> uses the point-mass lens equation, so the page really does form an Einstein ring. <strong>Water drop</strong> refracts through a spherical cap with a travelling ripple.</li>
+    <li><strong>X-ray:</strong> the layout box of every element is outlined onto the patch (interactive ones in amber) before the shader runs. It is a devtools overlay you can aim.</li>
     <li><strong>Hit testing:</strong> the pointer is the fixed point of the magnification, so the element under the cursor is the one you see there. For a pinned lens the element's geometry is switched to the magnified transform while the pointer is inside it.</li>
+    <li><strong>Without WebGL</strong> (or with <code>pipeline="2d"</code>) the magnifier and x-ray are two plain draws and the fisheye falls back to the triangle mesh.</li>
   </ul>
 
   <h2>Live checks</h2>
@@ -131,8 +155,9 @@
 
 <script type="module">
   // #region page
-  import '/lib/dom-lens.js';
+  import { LENSES } from '/lib/dom-lens.js';
   // #endregion page
+  import { lensRenderer } from '/lib/lens-gl.js';
   import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn, supported } from '/shared/support.js';
   nav('/lens/');
   banner();
@@ -143,17 +168,39 @@
   const $ = (id) => document.getElementById(id);
   let clicks = 0;
   $('hit').onclick = (e) => (e.target.textContent = `Clicked ${++clicks}×`);
+  // The picker, built from the catalogue.
+  const names = Object.keys(LENSES);
+  $('lenses').innerHTML = names.map((n) => `<label class="seg"><input type="radio" name="mode" value="${n}">${LENSES[n].label}</label>`).join('');
+  $('pick').innerHTML = names.map((n) => `<option value="${n}">${LENSES[n].label}</option>`).join('');
+  function pick(name, keepZoom) {
+    const def = LENSES[name];
+    lens.setAttribute('mode', name);
+    document.querySelector(`input[name=mode][value=${name}]`).checked = true;
+    $('pick').value = name;
+    $('about').textContent = def.blurb;
+    if (def.variants) {
+      const sel = document.createElement('select');
+      sel.setAttribute('aria-label', 'Kind');
+      sel.innerHTML = Object.entries(def.variants).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+      sel.value = lens.getAttribute('variant') || 'deutan';
+      sel.onchange = () => lens.setAttribute('variant', sel.value);
+      $('about').append(sel);
+    }
+    if (!keepZoom) setZoom(def.zoom);
+  }
+  function setZoom(z) {
+    $('zoom').value = z;
+    lens.setAttribute('zoom', z);
+    $('zoomOut').textContent = (+z).toFixed(1) + '×';
+  }
+  for (const r of document.querySelectorAll('input[name=mode]')) r.onchange = () => pick(r.value);
+  $('pick').onchange = (e) => pick(e.target.value);
+  $('zoom').oninput = (e) => setZoom(e.target.value);
   // #region page
-  for (const r of document.querySelectorAll('input[name=mode]')) r.onchange = () => lens.setAttribute('mode', r.value);
-  // #endregion page
-  $('pick').onchange = (e) => {
-    const v = e.target.value.toLowerCase().replace('magnifier', 'magnify').replace('x-ray', 'xray');
-    lens.setAttribute('mode', v);
-    document.querySelector(`input[name=mode][value=${v}]`).checked = true;
-  };
-  // #region page
-  $('zoom').oninput = (e) => { lens.setAttribute('zoom', e.target.value); $('zoomOut').textContent = (+e.target.value).toFixed(1) + '×'; };
   $('radius').oninput = (e) => { lens.setAttribute('radius', e.target.value); $('radiusOut').textContent = e.target.value; };
+  // #endregion page
+  pick(new URLSearchParams(location.search).get('lens') in LENSES ? new URLSearchParams(location.search).get('lens') : 'glass');
+  // #region page
   $('on').onchange = (e) => lens.toggleAttribute('off', !e.target.checked);
   $('pin').onchange = (e) => {
     if (e.target.checked) {
@@ -165,8 +212,66 @@
   // #endregion page
   if (innerWidth < 600) { $('radius').value = 80; $('radius').oninput({ target: $('radius') }); }
   setInterval(() => {
-    if (lens.live) $('stats').textContent = `${lens.drawCalls} draw call${lens.drawCalls === 1 ? '' : 's'} / frame · ${(lens.frameMs ?? 0).toFixed(1)}ms · hit testing: ${lens.hitTesting ?? 'rest'}`;
+    if (lens.live) $('stats').textContent = `${lens.pipeline} · ${lens.drawCalls} draw${lens.drawCalls === 1 ? '' : 's'} / frame · ${(lens.frameMs ?? 0).toFixed(1)}ms script · hit testing: ${lens.hitTesting ?? 'rest'}`;
   }, 250);
+
+  // ---- Speed test: sweep the visible lens and time the frames. Only on a tap. ----
+  const frame = () => new Promise((r) => requestAnimationFrame(r));
+  async function sweep(frames) {
+    const r = lens.getBoundingClientRect();
+    const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
+    const gaps = [];
+    let draws = 0, patch = 0;
+    let last = await frame();
+    for (let i = 0; i < frames; i++) {
+      const a = (i / frames) * Math.PI * 4;
+      lens.pointTo(r.left + r.width * (0.5 + 0.32 * Math.cos(a)), (top + bottom) / 2 + (bottom - top) * 0.3 * Math.sin(a * 1.5));
+      const t = await frame();
+      if (i >= 10) gaps.push(t - last);
+      last = t;
+      draws = Math.max(draws, lens.drawCalls);
+      patch = lens.pipeline === 'shader' ? lens.patchSize : 0;
+    }
+    lens.pointTo(null);
+    gaps.sort((x, y) => x - y);
+    const mean = gaps.reduce((x, y) => x + y, 0) / gaps.length;
+    return { mean, worst: gaps[Math.floor(gaps.length * 0.95)], draws, patch };
+  }
+  $('benchGo').onclick = async () => {
+    if (!lens.live) return;
+    const body = $('benchOut').tBodies[0];
+    const before = { mode: lens.getAttribute('mode'), zoom: lens.getAttribute('zoom'), pinned: lens.hasAttribute('pinned') };
+    $('benchGo').disabled = true;
+    $('benchOut').hidden = false;
+    body.textContent = '';
+    lens.removeAttribute('pinned');
+    const runs = [['fisheye', '', 'Fisheye, shader'], ['fisheye', 'scratch', 'Fisheye, shader, copy via a 2D canvas'], ['fisheye', '2d', 'Fisheye, old triangle mesh'], ['magnify', '', 'Magnifier, shader'], ['magnify', '2d', 'Magnifier, plain 2D'], ['glass', '', 'Real glass, shader'], ['blackhole', '', 'Black hole, shader']];
+    for (const [mode, route, label] of runs) {
+      lens.setAttribute('mode', mode);
+      lens.setAttribute('zoom', 3);
+      lens.removeAttribute('pipeline');
+      lens.removeAttribute('copy');
+      if (route === '2d') lens.setAttribute('pipeline', '2d');
+      else if (route) lens.setAttribute('copy', route);
+      const row = body.insertRow();
+      row.insertCell().textContent = label;
+      const cell = row.insertCell();
+      cell.colSpan = 5;
+      cell.textContent = 'measuring…';
+      await sweep(12);
+      const m = await sweep(route === '2d' ? 40 : 90);
+      cell.remove();
+      for (const v of [(1000 / m.mean).toFixed(0), m.mean.toFixed(1), m.worst.toFixed(1), m.draws, m.patch || '–']) row.insertCell().textContent = v;
+      if (lens.pipeline === '2d' && route !== '2d') row.cells[0].textContent += ' (no WebGL: ran as 2D)';
+    }
+    lens.removeAttribute('pipeline');
+    lens.removeAttribute('copy');
+    lens.toggleAttribute('pinned', before.pinned);
+    pick(LENSES[before.mode] ? before.mode : 'glass', true);
+    setZoom(before.zoom);
+    $('benchGo').disabled = false;
+    window.__bench = [...body.rows].map((r) => [...r.cells].map((c) => c.textContent));
+  };
 
   // ---- Live checks ----
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -195,6 +300,16 @@
       else if (l < 200) mid++;
     }
     return { mid, ink, ratio: mid / Math.max(1, ink) };
+  }
+
+  // Read a small copy: getImageData() on the demo's own canvas can move it off the GPU for good.
+  function thumb(canvas) {
+    const c = document.createElement('canvas');
+    c.width = 160;
+    c.height = Math.max(1, Math.round((160 * canvas.height) / canvas.width));
+    const t = c.getContext('2d', { willReadFrequently: true });
+    t.drawImage(canvas, 0, 0, c.width, c.height);
+    return t;
   }
 
   if (supported) {
@@ -235,10 +350,47 @@
         },
       },
       {
-        name: 'Fisheye as a mesh of clipped affine triangles',
-        why: 'One drawElementImage() per triangle of a polar mesh. The centre is magnified, the rim is not.',
+        name: 'Fisheye as one draw and a shader',
+        why: 'The patch under the lens is drawn once at the lens zoom, copied to a texture and bent by a fragment shader. The centre is magnified, the rim is not.',
         run: async () => {
-          const el = await fixture({ mode: 'fisheye', pinned: '', x: 55, y: 55, zoom: 4, radius: 45, rings: 4 }, dot);
+          if (!lensRenderer()) throw new Error('WebGL 2 is not available, so the lens fell back to 2D');
+          const el = await fixture({ mode: 'fisheye', pinned: '', x: 55, y: 55, zoom: 4, radius: 45 }, dot);
+          const centre = px(el, 66, 55), rim = px(el, 55 + 40, 55);
+          if (el.pipeline !== 'shader') throw new Error(`drawn by the ${el.pipeline} route`);
+          if (!isYellow(centre)) throw new Error(`pixel 11px from centre is ${centre}`);
+          if (isYellow(rim)) throw new Error('the rim is magnified too');
+          if (el.drawCalls > 2) throw new Error(`${el.drawCalls} draw calls`);
+          return `${el.drawCalls} drawElementImage() calls per frame, ${el.patchSize}px patch; centre magnified`;
+        },
+      },
+      {
+        name: 'Every lens in the catalogue compiles and draws',
+        why: 'Each lens is a fragment shader on the one shared WebGL context. The lens centre must end up opaque and the lens must change the picture.',
+        run: async () => {
+          if (!lensRenderer()) throw new Error('WebGL 2 is not available');
+          const el = await fixture({ pinned: '', x: 60, y: 60, zoom: 3, radius: 40, off: '' }, dot);
+          const shot = () => el.ctx.getImageData(Math.round(20 * el.scale), Math.round(20 * el.scale), Math.round(80 * el.scale), Math.round(80 * el.scale)).data;
+          const rest = shot();
+          el.removeAttribute('off');
+          const bad = [];
+          for (const name of names) {
+            el.setAttribute('mode', name);
+            await sleep(70);
+            const now = shot();
+            let changed = 0;
+            for (let i = 0; i < now.length; i += 4) if (Math.abs(now[i] - rest[i]) + Math.abs(now[i + 1] - rest[i + 1]) + Math.abs(now[i + 2] - rest[i + 2]) > 24) changed++;
+            const mid = px(el, 60, 60);
+            if (el.pipeline !== 'shader' || mid[3] < 250 || changed < 20) bad.push(`${name} (${el.pipeline}, ${changed} px changed)`);
+          }
+          if (bad.length) throw new Error('failed: ' + bad.join(', '));
+          return `${names.length} lenses: ${names.join(', ')}`;
+        },
+      },
+      {
+        name: 'Fallback: fisheye as a mesh of clipped affine triangles',
+        why: 'The route without WebGL (pipeline="2d"). One drawElementImage() per triangle of a polar mesh.',
+        run: async () => {
+          const el = await fixture({ mode: 'fisheye', pipeline: '2d', pinned: '', x: 55, y: 55, zoom: 4, radius: 45, rings: 4 }, dot);
           const centre = px(el, 66, 55);
           if (!isYellow(centre)) throw new Error(`pixel 11px from centre is ${centre}`);
           return `${el.drawCalls} draw calls per frame for a 4-ring mesh (${el.frameMs.toFixed(1)}ms); centre magnified`;
@@ -335,7 +487,7 @@
       stillDrawn(() => [...document.querySelectorAll('main dom-lens')].map((el, i) => ({
         name: el.id || `lens ${i + 1}`,
         note: 'plain HTML',
-        ink: () => (el.live ? inkFraction(el.ctx) : null),
+        ink: () => (el.live ? inkFraction(thumb(el.canvas)) : null),
         rescue: () => el.fallBackToPlain('it drew nothing'),
       }))),
     ])).then(() => fixtures.done());

@@ -11,6 +11,10 @@
   #host > [slot=first] { background: #fff4d6; color: #2c2205; border-color: #e6cf8a; }
   #host > [slot=second] { background: #e3f1ff; color: #08233f; border-color: #a9cbee; }
   #host button, #host input { font: inherit; }
+  .versus { display: grid; gap: 0 16px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 820px) { .versus { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .versus > * { min-width: 0; }
+  .versus h3 { font-size: 15px; margin: 8px 0 6px; }
   iframe.sub { width: 100%; height: 300px; border: 1px solid var(--line); border-radius: 8px; background: white; }
 </style>
 </head>
@@ -25,8 +29,9 @@
     so the canvas has to be in a shadow root. Declarative shadow DOM makes that plain HTML.
   </p>
 
+  <p class="note" style="margin-bottom:6px"><strong>This demo uses declarative shadow DOM</strong>: the <code>&lt;template shadowrootmode="open"&gt;</code> in the markup. <a href="#attach">The same demo without it</a> is further down.</p>
   <div class="stage">
-    <!-- This is the whole pattern. -->
+    <!-- This is the whole pattern. The template is declarative shadow DOM. -->
     <div id="host">
       <template shadowrootmode="open">
         <canvas content="drawable" layoutsubtree style="display:block;width:100%;height:max(240px, min(330px, calc(620px - 60vw)))">
@@ -47,7 +52,7 @@
   </div>
 
   <details class="source" open data-src="/slot-bare/declarative.html">
-    <summary>The complete page for this demo (paste it into a blank .html file)</summary>
+    <summary>The complete page for this demo, with declarative shadow DOM (paste it into a blank .html file)</summary>
   </details>
 
   <h2 id="template">Isn't <code>&lt;template&gt;</code> inert? Why is this canvas live?</h2>
@@ -72,6 +77,55 @@ host.shadowRoot.querySelector('canvas'); // the live canvas, already on screen</
     One catch: only the parser does this. <code>element.innerHTML = '&lt;template shadowrootmode…&gt;'</code> leaves an ordinary inert template. From script, use
     <code>setHTMLUnsafe()</code>, <code>Document.parseHTMLUnsafe()</code> or <code>attachShadow()</code>. The live tests below check each of these claims.
   </p>
+
+  <h2 id="attach">The same demo without declarative shadow DOM: <code>attachShadow()</code></h2>
+  <p>
+    Declarative shadow DOM is optional. This is the same page with no <code>&lt;template&gt;</code> at all: the script calls
+    <code>host.attachShadow()</code> and fills the shadow root itself. Everything else (the slotted sections, sizing, paint, <code>slotchange</code>) is identical.
+  </p>
+  <iframe class="sub" style="height:330px" src="/slot-bare/attach-shadow.html" title="attachShadow version of the demo"></iframe>
+  <p>The only lines that differ between the two versions:</p>
+  <div class="versus">
+    <div>
+      <h3>Declarative shadow DOM (in the HTML)</h3>
+<pre><code>&lt;div id="host"&gt;
+  &lt;template shadowrootmode="open"&gt;
+    &lt;canvas content="drawable" layoutsubtree&gt;
+      &lt;slot name="first"&gt;&lt;/slot&gt;
+      &lt;slot name="second"&gt;&lt;/slot&gt;
+    &lt;/canvas&gt;
+  &lt;/template&gt;
+  …
+&lt;/div&gt;
+
+&lt;script type="module"&gt;
+  const host = document.getElementById('host');
+  const canvas = host.shadowRoot.querySelector('canvas');</code></pre>
+    </div>
+    <div>
+      <h3><code>attachShadow()</code> (in the script)</h3>
+<pre><code>&lt;div id="host"&gt;
+  …
+&lt;/div&gt;
+
+&lt;script type="module"&gt;
+  const host = document.getElementById('host');
+  const root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `
+    &lt;canvas content="drawable" layoutsubtree&gt;
+      &lt;slot name="first"&gt;&lt;/slot&gt;
+      &lt;slot name="second"&gt;&lt;/slot&gt;
+    &lt;/canvas&gt;`;
+  const canvas = root.querySelector('canvas');</code></pre>
+    </div>
+  </div>
+  <ul class="findings">
+    <li><strong>Declarative:</strong> the structure is plain HTML, it works in server-rendered markup, and the slotted sections are never shown as ordinary content first, because the shadow root exists before they are parsed.</li>
+    <li><strong><code>attachShadow()</code>:</strong> no special markup, and it works on elements you do not control. Until the script runs the sections render as normal page content, so they can flash in place before moving into the canvas.</li>
+  </ul>
+  <details class="source" open data-src="/slot-bare/attach-shadow.html">
+    <summary>The complete page for the attachShadow() version (paste it into a blank .html file)</summary>
+  </details>
 
   <p>
     Why the <code>&lt;template&gt;</code>? Because a <code>&lt;slot&gt;</code> only projects content inside a shadow tree.
@@ -109,7 +163,7 @@ host.shadowRoot.querySelector('canvas'); // the live canvas, already on screen</
 </main>
 
 <script type="module">
-  import { banner, nav, runTests, nextPaint, pixel, supported, testStage } from '/shared/support.js';
+  import { banner, nav, runTests, nextPaint, pixel, supported, testStage, stageFrame } from '/shared/support.js';
   import { sourceViews } from '/shared/source-view.js';
   sourceViews();
   nav('/slot-bare/');
@@ -181,6 +235,30 @@ host.shadowRoot.querySelector('canvas'); // the live canvas, already on screen</
           if (!host.shadowRoot) throw new Error('#host has no shadow root');
           if (!canvas.isConnected || !canvas.clientWidth) throw new Error('the canvas is not connected or has no size');
           return `no <template> left, shadowRoot.mode "${host.shadowRoot.mode}", canvas ${canvas.clientWidth}×${canvas.clientHeight} CSS px`;
+        },
+      },
+      {
+        name: 'Without declarative shadow DOM: the attachShadow() version draws and stays interactive',
+        why: 'The same demo with the shadow root built in script instead of by a <template shadowrootmode>.',
+        run: async () => {
+          const frame = await stageFrame('/slot-bare/attach-shadow.html');
+          const doc = frame.contentDocument;
+          const h = doc.getElementById('host');
+          if (doc.querySelector('template')) throw new Error('the page has a <template>');
+          let c, ok = false;
+          for (let i = 0; i < 25 && !ok; i++) {
+            await new Promise((r) => setTimeout(r, 100));
+            c = h.shadowRoot?.querySelector('canvas');
+            if (!c || !c.width) continue;
+            const data = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+            for (let p = 3; p < data.length; p += 4 * 97) if (data[p]) { ok = true; break; }
+          }
+          if (!ok) throw new Error('nothing was drawn into the canvas');
+          const btn = doc.getElementById('count');
+          const r = btn.getBoundingClientRect();
+          const hit = doc.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          if (hit !== btn) throw new Error(`the button is not hit-testable where it is drawn (got ${hit?.localName})`);
+          return 'no <template>, shadow root from attachShadow(), sections drawn, button hit-testable in the canvas';
         },
       },
       {
