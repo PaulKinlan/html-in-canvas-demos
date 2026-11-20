@@ -17,6 +17,7 @@
 </style>
 </head>
 <body>
+<script src="/shared/nav.js"></script>
 <main>
   <div id="support"></div>
   <h1>1b · Just <code>&lt;slot&gt;</code> inside <code>&lt;canvas&gt;</code></h1>
@@ -30,7 +31,7 @@
     <!-- This is the whole pattern. -->
     <div id="host">
       <template shadowrootmode="open">
-        <canvas content="drawable" layoutsubtree style="display:block;width:100%;height:240px">
+        <canvas content="drawable" layoutsubtree style="display:block;width:100%;height:max(240px, min(330px, calc(620px - 60vw)))">
           <slot name="first"></slot>
           <slot name="second"></slot>
         </canvas>
@@ -59,16 +60,27 @@
   &lt;section slot="second" drawable&gt;…&lt;/section&gt;
 &lt;/div&gt;
 
-&lt;script&gt;
+&lt;script type="module"&gt;
+  const host = document.getElementById('host');
   const canvas = host.shadowRoot.querySelector('canvas');
   const ctx = canvas.getContext('2d');
+
   canvas.onpaint = () =&gt; {
     ctx.reset();
+    let x = 20;
     for (const slot of canvas.querySelectorAll('slot'))
-      for (const el of slot.assignedElements())
-        ctx.drawElementImage(el, x, y);   // wherever you like
+      for (const el of slot.assignedElements()) {
+        ctx.drawElementImage(el, x, 20);   // position them wherever you like
+        x += el.offsetWidth + 20;
+      }
   };
 &lt;/script&gt;</code></pre>
+
+  <p>
+    Why the <code>&lt;template&gt;</code>? Because a <code>&lt;slot&gt;</code> only projects content inside a shadow tree.
+    <a href="/slot-bare/plain.html"><strong>See the same thing with no template at all</strong></a>: just <code>&lt;canvas&gt;&lt;slot&gt;</code> in a plain page,
+    what the browser does with it natively, and a one-script upgrade that makes it work.
+  </p>
 
   <h2>Page-level slots: a shadow root on <code>&lt;body&gt;</code></h2>
   <p>
@@ -115,11 +127,13 @@
       const dpr = canvas.width / canvas.clientWidth;
       ctx.reset();
       ctx.scale(dpr, dpr);
-      let x = 24;
+      let x = 24, y = 40;
       for (const slot of canvas.querySelectorAll('slot')) {
         for (const el of slot.assignedElements()) {
+          // Wrap to a second row when the canvas is too narrow (phones).
+          if (x > 24 && x + el.offsetWidth > canvas.clientWidth - 8) { x = 24; y += el.offsetHeight + 36; }
           ctx.save();
-          ctx.translate(x, 40);
+          ctx.translate(x, y);
           ctx.rotate(slot.name === 'first' ? -0.06 : 0.05);
           ctx.shadowColor = 'rgba(0,0,0,.25)';
           ctx.shadowBlur = 16;
