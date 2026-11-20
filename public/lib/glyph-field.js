@@ -11,19 +11,28 @@
 //   field.highlight('markup')        // matching glyphs lift off; returns the count
 //
 // The children are never split into spans. They are slotted, as they are,
-// into a WebGL canvas and uploaded as one texture (texElementSubImage2D). The
-// element measures a rectangle for every grapheme with Range.getClientRects()
-// and draws each one as an instanced quad cut from that texture. So the text
-// keeps its shaping, selection, find-in-page, links and accessibility tree,
-// and a selection highlight travels with the glyphs it covers.
+// into a canvas. The element measures a rectangle for every grapheme with
+// Range.getClientRects() and draws each one as a piece cut from one picture of
+// the whole block. So the text keeps its shaping, selection, find-in-page,
+// links and accessibility tree, and a selection highlight travels with the
+// glyphs it covers.
 //
-// When every particle is home the whole element is drawn as one quad and the
-// animation loop stops.
+// Two renderers, chosen with the engine attribute before the element connects:
+//   engine="2d" (default)  the block is drawn into the 2D canvas, copied to an
+//                          ImageBitmap atlas, and glyphs are drawImage() calls.
+//   engine="webgl"         the block is a texture (texElementSubImage2D) and
+//                          glyphs are instanced quads.
+//
+// When every particle is home the whole element is drawn in one call and the
+// animation loop stops. If the canvas context is lost the element shows its
+// children as plain HTML until the context comes back, and fires
+// "glyphfallback" with the reason.
 
 const SUPPORTED =
-  typeof WebGL2RenderingContext !== 'undefined' &&
-  'texElementSubImage2D' in WebGL2RenderingContext.prototype &&
+  typeof CanvasRenderingContext2D !== 'undefined' &&
+  'drawElementImage' in CanvasRenderingContext2D.prototype &&
   'updateElementGeometry' in HTMLCanvasElement.prototype;
+const WEBGL_OK = typeof WebGL2RenderingContext !== 'undefined' && 'texElementSubImage2D' in WebGL2RenderingContext.prototype;
 
 const VS = `#version 300 es
 layout(location = 0) in vec2 aCorner;   // unit quad, -0.5..0.5
@@ -52,7 +61,7 @@ const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segme
 export class GlyphField extends HTMLElement {
   static supported = SUPPORTED;
 
-  #canvas; #gl; #uView; #inst; #tex; #tw = 0; #th = 0; #dirtyTex = true; #wrap; #sizer;
+  #canvas; #engine = '2d'; #ctx; #atlas = null; #atlasBusy = false; #plain = null; #gl; #uView; #inst; #tex; #tw = 0; #th = 0; #dirtyTex = true; #wrap; #sizer;
   #bleed = 80; #dpr = 1; #W = 0; #H = 0;
   #parts = [];
   #stale = true;
@@ -71,6 +80,10 @@ export class GlyphField extends HTMLElement {
 
   get supported() { return SUPPORTED; }
   get canvas() { return this.#canvas; }
+  /** "2d" or "webgl": the renderer in use. */
+  get engine() { return this.#engine; }
+  /** Why the element is showing plain HTML instead of the canvas, or null. */
+  get fallbackReason() { return this.#plain; }
   /** Particles as plain data: { text, x, y, w, h, dx, dy, rotate }. */
   get particles() {
     this.#map();
@@ -93,13 +106,31 @@ export class GlyphField extends HTMLElement {
         .sizer { visibility: hidden; pointer-events: none; }
         canvas { position: absolute; left: -${b}px; top: -${b}px; width: calc(100% + ${2 * b}px); height: calc(100% + ${2 * b}px); pointer-events: none; }
         .wrap { position: absolute; left: ${b}px; top: ${b}px; width: calc(100% - ${2 * b}px); pointer-events: auto; }
+        .wrap.plain { position: static; width: auto; }
+        :host([plain]) canvas, :host([plain]) .sizer { display: none; }
       </style>
       <div class="sizer"></div>
       <canvas content="drawable" layoutsubtree><div class="wrap" drawable><slot></slot></div></canvas>`;
     this.#canvas = this.shadowRoot.querySelector('canvas');
     this.#wrap = this.shadowRoot.querySelector('.wrap');
     this.#sizer = this.shadowRoot.querySelector('.sizer');
-    this.#initGL();
+    this.#engine = this.getAttribute('engine') === 'webgl' && WEBGL_OK ? 'webgl' : '2d';
+    try {
+      if (this.#engine === 'webgl') this.#initGL(); else this.#ctx = this.#canvas.getContext('2d');
+      if (!this.#gl && !this.#ctx) throw new Error('no canvas context');
+    } catch (err) {
+      this.#goPlain(`could not start the ${this.#engine} renderer: ${err.message}`);
+    }
+    // A lost context leaves a canvas that draws nothing (or garbage). Show the text as plain HTML until it is back.
+    for (const type of ['webglcontextlost', 'contextlost']) {
+      this.#canvas.addEventListener(type, (e) => { e.preventDefault(); this.#goPlain('the canvas context was lost'); });
+    }
+    for (const type of ['webglcontextrestored', 'contextrestored']) {
+      this.#canvas.addEventListener(type, () => {
+        try { if (this.#engine === 'webgl') this.#initGL(); } catch (err) { this.#goPlain(`could not restart: ${err.message}`); return; }
+        this.#leavePlain();
+      });
+    }
     this.#ro = new ResizeObserver(() => this.#resize());
     this.#ro.observe(this.#wrap);
     this.#ro.observe(this);
@@ -204,7 +235,32 @@ export class GlyphField extends HTMLElement {
 
   // ------------------------------------------------------------ internals
 
+  #goPlain(reason) {
+    if (this.#plain) return;
+    this.#plain = reason;
+    this.#running = false;
+    for (const r of this.#settleWaiters.splice(0)) r();
+    this.#wrap.classList.add('plain');
+    this.shadowRoot.append(this.#wrap);
+    this.setAttribute('plain', '');
+    this.dispatchEvent(new CustomEvent('glyphfallback', { detail: { reason } }));
+  }
+
+  #leavePlain() {
+    if (!this.#plain) return;
+    this.#plain = null;
+    this.#wrap.classList.remove('plain');
+    this.#canvas.append(this.#wrap);
+    this.removeAttribute('plain');
+    this.#atlas?.close?.(); this.#atlas = null;
+    this.#tw = this.#th = 0;
+    this.#dirtyTex = this.#stale = true;
+    this.dispatchEvent(new CustomEvent('glyphfallback', { detail: { reason: null } }));
+    this.#canvas.requestPaint();
+  }
+
   #begin() {
+    if (this.#plain) return false;
     if (!SUPPORTED) return false;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches && !this.hasAttribute('force-motion')) return false;
     this.#map();
@@ -215,6 +271,8 @@ export class GlyphField extends HTMLElement {
   #wake() {
     if (this.#running) return;
     this.#running = true;
+    // Start each flight from a fresh picture of the text.
+    this.#atlas?.close?.(); this.#atlas = null; this.#dirtyTex = true;
     this.#last = performance.now();
     const tick = () => {
       if (!this.#running) return;
@@ -226,6 +284,7 @@ export class GlyphField extends HTMLElement {
 
   #resize() {
     const dpr = devicePixelRatio || 1;
+    if (this.#plain) return;
     const h = this.#wrap.offsetHeight;
     this.#sizer.style.height = `${h}px`;
     const W = this.#wrap.offsetWidth, b = this.#bleed;
@@ -237,6 +296,7 @@ export class GlyphField extends HTMLElement {
   }
 
   #home() {
+    if (this.#plain) return;
     this.#canvas.updateElementGeometry(this.#wrap, { canvasTransform: new DOMMatrix().translate(this.#bleed, this.#bleed) });
   }
 
@@ -361,7 +421,9 @@ export class GlyphField extends HTMLElement {
   }
 
   #initGL() {
-    const gl = (this.#gl = this.#canvas.getContext('webgl2', { premultipliedAlpha: true, antialias: true, preserveDrawingBuffer: true }));
+    // preserveDrawingBuffer is only for tests that read the canvas back; it is off otherwise.
+    const gl = (this.#gl = this.#canvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false, preserveDrawingBuffer: this.hasAttribute('debug-readback') }));
+    if (!gl) throw new Error('WebGL 2 is not available');
     const sh = (type, src) => {
       const s = gl.createShader(type);
       gl.shaderSource(s, src);
@@ -400,12 +462,12 @@ export class GlyphField extends HTMLElement {
   }
 
   #paint(event) {
-    if (!this.#W) return;
+    if (!this.#W || this.#plain) return;
+    if (this.#gl?.isContextLost?.()) { this.#goPlain('the canvas context was lost'); return; }
     this.#map();
-    const gl = this.#gl, b = this.#bleed, wrap = this.#wrap, W = this.#W, H = this.#H;
     const now = performance.now();
     if (this.#running) {
-      const dt = Math.min(0.033, (now - this.#last) / 1000);
+      const dt = Math.min(0.033, Math.max(0, (now - this.#last) / 1000));
       this.#last = now;
       if (!this.#step(dt, now)) {
         this.#running = false;
@@ -414,23 +476,66 @@ export class GlyphField extends HTMLElement {
         this.dispatchEvent(new CustomEvent('glyphsettle'));
       }
     }
-    // The text is one texture. It only needs a new upload when the browser repainted it.
     const changed = event?.changedElements;
-    if (this.#dirtyTex || !changed || [...changed].includes(wrap)) {
-      try {
-        const size = this.#canvas.getElementImageDefaultSize(wrap);
-        const tw = Math.max(1, Math.ceil(size.width)), th = Math.max(1, Math.ceil(size.height));
-        gl.bindTexture(gl.TEXTURE_2D, this.#tex);
-        if (tw !== this.#tw || th !== this.#th) {
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, tw, th, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-          this.#tw = tw; this.#th = th;
-        }
-        gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, wrap);
-        this.#dirtyTex = false;
-      } catch (err) {
-        this.lastError = err; // not painted yet; the next paint event will upload
-        return;
+    const repainted = this.#dirtyTex || !changed || [...changed].includes(this.#wrap);
+    try {
+      if (this.#engine === 'webgl') this.#paintGL(repainted); else this.#paint2D(repainted);
+    } catch (err) {
+      this.lastError = err; // usually "not painted yet"; the next paint event tries again
+      return;
+    }
+    // Say where the text lives: 2D draws leave the hit box on the last piece drawn, WebGL draws never move it.
+    this.#home();
+    this.dispatchEvent(new CustomEvent('glyphframe', { detail: { particles: this.#parts.length, moving: this.#running, ms: performance.now() - now, engine: this.#engine } }));
+  }
+
+  #paint2D(repainted) {
+    const ctx = this.#ctx, dpr = this.#dpr, b = this.#bleed, wrap = this.#wrap, W = this.#W, H = this.#H;
+    if (this.#running && (repainted || !this.#atlas) && !this.#atlasBusy) {
+      // Refresh the atlas: draw the block, copy those pixels, then draw the real frame over it.
+      // createImageBitmap copies the canvas as it is now, and nothing reaches the screen until this handler returns.
+      const size = this.#canvas.getElementImageDefaultSize(wrap);
+      const tw = Math.max(1, Math.min(this.#canvas.width, Math.ceil(size.width))), th = Math.max(1, Math.min(this.#canvas.height, Math.ceil(size.height)));
+      ctx.reset();
+      ctx.drawElementImage(wrap, 0, 0);
+      this.#atlasBusy = true;
+      this.#dirtyTex = false;
+      createImageBitmap(this.#canvas, 0, 0, tw, th).then((bmp) => {
+        this.#atlas?.close?.();
+        this.#atlas = bmp; this.#tw = tw; this.#th = th;
+      }, (err) => { this.lastError = err; this.#dirtyTex = true; }).finally(() => { this.#atlasBusy = false; this.#canvas.requestPaint(); });
+    }
+    ctx.reset();
+    if (!this.#running || !this.#atlas) {
+      // Everything is home (or the atlas is not ready yet): one draw, the same as plain text.
+      ctx.scale(dpr, dpr);
+      ctx.drawElementImage(wrap, b, b, W, H);
+      if (!this.#running) this.#dirtyTex = true;   // take a fresh atlas at the start of the next flight
+      return;
+    }
+    const atlas = this.#atlas, kx = this.#tw / W, ky = this.#th / H;
+    for (const p of this.#parts) {
+      const s = p.s * dpr, cos = Math.cos(p.r) * s, sin = Math.sin(p.r) * s;
+      ctx.setTransform(cos, sin, -sin, cos, (b + p.hx + p.x + p.w / 2) * dpr, (b + p.hy + p.y + p.h / 2) * dpr);
+      ctx.drawImage(atlas, p.hx * kx, p.hy * ky, p.w * kx, p.h * ky, -p.w / 2, -p.h / 2, p.w, p.h);
+    }
+  }
+
+  #paintGL(repainted) {
+    const gl = this.#gl, b = this.#bleed, wrap = this.#wrap, W = this.#W, H = this.#H;
+    // The text is one texture. It only needs a new upload when the browser repainted it.
+    if (repainted) {
+      const size = this.#canvas.getElementImageDefaultSize(wrap);
+      const tw = Math.max(1, Math.ceil(size.width)), th = Math.max(1, Math.ceil(size.height));
+      const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+      if (tw > max || th > max) { this.#goPlain(`the text needs a ${tw}×${th} texture and this GPU stops at ${max}`); return; }
+      gl.bindTexture(gl.TEXTURE_2D, this.#tex);
+      if (tw !== this.#tw || th !== this.#th) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, tw, th, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        this.#tw = tw; this.#th = th;
       }
+      gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, wrap);
+      this.#dirtyTex = false;
     }
     let data;
     if (!this.#running) {
@@ -454,9 +559,6 @@ export class GlyphField extends HTMLElement {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.#inst);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, data.length / 10);
-    // WebGL draws do not move the element's hit box, so say where the text lives.
-    this.#home();
-    this.dispatchEvent(new CustomEvent('glyphframe', { detail: { particles: this.#parts.length, moving: this.#running, ms: performance.now() - now } }));
   }
 }
 
