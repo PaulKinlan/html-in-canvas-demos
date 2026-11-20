@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Remote origin frame</title>
+<style>
+  body { margin: 0; font: 14px/1.4 system-ui; background: #1c1b22; color: #eee; }
+  .origin { font: 11px ui-monospace, monospace; padding: 4px 8px; background: #000; color: #9f9; }
+  canvas-slot { height: 150px; }
+  canvas-slot > [slot] { width: 260px; }
+  .w { padding: 10px 12px; border-radius: 10px; background: #2d2a3a; color: #f3f0ff; border: 1px solid #5b4fa0; font: 14px/1.4 system-ui; }
+  .w h3 { margin: 0 0 6px; font-size: 14px; }
+  .w button, .w input { font: inherit; }
+  .w input { width: 120px; }
+</style>
+</head>
+<body>
+<div class="origin" id="origin"></div>
+<canvas-slot id="remote">
+  <section slot="widget" class="w">
+    <h3>Widget owned by <span id="host"></span></h3>
+    <button id="like" type="button">♥ 0</button>
+    <input id="text" placeholder="type from parent">
+    <div id="echo" style="font-size:12px;opacity:.8">&nbsp;</div>
+  </section>
+</canvas-slot>
+<script type="module">
+  import '/lib/canvas-slot.js';
+  import { publish } from '/lib/slot-share.js';
+  document.getElementById('origin').textContent = 'this frame: ' + location.origin;
+  document.getElementById('host').textContent = location.host.split('.')[0];
+  let likes = 0;
+  document.getElementById('like').onclick = (e) => (e.target.textContent = `♥ ${++likes}`);
+  document.getElementById('text').oninput = (e) => (document.getElementById('echo').textContent = 'you typed: ' + e.target.value);
+
+  const remote = document.getElementById('remote');
+  remote.onrender = ({ draw }) => draw('widget', 10, 10);
+  const pub = publish(remote);
+
+  // --- Rendering someone else's DOM: the parent sends us its OffscreenCanvas
+  // and ElementImage snapshots of its elements. We never see its DOM.
+  let ctx = null, img = null, size = null, started = false;
+  function loop(t) {
+    requestAnimationFrame(loop);
+    if (!ctx || !img || !size) return;
+    const { width, height, dpr } = size;
+    ctx.reset();
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = '#1c1b22';
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    // Wavy vertical strips: source-rect crops of one snapshot.
+    const strip = 6, ox = 24, oy = 28;
+    try {
+      for (let x = 0; x < width; x += strip) {
+        const dy = Math.sin(t / 400 + x / 40) * 8;
+        ctx.drawElementImage(img, x * dpr, 0, strip * dpr, height * dpr, ox + x, oy + dy, strip, height, { preserveElementGeometry: true });
+      }
+      // One un-warped call so the parent's element geometry (hit testing) is set.
+      ctx.globalAlpha = 0;
+      ctx.drawElementImage(img, ox, oy, width, height);
+    } catch (err) {
+      parent.postMessage({ type: 'frame-error', message: `${err.name}: ${err.message}` }, '*');
+      img = null;
+    }
+  }
+
+  // Demo only: accepts messages from any origin.
+  addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || typeof m !== 'object') return;
+    const reply = (ok, detail) => e.source.postMessage({ type: 'test-result', id: m.id, ok, detail }, '*');
+    try {
+      if (m.type === 'port') {
+        pub.add(e.ports[0]);
+      } else if (m.type === 'offscreen') {
+        ctx = m.canvas.getContext('2d', { willReadFrequently: true });
+        if (!started) { started = true; requestAnimationFrame(loop); }
+      } else if (m.type === 'snapshot') {
+        img?.close();
+        img = m.img;
+        size = m.size;
+      } else if (m.type === 'test') {
+        if (m.mode === 'receive') {
+          reply(true, `received ${Object.prototype.toString.call(m.img)} from ${e.origin}`);
+        } else if (m.mode === 'draw-own') {
+          const c = document.createElement('canvas');
+          c.setAttribute('content', 'drawable');
+          c.getContext('2d').drawElementImage(m.img, 0, 0);
+          reply(true, 'drawn into the frame\'s own canvas');
+        } else if (m.mode === 'readback') {
+          if (!ctx) throw new Error('no offscreen canvas yet');
+          const d = ctx.getImageData(Math.floor(40 * (size?.dpr ?? 1)), Math.floor(100 * (size?.dpr ?? 1)), 1, 1).data;
+          reply(true, `cross-origin frame read pixel ${Array.from(d).join(',')} of the parent's DOM`);
+        }
+      }
+    } catch (err) {
+      reply(false, `${err.name}: ${err.message}`);
+    }
+  });
+  parent.postMessage({ type: 'frame-ready' }, '*');
+</script>
+</body>
+</html>
