@@ -48,6 +48,7 @@ export class DomRewind extends HTMLElement {
   #lastState = null;
   #replaying = null;
   #ro; #mo; #seq = 0; #exporting = false;
+  #plain = null;           // why the children are showing as plain HTML instead of through the canvas, or null
 
   constructor() {
     super();
@@ -56,6 +57,39 @@ export class DomRewind extends HTMLElement {
 
   get supported() { return SUPPORTED; }
   get canvas() { return this.#canvas; }
+  /** Why the children are showing as plain HTML instead of through the canvas, or null. */
+  get fallbackReason() { return this.#plain; }
+
+  /**
+   * Stop drawing and recording, and show the children as ordinary positioned HTML. The element does this
+   * by itself when the canvas context is lost (and comes back when it is restored); call it if you can
+   * tell the canvas is wrong. Fires "rewindfallback" with { reason }. The history is kept.
+   */
+  showPlain(reason = 'asked to') {
+    if (!SUPPORTED || this.#plain || !this.#canvas) return;
+    this.#replaying?.resolve?.();
+    this.#replaying = null;
+    this.#setAgo(0);
+    this.#plain = String(reason);
+    for (const it of this.#items.values()) { this.shadowRoot.append(it.wrap); this.#plainPlace(it); }
+    this.setAttribute('plain', '');
+    this.dispatchEvent(new CustomEvent('rewindfallback', { detail: { reason: this.#plain } }));
+  }
+
+  /** Go back to drawing through the canvas after showPlain(). */
+  showCanvas() {
+    if (!this.#plain) return;
+    if (this.#ctx.isContextLost?.()) return;
+    this.#plain = null;
+    for (const it of this.#items.values()) { it.wrap.style.transform = ''; this.#canvas.append(it.wrap); it.img = null; }
+    this.removeAttribute('plain');
+    this.#last = performance.now();
+    this.#dirty = true;
+    this.dispatchEvent(new CustomEvent('rewindfallback', { detail: { reason: null } }));
+  }
+
+  #plainPlace(it) { it.wrap.style.transform = `translate(${it.x}px, ${it.y}px) rotate(${it.rotate}rad)`; }
+
   /** Seconds of history held. */
   get duration() { return this.#frames.length ? this.#clock - this.#frames[0].t : 0; }
   /** Seconds behind live (0 when live). */
@@ -86,6 +120,8 @@ export class DomRewind extends HTMLElement {
         canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
         .item { position: absolute; left: 0; top: 0; width: max-content; }
         :host([past]) .item { pointer-events: none; }
+        :host([plain]) canvas { display: none; }
+        :host([plain]) .item { transform-origin: 50% 50%; }
       </style>
       <canvas content="drawable" layoutsubtree></canvas>`;
     this.#canvas = this.shadowRoot.querySelector('canvas');
@@ -96,6 +132,9 @@ export class DomRewind extends HTMLElement {
     this.#ro = new ResizeObserver(() => this.#resize());
     this.#ro.observe(this);
     this.#canvas.addEventListener('paint', (e) => this.#paint(e));
+    // A lost context leaves an empty box where the children were. Show them as plain HTML until it is back.
+    this.#canvas.addEventListener('contextlost', (e) => { e.preventDefault(); this.showPlain('the canvas context was lost'); });
+    this.#canvas.addEventListener('contextrestored', () => this.showCanvas());
     const tick = () => { this.#canvas.requestPaint(); this.#raf = requestAnimationFrame(tick); };
     this.#raf = requestAnimationFrame(tick);
   }
@@ -113,6 +152,7 @@ export class DomRewind extends HTMLElement {
     if (rotate !== undefined) it.rotate = rotate;
     this.#dirty = true;
     if (!SUPPORTED) el.style.transform = `translate(${it.x}px, ${it.y}px) rotate(${it.rotate}rad)`;
+    else if (this.#plain) this.#plainPlace(it);
   }
 
   placement(el) {
@@ -122,7 +162,7 @@ export class DomRewind extends HTMLElement {
 
   /** Show the UI as it was `secondsAgo` seconds of recorded time ago. Recording pauses while in the past. */
   seek(secondsAgo) {
-    if (!SUPPORTED) return;
+    if (!SUPPORTED || this.#plain) return;
     this.#replaying = null;
     this.#setAgo(secondsAgo);
   }
@@ -131,7 +171,7 @@ export class DomRewind extends HTMLElement {
 
   /** Play back the last `seconds` at `rate`, then return to live. Resolves when done. */
   replay(seconds = 5, rate = 1) {
-    if (!SUPPORTED) return Promise.resolve();
+    if (!SUPPORTED || this.#plain) return Promise.resolve();
     this.#setAgo(Math.min(seconds, this.duration));
     return new Promise((resolve) => { this.#replaying = { rate, last: performance.now(), resolve }; });
   }
@@ -164,7 +204,7 @@ export class DomRewind extends HTMLElement {
    * (ImageBitmap, so it can go to a VideoFrame, a worker or another canvas). Live drawing pauses meanwhile.
    */
   async *frames({ seconds = this.duration, fps = 30 } = {}) {
-    if (!SUPPORTED || !this.#frames.length) return;
+    if (!SUPPORTED || this.#plain || !this.#frames.length) return;
     const span = Math.min(seconds, this.duration), end = this.#clock;
     this.#exporting = true;
     try {
@@ -209,8 +249,9 @@ export class DomRewind extends HTMLElement {
       const slot = document.createElement('slot');
       slot.name = el.slot = `rw-${this.#seq++}`;
       wrap.append(slot);
-      this.#canvas.append(wrap);
-      this.#items.set(el, { el, wrap, slot, x: Number(el.dataset.x ?? 0), y: Number(el.dataset.y ?? 0), rotate: Number(el.dataset.rotate ?? 0), img: null, w: 0, h: 0 });
+      const it = { el, wrap, slot, x: Number(el.dataset.x ?? 0), y: Number(el.dataset.y ?? 0), rotate: Number(el.dataset.rotate ?? 0), img: null, w: 0, h: 0 };
+      this.#items.set(el, it);
+      if (this.#plain) { this.shadowRoot.append(wrap); this.#plainPlace(it); } else this.#canvas.append(wrap);
     }
     for (const [el, it] of this.#items) {
       if (seen.has(el)) continue;
@@ -290,7 +331,7 @@ export class DomRewind extends HTMLElement {
   }
 
   #paint(event) {
-    if (this.#exporting) return;
+    if (this.#exporting || this.#plain) return;
     const now = performance.now();
     const dt = Math.min(0.1, (now - (this.#last || now)) / 1000);
     this.#last = now;

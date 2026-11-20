@@ -66,12 +66,14 @@
   .controls input[type=range] { flex: 1; min-width: 160px; }
   #where { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; }
 
-  #rigbox { margin-top: 16px; }
-  #rigbox.fixed { position: fixed; left: 0; bottom: 0; z-index: 5; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 30px 16px 16px; }
+  /* The checks run here, on their own fixture, and only while this box is on screen. It sticks to the top of
+     its own section while they run; it can never sit over the demo above. */
+  #rigbox { position: sticky; top: 8px; z-index: 5; display: inline-block; max-width: 100%; box-sizing: border-box; margin: 12px 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 30px 16px 16px; }
+  #rigbox.done { position: relative; top: auto; }
+  @media (max-width: 420px) { #rigbox { padding-left: 3px; padding-right: 3px; } }   /* keep the rig at its full width on a phone */
   #rigbox .cap { font: 12px var(--mono); color: var(--muted); position: absolute; left: 10px; top: 8px; }
-  #rigbox:not(.fixed) .cap { position: static; margin-bottom: 20px; }
-  #rigbox:not(.fixed) { padding: 0 0 20px; }
-  #rig { width: 320px; }
+  #rig { width: 320px; max-width: 100%; }
+  #raws { display: flex; gap: 4px; margin-top: 6px; }
   .r { box-sizing: border-box; height: 160px; padding: 12px; font: 16px/1.3 system-ui; color: #000; }
   .ra { background: rgb(255, 204, 0); }
   .rb { background: rgb(0, 204, 255); }
@@ -124,6 +126,7 @@
         <div class="foot"><span class="clock" data-clock></span><button class="cta" data-go="0" data-morph="cta">Start again</button></div>
       </section>
     </live-transition>
+    <div id="fallback-note" class="note" role="status" hidden></div>
   </div>
 
   <div class="controls">
@@ -194,16 +197,16 @@ vec4 transition(vec2 uv) {
   </p>
 
   <h2>Live tests</h2>
-  <p class="note">These run against the small rig below, in your browser, right now.</p>
-  <table class="results"><tbody id="tests"></tbody></table>
-
-  <div id="rigbox" class="fixed">
+  <p class="note">These run in your browser when this section is on screen, against the small rig below. They do not touch the demo above.</p>
+  <div id="rigbox">
     <div class="cap">test rig</div>
     <live-transition id="rig" bleed="16">
-      <div class="r ra"><button id="ra-btn" data-morph="b" style="margin:60px 0 0 30px">A button</button> <input id="ra-in" size="6" value="abc" aria-label="Test text"><div class="blink"></div><span id="ra-text">select me</span></div>
-      <div class="r rb"><button id="rb-btn" data-morph="b" style="margin:10px 0 0 200px">B button</button><dialog id="rb-dialog" style="background:rgb(255,0,255);border:0;padding:20px">modal</dialog></div>
+      <div class="r ra"><button id="ra-btn" data-morph="b" style="margin:60px 0 0 30px">A button</button> <input id="ra-in" size="6" value="abc" aria-label="Test text" inputmode="none" tabindex="-1"><div class="blink"></div><span id="ra-text">select me</span></div>
+      <div class="r rb"><button id="rb-btn" data-morph="b" style="margin:10px 0 0 200px">B button</button><div id="rb-pop" popover="manual" style="background:rgb(255,0,255);border:0;padding:6px;margin:0;inset:auto;font:12px system-ui">popover</div></div>
     </live-transition>
+    <div id="raws" aria-hidden="true"></div>
   </div>
+  <table class="results"><tbody id="tests"></tbody></table>
 
   <h2>What we learned</h2>
   <ul class="findings">
@@ -219,6 +222,7 @@ vec4 transition(vec2 uv) {
 
 <script type="module">
   import { banner, supported, runTests } from '/shared/support.js';
+  import { onScreen } from '/shared/on-screen.js';
   import { LiveTransition } from '/lib/live-transition.js';
   banner();
 
@@ -307,6 +311,32 @@ vec4 transition(vec2 uv) {
       ? `Pointer is over state ${hit.state + 1}, routed with matrix(${['a', 'b', 'c', 'd', 'e', 'f'].map((k) => hit.matrix[k].toFixed(2)).join(', ')})`
       : 'Pointer is over neither state.';
   });
+
+  // If the canvas is lost, or comes out empty or as one solid block, show the cards as plain HTML and say so.
+  {
+    const note = document.getElementById('fallback-note');
+    lt.addEventListener('livefallback', (e) => {
+      note.hidden = !e.detail.reason;
+      note.textContent = e.detail.reason ? `Showing the cards as plain HTML because ${e.detail.reason}. They still work and still switch; the effects are off.` : '';
+    });
+    const probe = document.createElement('canvas'), pctx = probe.getContext('2d', { willReadFrequently: true });
+    let last = 0, bad = 0;
+    lt.addEventListener('liveframe', () => {
+      if (performance.now() - last < 700 || lt.fallbackReason) return;
+      last = performance.now();
+      const c = lt.canvas;
+      probe.width = Math.max(1, Math.round(c.width / 8)); probe.height = Math.max(1, Math.round(c.height / 8));
+      pctx.drawImage(c, 0, 0, probe.width, probe.height);          // a WebGL canvas can only be read inside its own frame
+      const d = pctx.getImageData(0, 0, probe.width, probe.height).data;
+      let any = 0, opaque = 0;
+      for (let i = 3; i < d.length; i += 4) { if (d[i] > 8) any++; if (d[i] > 250) opaque++; }
+      const n = d.length / 4;
+      // At rest the card covers the middle and the margin around it is clear. Nothing drawn, or everything opaque, is wrong.
+      const wrong = any / n < 0.005 ? 'the canvas came out blank' : (!lt.transitioning && opaque / n > 0.98) ? 'the canvas came out as one solid block' : null;
+      bad = wrong ? bad + 1 : 0;
+      if (bad >= 2) lt.showPlain(wrong);                             // twice in a row, so one odd frame does not count
+    });
+  }
 
   // ---------------------------------------------------------------- tests
   const rig = document.getElementById('rig');
@@ -443,12 +473,13 @@ vec4 transition(vec2 uv) {
     },
     {
       name: 'Typing into an input on a folded panel',
-      why: 'Hold a fold at 40%, focus the old state\'s input, insert text, compare pixels.',
+      why: 'Hold a fold at 40%, focus the old state\'s input, insert text, compare pixels. The input asks for no on-screen keyboard and focus goes back where it was.',
       async run() {
         await hold('fold', 0.4);
         const input = document.getElementById('ra-in');
         input.value = 'abc';
-        input.focus();
+        const had = document.activeElement;
+        input.focus({ preventScroll: true });
         await frames(3);
         const before = scratchSum(await grab());
         document.execCommand('insertText', false, 'WWWW');
@@ -459,6 +490,7 @@ vec4 transition(vec2 uv) {
         must(v.includes('WWWW'), `value is "${v}"`);
         must(before !== after, 'pixels did not change');
         input.value = 'abc'; input.blur();
+        if (had && had !== document.body) had.focus?.({ preventScroll: true });
         return `value "${v}", still focused, canvas changed`;
       },
     },
@@ -560,15 +592,46 @@ vec4 transition(vec2 uv) {
       },
     },
     {
+      name: 'Losing the WebGL context shows the states as plain HTML, and the canvas returns after',
+      why: 'WEBGL_lose_context on the rig. A lost canvas would otherwise be an empty box with working buttons you cannot see.',
+      timeout: 8000,
+      async run() {
+        await reset();
+        const ext = rig.canvas.getContext('webgl2').getExtension('WEBGL_lose_context');
+        must(ext, 'WEBGL_lose_context is not available here');
+        let reason = null;
+        const on = (e) => { if (e.detail.reason) reason = e.detail.reason; };
+        rig.addEventListener('livefallback', on);
+        ext.loseContext();
+        await sleep(150); await frames(3);
+        const r = rig.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + 60, r.y + 80);
+        const shown = getComputedStyle(rig.canvas).display === 'none' && rig.hasAttribute('plain');
+        await rig.show(1);
+        const switched = rig.current === 1 && document.elementFromPoint(r.x + 230, r.y + 25)?.id === 'rb-btn';
+        await rig.show(0);
+        ext.restoreContext();
+        await sleep(300); await frames(4);
+        rig.removeEventListener('livefallback', on);
+        must(reason, 'no livefallback event');
+        must(shown && hit?.id === 'ra-btn', `plain HTML not shown: canvas display ${getComputedStyle(rig.canvas).display}, hit ${hit?.id || hit?.tagName}`);
+        must(switched, 'show() did not switch states while plain');
+        must(!rig.fallbackReason, `still plain after restore: ${rig.fallbackReason}`);
+        const px = (await grab())(160, 150);
+        must(near(px, YELLOW), `canvas did not draw again after restore: ${px}`);
+        return `"${reason}": states shown as HTML and still switch; after restore the canvas draws again`;
+      },
+    },
+    {
       name: 'Upload a state that has never been painted',
       expect: 'fail',
       why: 'A visibility: hidden state has no paint record, so the first frame has to wait.',
       async run() {
         const c = document.createElement('canvas');
         c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
-        c.width = 40; c.height = 20; c.style.cssText = 'position:fixed;left:0;bottom:0;width:40px;height:20px;opacity:.3';
+        c.width = 40; c.height = 20; c.style.cssText = 'width:40px;height:20px;opacity:.3';
         c.innerHTML = '<div drawable style="visibility:hidden;width:40px;height:20px;background:red"></div>';
-        document.body.append(c);
+        document.getElementById('raws').append(c);
         const gl = c.getContext('webgl2');
         await new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
         try {
@@ -584,22 +647,24 @@ vec4 transition(vec2 uv) {
       },
     },
     {
-      name: 'A modal dialog opened inside a state travels with it',
+      name: 'A popover opened inside a state travels with it',
       expect: 'fail',
-      why: 'showModal() moves the dialog to the top layer, outside the canvas subtree\'s picture.',
+      why: 'Popovers and modal dialogs move to the top layer, outside the canvas subtree\'s picture. (A small popover is used here so the check does not take over the page the way a modal would.)',
       async run() {
         await reset();
         await rig.begin(1, { effect: 'fade', force: true }); rig.progress = 1; await rig.play();
-        const d = document.getElementById('rb-dialog');
-        d.showModal();
+        const d = document.getElementById('rb-pop');
+        const at = rig.getBoundingClientRect();
+        d.style.left = `${at.x + 8}px`; d.style.top = `${at.y + 8}px`;   // over the rig, not over the page
+        d.showPopover();
         await frames(3);
         const px = await grab();
         let magenta = 0;
         for (let y = 4; y < 160; y += 6) for (let x = 4; x < 320; x += 6) if (near(px(x, y), [255, 0, 255], 20)) magenta++;
         const r = d.getBoundingClientRect();
-        d.close();
-        must(magenta > 0, `dialog was laid out at ${Math.round(r.x)},${Math.round(r.y)} on the page; none of it is in the state's texture`);
-        return `${magenta} dialog samples in the texture`;
+        d.hidePopover();
+        must(magenta > 0, `popover was laid out at ${Math.round(r.x)},${Math.round(r.y)} on the page; none of it is in the state's texture`);
+        return `${magenta} popover samples in the texture`;
       },
     },
   ];
@@ -614,12 +679,18 @@ vec4 transition(vec2 uv) {
 
   if (supported) {
     await customElements.whenDefined('live-transition');
+    const gate = onScreen(rigbox);
+    gate.reserve(document.getElementById('tests'), tests);   // rows first, so nothing below moves when the checks start
+    await gate.seen;
     await frames(4);
-    await runTests(document.getElementById('tests'), tests);
+    await runTests(document.getElementById('tests'), gate.gate(tests));
+    gate.stop();
     await reset();
-    rigbox.classList.remove('fixed');
+    document.getElementById('raws').replaceChildren();
+    getSelection().removeAllRanges();
+    rigbox.classList.add('done');
   } else {
-    rigbox.classList.remove('fixed');
+    rigbox.classList.add('done');
     document.getElementById('tests').innerHTML = '<tr><td class="note">Tests need the HTML-in-canvas API. The demo above still switches states, using a native view transition where there is one.</td></tr>';
   }
 </script>
