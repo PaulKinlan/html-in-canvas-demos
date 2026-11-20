@@ -139,8 +139,10 @@
     return data;
   };
   // One cheap look at the page, taken by the harness alongside each screenshot.
+  const canvasKeys = new WeakMap();
+  let canvasKeyCount = 0;
   J.sample = () => {
-    const out = { y: Math.round(scrollY), active: desc(document.activeElement), h: document.documentElement.scrollHeight, canvases: [], overlay: null };
+    const out = { y: Math.round(scrollY), vw: innerWidth, vh: innerHeight, active: desc(document.activeElement), h: document.documentElement.scrollHeight, canvases: [], overlay: null };
     const walk = (root) => {
       for (const c of root.querySelectorAll('canvas')) {
         if (!J.inViewport(c)) continue;
@@ -149,7 +151,14 @@
         for (let n = c; n && alpha > 0.1; n = n.parentElement || n.getRootNode().host) alpha *= +getComputedStyle(n).opacity;
         if (alpha <= 0.1) continue;
         const r = c.getBoundingClientRect();
-        out.canvases.push({ id: desc(c) + '@' + desc(c.getRootNode().host || c.parentElement), x: r.x, y: r.y, w: r.width, h: r.height });
+        // A canvas mostly below or above the screen shows only an edge of itself, and an edge is often one flat
+        // colour: that is not the canvas going blank. Only canvases at least half on screen are judged.
+        const seen = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)) * Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0));
+        if (seen < r.width * r.height * 0.5) continue;
+        // Many canvases can share a description (a table with one per row), so each also gets a key of its own:
+        // "had a picture, now flat" must be about one canvas, not two that look alike in the log.
+        if (!canvasKeys.has(c)) canvasKeys.set(c, ++canvasKeyCount);
+        out.canvases.push({ id: desc(c) + '@' + desc(c.getRootNode().host || c.parentElement), key: canvasKeys.get(c), x: r.x, y: r.y, w: r.width, h: r.height });
       }
       for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot);
     };

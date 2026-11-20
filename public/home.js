@@ -40,11 +40,33 @@ const grids = [];
   }
 }
 
+// The learning path, from /shared/learn.js. Same number of rows at every width, so filling it moves nothing below it by much;
+// it runs before the first paint (nav.js holds the page until the scripts have built it).
+{
+  const path = document.getElementById('path');
+  const steps = window.LEARN?.path ?? [];
+  const titles = new Map((window.DEMOS ?? []).map((d) => [d.href, d.title]));
+  if (path && steps.length) {
+    path.replaceChildren(...steps.map((s) => {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = s.href;
+      const b = document.createElement('b');
+      b.textContent = titles.get(s.href) ?? s.href;
+      const span = document.createElement('span');
+      span.textContent = s.idea;
+      a.append(b, span);
+      li.append(a);
+      return li;
+    }));
+  }
+}
+
 if (!supported) {
   const forced = new URLSearchParams(location.search).has('plain');
   mode.innerHTML = forced
     ? '<span><b>Plain HTML mode.</b> The canvas index is switched off.</span> <a href="/">Turn it back on</a>'
-    : '<span><b>Plain HTML mode.</b> This browser has no HTML-in-canvas, so the index is a normal grid of links. The demos need Chrome with <code>chrome://flags/#canvas-draw-element</code>.</span>';
+    : '<span><b>Plain HTML mode.</b> This browser has no HTML-in-canvas, so the index is a normal grid of links. The demos need Chrome with <code>chrome://flags/#canvas-draw-element</code>: <a href="/start/#enable">how to turn it on</a>.</span>';
 } else {
   mode.innerHTML =
     '<span><b>Canvas mode.</b> These cards are real links drawn into a canvas with <code>drawElementImage()</code>. Tab through them.</span> <a href="/?plain">See the plain HTML version</a>';

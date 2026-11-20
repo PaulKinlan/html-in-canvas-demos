@@ -191,7 +191,12 @@ async function measure(base, href, helper) {
     const seenContent = new Set();
     let latest = null, phase = 'load', step = 0, queue = Promise.resolve(), shotNo = 0, first = true;
     const onFrame = async (f) => {
-      const rects = latest && Math.abs(latest.y - f.metadata.scrollOffsetY) < 1.5 ? latest.canvases : [];
+      // The sample must describe this frame: same scroll position and same viewport size. A frame caught half way
+      // through a viewport change is laid out differently, and the rectangles would land on the wrong pixels.
+      const m = f.metadata;
+      const sameView = latest && Math.abs(latest.y - m.scrollOffsetY) < 1.5 &&
+        (latest.vh === undefined || !m.deviceHeight || (Math.abs(latest.vh - m.deviceHeight) < 1.5 && Math.abs(latest.vw - m.deviceWidth) < 1.5));
+      const rects = sameView ? latest.canvases : [];
       const rec = { t: Date.now() - t0, phase, step, blank: [] };
       const a = await helper.evaluate(([b, r, w, reset]) => self.__analyse(b, r, w, reset), [f.data, rects, W, first]);
       first = false;
@@ -200,8 +205,8 @@ async function measure(base, href, helper) {
       rects.forEach((c, i) => {
         const flat = a.flat[i];
         if (flat === null) return;
-        if (flat < 0.97) seenContent.add(c.id);
-        else if (flat > 0.992) rec.blank.push({ id: c.id, hadContent: seenContent.has(c.id) });
+        if (flat < 0.97) seenContent.add(c.key ?? c.id);
+        else if (flat > 0.992) rec.blank.push({ id: c.id, hadContent: seenContent.has(c.key ?? c.id) });
       });
       frames.push(rec);
       if (opt.shots) {

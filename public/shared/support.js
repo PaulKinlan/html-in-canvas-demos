@@ -15,7 +15,8 @@ export function banner() {
     el.className = 'bad';
     el.innerHTML =
       'HTML-in-canvas is not available here. Use Chrome 148+ with <code>chrome://flags/#canvas-draw-element</code> enabled ' +
-      '(the API is also in an origin trial named <code>html-in-canvas</code>). The live tests below will report failures.';
+      '(the API is also in an origin trial named <code>html-in-canvas</code>). The live tests below will report failures. ' +
+      '<a href="/start/#enable">How to turn it on</a>.';
   }
 }
 
@@ -139,7 +140,7 @@ function waitForTap(tbody, rows) {
   const gate = document.createElement('p');
   gate.className = 'checks-gate';
   gate.innerHTML = `<button type="button">Run these ${rows.length} checks</button> <span class="note">They drive the demo on this page, so it will scroll and flicker while they run.</span>`;
-  table.before(gate);
+  (table.closest('details.checks-fold') ?? table).before(gate);
   for (const tr of rows) { const s = tr.querySelector('.status'); s.className = 'status idle'; s.textContent = 'not run'; }
   // A fixture panel the page already pinned to the window stays out of sight until the checks start.
   const bench = document.getElementById('check-bench');
@@ -148,11 +149,39 @@ function waitForTap(tbody, rows) {
   return new Promise((resolve) => {
     gate.querySelector('button').addEventListener('click', () => {
       gate.remove();
+      const fold = table.closest('details.checks-fold');
+      if (fold) fold.open = true; // the person asked for the checks, so show the rows
       if (bench) bench.hidden = false;
       for (const tr of rows) { const s = tr.querySelector('.status'); s.className = 'status pending'; s.textContent = '… waiting'; }
       resolve();
     }, { once: true });
   });
+}
+
+/**
+ * Put a results table inside a <details> whose summary line carries the count
+ * ("Live checks: 9 of 11 pass"). Closed on a narrow screen, so the rows do not
+ * push the rest of the page down; open where there is room. Safe to call twice.
+ * runTests() calls it; a page that fills its rows earlier can call it then.
+ */
+export function foldChecks(tbody) {
+  const table = tbody.closest?.('table');
+  if (!table || isBench) return null;
+  let fold = table.closest('details.checks-fold');
+  if (fold) return fold;
+  fold = document.createElement('details');
+  fold.className = 'checks-fold';
+  fold.open = window.top === window && innerWidth >= 700;
+  const summary = document.createElement('summary');
+  summary.innerHTML = '<b>Results</b><span class="count">not run yet</span>';
+  table.before(fold);
+  fold.append(summary, table);
+  return fold;
+}
+
+function foldCount(fold, text) {
+  const el = fold?.querySelector(':scope > summary .count');
+  if (el) el.textContent = text;
 }
 
 export async function runTests(tbody, tests, { when = null } = {}) {
@@ -166,7 +195,10 @@ export async function runTests(tbody, tests, { when = null } = {}) {
     tbody.append(tr);
     return tr;
   });
+  const fold = foldChecks(tbody);
+  foldCount(fold, `${tests.length} checks, not run yet`);
   if (!checksAutoRun()) await waitForTap(tbody, rows);
+  foldCount(fold, `${tests.length} checks, running`);
   window.__checkState = 'running';
   const calm = keepCalm();
   const results = new Array(tests.length);
@@ -194,6 +226,15 @@ export async function runTests(tbody, tests, { when = null } = {}) {
   document.getElementById('test-stage')?.remove();
   await bench;
   calm.restore();
+  {
+    // "9 of 11 pass, 2 fail (2 expected)". A check marked expect: 'fail' records a limit of the API.
+    const pass = results.filter((r) => r?.ok).length;
+    const failed = tests.filter((t, i) => !results[i]?.ok);
+    const expected = failed.filter((t) => t.expect === 'fail').length;
+    let text = `${pass} of ${tests.length} pass`;
+    if (failed.length) text += `, ${failed.length} fail` + (expected ? ` (${expected} expected)` : '');
+    foldCount(fold, text);
+  }
   window.__checkState = 'done';
   window.__results = results;
   return results;

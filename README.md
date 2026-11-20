@@ -4,10 +4,47 @@ Pushing on the experimental [HTML-in-canvas](https://github.com/WICG/html-in-can
 
 Live: https://html-in-canvas-demos.kinlan-test.workers.dev (second origin for the cross-origin demo: https://html-in-canvas-remote.kinlan-test.workers.dev)
 
-Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-canvas` origin trial. Without it the site is plain HTML.
+Needs Chrome 148+ (desktop or Android) with `chrome://flags/#canvas-draw-element` set to Enabled, or the `html-in-canvas` origin trial. Without it the site is plain HTML. The demos are tested in Chromium 157 and in Chrome 159 on Android.
+
+## Learn the API
+
+[`/start/`](https://html-in-canvas-demos.kinlan-test.workers.dev/start/) is a tutorial: how to enable the API, a 60-line page that draws one element ([`public/start/hello.html`](public/start/hello.html)), common errors with their fixes, and a glossary.
+
+The minimum code:
+
+```html
+<canvas id="canvas" content="drawable" layoutsubtree>   <!-- 1. mark the canvas -->
+  <form id="card" drawable> … </form>                   <!--    and each element to draw -->
+</canvas>
+<script>
+  canvas.onpaint = () => {                               // 2. fires when the element's rendering changes
+    const ctx = canvas.getContext('2d');
+    ctx.reset();
+    ctx.rotate(-0.04);                                   // 3. any canvas transform, clip, shadow or filter
+    ctx.drawElementImage(card, 20, 20, card.offsetWidth, card.offsetHeight);   // 4. draw; also sets hit testing
+  };
+</script>
+```
+
+Read the demos in this order:
+
+1. [`/start/`](public/start/): the API
+2. [`/slot-bare/`](public/slot-bare/): draw elements that are outside the canvas, using a shadow root and a `<slot>`
+3. [`/slot/`](public/slot/): the `<canvas-slot>` custom element
+4. [`/portal/`](public/portal/): hit testing and `updateElementGeometry()`
+5. [`/shader-css/`](public/shader-css/): WebGL textures with `texElementSubImage2D()`
+6. [`/offscreen/`](public/offscreen/): `ElementImage` snapshots and workers
+7. [`/cross-tab/`](public/cross-tab/): other tabs and origins, by sending pixels and forwarding input
+8. [`/three-form/`](public/three-form/): three.js
+9. [`/a11y/`](public/a11y/): accessibility measurements
+
+Every demo page has a "What this page covers" box listing what it shows, which pages to read first and the API calls it uses. The text for the boxes and the list above are in [`public/shared/learn.js`](public/shared/learn.js).
+
+## The demos
 
 | Demo | What it explores |
 |---|---|
+| `/start/` | Tutorial: enable the API, draw one element, common errors, reading order, glossary |
 | `/slot/` | `<canvas-slot>`: light-DOM children slotted into a shadow canvas |
 | `/slot-bare/` | Just `<slot>` in `<canvas>` with declarative shadow DOM; a shadow root on `<body>` |
 | `/offscreen/` | `ElementImage` snapshots rendered in a worker; magnifier; pixel mirrors |
@@ -80,6 +117,9 @@ npm run check:jank -- --json out.json --shots frames/   # full numbers and every
 For a new demo page:
 
 - Put `<script src="/shared/nav.js"></script>` first in `<body>`. It reserves the menu's space and holds the first paint until your module scripts have built the page.
+- Add one line for it in `public/shared/demos.js` (menu and homepage) and one entry in `public/shared/learn.js` (what it teaches, what to read first, the calls to look for). The menu script puts the "What this page covers" box under the page's `<p class="lede">`, so write one.
+- In the first paragraph, say what the demo does and how to use it. Put the demo above the test tables.
+- `runTests()` puts its results table in a `<details>` with the pass count in the summary line. It is closed on screens narrower than 700 px.
 - Live checks run on their own fixtures, out of flow (fixed or absolute, or a hidden copy of the page with `lib/check-fixture.js`). They never call `scrollIntoView()`, `scrollTo()` or `focus()` on the page the reader is looking at, and never insert or remove anything in the flow above the results.
 - Do not size a canvas stage with `dvh`: it changes every time a phone's URL bar moves. Use `svh`.
 - Only assign `canvas.width` and `canvas.height` when the size really changed. Assigning clears the canvas.

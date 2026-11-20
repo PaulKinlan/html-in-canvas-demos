@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Start here: draw a DOM element in a canvas</title>
+<meta name="description" content="A first lesson in the HTML-in-canvas API: how to turn it on, the four moves that draw a live element into a canvas, the limits that bite, a learning path through the demos and a glossary.">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .hello { display: block; width: 100%; height: 290px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+  ol.moves { padding-left: 0; list-style: none; counter-reset: move; }
+  ol.moves > li { counter-increment: move; margin: 0 0 22px; }
+  ol.moves > li > h3 { margin: 0 0 4px; font-size: 18px; }
+  ol.moves > li > h3::before { content: counter(move); display: inline-grid; place-items: center; width: 26px; height: 26px; margin-right: 8px; border-radius: 50%; background: var(--accent); color: var(--bg); font: 600 14px var(--mono); vertical-align: 2px; }
+  ol.moves p { margin: 6px 0; }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .two .card h3 { margin: 0 0 6px; font-size: 16px; }
+  .two .card ul { margin: 0; padding-left: 18px; }
+  .two .card li { margin-bottom: 4px; }
+  table.gotchas { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  table.gotchas th, table.gotchas td { text-align: left; vertical-align: top; padding: 9px 8px 9px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  @media (max-width: 620px) {
+    table.gotchas, table.gotchas :is(tbody, tr, td) { display: block; }
+    table.gotchas thead { display: none; }
+    table.gotchas tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+    table.gotchas td { border: 0; padding: 2px 0; }
+    table.gotchas td:first-child { font-weight: 600; }
+  }
+  ol.path { padding-left: 0; list-style: none; counter-reset: step; display: grid; gap: 10px; }
+  ol.path li { counter-increment: step; display: grid; grid-template-columns: 34px 1fr; gap: 0 10px; padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  ol.path li::before { content: counter(step); grid-row: span 2; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); font: 600 14px var(--mono); }
+  ol.path a { font-weight: 600; }
+  ol.path span { color: var(--muted); font-size: 14.5px; }
+  dl.glossary dt { font-weight: 600; margin-top: 14px; }
+  dl.glossary dd { margin: 2px 0 0; max-width: 70ch; }
+  .toc { display: flex; flex-wrap: wrap; gap: 6px 8px; padding: 0; margin: 18px 0 24px; list-style: none; }
+  .toc a { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 99px; background: var(--card); color: var(--fg); text-decoration: none; font-size: 14px; }
+  .toc a:hover { border-color: var(--fg); }
+  h2 { scroll-margin-top: 64px; }
+</style>
+</head>
+<body>
+<script src="/shared/demos.js"></script>
+<script src="/shared/learn.js"></script>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Start here</h1>
+  <p class="lede">
+    HTML-in-canvas lets a <code>&lt;canvas&gt;</code> draw its descendant elements with <code>drawElementImage()</code>. The
+    canvas can transform, clip or filter the drawing, or upload it as a WebGL or WebGPU texture. The elements still take
+    clicks and typing, their text can be selected, and they stay in the accessibility tree. This page shows how to enable
+    the API and draw one element.
+  </p>
+
+  <ul class="toc" aria-label="On this page">
+    <li><a href="#enable">Enable the API</a></li>
+    <li><a href="#hello">A minimal page</a></li>
+    <li><a href="#moves">Four steps</a></li>
+    <li><a href="#free">What keeps working</a></li>
+    <li><a href="#beyond">WebGL, hit testing, workers</a></li>
+    <li><a href="#gotchas">Common errors</a></li>
+    <li><a href="#path">Learning path</a></li>
+    <li><a href="#glossary">Glossary</a></li>
+  </ul>
+
+  <h2 id="enable">Enable the API</h2>
+  <div id="support"></div>
+  <p>
+    The API is experimental and available only in Chromium browsers. In Chrome 148 or later, on desktop or Android, open
+    <code>chrome://flags/#canvas-draw-element</code>, set it to <strong>Enabled</strong> and restart the browser. A site can
+    enable it for its visitors with the <code>html-in-canvas</code> origin trial. The demos are tested in Chromium 157 on
+    desktop and Chrome 159 on Android.
+  </p>
+  <p>Detect the API before using it, and keep the page usable as plain HTML without it:</p>
+<pre><code>const supported = 'drawElementImage' in CanvasRenderingContext2D.prototype;</code></pre>
+  <p class="note">
+    Names have changed between Chrome versions. This site uses the names in Chromium 157: the canvas attribute
+    <code>content="drawable"</code> (earlier versions used <code>layoutsubtree</code>, so the demos set both), the
+    <code>drawable</code> attribute on each element to draw, <code>texElementSubImage2D()</code> for WebGL and
+    <code>drawElementImageToTexture()</code> for WebGPU. See the
+    <a href="https://github.com/WICG/html-in-canvas">explainer</a> for the current specification.
+  </p>
+
+  <h2 id="hello">A minimal page</h2>
+  <p>
+    The frame below runs the page listed under it. The card is a <code>&lt;form&gt;</code> drawn with a rotation and a
+    canvas shadow. The input, the button and text selection work.
+  </p>
+  <iframe class="hello" src="/start/hello.html?nohold" title="A minimal HTML-in-canvas page, running"></iframe>
+  <details class="source" open data-src="/start/hello.html">
+    <summary>Source of the page above</summary>
+  </details>
+
+  <h2 id="moves">Four steps</h2>
+  <ol class="moves">
+    <li>
+      <h3>Mark the canvas and the element</h3>
+      <p>
+        Add <code>content="drawable"</code> to the canvas and put the element inside it. The browser lays out the
+        canvas's children and keeps them in the accessibility tree, but does not paint them to the screen. Add the
+        <code>drawable</code> attribute to each element you will draw.
+      </p>
+<pre><code>&lt;canvas id="canvas" content="drawable" layoutsubtree&gt;
+  &lt;form id="card" drawable&gt; … &lt;/form&gt;
+&lt;/canvas&gt;</code></pre>
+    </li>
+    <li>
+      <h3>Set the canvas size in device pixels</h3>
+      <p>
+        <code>canvas.width</code> and <code>canvas.height</code> are separate from the CSS size. On a phone one CSS pixel
+        covers two or three device pixels, so set them from <code>devicePixelContentBoxSize</code>. Otherwise text is
+        blurred.
+      </p>
+<pre><code>new ResizeObserver(([entry]) =&gt; {
+  const box = entry.devicePixelContentBoxSize[0];
+  if (canvas.width !== box.inlineSize) canvas.width = box.inlineSize;
+  if (canvas.height !== box.blockSize) canvas.height = box.blockSize;
+  canvas.requestPaint();
+}).observe(canvas, { box: 'device-pixel-content-box' });</code></pre>
+    </li>
+    <li>
+      <h3>Draw in the <code>paint</code> event</h3>
+      <p>
+        The browser fires <code>paint</code> on the canvas when the rendering of a drawable child changes: typed text, a
+        hover style, a focus ring. Call <code>canvas.requestPaint()</code> to request the event yourself, for an animation
+        frame or after a resize.
+      </p>
+<pre><code>canvas.onpaint = () =&gt; {
+  const dpr = canvas.width / canvas.clientWidth;
+  ctx.reset();
+  ctx.scale(dpr, dpr);          // draw in CSS pixels from here on
+  ctx.translate(24, 30);
+  ctx.rotate(-0.04);
+  // …
+};</code></pre>
+    </li>
+    <li>
+      <h3>Call <code>drawElementImage()</code></h3>
+      <p>
+        It draws the element the way <code>drawImage()</code> draws an image, with the context's current transform, clip,
+        shadow and filter. It also sets the element's hit-test region to the drawn position, so pointer events reach the
+        element where it appears. Pass the width and height: without them the element is drawn in device pixels.
+      </p>
+<pre><code>ctx.drawElementImage(card, 0, 0, card.offsetWidth, card.offsetHeight);</code></pre>
+    </li>
+  </ol>
+
+  <h2 id="free">What keeps working and what does not</h2>
+  <div class="two">
+    <div class="card">
+      <h3>Works without extra code</h3>
+      <ul>
+        <li>Clicks, hover, focus and typing at the drawn position (2D context only)</li>
+        <li>Tab order, text selection, find-in-page</li>
+        <li>The accessibility tree: the elements are exposed as elements</li>
+        <li>CSS, animations, form state, scrolling inside the element</li>
+        <li>Text stays sharp when scaled, because the element is rasterised at the drawn size</li>
+        <li><code>getImageData()</code> and <code>toBlob()</code>: the canvas is not tainted</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Not handled for you</h3>
+      <ul>
+        <li>The element must be a descendant of the canvas. <a href="/slot-bare/">Slots</a> are a workaround</li>
+        <li>An element that is not drawn is invisible but still focusable (<a href="/a11y/">accessibility audit</a>)</li>
+        <li>WebGL and WebGPU drawing does not set the hit-test region (<a href="/shader-css/">Shader CSS</a>)</li>
+        <li>An element has one hit-test region even if it is drawn several times (<a href="/portal/">dom-portal</a>)</li>
+        <li>Cross-origin iframes inside the canvas are drawn blank (<a href="/cross-origin/">Across origins</a>)</li>
+        <li>Browsers without the API: the markup must work as plain HTML</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 id="beyond">WebGL, hit testing and workers</h2>
+  <p>The other demos on this site use three more calls.</p>
+  <ol class="moves">
+    <li>
+      <h3>Upload an element as a texture</h3>
+      <p>
+        In WebGL, <code>texElementSubImage2D()</code> uploads the element into a texture allocated at the element's size.
+        In WebGPU the call is <code>queue.drawElementImageToTexture()</code>. Examples:
+        <a href="/shader-css/">Shader CSS</a> and <a href="/three-form/">a form in a three.js scene</a>.
+      </p>
+<pre><code>gl.bindTexture(gl.TEXTURE_2D, texture);
+gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, card);        // WebGL: level, x, y, element
+
+device.queue.drawElementImageToTexture({ source: card }, { texture });   // WebGPU</code></pre>
+    </li>
+    <li>
+      <h3>Set the hit-test region</h3>
+      <p>
+        When a shader positions the element, the browser does not know where it is on screen. Call
+        <code>updateElementGeometry()</code> with a matrix to set the hit-test region. Examples:
+        <a href="/portal/">dom-portal</a> moves the region between two copies, and <a href="/physical/">Physical UI</a>
+        moves it across a mesh.
+      </p>
+<pre><code>canvas.updateElementGeometry(card, {
+  canvasTransform: new DOMMatrix().translate(x, y).rotate(angle),
+});</code></pre>
+    </li>
+    <li>
+      <h3>Capture a snapshot for a worker</h3>
+      <p>
+        <code>captureElementImage()</code> returns an <code>ElementImage</code>, one frame of the element. It is
+        transferable with <code>postMessage()</code>. A worker that holds the canvas (from
+        <code>transferControlToOffscreen()</code>) can draw the snapshot on any number of frames. A snapshot draws only
+        into the canvas it was captured from. Example: <a href="/offscreen/">OffscreenCanvas</a>.
+      </p>
+<pre><code>const image = canvas.captureElementImage(card);
+worker.postMessage({ image }, [image]);
+// in the worker: ctx.drawElementImage(image, x, y, width, height)</code></pre>
+    </li>
+  </ol>
+
+  <h2 id="gotchas">Common errors</h2>
+  <p>Error messages and symptoms, with the cause and the fix for each.</p>
+  <table class="gotchas">
+    <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>"Descendants passed to DrawElementImage must have the 'drawable' attribute"</td><td>The element is missing <code>drawable</code>, or it is not inside this canvas.</td><td>Add the attribute. For content that lives elsewhere, use a slot: <a href="/slot-bare/">Just a slot in a canvas</a>.</td></tr>
+      <tr><td>"No cached paint record for element"</td><td>The browser has not painted the element yet: the first <code>paint</code> came early, the canvas is far off screen, or it is <code>display: none</code> or <code>visibility: hidden</code>.</td><td>Catch it and call <code>requestPaint()</code> again a frame later. Hide a source canvas with <code>opacity: 0</code>, not <code>visibility</code>.</td></tr>
+      <tr><td>The element is drawn two or three times too big on a phone</td><td>Without a width and height, <code>drawElementImage(el, x, y)</code> draws in device pixels.</td><td>Always pass <code>el.offsetWidth, el.offsetHeight</code>. DevTools device emulation does not reproduce this. Test on a phone.</td></tr>
+      <tr><td>Blurred text</td><td>The canvas has fewer pixels than it covers on screen.</td><td>Size it from <code>devicePixelContentBoxSize</code> (step 2 above).</td></tr>
+      <tr><td>The canvas goes blank when you resize it</td><td>Assigning <code>canvas.width</code> or <code>height</code> clears it, even to the same value.</td><td>Assign only when the number changed, then <code>requestPaint()</code>.</td></tr>
+      <tr><td>A child is narrower than you expected</td><td>Children of a drawable canvas shrink to fit their content.</td><td>Give the element a width.</td></tr>
+      <tr><td>A <code>&lt;slot&gt;</code> inside the canvas does nothing</td><td>Slots only project inside a shadow tree.</td><td>Put the canvas in a shadow root; declarative shadow DOM needs no script. <a href="/slot-bare/">Just a slot in a canvas</a>, <a href="/slot-bare/plain.html">plain HTML</a>.</td></tr>
+      <tr><td>Clicks reach the element at its old position (WebGL, WebGPU)</td><td>Only 2D <code>drawElementImage()</code> sets the hit-test region.</td><td>Call <code>updateElementGeometry()</code> each frame. <a href="/shader-css/">Shader CSS</a>.</td></tr>
+      <tr><td>Two copies drawn, only one takes clicks</td><td>An element has one hit-test region, set by the last draw.</td><td>Draw the interactive copy last, or set the region to the copy under the pointer. <a href="/portal/">dom-portal</a>.</td></tr>
+      <tr><td>Tab moves focus to a control that is not visible</td><td>An element in the canvas that you do not draw is still focusable.</td><td>Draw it, or mark it <code>inert</code> or <code>hidden</code>. <a href="/a11y/">Accessibility audit</a>.</td></tr>
+      <tr><td>"The source was captured from a different canvas"</td><td>An <code>ElementImage</code> only draws into its own canvas, or that canvas transferred to a worker.</td><td>To show DOM in another document, send pixels (<code>ImageBitmap</code> or video) and forward input events back. <a href="/cross-tab/">Across tabs</a>, <a href="/transports/">Transport lab</a>.</td></tr>
+      <tr><td>A cross-origin iframe in the canvas is blank</td><td>The browser leaves out content the page may not read, which keeps the canvas readable.</td><td>Have the other origin draw its own content and send the frames. <a href="/embed/">Embeddable live cards</a>, <a href="/slot-view/">slot-view</a>.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="path">Learning path</h2>
+  <p>
+    Read these nine pages in order. Every other demo page lists what it covers and which pages to read first.
+  </p>
+  <ol class="path" id="path-list"></ol>
+  <noscript><p>Next: <a href="/slot-bare/">Just a slot in a canvas</a>.</p></noscript>
+
+  <h2 id="glossary">Glossary</h2>
+  <p>Terms used on this site.</p>
+  <dl class="glossary">
+    <dt>Drawable canvas</dt>
+    <dd>A <code>&lt;canvas content="drawable"&gt;</code>. Its children are laid out but not painted to the screen. The canvas draws them.</dd>
+    <dt>Drawable element</dt>
+    <dd>A descendant of a drawable canvas with the <code>drawable</code> attribute. Only these can be passed to <code>drawElementImage()</code>.</dd>
+    <dt><code>paint</code> event</dt>
+    <dd>Fired on the canvas when a drawable element's rendering changes, and after <code>requestPaint()</code>. <code>event.changedElements</code> lists the elements that changed.</dd>
+    <dt>Paint record</dt>
+    <dd>The browser's stored drawing commands for an element. <code>drawElementImage()</code> replays them at the drawn size, so scaled text is sharp. Drawing fails until the browser has recorded one.</dd>
+    <dt>Hit-test region (element geometry)</dt>
+    <dd>The position the browser uses for an element's clicks, hover, focus ring and caret. 2D <code>drawElementImage()</code> sets it. <code>updateElementGeometry()</code> sets it explicitly.</dd>
+    <dt><code>ElementImage</code></dt>
+    <dd>A snapshot of one element from <code>captureElementImage()</code>. It can be transferred to a worker or another window. It draws only into the canvas it was captured from.</dd>
+    <dt>Light DOM, shadow root, slot</dt>
+    <dd>The light DOM is the page's own markup. A shadow root is a separate subtree attached to an element. A <code>&lt;slot&gt;</code> in a shadow root renders the host's light-DOM children at that point without moving them. With the canvas in the shadow root, light-DOM children count as its descendants for drawing.</dd>
+    <dt>Reprojection</dt>
+    <dd>Drawing an element somewhere other than its place in the page: a second position, a worker's canvas, another tab, another origin or a 3D surface.</dd>
+    <dt>Input forwarding</dt>
+    <dd>Sending pointer and key events from a document that shows an image of an element back to the document that owns it, where they are dispatched on the element.</dd>
+    <dt>Read-back-allowed rendering</dt>
+    <dd>The browser omits content the page may not read, such as cross-origin iframes and visited-link colours, from the drawing. The canvas is therefore never tainted.</dd>
+    <dt>Live checks</dt>
+    <dd>The pass/fail tables on each demo. The tests run in your browser. Many failing rows record a limit of the API. The note in the row gives the reason.</dd>
+  </dl>
+
+  <p class="note" style="margin-top:40px">
+    All test results are in <a href="https://github.com/PaulKinlan/html-in-canvas-demos/blob/main/FINDINGS.md">FINDINGS.md</a>.
+  </p>
+</main>
+
+<script type="module">
+  import { banner } from '/shared/support.js';
+  import { sourceViews } from '/shared/source-view.js';
+  banner();
+  sourceViews();
+
+  // The learning path, from the shared list in /shared/learn.js.
+  const list = document.getElementById('path-list');
+  const fill = () => {
+    const titles = new Map((window.DEMOS ?? []).map((d) => [d.href, d.title]));
+    list.replaceChildren(...(window.LEARN?.path ?? []).map((s) => {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = s.href;
+      a.textContent = s.href === '/start/' ? `${s.idea} (this page)` : `${s.idea}: ${titles.get(s.href) ?? s.href}`;
+      const why = document.createElement('span');
+      why.innerHTML = s.why;
+      li.append(a, why);
+      return li;
+    }));
+  };
+  if (window.LEARN && window.DEMOS) fill();
+</script>
+</body>
+</html>
