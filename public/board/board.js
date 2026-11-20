@@ -550,11 +550,12 @@ window.__board = { get tiles() { return tiles; }, get cam() { return cam; }, get
 if (supported && !embed) {
   const frames = (n = 2) => new Promise((resolve) => { const step = () => (n-- > 0 ? requestAnimationFrame(step) : resolve()); step(); });
   const painted = () => new Promise((resolve) => { canvas.addEventListener('paint', () => resolve(), { once: true }); canvas.requestPaint(); });
-  const settle = async () => { await painted(); await frames(2); };
+  const onScreen = () => { const r = stage.getBoundingClientRect(); if (r.top < 56 || r.bottom > innerHeight) stage.scrollIntoView({ block: 'nearest' }); };
+  const settle = async () => { onScreen(); await painted(); await frames(2); };
   const until = async (fn, ms = 4000) => { const t0 = performance.now(); while (!fn()) { if (performance.now() - t0 > ms) throw new Error('timed out waiting'); await frames(1); } };
   /** Put the point (fx, fy) of a tile at the centre of the canvas, at zoom k. */
   const aim = (t, fx, fy, k = 1) => flyTo({ k, x: t.x + t.w * fx - size.w / 2 / k, y: t.y + t.h * fy - size.h / 2 / k }, 0);
-  const client = (t, fx, fy) => { const r = canvas.getBoundingClientRect(); return { x: r.left + (t.x + t.w * fx - cam.x) * cam.k, y: r.top + (t.y + t.h * fy - cam.y) * cam.k }; };
+  const client = (t, fx, fy) => { onScreen(); const r = canvas.getBoundingClientRect(); return { x: r.left + (t.x + t.w * fx - cam.x) * cam.k, y: r.top + (t.y + t.h * fy - cam.y) * cam.k }; };
   const name = (el) => (el ? `<${el.localName}${el.className && typeof el.className === 'string' ? '.' + el.className.split(' ')[0] : ''}>` : 'nothing');
   const tile = (pred) => tiles.find(pred);
   await until(() => size.w > 0);
@@ -620,7 +621,8 @@ if (supported && !embed) {
         if (!covered?.classList.contains('cover')) throw new Error(`expected the cover, hit ${name(covered)}`);
         covered.click();
         await settle();
-        const live = document.elementFromPoint(p.x, p.y);
+        const p2 = client(t, 0.5, 0.6); // focusing a frame can scroll the page
+        const live = document.elementFromPoint(p2.x, p2.y);
         activate(null);
         if (live !== frame) throw new Error(`after clicking, expected the iframe, hit ${name(live)}`);
         return `frame pixel rgb(${px.slice(0, 3)}); cover first, then the iframe itself takes the pointer`;

@@ -50,6 +50,9 @@ window.DEMOS = [
   { group: 'motion', href: '/particles/', title: 'Typography as particles', blurb: 'Text explodes into glyph particles and reassembles while staying selectable, searchable, linked and editable. No spans.', tags: ['Range rects', 'WebGL instancing'] },
 
   // --- 3d ---
+  { group: '3d', href: '/three-form/', title: 'A form in a three.js scene', blurb: 'A laptop screen, a far-away billboard and a curved wall, each showing a live HTML document you can type in, tab through and select. WebGL or WebGPU.', tags: ['three.js', 'texElementSubImage2D', 'updateElementGeometry'] },
+  { group: '3d', href: '/board/', title: 'Infinite board of live pages', blurb: 'A zoomable, pannable canvas where every tile is a working document: notes, a spreadsheet, a sketch pad and whole pages in iframes, sharp at any zoom.', tags: ['drawElementImage', 'iframe', 'pinch zoom'] },
+  { group: '3d', href: '/xr/', title: 'WebXR panels', blurb: 'Ordinary HTML as floating panels in a headset, driven by controller rays, with an on-panel keyboard. Runs as a desktop preview and with a built-in headset emulator too.', tags: ['WebXR', 'three.js', 'synthetic input'] },
 
   // --- audit ---
   { group: 'audit', href: '/a11y/', title: 'Accessibility audit', blurb: 'Is DOM in a canvas still DOM? Probes of focus, selection, find, zoom and forced colours, the same audit run over every demo here, and a short list to try with a screen reader.', tags: ['accessibility tree', 'focus', 'forced-colors'] },

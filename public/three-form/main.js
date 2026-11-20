@@ -249,6 +249,24 @@ const endDrag = () => {
 };
 canvas.addEventListener('pointerup', endDrag);
 canvas.addEventListener('pointercancel', endDrag);
+// Two fingers anywhere, including on a document, pinch the camera in and out.
+const fingers = new Map();
+let spread = 0;
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch') return;
+  fingers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (fingers.size === 2) { const [a, b] = [...fingers.values()]; spread = Math.hypot(a[0] - b[0], a[1] - b[1]); dragging = null; tween = null; }
+}, true);
+canvas.addEventListener('pointermove', (e) => {
+  if (!fingers.has(e.pointerId)) return;
+  fingers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (fingers.size !== 2) return;
+  const [a, b] = [...fingers.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+  if (spread > 0 && d > 0) { orbit.radius = THREE.MathUtils.clamp((orbit.radius * spread) / d, 0.2, 30); applyOrbit(); }
+  spread = d;
+  dragging = null;
+}, true);
+for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, (e) => fingers.delete(e.pointerId), true);
 canvas.addEventListener('wheel', (e) => {
   if (e.target !== canvas) return; // let lists and text areas scroll themselves
   e.preventDefault();
@@ -351,6 +369,8 @@ function renderedPixel(pt) {
 const close = (a, b, tol = 40) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
 const name = (el) => (el ? `<${el.localName}${el.id ? '#' + el.id : ''}>` : 'nothing');
 async function settle(pointer = null) {
+  const box = $('stage').getBoundingClientRect();
+  if (box.top < 56 || box.bottom > innerHeight) $('stage').scrollIntoView({ block: 'nearest' });
   surfaces.pointer = pointer;
   scene.updateMatrixWorld();
   surfaces.update();
@@ -428,6 +448,7 @@ if (support.paint) {
     {
       name: 'Curved wall with a mouse: geometry follows the pointer',
       why: 'Raycast, take the triangle under the pointer, re-place the element. Five targets across the arc.',
+      timeout: 15000,
       run: async () => {
         view('wall', true);
         const targets = [[$('w-filter'), 0.1], [$('w-notes'), 0.5], [$('w-details').querySelector('summary'), 0.1], [$('w-hue'), 0.5], [$('w-link'), 0.2]];
