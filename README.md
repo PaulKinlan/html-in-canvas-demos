@@ -21,7 +21,7 @@ Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-ca
 | `/a11y/` | Accessibility audit: API probes, the same audit run over every demo, and a by-hand checklist |
 | `/capture/` | Any element or a whole page to PNG, video or print with one call |
 | `/perf/` | Performance wall: how many live elements before frames drop; DOM vs 2D canvas vs worker |
-| `/transitions/` | `<live-transition>`: shatter, fold, burn and morph between two states that both stay live and clickable |
+| `/transitions/` | `<live-transition>`: shatter, fold, burn, morph or your own fragment shader between two states that both stay live and clickable |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
@@ -37,8 +37,8 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/slot-share.js`: `publish(canvasSlot)` and `<slot-view name>` to share slots over a MessagePort; `connectBroker()` introduces same-origin tabs through a SharedWorker (`broker.js`).
 - `public/lib/element-capture.js`: `captureElement(el, { scale })`, `capturePage({ full })`, `recordElement(el)`, `printElement(el)`, `copyElement(el)`. Works on elements that were never written for canvas.
 - `public/lib/a11y-audit.js`: `auditDocument(doc)` runs the accessibility checks from `/a11y/` on any same-origin document. Demos registered in `shared/demos.js` are audited automatically; `/a11y/?url=/path/` adds another page.
-- `public/lib/live-transition.js`: `<live-transition>`. Children are states; `show(i, { effect, origin })`, or `begin(i)` then set `progress` to hold part way. Effects are functions in `LiveTransition.effects`.
-- `public/lib/dom-rewind.js`: `<dom-rewind seconds trails>`. `place(el, { x, y, rotate })`, `seek(secondsAgo)`, `replay()`, `restore()`, `oncapture` / `onrestore` for app state.
+- `public/lib/live-transition.js`: `<live-transition>`. Children are states; `show(i, { effect, origin })`, or `begin(i)` then set `progress` to hold part way. Effects are functions in `LiveTransition.effects`. Or write your own blend: `LiveTransition.shaders.name = { glsl, pick? }`, where `glsl` is a `vec4 transition(vec2 uv)` in the gl-transitions convention (`getFromColor`, `getToColor`, `progress`, `ratio`), then `show(i, { effect: 'name' })`. Both states stay live inside the shader; `pick(x, y, p)` says which state the pointer reaches at a point.
+- `public/lib/dom-rewind.js`: `<dom-rewind seconds trails>`. `place(el, { x, y, rotate })`, `seek(secondsAgo)`, `replay()`, `restore()`, `oncapture` / `onrestore` for app state. `for await (const { time, bitmap } of rw.frames({ seconds, fps }))` hands the recorded history back as ImageBitmaps for a video encoder.
 - `public/lib/glyph-field.js`: `<glyph-field pointer="repel">`. `explode()`, `rain()`, `vortex()`, `scatter()`, `assemble()`, `highlight(text)`.
 - `public/lib/dom-portal.js`: `<dom-portal for="id" scale="0.5">` mirrors any element; `<dom-portal-source layer="top">` for sources inside clipping ancestors.
 - `public/lib/dom-lens.js`: `<dom-lens mode="magnify|fisheye|xray" zoom radius>` around any markup.

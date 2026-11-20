@@ -58,7 +58,7 @@
     .stagewrap { padding: 20px 0; }
   }
   .controls { display: grid; gap: 12px; max-width: 720px; margin: 0 auto; }
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); background: var(--card); }
   .seg button:last-child { border-right: 0; }
   .seg button[aria-pressed=true] { background: var(--fg); color: var(--bg); }
@@ -134,6 +134,10 @@
         <button data-effect="burn">Burn</button>
         <button data-effect="morph">Morph</button>
         <button data-effect="fade">Fade</button>
+        <button data-effect="ripple">Ripple</button>
+        <button data-effect="pixelate">Pixelate</button>
+        <button data-effect="swirl">Swirl</button>
+        <button data-effect="mine">Yours</button>
       </div>
       <label>Speed
         <select id="speed">
@@ -148,6 +152,24 @@
       <button id="release" disabled>Release</button><button id="cancel" disabled>Cancel</button></label>
     <div id="where">Buttons inside the cards also start a transition, from the point you clicked.</div>
   </div>
+
+  <details class="controls" id="editor" style="margin-top:14px">
+    <summary>Write your own transition shader</summary>
+    <p class="note" style="margin:0">
+      Define <code>vec4 transition(vec2 uv)</code>. You get <code>getFromColor(uv)</code>, <code>getToColor(uv)</code>, <code>progress</code> from 0 to 1,
+      <code>ratio</code> (width ÷ height) and <code>origin</code> (where you clicked). It is the gl-transitions convention, so shaders written for that drop in.
+      Both states are live textures, so whatever you write is drawn from the DOM as it is this frame.
+    </p>
+    <textarea id="glsl" spellcheck="false" aria-label="Fragment shader" style="font:13px/1.45 var(--mono);height:210px;width:100%;box-sizing:border-box;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:10px">// Venetian blinds that open from where you clicked.
+vec4 transition(vec2 uv) {
+  float slats = 14.0;
+  float delay = abs(uv.x - origin.x) * 0.6;
+  float open = clamp((progress * 1.6 - delay), 0.0, 1.0);
+  float inSlat = fract(uv.y * slats);
+  return inSlat < open ? getToColor(uv) : getFromColor(uv);
+}</textarea>
+    <div class="row"><button id="apply">Use this shader</button><span id="glsl-status" class="note" role="status"></span></div>
+  </details>
 
   <h2>Use it</h2>
 <pre><code>&lt;script type="module" src="/lib/live-transition.js"&gt;&lt;/script&gt;
@@ -167,6 +189,7 @@
   <p class="note">
     Give elements in two states the same <code>data-morph</code> name and the morph effect flies one into the other.
     New mesh effects are one function: <code>LiveTransition.effects.name = (progress, { W, H, quad, tri }) =&gt; …</code>.
+    Shader effects are a string: <code>LiveTransition.shaders.name = { glsl: 'vec4 transition(vec2 uv) { … }' }</code>.
     Without HTML-in-canvas the element shows one child at a time and falls back to <code>document.startViewTransition</code>.
   </p>
 
@@ -188,6 +211,7 @@
     <li><strong>The mesh doubles as the hit test.</strong> WebGL draws do not move an element's hit box, so the element keeps the last frame's triangles. On pointer move it finds the triangle under the pointer, works out the affine matrix that maps that piece of the state to the screen, and hands it to <code>updateElementGeometry</code>. You can press a button that is riding a shard.</li>
     <li><strong>One element has one hit box.</strong> A shattered state is 100+ pieces but the element can only be in one place, so routing follows the pointer. Two pointers on two shards would disagree. Perspective is approximated per triangle.</li>
     <li><strong>Burn is routed per pixel.</strong> The shader's noise is also kept on the CPU, so the pointer goes to the new state where the fire has passed and the old one where it has not.</li>
+    <li><strong>Your own shader, live DOM in both samplers.</strong> A shader effect is a <code>transition(uv)</code> function with <code>getFromColor</code> and <code>getToColor</code>. The two textures are the two states as the browser painted them this frame, so a shader written for still images runs over a ticking, typeable interface. A shader has no geometry, so it can bring a small <code>pick()</code> function to say which state owns each point; without one the states swap at half way.</li>
     <li><strong>Morph needs no extra snapshots.</strong> Paired elements are sub-rectangles of the two state textures. The hole they leave is filled by smearing the nearest pixels outside it, which is right for flat backgrounds and visible on busy ones.</li>
     <li><strong>A state that was never painted has no picture.</strong> A <code>visibility: hidden</code> state cannot be uploaded, so the element waits two paints before the first frame. Anything in the top layer (modal dialogs, popovers) is not part of the state's picture either.</li>
   </ul>
@@ -217,12 +241,30 @@
     effect = b.dataset.effect;
     for (const o of b.parentNode.children) o.setAttribute('aria-pressed', o === b);
   });
+  // "Yours": whatever is in the editor. A shader that does not compile says why and is not used.
+  const glsl = document.getElementById('glsl'), glslStatus = document.getElementById('glsl-status');
+  function applyShader() {
+    const name = 'mine' + Date.now();
+    LiveTransition.shaders[name] = { glsl: glsl.value };
+    LiveTransition.shaders.mine = LiveTransition.shaders[name];
+    delete LiveTransition.shaders[name];
+    glslStatus.textContent = 'Compiles on the next transition.';
+    glslStatus.className = 'note';
+  }
+  applyShader();
+  document.getElementById('apply').addEventListener('click', () => {
+    applyShader();
+    effect = 'mine';
+    for (const o of document.getElementById('effects').children) o.setAttribute('aria-pressed', o.dataset.effect === 'mine');
+    go(nextIndex()).then(() => { if (glslStatus.className === 'note') glslStatus.textContent = 'Compiled and ran.'; });
+  });
+  const shaderError = (err) => { glslStatus.textContent = String(err.message || err).trim(); glslStatus.className = 'note fail'; document.getElementById('editor').open = true; };
   const duration = () => Number(document.getElementById('speed').value);
   const nextIndex = () => (lt.current + 1) % lt.states.length;
 
   async function go(to, origin) {
     setHeld(false);
-    await lt.show(to, { effect, duration: duration(), origin, force: true });
+    try { await lt.show(to, { effect, duration: duration(), origin, force: true }); } catch (err) { shaderError(err); }
   }
   function setHeld(on) {
     release.disabled = cancel.disabled = !on;
@@ -247,7 +289,7 @@
     const v = Number(scrub.value);
     if (!lt.transitioning) {
       if (holding) return;
-      holding = lt.begin(nextIndex(), { effect, duration: duration(), force: true });
+      holding = lt.begin(nextIndex(), { effect, duration: duration(), force: true }).catch(shaderError);
       await holding;
       holding = null;
     }
@@ -451,6 +493,54 @@
         getSelection().removeAllRanges();
         must(before !== after, 'no pixel changed when text was selected');
         return 'selection painted into the texture';
+      },
+    },
+    {
+      name: 'A custom fragment shader blends the two states, and both stay live',
+      why: 'LiveTransition.shaders.name = { glsl, pick }. This one shows the new state on the right half.',
+      async run() {
+        LiveTransition.shaders.halves = {
+          glsl: 'vec4 transition(vec2 uv) { return uv.x > 0.5 ? getToColor(uv) : getFromColor(uv); }',
+          pick: (x, y, p, { W }) => x > W / 2,
+        };
+        await hold('halves', 0.5);
+        const [a, b] = rig.states;
+        let px = await grab();
+        must(near(px(8, 8), YELLOW) && near(px(312, 8), CYAN), `before: ${px(8, 8)} / ${px(312, 8)}`);
+        a.style.background = 'rgb(255, 0, 255)'; b.style.background = 'rgb(0, 255, 0)';
+        await frames(3);
+        px = await grab();
+        const out = [px(8, 8), px(312, 8)];
+        a.style.background = b.style.background = '';
+        must(near(out[0], [255, 0, 255]) && near(out[1], [0, 255, 0]), `after: ${out[0]} / ${out[1]}`);
+        const left = rig.pick(20, 80), right = rig.pick(300, 80);
+        must(left.state === 0 && right.state === 1, `pick gave ${left.state} / ${right.state}`);
+        return 'shader output follows live changes in both states; its pick() routes the pointer left and right';
+      },
+    },
+    {
+      name: 'gl-transitions style source works unchanged (texture2D, progress, ratio)',
+      why: 'A shader in the older GLSL dialect that convention uses.',
+      async run() {
+        LiveTransition.shaders.oldstyle = { glsl: 'vec4 transition(vec2 uv) { vec2 q = uv; q.x = q.x * ratio / ratio; return mix(getFromColor(q), getToColor(q), step(0.5, progress)) * texture2D(uA, q).a; }' };
+        await hold('oldstyle', 0.7);
+        const px = await grab();
+        must(near(px(8, 8), CYAN), `pixel ${px(8, 8)}`);
+        return 'compiled and drew the new state at 70%';
+      },
+    },
+    {
+      name: 'A shader that does not compile is refused with the compiler\'s message',
+      why: 'begin() rejects before anything is drawn, so a typo cannot blank the element.',
+      async run() {
+        await reset();
+        LiveTransition.shaders.broken = { glsl: 'vec4 transition(vec2 uv) { return nonsense; }' };
+        let message = '';
+        try { await rig.begin(1, { effect: 'broken', force: true }); } catch (err) { message = err.message; }
+        const px = await grab();
+        must(message.includes('nonsense'), `error was "${message}"`);
+        must(!rig.transitioning && near(px(8, 8), YELLOW), 'element was left mid-transition or blank');
+        return message.trim().split('\n')[0];
       },
     },
     {
