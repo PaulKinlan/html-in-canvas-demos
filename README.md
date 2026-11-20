@@ -84,6 +84,37 @@ For a new demo page:
 - Only assign `canvas.width` and `canvas.height` when the size really changed. Assigning clears the canvas.
 - A page whose checks cannot meet this yet goes in `CHECKS_WAIT_FOR_TAP` in `public/shared/support.js`; its checks then wait for a button. Known exceptions with their reasons are in `tools/jank/allow.json`.
 
+## Show the code
+
+Every demo has a "Show the code" listing under it: numbered steps, each with the code that does it, a Copy button and a link to the lines on GitHub. The listings are cut from the files the page is running when someone opens one, so they cannot drift. `public/shared/show-code.js` does it (loaded by `nav.js`, styles in `shared/style.css`).
+
+Mark the code with region comments, in whichever comment style the file uses there:
+
+```
+<!-- #region markup -->        // #region draw           /* #region styles */
+<canvas-slot>…</canvas-slot>   ctx.drawElementImage(…);  .card { … }
+<!-- #endregion markup -->     // #endregion draw        /* #endregion styles */
+```
+
+Then list the steps in the page:
+
+```html
+<details class="show-code">
+  <summary>Show the code <small>what this listing covers</small></summary>
+  <ol>
+    <li data-code="#markup"><b>What this step does.</b> One line of why.</li>
+    <li data-code="/lib/canvas-slot.js#worker"><b>A region of another file.</b></li>
+    <li data-code="/offscreen/renderer.js"><b>A whole file.</b></li>
+  </ol>
+</details>
+```
+
+`data-code` is `file#region`: no file means this page, no region means the whole file. Using a name more than once in a file shows the pieces together, which is how a listing skips over test scaffolding. Regions may nest. Keep the `<details>` in the page's HTML and closed, so it takes its one line of space from the first paint. `data-lang="glsl"` overrides the language, and `data-code-full` shows a long block without the "Show all lines" cut.
+
+For rows of a results table that each run their own function, `window.showCode.block(fn, 'js', label)` returns a listing of that function's own text (see `rowCode` in `/transports/` and `/a11y/`).
+
+The slot pages use `shared/source-view.js` instead, which shows whole stand-alone example files.
+
 ## Develop and deploy
 
 Static files in `public/`, served by Workers static assets.

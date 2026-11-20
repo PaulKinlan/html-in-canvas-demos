@@ -173,6 +173,11 @@
     var button = el('button', 'sc-copy', 'Copy');
     button.type = 'button';
     button.disabled = true;
+    // On a phone most lines are wider than the screen, so start folded there.
+    if (window.matchMedia && matchMedia('(max-width: 620px)').matches) {
+      box.classList.add('sc-wrapped');
+      wrap.setAttribute('aria-pressed', 'true');
+    }
     bar.append(where, wrap, button);
     var pre = el('pre'), code = el('code', '', 'Loading…');
     pre.tabIndex = 0;
