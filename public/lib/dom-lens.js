@@ -7,7 +7,7 @@
 //
 // Attributes
 //   mode     magnify | glass | fisheye | droplet | frosted | night | thermal |
-//            xray | halftone | pixel | cvd | blackhole | kaleidoscope | reading
+//            xray | halftone | pixel | cvd | blackhole | kaleidoscope | eye | reading
 //            (default magnify; the catalogue is LENSES in lens-gl.js)
 //   variant  for mode="cvd": protan | deutan | tritan
 //   zoom     magnification at the lens centre      (default 2)
@@ -18,18 +18,21 @@
 //   touch    "scroll" lets a touch drag scroll the page; by default a drag
 //            moves the lens, which is drawn above the finger
 //   bleed    extra canvas margin so the lens can hang over the edge
-//   pipeline "2d" turns the shader off (magnify, fisheye and xray only; the
-//            fisheye becomes a mesh of clipped draws, which is far slower)
+//   pipeline which route draws the lens. Left out, the best one that works is
+//            used: "webgpu", then "webgl", then "2d". Name one to prefer it.
+//            "2d" has no shaders (magnify, fisheye and xray only; the fisheye
+//            becomes a mesh of clipped draws, which is far slower)
 //
 // The content is drawn with drawElementImage(), which replays the element's
 // paint record. Scaling it re-rasterizes text and vectors, so the magnified
 // view is sharp rather than an upscaled bitmap. Each frame the patch of page
 // under the lens is drawn once at the lens's magnification, and a fragment
-// shader (lens-gl.js) bends and colours it. The lens follows keyboard focus as
-// well as the pointer.
+// shader (WGSL in lens-gpu.js, GLSL in lens-gl.js) bends and colours it. The
+// lens follows keyboard focus as well as the pointer.
 
 import { SurfaceElement, cssZoom } from './surface.js';
 import { LENSES, MAX_PATCH, lensRenderer } from './lens-gl.js';
+import { gpuReason, lensRendererGPU } from './lens-gpu.js';
 
 export { LENSES };
 
@@ -61,6 +64,7 @@ export class DomLens extends SurfaceElement {
   #cap = Infinity;
   #fast = 0;
   #probation = 45;
+  #look = { x: 0, y: 0, px: null, py: 0 }; // eased direction for lenses that look around
   #onRestored = () => this.invalidate();
   #onMove = (e) => {
     this.#touch = e.pointerType === 'touch' || e.pointerType === 'pen';
@@ -85,8 +89,12 @@ export class DomLens extends SurfaceElement {
 
   /** Number of drawElementImage calls in the last frame (for the demo's stats). */
   drawCalls = 0;
-  /** How the last frame was drawn: 'shader' or '2d'. */
+  /** How the last frame was drawn: 'webgpu', 'webgl' or '2d'. */
   pipeline = '2d';
+  /** Why WebGPU is not drawing this lens ('' when it is, or was not asked for). */
+  get webgpuNote() {
+    return gpuReason;
+  }
 
   attributeChangedCallback() {
     this.invalidate();
@@ -202,13 +210,18 @@ export class DomLens extends SurfaceElement {
   render(time) {
     const lens = this.lens;
     const name = LENSES[this.mode] ? this.mode : 'magnify';
-    const gl = lens && this.getAttribute('pipeline') !== '2d' ? lensRenderer() : null;
-    if (gl?.can(name)) return this.#renderShader(time, gl, lens, name);
+    const want = this.getAttribute('pipeline');
+    if (lens && want !== '2d') {
+      const gpu = want === 'webgl' ? null : lensRendererGPU();
+      if (gpu?.can(name)) return this.#renderShader(time, gpu, lens, name, 'webgpu');
+      const gl = lensRenderer();
+      if (gl?.can(name)) return this.#renderShader(time, gl, lens, name, 'webgl');
+    }
     return this.#render2d(lens);
   }
 
   // One magnified draw of the patch under the lens, then a shader. See lens-gl.js.
-  #renderShader(time, gl, lens, name) {
+  #renderShader(time, gl, lens, name, route) {
     const { ctx, content, canvas, scale: s, width: w, height: h, bleed: b } = this;
     const def = LENSES[name];
     const t0 = performance.now();
@@ -243,7 +256,7 @@ export class DomLens extends SurfaceElement {
     const tx = clamp(cxp - S / 2, 0, cw - S);
     const ty = clamp(cyp - S / 2, 0, ch - S);
     const key = [name, variant, fx, fy, z, R, S, tx, ty].join();
-    const fresh = this.contentDirty || key !== this.#srcKey || gl.owner !== this;
+    const fresh = this.contentDirty || key !== this.#srcKey || gl.owner !== this || route !== this.pipeline;
     if (fresh) {
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -277,7 +290,7 @@ export class DomLens extends SurfaceElement {
       this.#srcKey = key;
     }
     const still = stillMotion.matches;
-    const out = gl.draw({ name, variant, zoom: z, time: still ? 0 : (time / 1000) % 3600, reach, radiusPx: R * s, css: s, boxPx, backdrop: [1, 1, 1] });
+    const out = gl.draw({ name, variant, look: this.#looking(lens, R), zoom: z, time: still ? 0 : (time / 1000) % 3600, reach, radiusPx: R * s, css: s, boxPx, backdrop: [1, 1, 1] });
 
     // Put the page back where the patch and the old lens were, then the lens.
     // Only that neighbourhood is redrawn unless the page itself changed.
@@ -305,7 +318,7 @@ export class DomLens extends SurfaceElement {
     ctx.drawImage(gl.canvas, out.x, out.y, out.size, out.size, bx, by, boxPx, boxPx);
     ctx.restore();
     this.#prevBox = { x: bx, y: by, n: boxPx };
-    this.pipeline = 'shader';
+    this.pipeline = route;
     this.patchSize = S;
     this.#finish(lens, calls, t0);
     return !!def.animated && !still && this.#onScreen();
@@ -339,6 +352,27 @@ export class DomLens extends SurfaceElement {
       this.#settleTimer = setTimeout(() => this.invalidate(), 140);
     }
     return true;
+  }
+
+  // Where a lens with an eye should look: at the pointer when the lens is
+  // pinned, otherwise the way it is travelling. Eased, so it glides.
+  #looking(lens, R) {
+    const k = this.#look;
+    let tx = 0, ty = 0;
+    if (lens.pinned && this.#pointer) {
+      tx = (this.#pointer.x - lens.x) / (R * 2);
+      ty = (this.#pointer.y - lens.y) / (R * 2);
+    } else if (!lens.pinned && k.px != null) {
+      tx = ((lens.x - k.px) / R) * 5;
+      ty = ((lens.y - k.py) / R) * 5;
+    }
+    const len = Math.hypot(tx, ty);
+    if (len > 1) (tx /= len), (ty /= len);
+    k.px = lens.x;
+    k.py = lens.y;
+    k.x += (tx - k.x) * 0.15;
+    k.y += (ty - k.y) * 0.15;
+    return [k.x, k.y];
   }
 
   #onScreen() {

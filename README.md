@@ -15,7 +15,7 @@ Needs Chrome 148+ with `chrome://flags/#canvas-draw-element`, or the `html-in-ca
 | `/cross-origin/` | Borrowing and lending DOM across origins |
 | `/transports/` | Transport lab: ~50 routes for moving DOM out of its canvas, each tested live |
 | `/portal/` | `<dom-portal for="id">`: one live element drawn twice, interactive in both places |
-| `/lens/` | `<dom-lens>`: fourteen lenses over live DOM (magnifier, ray-traced glass, fisheye, water drop, x-ray, black hole…), sharp at any zoom, one draw and one shader each |
+| `/lens/` | `<dom-lens>`: fifteen lenses over live DOM (magnifier, ray-traced glass, fisheye, water drop, x-ray, black hole…), sharp at any zoom, one draw and one shader each |
 | `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
 | `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
@@ -47,7 +47,8 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/dom-rewind.js`: `<dom-rewind seconds trails>`. `place(el, { x, y, rotate })`, `seek(secondsAgo)`, `replay()`, `restore()`, `oncapture` / `onrestore` for app state. `for await (const { time, bitmap } of rw.frames({ seconds, fps }))` hands the recorded history back as ImageBitmaps for a video encoder. If the canvas context is lost, `<live-transition>` and `<dom-rewind>` show their children as plain HTML until it returns (`fallbackReason`, `showPlain(reason)`, `showCanvas()`, events `livefallback` / `rewindfallback`), as `<glyph-field>` already did.
 - `public/lib/glyph-field.js`: `<glyph-field pointer="repel">`. `explode()`, `rain()`, `vortex()`, `scatter()`, `assemble()`, `highlight(text)`.
 - `public/lib/dom-portal.js`: `<dom-portal for="id" scale="0.5">` mirrors any element; `<dom-portal-source layer="top">` for sources inside clipping ancestors.
-- `public/lib/dom-lens.js`: `<dom-lens mode="magnify|glass|fisheye|…" zoom radius>` around any markup. The lenses are fragment shaders in `public/lib/lens-gl.js` (`LENSES`); add an entry to add a lens.
+- `public/lib/dom-lens.js`: `<dom-lens mode="magnify|glass|fisheye|…" zoom radius>` around any markup. The lenses are fragment shaders: GLSL in `public/lib/lens-gl.js` (`LENSES`) and WGSL in `public/lib/lens-gpu.js` (`WGSL`); add an entry to both to add a lens. WebGPU is used when it works, then WebGL, then 2D.
+- `public/shared/backend.js`: `pickBackend()` and `webgpu()` choose between WebGPU, WebGL and 2D for a page, and share one WebGPU device. WebGPU is only chosen with a real adapter that passes a self-test.
 - `public/lib/shader-fx.js`: the `fx` attribute (`ripple`, `glass`, `haze`, `crt`, `dissolve`, `curl`) and `defineEffect(name, { glsl })`.
 - `public/lib/effects.js`: the effect registry shared by `fx` and `<canvas-slot effect>`. `defineEffect(name, { glsl, wgsl, geometry })`; CSS properties `--fx-progress`, `--fx-amount`, `--fx-x`, `--fx-y`.
 - `public/lib/slot-effects.js`: the shader renderer `<canvas-slot effect>` loads on demand (`backend="webgl|shared|webgpu"`).
