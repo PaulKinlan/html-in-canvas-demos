@@ -48,4 +48,7 @@ window.DEMOS = [
   // --- 3d ---
 
   // --- audit ---
+  { group: 'audit', href: '/a11y/', title: 'Accessibility audit', blurb: 'Is DOM in a canvas still DOM? Probes of focus, selection, find, zoom and forced colours, the same audit run over every demo here, and a short list to try with a screen reader.', tags: ['accessibility tree', 'focus', 'forced-colors'] },
+  { group: 'audit', href: '/capture/', title: 'Element capture', blurb: 'One call turns any element, or a whole ordinary page, into a PNG, a video or a printed page: <code>captureElement()</code>, <code>capturePage()</code>, <code>recordElement()</code>.', tags: ['moveBefore', 'captureStream', 'print'] },
+  { group: 'audit', href: '/perf/', title: 'Performance wall', blurb: 'How many live elements a canvas can carry before frames drop, as plain DOM, a 2D canvas and a worker, measured on your device.', tags: ['requestPaint', 'worker', 'fps'] },
 ];
