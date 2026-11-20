@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time scrubber</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  dom-rewind#desk {
+    height: 480px; border-radius: 16px; border: 1px solid var(--line);
+    background: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--fg) 14%, transparent) 1px, transparent 0) 0 0 / 22px 22px, var(--card);
+    touch-action: none;
+  }
+  dom-rewind#desk[past] { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .card2 { width: 230px; background: #fffdf5; color: #221c10; border-radius: 12px; border: 1px solid #0003; font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }
+  .card2 .grip { padding: 7px 12px; font: 600 12px var(--mono); letter-spacing: .06em; text-transform: uppercase; background: #221c10; color: #fffdf5; cursor: grab; user-select: none; display: flex; justify-content: space-between; }
+  .card2 .grip:active { cursor: grabbing; }
+  .card2 .body { padding: 12px; display: grid; gap: 8px; }
+  .card2 textarea { font: inherit; width: 100%; height: 92px; box-sizing: border-box; resize: none; border: 1px solid #0003; border-radius: 6px; padding: 6px 8px; background: #fff; color: #111; }
+  .card2 button { font: inherit; }
+  .card2.watch { width: 190px; background: #10242b; color: #e6f4f1; }
+  .card2.watch .grip { background: #2ec4b6; color: #062b27; }
+  .card2.watch .time { font: 700 34px var(--mono); }
+  .card2.todo { width: 210px; background: #f1ecff; color: #1f1640; }
+  .card2.todo .grip { background: #8338ec; color: #fff; }
+  .card2.todo label { display: block; }
+  .puck { width: 74px; height: 74px; border-radius: 50%; display: grid; place-items: center; font: 700 13px var(--mono); color: #fff;
+    background: conic-gradient(from 20deg, #ffb703, #fb5607, #ff006e, #8338ec, #3a86ff, #ffb703); cursor: grab; user-select: none; }
+
+  .transport { display: grid; gap: 10px; margin-top: 14px; }
+  .transport .line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #timeline { flex: 1; min-width: 200px; }
+  #when { font: 600 14px var(--mono); min-width: 9ch; }
+  #when.live { color: var(--ok); }
+  #stats { font: 13px var(--mono); color: var(--muted); }
+
+  #rigbox { position: fixed; right: 12px; bottom: 12px; z-index: 5; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 26px 10px 10px; }
+  #rigbox .cap { font: 12px var(--mono); color: var(--muted); position: absolute; left: 10px; top: 6px; }
+  #rigbox.done { position: relative; right: auto; bottom: auto; display: inline-block; margin-top: 12px; }
+  #rig { width: 320px; height: 160px; background: #fff; }
+  .ya { width: 120px; height: 60px; background: rgb(255, 204, 0); font: 13px system-ui; color: #000; }
+  .yb { width: 40px; height: 40px; background: rgb(0, 204, 255); }
+  #raws { position: fixed; left: 8px; bottom: 8px; opacity: .3; pointer-events: none; display: flex; gap: 4px; z-index: -1; }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>Time scrubber</h1>
+  <p class="lede">
+    A ring buffer of DOM frames. Type in the note, tick some boxes, drag the cards about, then pull the slider back to see the interface as it was.
+    "Restore this moment" makes the past the present again, form values included.
+  </p>
+
+  <dom-rewind id="desk" seconds="30" trails="6" aria-label="Recorded desk">
+    <div class="card2" data-x="24" data-y="28">
+      <div class="grip"><span>Note</span><span aria-hidden="true">drag</span></div>
+      <div class="body"><textarea aria-label="Note">Type here, then scrub back to watch the words come out again.</textarea></div>
+    </div>
+    <div class="card2 watch" data-x="290" data-y="60">
+      <div class="grip"><span>Stopwatch</span><span aria-hidden="true">drag</span></div>
+      <div class="body"><div class="time" id="sw">0.0</div><div><button id="sw-toggle">Pause</button> <button id="sw-reset">Reset</button></div></div>
+    </div>
+    <div class="card2 todo" data-x="60" data-y="250">
+      <div class="grip"><span>List</span><span aria-hidden="true">drag</span></div>
+      <div class="body">
+        <label><input type="checkbox" checked> Record frames</label>
+        <label><input type="checkbox"> Scrub back</label>
+        <label><input type="checkbox"> Restore the past</label>
+        <details><summary>More</summary>Open state is kept too.</details>
+      </div>
+    </div>
+    <div class="puck" id="puck" data-x="520" data-y="200" role="img" aria-label="Bouncing puck">DOM</div>
+  </dom-rewind>
+
+  <div class="transport">
+    <div class="line">
+      <span id="when" class="live" aria-live="polite">LIVE</span>
+      <input type="range" id="timeline" min="-30" max="0" step="0.01" value="0" aria-label="Seconds back in time">
+      <button id="live">Live</button>
+    </div>
+    <div class="line">
+      <button id="replay">Replay last 5 s</button>
+      <button id="slow">Replay at quarter speed</button>
+      <button id="restore" disabled>Restore this moment</button>
+      <label class="note">Trails
+        <select id="trails">
+          <option value="0">Off</option>
+          <option value="6" selected>Short</option>
+          <option value="16">Long</option>
+        </select>
+      </label>
+      <span id="stats"></span>
+    </div>
+  </div>
+
+  <h2>Use it</h2>
+<pre><code>&lt;script type="module" src="/lib/dom-rewind.js"&gt;&lt;/script&gt;
+
+&lt;dom-rewind seconds="30" trails="6" style="height: 400px"&gt;
+  &lt;div data-x="20" data-y="20"&gt;…any HTML…&lt;/div&gt;
+&lt;/dom-rewind&gt;
+
+&lt;script&gt;
+  const rw = document.querySelector('dom-rewind');
+  rw.place(rw.children[0], { x: 120, y: 40, rotate: 0.1 });
+  rw.seek(2.5);          // 2.5 s ago
+  rw.restore();          // or rw.live()
+  rw.oncapture = () =&gt; appState;        // optional: ride along with each frame
+  rw.onrestore = (state) =&gt; { appState = state; };
+&lt;/script&gt;</code></pre>
+
+  <h2>Live tests</h2>
+  <table class="results"><tbody id="tests"></tbody></table>
+  <div id="rigbox">
+    <div class="cap">test rig</div>
+    <dom-rewind id="rig" seconds="20">
+      <div class="ya" id="ya" data-x="10" data-y="10">A <input id="ya-in" size="4" value="one"> <input id="ya-check" type="checkbox"> <button id="ya-btn">b</button></div>
+      <div class="yb" id="yb" data-x="200" data-y="20"></div>
+    </dom-rewind>
+  </div>
+  <div id="raws" aria-hidden="true"></div>
+
+  <h2>What we learned</h2>
+  <ul class="findings">
+    <li><strong>An ElementImage is a cheap frame.</strong> It keeps drawing the element as it was when captured, after the element has changed or even left the document, and hundreds can be held at once. The <code>paint</code> event's <code>changedElements</code> says exactly which children need a new one, so idle and merely moving elements share a snapshot across frames.</li>
+    <li><strong>Old frames are pictures, not DOM.</strong> A snapshot has one method, <code>close()</code>. You cannot select its text, query it or lay it out again. So "going back" for real means keeping state next to each frame (values, checked, open, scroll, app data) and putting it back, which is what <code>restore()</code> does.</li>
+    <li><strong>Drawing a snapshot moves the live element's hit box</strong> to where the snapshot was drawn. Trails draw the live elements last, and the past is made click-proof while you look at it.</li>
+    <li><strong>History survives a resize.</strong> Snapshots captured before the canvas changed size still draw, and their default size is recomputed for the new canvas grid.</li>
+    <li><strong>Snapshots scale like vectors.</strong> An old frame drawn at four times its size is re-rasterised from the recorded paint commands, so text stays sharp where a bitmap of the same frame goes soft.</li>
+    <li><strong>Alpha, filters and blend modes all apply</strong> to <code>drawElementImage</code>, which is all trails need.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, nav, supported, runTests } from '/shared/support.js';
+  import '/lib/dom-rewind.js';
+  nav('/time-scrubber/');
+  banner();
+
+  // ---------------------------------------------------------------- desk
+  const desk = document.getElementById('desk');
+  const timeline = document.getElementById('timeline');
+  const when = document.getElementById('when');
+  const restore = document.getElementById('restore');
+  const stats = document.getElementById('stats');
+  const puck = document.getElementById('puck');
+
+  // Stopwatch: app state that lives in JS, carried through oncapture / onrestore.
+  let sw = { elapsed: 0, running: true };
+  const swEl = document.getElementById('sw'), swToggle = document.getElementById('sw-toggle');
+  const showSw = () => { swEl.textContent = sw.elapsed.toFixed(1); swToggle.textContent = sw.running ? 'Pause' : 'Start'; };
+  setInterval(() => { if (sw.running && desk.isLive) { sw.elapsed += 0.1; showSw(); } }, 100);
+  swToggle.addEventListener('click', () => { sw.running = !sw.running; showSw(); });
+  document.getElementById('sw-reset').addEventListener('click', () => { sw.elapsed = 0; showSw(); });
+  desk.oncapture = () => ({ ...sw });
+  desk.onrestore = (state) => { if (state) { sw = { ...state }; showSw(); } };
+
+  // Dragging: any card by its grip, the puck anywhere.
+  let drag = null;
+  desk.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.grip, .puck');
+    if (!handle || !desk.isLive) return;
+    const el = handle.closest('.card2, .puck');
+    const p = desk.placement(el);
+    drag = { el, dx: e.clientX - p.x, dy: e.clientY - p.y, lastX: e.clientX, vx: 0, vy: 0, lastY: e.clientY };
+    handle.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  desk.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    drag.vx = e.clientX - drag.lastX; drag.vy = e.clientY - drag.lastY;
+    drag.lastX = e.clientX; drag.lastY = e.clientY;
+    desk.place(drag.el, { x: e.clientX - drag.dx, y: e.clientY - drag.dy, rotate: drag.el === puck ? undefined : Math.max(-0.12, Math.min(0.12, drag.vx * 0.01)) });
+  });
+  const drop = () => {
+    if (!drag) return;
+    if (drag.el === puck) { vel.x = drag.vx * 0.8; vel.y = drag.vy * 0.8; } else desk.place(drag.el, { rotate: 0 });
+    drag = null;
+  };
+  desk.addEventListener('pointerup', drop);
+  desk.addEventListener('pointercancel', drop);
+
+  // The puck bounces around on its own so there is always something to rewind.
+  const vel = { x: 2.6, y: 1.9 };
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function step() {
+    requestAnimationFrame(step);
+    if (!desk.isLive || drag?.el === puck || still) return;
+    const p = desk.placement(puck);
+    if (!p) return;
+    let { x, y, rotate } = p;
+    x += vel.x; y += vel.y; rotate += vel.x * 0.02;
+    const maxX = desk.clientWidth - 74, maxY = desk.clientHeight - 74;
+    if (x < 0 || x > maxX) { vel.x *= -1; x = Math.max(0, Math.min(maxX, x)); }
+    if (y < 0 || y > maxY) { vel.y *= -1; y = Math.max(0, Math.min(maxY, y)); }
+    const speed = Math.hypot(vel.x, vel.y);
+    if (speed > 4) { vel.x *= 0.99; vel.y *= 0.99; }
+    desk.place(puck, { x, y, rotate });
+  }
+  step();
+
+  // Transport.
+  let scrubbing = false;
+  timeline.addEventListener('input', () => { scrubbing = true; desk.seek(-Number(timeline.value)); });
+  timeline.addEventListener('change', () => { scrubbing = false; });
+  document.getElementById('live').addEventListener('click', () => desk.live());
+  document.getElementById('replay').addEventListener('click', () => desk.replay(5, 1));
+  document.getElementById('slow').addEventListener('click', () => desk.replay(5, 0.25));
+  restore.addEventListener('click', () => desk.restore());
+  document.getElementById('trails').addEventListener('change', (e) => {
+    desk.trails = Number(e.target.value);
+    desk.trailGap = Number(e.target.value) > 8 ? 0.05 : 0.06;
+  });
+  let lastLabel = '';
+  desk.addEventListener('rewindframe', (e) => {
+    const { position, duration } = e.detail;
+    timeline.min = -Math.max(1, duration).toFixed(2);
+    if (!scrubbing) timeline.value = -position;
+    const label = position > 0 ? `−${position.toFixed(1)} s` : 'LIVE';
+    if (label !== lastLabel) { when.textContent = lastLabel = label; when.classList.toggle('live', position === 0); }
+    restore.disabled = position === 0;
+    const s = desk.stats;
+    stats.textContent = `${s.seconds.toFixed(1)} s held · ${s.frames} frames · ${s.snapshots} snapshots`;
+  });
+
+  // ---------------------------------------------------------------- tests
+  const rig = document.getElementById('rig');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const frames = (n = 2) => new Promise((r) => { const f = () => (n-- ? requestAnimationFrame(f) : r()); f(); });
+  const must = (cond, msg) => { if (!cond) throw new Error(msg); };
+  const near = (px, want, tol = 12) => want.every((v, i) => Math.abs(px[i] - v) <= tol);
+  const YELLOW = [255, 204, 0], CYAN = [0, 204, 255];
+  const rigPx = async (x, y) => {
+    await new Promise((r) => rig.addEventListener('rewindframe', r, { once: true }));
+    const dpr = devicePixelRatio;
+    return Array.from(rig.canvas.getContext('2d').getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data);
+  };
+  const raws = document.getElementById('raws');
+  const paintOf = (c) => new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
+  /** A bare drawable canvas with one child, for tests on snapshots themselves. */
+  async function raw(html, w = 240, h = 60) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+    const dpr = devicePixelRatio;
+    c.width = w * dpr; c.height = h * dpr; c.style.cssText = `width:${w}px;height:${h}px`;
+    c.innerHTML = html;
+    raws.append(c);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    await paintOf(c);
+    return { c, ctx, el: c.firstElementChild, dpr, px: (x, y) => Array.from(ctx.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data) };
+  }
+  const softness = (ctx, y, w) => {
+    const d = ctx.getImageData(0, y, w, 1).data;
+    let mid = 0, edges = 0;
+    for (let i = 0; i < w; i++) { const v = d[i * 4]; if (v > 50 && v < 205) mid++; if (i && Math.abs(v - d[(i - 1) * 4]) > 90) edges++; }
+    return { mid, edges };
+  };
+
+  const tests = [
+    {
+      name: 'Scrub back and the old frame is on screen; go live and the present returns',
+      why: 'Yellow box, wait, turn it cyan, wait, look 0.45 s into the past.',
+      async run() {
+        const ya = document.getElementById('ya');
+        ya.style.background = ''; await sleep(450);
+        ya.style.background = 'rgb(0, 204, 255)'; await sleep(300);
+        rig.seek(0.5);
+        const past = await rigPx(120, 62);
+        rig.live(); await frames(2);
+        const now = await rigPx(120, 62);
+        ya.style.background = '';
+        must(near(past, YELLOW) && near(now, CYAN), `past ${past}, now ${now}`);
+        return `0.5 s ago ${past.slice(0, 3)}, live ${now.slice(0, 3)}`;
+      },
+    },
+    {
+      name: 'Moving an element does not cost new snapshots',
+      why: 'Slide a box for 40 frames; frames go up, snapshots do not.',
+      async run() {
+        const yb = document.getElementById('yb');
+        await frames(3);
+        const before = rig.stats;
+        for (let i = 0; i < 40; i++) { rig.place(yb, { x: 200 + i }); await frames(1); }
+        const after = rig.stats;
+        rig.place(yb, { x: 200 });
+        must(after.frames - before.frames >= 30, `only ${after.frames - before.frames} frames recorded`);
+        must(after.snapshots - before.snapshots <= 2, `${after.snapshots - before.snapshots} new snapshots`);
+        return `${after.frames - before.frames} new frames, ${after.snapshots - before.snapshots} new snapshots`;
+      },
+    },
+    {
+      name: 'Trails: earlier frames drawn faded under the live element',
+      why: 'Jump a box 80px and look for a translucent ghost where it was.',
+      async run() {
+        const yb = document.getElementById('yb');
+        rig.trails = 3; rig.trailGap = 0.05;
+        rig.place(yb, { x: 200, y: 100 }); await sleep(250);
+        rig.place(yb, { x: 280, y: 100 });
+        let ghost = null;
+        for (let i = 0; i < 6 && !ghost; i++) { const px = await rigPx(215, 120); if (px[3] > 10 && px[3] < 250) ghost = px; }
+        rig.trails = 0; rig.place(yb, { x: 200, y: 20 });
+        must(ghost, 'no translucent pixel at the old position');
+        return `ghost pixel ${ghost.join(',')}`;
+      },
+    },
+    {
+      name: 'restore() puts form state and position back',
+      why: 'Change an input, a checkbox and a position, then restore a moment before that.',
+      async run() {
+        const input = document.getElementById('ya-in'), check = document.getElementById('ya-check'), ya = document.getElementById('ya');
+        input.value = 'one'; check.checked = false; rig.place(ya, { x: 10, y: 10 });
+        await sleep(500);
+        input.value = 'two'; check.checked = true; rig.place(ya, { x: 60, y: 80 });
+        await sleep(300);
+        rig.seek(0.55);
+        const ok = rig.restore();
+        await frames(2);
+        const got = `value "${input.value}", checked ${check.checked}, x ${rig.placement(ya).x}`;
+        must(ok && input.value === 'one' && !check.checked && rig.placement(ya).x === 10, got);
+        must(rig.isLive, 'still in the past');
+        return got;
+      },
+    },
+    {
+      name: 'The past is not clickable, the present is',
+      why: 'Hit test the rig\'s button while scrubbed back, and again when live.',
+      async run() {
+        const btn = document.getElementById('ya-btn');
+        await sleep(300);
+        const r0 = btn.getBoundingClientRect();
+        const pt = [r0.x + r0.width / 2, r0.y + r0.height / 2];
+        const live1 = document.elementFromPoint(...pt);
+        rig.seek(0.2); await frames(3);
+        const past = document.elementFromPoint(...pt);
+        rig.live(); await frames(3);
+        const live2 = document.elementFromPoint(...pt);
+        must(live1 === btn && live2 === btn, `live hit ${live1?.id || live1?.tagName} / ${live2?.id || live2?.tagName}`);
+        must(past !== btn, 'button was still hit-testable in the past');
+        return `live: #${live1.id}; in the past: <${past.tagName.toLowerCase()}>`;
+      },
+    },
+    {
+      name: 'Hold 600 snapshots of a changing element and draw the oldest',
+      why: 'One captureElementImage per repaint.',
+      timeout: 30000,
+      async run() {
+        const s = await raw('<div drawable style="width:240px;height:60px;background:rgb(255,204,0);font:20px monospace;color:#000">frame 0</div>');
+        const ring = [];
+        let cost = 0;
+        for (let i = 0; i < 600; i++) {
+          s.el.textContent = 'frame ' + i;
+          if (i === 1) s.el.style.background = 'rgb(0, 204, 255)';
+          await paintOf(s.c);
+          const t0 = performance.now();
+          ring.push(s.c.captureElementImage(s.el));
+          cost += performance.now() - t0;
+        }
+        s.ctx.reset(); s.ctx.drawElementImage(ring[0], 0, 0);
+        const oldest = s.px(230, 50);
+        s.ctx.reset(); s.ctx.drawElementImage(ring[599], 0, 0);
+        const newest = s.px(230, 50);
+        ring.forEach((img) => img.close()); s.c.remove();
+        must(near(oldest, YELLOW) && near(newest, CYAN), `oldest ${oldest}, newest ${newest}`);
+        return `600 held; capture costs ${(cost / 600).toFixed(3)} ms each`;
+      },
+    },
+    {
+      name: 'The same 600 frames as ImageBitmaps',
+      why: 'The pixel route, for comparison: draw, then createImageBitmap(canvas).',
+      timeout: 30000,
+      async run() {
+        const s = await raw('<div drawable style="width:240px;height:60px;background:rgb(255,204,0);font:20px monospace;color:#000">frame 0</div>');
+        const ring = [];
+        let cost = 0;
+        for (let i = 0; i < 600; i++) {
+          s.el.textContent = 'frame ' + i;
+          await paintOf(s.c);
+          const t0 = performance.now();
+          s.ctx.reset(); s.ctx.drawElementImage(s.el, 0, 0);
+          ring.push(await createImageBitmap(s.c));
+          cost += performance.now() - t0;
+        }
+        const bytes = ring.length * s.c.width * s.c.height * 4;
+        ring.forEach((b) => b.close()); s.c.remove();
+        return `capture costs ${(cost / 600).toFixed(3)} ms each and about ${(bytes / 1048576).toFixed(0)} MB of pixels for a 240×60 element`;
+      },
+    },
+    {
+      name: 'A snapshot outlives its element',
+      why: 'Capture, remove the element from the document, draw.',
+      async run() {
+        const s = await raw('<div drawable style="width:240px;height:60px;background:rgb(255,204,0)"></div>');
+        const img = s.c.captureElementImage(s.el);
+        s.el.remove(); await paintOf(s.c);
+        s.ctx.reset(); s.ctx.drawElementImage(img, 0, 0);
+        const px = s.px(100, 30); s.c.remove();
+        must(near(px, YELLOW), `pixel ${px}`);
+        return 'still draws after removal';
+      },
+    },
+    {
+      name: 'An old snapshot scales up sharp',
+      why: 'Draw a snapshot at 4× and compare edge softness with a bitmap of the same frame at 4×.',
+      async run() {
+        const s = await raw('<div drawable style="width:60px;height:15px;background:#fff;font:12px/15px monospace;color:#000">HHiiHHii</div>', 240, 120);
+        const img = s.c.captureElementImage(s.el);
+        s.ctx.reset(); s.ctx.drawElementImage(s.el, 0, 0);
+        const bmp = await createImageBitmap(s.c, 0, 0, 60 * s.dpr, 15 * s.dpr);
+        s.el.textContent = 'changed';
+        await paintOf(s.c);
+        s.ctx.reset(); s.ctx.fillStyle = '#fff'; s.ctx.fillRect(0, 0, s.c.width, s.c.height);
+        s.ctx.drawElementImage(img, 0, 0, 240 * s.dpr, 60 * s.dpr);
+        s.ctx.drawImage(bmp, 0, 60 * s.dpr, 240 * s.dpr, 60 * s.dpr);
+        const a = softness(s.ctx, Math.round(30 * s.dpr), s.c.width), b = softness(s.ctx, Math.round(90 * s.dpr), s.c.width);
+        s.c.remove();
+        must(a.edges > 4 && a.mid < b.mid * 0.6, `snapshot: ${a.mid} soft px, bitmap: ${b.mid}`);
+        return `snapshot at 4×: ${a.mid} soft pixels on a row; bitmap at 4×: ${b.mid}`;
+      },
+    },
+    {
+      name: 'Alpha, blur and blend modes apply to snapshots',
+      why: 'globalAlpha, ctx.filter and globalCompositeOperation with drawElementImage.',
+      async run() {
+        const s = await raw('<div drawable style="width:60px;height:60px;background:rgb(255,204,0)"></div>');
+        const img = s.c.captureElementImage(s.el);
+        s.ctx.reset(); s.ctx.globalAlpha = 0.5; s.ctx.drawElementImage(img, 0, 0);
+        const alpha = s.px(30, 30);
+        s.ctx.reset(); s.ctx.filter = `blur(${6 * s.dpr}px)`; s.ctx.drawElementImage(img, 90 * s.dpr, 0);
+        const blur = s.px(86, 30);
+        s.ctx.reset(); s.ctx.fillStyle = 'rgb(0,0,255)'; s.ctx.fillRect(0, 0, s.c.width, s.c.height);
+        s.ctx.globalCompositeOperation = 'lighter'; s.ctx.drawElementImage(img, 0, 0);
+        const blend = s.px(30, 30); s.c.remove();
+        must(alpha[3] > 110 && alpha[3] < 145, `alpha pixel ${alpha}`);
+        must(blur[3] > 5 && blur[3] < 250, `blur pixel ${blur}`);
+        must(near(blend, [255, 204, 255]), `blend pixel ${blend}`);
+        return `alpha ${alpha[3]}, blurred edge alpha ${blur[3]}, lighter ${blend.slice(0, 3)}`;
+      },
+    },
+    {
+      name: 'Snapshots survive a canvas resize',
+      why: 'Capture, change canvas.width, draw.',
+      async run() {
+        const s = await raw('<div drawable style="width:240px;height:60px;background:rgb(255,204,0)"></div>');
+        const img = s.c.captureElementImage(s.el);
+        const before = s.c.getElementImageDefaultSize(img);
+        s.c.width = s.c.width * 2;
+        await paintOf(s.c);
+        s.ctx.drawElementImage(img, 0, 0);
+        const px = s.px(100, 30), after = s.c.getElementImageDefaultSize(img);
+        s.c.remove();
+        must(near(px, YELLOW), `old snapshot drew ${px} after the resize`);
+        return `still draws; its default size went from ${before.width}×${before.height} to ${after.width}×${after.height} to match the new grid`;
+      },
+    },
+    {
+      name: 'Select or query the text of a past frame',
+      expect: 'fail',
+      why: 'An old frame is a picture. Its DOM is gone unless you kept state yourself.',
+      async run() {
+        const s = await raw('<div drawable style="width:240px;height:60px;font:20px monospace">old words</div>');
+        const img = s.c.captureElementImage(s.el);
+        const api = Object.getOwnPropertyNames(Object.getPrototypeOf(img)).filter((n) => n !== 'constructor');
+        s.el.textContent = 'new words';
+        await paintOf(s.c);
+        s.ctx.reset(); s.ctx.drawElementImage(img, 0, 0);
+        await frames(2);
+        const text = s.c.textContent;
+        s.c.remove();
+        must(api.length > 1 || text.includes('old'), `the canvas shows "old words" but ElementImage only has ${api.join(', ')}(), and the only text in the DOM is "${text}"`);
+        return text;
+      },
+    },
+    {
+      name: 'Draw a closed snapshot',
+      expect: 'fail',
+      why: 'Frames that fall out of the ring are closed to free them.',
+      async run() {
+        const s = await raw('<div drawable style="width:240px;height:60px;background:rgb(255,204,0)"></div>');
+        const img = s.c.captureElementImage(s.el);
+        img.close();
+        try { s.ctx.drawElementImage(img, 0, 0); } finally { s.c.remove(); }
+        return 'drew';
+      },
+    },
+  ];
+
+  if (supported) {
+    await customElements.whenDefined('dom-rewind');
+    await frames(6);
+    await runTests(document.getElementById('tests'), tests);
+  } else {
+    document.getElementById('tests').innerHTML = '<tr><td class="note">Tests need the HTML-in-canvas API. The cards above still work and can be dragged; nothing is recorded.</td></tr>';
+  }
+  document.getElementById('rigbox').classList.add('done');
+</script>
+</body>
+</html>
