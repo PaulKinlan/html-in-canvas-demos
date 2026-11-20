@@ -6,7 +6,10 @@
 //   </dom-lens>
 //
 // Attributes
-//   mode     magnify | fisheye | xray              (default magnify)
+//   mode     magnify | glass | fisheye | droplet | frosted | night | thermal |
+//            xray | halftone | pixel | cvd | blackhole | kaleidoscope | reading
+//            (default magnify; the catalogue is LENSES in lens-gl.js)
+//   variant  for mode="cvd": protan | deutan | tritan
 //   zoom     magnification at the lens centre      (default 2)
 //   radius   lens radius in CSS px                 (default 110)
 //   pinned   keep the lens at x / y instead of following the pointer
@@ -15,19 +18,31 @@
 //   touch    "scroll" lets a touch drag scroll the page; by default a drag
 //            moves the lens, which is drawn above the finger
 //   bleed    extra canvas margin so the lens can hang over the edge
+//   pipeline "2d" turns the shader off (magnify, fisheye and xray only; the
+//            fisheye becomes a mesh of clipped draws, which is far slower)
 //
 // The content is drawn with drawElementImage(), which replays the element's
 // paint record. Scaling it re-rasterizes text and vectors, so the magnified
-// view is sharp rather than an upscaled bitmap. The lens follows keyboard focus
-// as well as the pointer.
+// view is sharp rather than an upscaled bitmap. Each frame the patch of page
+// under the lens is drawn once at the lens's magnification, and a fragment
+// shader (lens-gl.js) bends and colours it. The lens follows keyboard focus as
+// well as the pointer.
 
 import { SurfaceElement, cssZoom } from './surface.js';
+import { LENSES, MAX_PATCH, lensRenderer } from './lens-gl.js';
+
+export { LENSES };
+
+/** CSS px around the lens for its rim, antialiasing and shadow. */
+const PAD = 10;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const stillMotion = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 
 const INTERACTIVE = 'a[href],button,input,select,textarea,summary,[tabindex],[contenteditable]';
 
 export class DomLens extends SurfaceElement {
   static contextType = '2d';
-  static observedAttributes = ['mode', 'zoom', 'radius', 'pinned', 'x', 'y', 'off', 'rings'];
+  static observedAttributes = ['mode', 'zoom', 'radius', 'pinned', 'x', 'y', 'off', 'rings', 'variant', 'pipeline', 'copy'];
 
   #client = null; // last pointer position, client coords
   #pointer = null; // lens centre from the pointer, content px
@@ -38,6 +53,9 @@ export class DomLens extends SurfaceElement {
   #settled = false;
   #settleTimer = 0;
   #touch = false;
+  #prevBox = null; // where the shader lens was drawn last, device px
+  #srcKey = ''; // what the lens texture currently holds
+  #onRestored = () => this.invalidate();
   #onMove = (e) => {
     this.#touch = e.pointerType === 'touch' || e.pointerType === 'pen';
     this.#client = { x: e.clientX, y: e.clientY };
@@ -50,7 +68,10 @@ export class DomLens extends SurfaceElement {
     this.#client = null;
     this.#track();
   };
-  #onScroll = () => this.#track();
+  #onScroll = () => {
+    this.#track();
+    if (this.hasAttribute('pinned')) this.invalidate();
+  };
   #onLeave = () => {
     this.#client = null;
     this.#track();
@@ -58,6 +79,8 @@ export class DomLens extends SurfaceElement {
 
   /** Number of drawElementImage calls in the last frame (for the demo's stats). */
   drawCalls = 0;
+  /** How the last frame was drawn: 'shader' or '2d'. */
+  pipeline = '2d';
 
   attributeChangedCallback() {
     this.invalidate();
@@ -73,6 +96,7 @@ export class DomLens extends SurfaceElement {
     document.documentElement.addEventListener('pointerleave', this.#onLeave);
     this.addEventListener('focusin', this.#onFocus);
     this.addEventListener('focusout', this.#onBlur);
+    addEventListener('lensrendererrestored', this.#onRestored);
     this.#backdrop = findBackdrop(this);
   }
 
@@ -85,10 +109,13 @@ export class DomLens extends SurfaceElement {
     document.documentElement.removeEventListener('pointerleave', this.#onLeave);
     this.removeEventListener('focusin', this.#onFocus);
     this.removeEventListener('focusout', this.#onBlur);
+    removeEventListener('lensrendererrestored', this.#onRestored);
   }
 
   resized() {
     this.#boxes = null;
+    this.#prevBox = null;
+    this.#srcKey = '';
     this.#backdrop = findBackdrop(this);
   }
 
@@ -166,12 +193,154 @@ export class DomLens extends SurfaceElement {
     return 1 / (1 / z + (1 - 1 / z) * t * t);
   }
 
-  render() {
-    const { ctx, content, scale: s, width: w, height: h, bleed: b } = this;
+  render(time) {
     const lens = this.lens;
+    const name = LENSES[this.mode] ? this.mode : 'magnify';
+    const gl = lens && this.getAttribute('pipeline') !== '2d' ? lensRenderer() : null;
+    if (gl?.can(name)) return this.#renderShader(time, gl, lens, name);
+    return this.#render2d(lens);
+  }
+
+  // One magnified draw of the patch under the lens, then a shader. See lens-gl.js.
+  #renderShader(time, gl, lens, name) {
+    const { ctx, content, canvas, scale: s, width: w, height: h, bleed: b } = this;
+    const def = LENSES[name];
     const t0 = performance.now();
     const R = this.radius;
-    const mode = this.mode;
+    const z = this.zoom;
+    const variant = this.getAttribute('variant') || '';
+    // Element boxes have to be read before any draw moves the element's geometry.
+    const boxes = def.overlay === 'boxes' ? this.#measure() : null;
+    const cw = canvas.width;
+    const ch = canvas.height;
+    let calls = 0;
+
+    // The lens is drawn on whole device pixels, and the patch has an even
+    // size, so at 1:1 a texel lands exactly on a pixel and nothing is blurred.
+    const boxPx = 2 * Math.ceil((R + PAD) * s);
+    const cxp = Math.round((lens.x + b) * s);
+    const cyp = Math.round((lens.y + b) * s);
+    const bx = cxp - boxPx / 2;
+    const by = cyp - boxPx / 2;
+    const fx = (lens.fx ?? lens.x) + b;
+    const fy = (lens.fy ?? lens.y) + b;
+
+    // The patch: a square of page around (fx, fy), `reach` lens radii each
+    // way, drawn at `kd` canvas px per CSS px. It borrows a square of this
+    // canvas near the lens, which is repainted below before anyone sees it.
+    const reach = def.reach(z);
+    const limit = Math.min(MAX_PATCH, Math.floor(Math.min(cw, ch) / 2) * 2);
+    const S = clamp(2 * Math.ceil(reach * R * def.density(z) * s), 2, limit);
+    const kd = S / (2 * reach * R);
+    const tx = clamp(cxp - S / 2, 0, cw - S);
+    const ty = clamp(cyp - S / 2, 0, ch - S);
+    const key = [name, variant, fx, fy, z, R, S, tx, ty].join();
+    const fresh = this.contentDirty || key !== this.#srcKey || gl.owner !== this;
+    if (fresh) {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.beginPath();
+      ctx.rect(tx, ty, S, S);
+      ctx.clip();
+      ctx.fillStyle = this.#backdrop;
+      ctx.fillRect(tx, ty, S, S);
+      ctx.setTransform(kd, 0, 0, kd, tx + S / 2 - fx * kd, ty + S / 2 - fy * kd);
+      ctx.drawElementImage(content, b, b, w, h);
+      calls++;
+      if (boxes) {
+        // Invert, tint blue and dim the page with blend modes (a CSS filter
+        // on the context costs far more), then outline the boxes on top.
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalCompositeOperation = 'difference';
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(tx, ty, S, S);
+        ctx.globalCompositeOperation = 'color';
+        ctx.fillStyle = 'hsl(205 70% 50%)';
+        ctx.fillRect(tx, ty, S, S);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = 'rgb(8 26 46 / 0.55)';
+        ctx.fillRect(tx, ty, S, S);
+        ctx.restore();
+        this.#drawBoxes(ctx, boxes, fx, fy, R, b);
+      }
+      ctx.restore();
+      gl.upload(canvas, tx, ty, S, !!def.mip, this, this.getAttribute('copy') || 'direct');
+      this.#srcKey = key;
+    }
+    const still = stillMotion.matches;
+    const out = gl.draw({ name, variant, zoom: z, time: still ? 0 : (time / 1000) % 3600, reach, radiusPx: R * s, css: s, boxPx, backdrop: [1, 1, 1] });
+
+    // Put the page back where the patch and the old lens were, then the lens.
+    // Only that neighbourhood is redrawn unless the page itself changed.
+    const prev = this.#prevBox;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (prev && !this.contentDirty) {
+      let x0 = Math.min(prev.x, bx), y0 = Math.min(prev.y, by);
+      let x1 = Math.max(prev.x + prev.n, bx + boxPx), y1 = Math.max(prev.y + prev.n, by + boxPx);
+      if (fresh) {
+        x0 = Math.min(x0, tx), y0 = Math.min(y0, ty);
+        x1 = Math.max(x1, tx + S), y1 = Math.max(y1, ty + S);
+      }
+      x0 = clamp(x0, 0, cw), y0 = clamp(y0, 0, ch);
+      x1 = clamp(x1, 0, cw), y1 = clamp(y1, 0, ch);
+      ctx.beginPath();
+      ctx.rect(x0, y0, x1 - x0, y1 - y0);
+      ctx.clip();
+      ctx.clearRect(x0, y0, x1 - x0, y1 - y0);
+    } else ctx.clearRect(0, 0, cw, ch);
+    ctx.setTransform(s, 0, 0, s, 0, 0);
+    ctx.drawElementImage(content, b, b, w, h);
+    calls++;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(gl.canvas, out.x, out.y, out.size, out.size, bx, by, boxPx, boxPx);
+    ctx.restore();
+    this.#prevBox = { x: bx, y: by, n: boxPx };
+    this.pipeline = 'shader';
+    this.patchSize = S;
+    this.#finish(lens, calls, t0);
+    return !!def.animated && !still && this.#onScreen();
+  }
+
+  #onScreen() {
+    const r = this.getBoundingClientRect();
+    return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
+  }
+
+  // Hit testing. A lens that follows the pointer needs nothing special: the
+  // pointer is the fixed point of the magnification, so what you see under
+  // it is what is there. A pinned lens is different: when the pointer is
+  // inside it, point the element's geometry at the magnified drawing so
+  // clicks land on what is shown.
+  #finish(lens, calls, t0) {
+    const b = this.bleed;
+    let geometry = this.restMatrix;
+    this.hitTesting = 'rest';
+    if (lens?.pinned && this.#pointer) {
+      const d = Math.hypot(this.#pointer.x - lens.x, this.#pointer.y - lens.y);
+      if (d < this.radius) {
+        const m = this.magnification(d);
+        geometry = new DOMMatrix().translate(lens.x + b, lens.y + b).scale(m).translate(-lens.x - b, -lens.y - b).multiply(geometry);
+        this.hitTesting = 'lens';
+      }
+    }
+    this.setGeometry(geometry);
+    this.contentDirty = false;
+    this.drawCalls = calls;
+    this.frameMs = performance.now() - t0;
+  }
+
+  // The path without WebGL: magnifier and x-ray are two draws, the fisheye is
+  // a mesh of clipped draws.
+  #render2d(lens) {
+    const { ctx, content, scale: s, width: w, height: h, bleed: b } = this;
+    const t0 = performance.now();
+    const R = this.radius;
+    const mode = this.mode === 'fisheye' || this.mode === 'xray' ? this.mode : 'magnify';
+    this.#prevBox = null;
+    this.#srcKey = '';
+    this.pipeline = '2d';
     let calls = 0;
     const draw = () => {
       ctx.drawElementImage(content, b, b, w, h);
@@ -291,25 +460,7 @@ export class DomLens extends SurfaceElement {
       ctx.stroke();
     }
 
-    // Hit testing. A lens that follows the pointer needs nothing special: the
-    // pointer is the fixed point of the magnification, so what you see under
-    // it is what is there. A pinned lens is different: when the pointer is
-    // inside it, point the element's geometry at the magnified drawing so
-    // clicks land on what is shown.
-    let geometry = this.restMatrix;
-    this.hitTesting = 'rest';
-    if (lens?.pinned && this.#pointer) {
-      const d = Math.hypot(this.#pointer.x - lens.x, this.#pointer.y - lens.y);
-      if (d < R) {
-        const m = this.magnification(d);
-        geometry = new DOMMatrix().translate(lens.x + b, lens.y + b).scale(m).translate(-lens.x - b, -lens.y - b).multiply(geometry);
-        this.hitTesting = 'lens';
-      }
-    }
-    this.setGeometry(geometry);
-    this.contentDirty = false;
-    this.drawCalls = calls;
-    this.frameMs = performance.now() - t0;
+    this.#finish(lens, calls, t0);
     if (calls > 8) this.#msPerDraw = this.#msPerDraw * 0.7 + (this.frameMs / calls) * 0.3;
     return false;
   }
