@@ -116,10 +116,11 @@
 
   <h2>How fast is it here?</h2>
   <p>The fisheye used to be a mesh of clipped triangles: the element's paint record was replayed once per triangle, up to 199 times a frame.
-    Now every lens is two replays and one shader pass. This sweeps the lens across the card each way and times the frames on this device.</p>
+    Now every lens is two replays and one shader pass. This sweeps the lens across the card each way and times the frames on this device.
+    “Patch px” is the side of the square drawn for the lens: if frames come slowly while the lens moves it is drawn smaller, then sharpened when the lens rests.</p>
   <div id="bench">
     <button type="button" id="benchGo">Measure on this device</button>
-    <table id="benchOut" hidden><thead><tr><th>Lens and route</th><th>frames/s</th><th>ms/frame</th><th>worst 5%</th><th>draws</th></tr></thead><tbody></tbody></table>
+    <table id="benchOut" hidden><thead><tr><th>Lens and route</th><th>frames/s</th><th>ms/frame</th><th>worst 5%</th><th>draws</th><th>patch px</th></tr></thead><tbody></tbody></table>
   </div>
 
   <h2>How it works</h2>
@@ -198,7 +199,7 @@
     const r = lens.getBoundingClientRect();
     const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, innerHeight);
     const gaps = [];
-    let draws = 0;
+    let draws = 0, patch = 0;
     let last = await frame();
     for (let i = 0; i < frames; i++) {
       const a = (i / frames) * Math.PI * 4;
@@ -207,11 +208,12 @@
       if (i >= 10) gaps.push(t - last);
       last = t;
       draws = Math.max(draws, lens.drawCalls);
+      patch = lens.pipeline === 'shader' ? lens.patchSize : 0;
     }
     lens.pointTo(null);
     gaps.sort((x, y) => x - y);
     const mean = gaps.reduce((x, y) => x + y, 0) / gaps.length;
-    return { mean, worst: gaps[Math.floor(gaps.length * 0.95)], draws };
+    return { mean, worst: gaps[Math.floor(gaps.length * 0.95)], draws, patch };
   }
   $('benchGo').onclick = async () => {
     if (!lens.live) return;
@@ -232,12 +234,12 @@
       const row = body.insertRow();
       row.insertCell().textContent = label;
       const cell = row.insertCell();
-      cell.colSpan = 4;
+      cell.colSpan = 5;
       cell.textContent = 'measuring…';
       await sweep(12);
       const m = await sweep(route === '2d' ? 40 : 90);
       cell.remove();
-      for (const v of [(1000 / m.mean).toFixed(0), m.mean.toFixed(1), m.worst.toFixed(1), m.draws]) row.insertCell().textContent = v;
+      for (const v of [(1000 / m.mean).toFixed(0), m.mean.toFixed(1), m.worst.toFixed(1), m.draws, m.patch || '–']) row.insertCell().textContent = v;
       if (lens.pipeline === '2d' && route !== '2d') row.cells[0].textContent += ' (no WebGL: ran as 2D)';
     }
     lens.removeAttribute('pipeline');

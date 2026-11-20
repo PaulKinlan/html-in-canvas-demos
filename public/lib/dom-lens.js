@@ -55,6 +55,12 @@ export class DomLens extends SurfaceElement {
   #touch = false;
   #prevBox = null; // where the shader lens was drawn last, device px
   #srcKey = ''; // what the lens texture currently holds
+  // Frame pacing while the lens moves: see #pace().
+  #last = null;
+  #gap = 16;
+  #cap = Infinity;
+  #fast = 0;
+  #probation = 45;
   #onRestored = () => this.invalidate();
   #onMove = (e) => {
     this.#touch = e.pointerType === 'touch' || e.pointerType === 'pen';
@@ -230,7 +236,9 @@ export class DomLens extends SurfaceElement {
     // canvas near the lens, which is repainted below before anyone sees it.
     const reach = def.reach(z);
     const limit = Math.min(MAX_PATCH, Math.floor(Math.min(cw, ch) / 2) * 2);
-    const S = clamp(2 * Math.ceil(reach * R * def.density(z) * s), 2, limit);
+    const moving = this.#pace(fx, fy);
+    const density = moving ? Math.min(def.density(z), this.#cap / reach) : def.density(z);
+    const S = clamp(2 * Math.ceil(reach * R * density * s), 2, limit);
     const kd = S / (2 * reach * R);
     const tx = clamp(cxp - S / 2, 0, cw - S);
     const ty = clamp(cyp - S / 2, 0, ch - S);
@@ -301,6 +309,36 @@ export class DomLens extends SurfaceElement {
     this.patchSize = S;
     this.#finish(lens, calls, t0);
     return !!def.animated && !still && this.#onScreen();
+  }
+
+  // The cost of a frame is mostly the number of pixels in the patch. If frames
+  // come slowly while the lens is moving, draw the patch smaller (softer in
+  // the middle, which is hard to see in motion) and sharpen it when the lens
+  // rests. #cap is the patch size as a multiple of the lens size. It is raised
+  // again after a run of fast frames, and each relapse doubles that run.
+  #pace(fx, fy) {
+    const now = performance.now();
+    const last = this.#last;
+    const moving = !!last && (last.x !== fx || last.y !== fy) && now - last.t < 120;
+    this.#last = { x: fx, y: fy, t: now };
+    if (!moving) return false;
+    this.#gap = this.#gap * 0.8 + (now - last.t) * 0.2;
+    const levels = [Infinity, 1.5, 1, 0.6];
+    const i = levels.indexOf(this.#cap);
+    if (this.#gap > 26 && i < levels.length - 1) {
+      this.#cap = levels[i + 1];
+      this.#gap = 20;
+      this.#fast = 0;
+      this.#probation = Math.min(this.#probation * 2, 3000);
+    } else if (this.#gap < 19 && i > 0 && ++this.#fast > this.#probation) {
+      this.#cap = levels[i - 1];
+      this.#fast = 0;
+    }
+    if (this.#cap !== Infinity) {
+      clearTimeout(this.#settleTimer);
+      this.#settleTimer = setTimeout(() => this.invalidate(), 140);
+    }
+    return true;
   }
 
   #onScreen() {
