@@ -251,6 +251,15 @@ async function start() {
     dragging.x = e.clientX;
     dragging.y = e.clientY;
   });
+  // Keyboard focus turns the preview camera to the panel that has it.
+  let byKeyboard = false;
+  window.addEventListener('keydown', (e) => { if (e.key === 'Tab') byKeyboard = true; }, true);
+  window.addEventListener('pointerdown', () => (byKeyboard = false), true);
+  canvas.addEventListener('focusin', (e) => {
+    if (!byKeyboard || renderer.xr.isPresenting) return;
+    const p = panels.find((q) => q.el.contains(e.target));
+    if (p) look.yaw = Math.atan2(-p.group.position.x, -p.group.position.z) * 0.8;
+  });
   const drop = (e) => { if (dragging?.id === e.pointerId) dragging = null; };
   canvas.addEventListener('pointerup', drop);
   canvas.addEventListener('pointercancel', drop);

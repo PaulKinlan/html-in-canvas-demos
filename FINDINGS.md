@@ -341,6 +341,8 @@ Measured in headless Chromium 157 with software rendering, three.js r187 (vendor
 | A tile that is no longer drawn | still clickable | It keeps the hit region of its last draw until it is parked with `updateElementGeometry()`. |
 | Overlapping tiles | last drawn wins | `z-index` on the elements changes nothing. Bring-to-front is draw order, so iframes never move in the DOM (and never reload). |
 | `elementFromPoint` on canvas children | viewport only | Like any element. Live checks have to scroll the canvas into view first. |
+| `updateElementGeometry()` under the CSS `zoom` property | layout pixels | The transform is in the canvas's layout pixels (`clientWidth`), while `getBoundingClientRect()` and pointer events are scaled by zoom. Mixing them puts hit regions 1.5× off at `zoom: 1.5`. |
+| Tabbing into a far-away surface | camera's job | Focus order works, but a field in the overview is a few pixels tall. `/three-form/` flies to the surface that receives keyboard focus. |
 | WebXR session with HTML panels (emulated Quest 3, IWER) | works | Paint events keep arriving, a DOM change re-uploads in session, and `elementFromPoint` still answers for a flat layout of the elements. |
 | Controller ray to DOM input | works, by hand | Raycast, UV to element pixels, `elementFromPoint`, synthetic pointer and mouse events. Untrusted events do not focus, place a caret, drag a range or open a `<select>`, so `RayPointer` in `html3d.js` does each of those itself. |
 | On-panel keyboard | works | Keys cancel `mousedown` so focus stays put; `setRangeText()` plus an `input` event types at the caret; Enter calls `requestSubmit()`. |

@@ -346,7 +346,8 @@ function minimapHit(cx, cy) {
 }
 
 // ------------------------------------------------------------------ input on the background
-const local = (e) => { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+// Client coordinates are scaled by CSS zoom; the camera works in the canvas's layout pixels.
+const local = (e) => { const r = canvas.getBoundingClientRect(), z = (canvas.clientWidth || r.width) / (r.width || 1); return { x: (e.clientX - r.left) * z, y: (e.clientY - r.top) * z }; };
 // One finger or the mouse pans when it starts on the background or on a sleeping page tile.
 // Two fingers pan and pinch wherever they land, so a tile that fills a phone screen is not a trap.
 const pointers = new Map();
