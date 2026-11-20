@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cross-origin reprojection</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .pair h3 { margin: 0 0 8px; font-size: 14px; font-family: var(--mono); color: var(--muted); font-weight: 400; }
+  iframe#remote { width: 100%; height: 190px; border: 1px solid var(--line); border-radius: 8px; }
+  #lend { display: block; width: 100%; height: 200px; border-radius: 8px; }
+  #lend > [drawable] { width: 250px; padding: 10px 12px; border-radius: 10px; background: #fff7e0; color: #2b2208; border: 1px solid #e3cf95; font: 14px/1.4 system-ui; }
+  #lend h4 { margin: 0 0 4px; }
+  #lend button { font: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>4 · Across origins</h1>
+  <p class="lede">
+    This page and the iframe below are on different origins (<code id="o1"></code> and <code id="o2"></code>).
+    Two directions: borrowing the other origin's DOM as pixels, and lending our DOM to the other origin to render.
+  </p>
+
+  <h2>A · Their DOM, shown here</h2>
+  <p>The iframe publishes its slot over a <code>MessagePort</code> we posted to it. The right-hand view is an <code>&lt;slot-view&gt;</code> in this document; click the heart or the input there and type.</p>
+  <div class="pair">
+    <div class="stage"><h3>cross-origin iframe (the real DOM)</h3><iframe id="remote" title="Remote origin frame"></iframe></div>
+    <div class="stage"><h3>&lt;slot-view name="widget"&gt; in this page</h3><slot-view name="widget" id="view" aria-label="Remote widget"></slot-view></div>
+  </div>
+
+  <h2>B · Our DOM, rendered by them</h2>
+  <p>
+    The card below is this page's DOM. Its canvas was transferred to the iframe with <code>transferControlToOffscreen()</code>, and on every
+    <code>paint</code> we transfer an <code>ElementImage</code> of the card. The other origin does all the drawing (the wave is theirs) and never touches our DOM. The button still works.
+  </p>
+  <div class="stage">
+    <canvas id="lend" content="drawable" layoutsubtree>
+      <div drawable id="card">
+        <h4>DOM from <span id="me"></span></h4>
+        Rendered by another origin. <button id="hit" type="button">Clicked 0×</button>
+      </div>
+    </canvas>
+  </div>
+
+  <h2>What crosses an origin boundary (live)</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+  <div id="fixtures" style="display:flex;gap:6px;flex-wrap:wrap;opacity:.6;margin-top:8px"></div>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>ElementImage and OffscreenCanvas both transfer across origins</strong> with <code>window.postMessage</code> and MessagePorts.</li>
+    <li><strong>A cross-origin document can render your DOM</strong> if you give it both your canvas (as an OffscreenCanvas) and the snapshots. The pair must match: the snapshot only draws into the canvas it was captured from.</li>
+    <li><strong>That is a real trust decision.</strong> The receiving origin can call <code>getImageData()</code> on what it drew, so lending a snapshot means lending the pixels of that element. Only content that is already "read-back allowed" is in there, but it is your content.</li>
+    <li><strong>It can't go the other way directly.</strong> A cross-origin iframe placed inside a drawable canvas is painted blank (same-origin iframes paint). To show another origin's DOM, that origin has to cooperate and send pixels, as in part A.</li>
+    <li><strong>Hit testing survives.</strong> When the other origin draws our snapshot, our element's geometry is updated here, so clicks land on the real button.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/slot-share.js';
+  import { banner, nav, runTests, nextPaint, pixel, supported } from '/shared/support.js';
+  nav('/cross-origin/');
+  banner();
+
+  // Work out "the other origin": two Workers serve the same files.
+  function otherOrigin() {
+    const u = new URL(location.href);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
+      u.port = u.port === '8001' ? '8002' : '8001';
+    } else if (u.hostname.startsWith('html-in-canvas-demos.')) {
+      u.hostname = u.hostname.replace('html-in-canvas-demos.', 'html-in-canvas-remote.');
+    } else if (u.hostname.startsWith('html-in-canvas-remote.')) {
+      u.hostname = u.hostname.replace('html-in-canvas-remote.', 'html-in-canvas-demos.');
+    } else {
+      // Unknown host: toggle localhost/127.0.0.1 style fallbacks aren't possible, so stay same-origin.
+      return u.origin;
+    }
+    return u.origin;
+  }
+  const REMOTE = otherOrigin();
+  document.getElementById('o1').textContent = location.host;
+  document.getElementById('o2').textContent = new URL(REMOTE).host;
+  document.getElementById('me').textContent = location.host.split('.')[0];
+
+  const frame = document.getElementById('remote');
+  const ready = new Promise((resolve) => {
+    addEventListener('message', (e) => {
+      if (e.source === frame.contentWindow && e.data?.type === 'frame-ready') resolve();
+    });
+  });
+  frame.src = REMOTE + '/cross-origin/frame.html';
+
+  // Ask the frame to do something and wait for its verdict.
+  let nextId = 1;
+  function askFrame(msg, transfer = []) {
+    return new Promise((resolve, reject) => {
+      const id = nextId++;
+      const on = (e) => {
+        if (e.source !== frame.contentWindow || e.data?.type !== 'test-result' || e.data.id !== id) return;
+        removeEventListener('message', on);
+        e.data.ok ? resolve(e.data.detail) : reject(new Error(e.data.detail));
+      };
+      addEventListener('message', on);
+      frame.contentWindow.postMessage({ ...msg, id }, REMOTE, transfer);
+    });
+  }
+
+  // ---- A: their DOM here ----
+  ready.then(() => {
+    const { port1, port2 } = new MessageChannel();
+    frame.contentWindow.postMessage({ type: 'port' }, REMOTE, [port2]);
+    document.getElementById('view').attach(port1);
+  });
+
+  // ---- B: our DOM, their renderer ----
+  const lend = document.getElementById('lend');
+  const card = document.getElementById('card');
+  let clicks = 0;
+  document.getElementById('hit').onclick = (e) => (e.target.textContent = `Clicked ${++clicks}×`);
+  let lent = false;
+  if (supported) {
+    ready.then(() => {
+      const dpr = devicePixelRatio;
+      const r = lend.getBoundingClientRect();
+      const off = lend.transferControlToOffscreen();
+      off.width = Math.round(r.width * dpr);
+      off.height = Math.round(r.height * dpr);
+      frame.contentWindow.postMessage({ type: 'offscreen', canvas: off }, REMOTE, [off]);
+      lend.addEventListener('paint', () => {
+        try {
+          const img = lend.captureElementImage(card);
+          frame.contentWindow.postMessage({ type: 'snapshot', img, size: { width: card.offsetWidth, height: card.offsetHeight, dpr } }, REMOTE, [img]);
+          lent = true;
+        } catch {}
+      });
+      lend.requestPaint();
+    });
+  }
+
+  // ---- Live tests ----
+  if (supported) {
+    const fixtures = document.getElementById('fixtures');
+    function fixture(inner = '<div drawable style="background:#fc0;color:#000;padding:6px;width:150px">snapshot</div>', w = 200, h = 50) {
+      const c = document.createElement('canvas');
+      c.setAttribute('content', 'drawable');
+      c.width = w; c.height = h;
+      c.style.cssText = `width:${w}px;height:${h}px;border:1px solid var(--line)`;
+      c.innerHTML = inner;
+      fixtures.append(c);
+      return { c, el: c.firstElementChild };
+    }
+    async function iframeInCanvas(src) {
+      const { c, el } = fixture(`<iframe drawable src="${src}" style="width:180px;height:40px;border:0"></iframe>`);
+      await new Promise((r) => (el.onload = r));
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      // Give the frame a few rendering updates to be painted and snapshotted.
+      for (let i = 0; i < 6; i++) {
+        await nextPaint(c);
+        ctx.reset();
+        ctx.drawElementImage(el, 0, 0);
+      }
+      return pixel(ctx, 170, 30);
+    }
+    await ready;
+    runTests(document.getElementById('results'), [
+      {
+        name: 'postMessage an ElementImage to a cross-origin frame',
+        why: 'Transfer list across origins.',
+        run: async () => {
+          const { c, el } = fixture();
+          await nextPaint(c);
+          const img = c.captureElementImage(el);
+          return askFrame({ type: 'test', mode: 'receive', img }, [img]);
+        },
+      },
+      {
+        name: 'Cross-origin frame draws it into its own canvas',
+        why: 'Would let any embed show the embedder\'s DOM in its own document.',
+        run: async () => {
+          const { c, el } = fixture();
+          await nextPaint(c);
+          const img = c.captureElementImage(el);
+          return askFrame({ type: 'test', mode: 'draw-own', img }, [img]);
+        },
+      },
+      {
+        name: 'Cross-origin frame draws it into our transferred OffscreenCanvas',
+        why: 'Part B above: canvas and snapshot travel together.',
+        run: async () => {
+          for (let i = 0; i < 20 && !lent; i++) await new Promise((r) => setTimeout(r, 100));
+          if (!lent) throw new Error('no snapshot was sent');
+          await new Promise((r) => setTimeout(r, 300));
+          return askFrame({ type: 'test', mode: 'readback' }).then((d) => 'drawn; ' + d);
+        },
+      },
+      {
+        name: 'Our click reaches the real button under their rendering',
+        why: 'Their draw call updates our element geometry (elementgeometryupdate).',
+        run: async () => {
+          const btn = document.getElementById('hit');
+          btn.scrollIntoView({ block: 'center' });
+          await new Promise((r) => setTimeout(r, 300));
+          const r = btn.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          const lr = lend.getBoundingClientRect();
+          window.scrollTo(0, 0);
+          if (hit !== btn) throw new Error(`elementFromPoint found ${hit?.tagName ?? 'nothing'}`);
+          return `button is hit-testable at (${Math.round(r.x - lr.x)}, ${Math.round(r.y - lr.y)}) inside the lent canvas`;
+        },
+      },
+      {
+        name: 'Same-origin iframe inside a drawable canvas paints',
+        why: 'Control for the next test.',
+        run: async () => {
+          const px = await iframeInCanvas('/cross-origin/solid.html');
+          if (px !== '220,0,60,255') throw new Error(`expected the iframe's red, got ${px}`);
+          return `pixel ${px}`;
+        },
+        timeout: 8000,
+      },
+      {
+        name: 'Cross-origin iframe inside a drawable canvas paints',
+        why: 'Read-back-allowed rendering must exclude cross-origin content.',
+        run: async () => {
+          const px = await iframeInCanvas(REMOTE + '/cross-origin/solid.html');
+          if (px !== '220,0,60,255') throw new Error(`content withheld: pixel is ${px}, not the iframe's red`);
+          return `pixel ${px} (cross-origin pixels were readable!)`;
+        },
+        timeout: 8000,
+      },
+    ]);
+  }
+</script>
+</body>
+</html>
