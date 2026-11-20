@@ -21,7 +21,7 @@
 // view is sharp rather than an upscaled bitmap. The lens follows keyboard focus
 // as well as the pointer.
 
-import { SurfaceElement } from './surface.js';
+import { SurfaceElement, cssZoom } from './surface.js';
 
 const INTERACTIVE = 'a[href],button,input,select,textarea,summary,[tabindex],[contenteditable]';
 
@@ -101,7 +101,8 @@ export class DomLens extends SurfaceElement {
     if (!visible || this.hasAttribute('pinned')) return;
     const host = this.getBoundingClientRect();
     const r = e.target.getBoundingClientRect();
-    this.#focus = { x: r.left + r.width / 2 - host.left, y: r.top + r.height / 2 - host.top };
+    const z = cssZoom(this);
+    this.#focus = { x: (r.left + r.width / 2 - host.left) / z, y: (r.top + r.height / 2 - host.top) / z };
     this.invalidate();
   };
 
@@ -122,10 +123,11 @@ export class DomLens extends SurfaceElement {
     if (!this.#client) this.#pointer = null;
     else {
       const r = this.getBoundingClientRect();
-      const x = this.#client.x - r.left;
-      const y = this.#client.y - r.top;
+      const z = cssZoom(this);
+      const x = (this.#client.x - r.left) / z;
+      const y = (this.#client.y - r.top) / z;
       const m = this.bleed;
-      this.#pointer = x >= -m && y >= -m && x <= r.width + m && y <= r.height + m ? { x, y } : null;
+      this.#pointer = x >= -m && y >= -m && x <= r.width / z + m && y <= r.height / z + m ? { x, y } : null;
     }
     if (before || this.#pointer) this.invalidate();
   }
@@ -317,6 +319,7 @@ export class DomLens extends SurfaceElement {
     if (this.#boxes && !this.contentDirty) return this.#boxes;
     if (this.hitTesting === 'lens' && this.#boxes) return this.#boxes; // rects are magnified right now
     const host = this.getBoundingClientRect();
+    const z = cssZoom(this);
     const boxes = [];
     const walk = (el, depth) => {
       if (boxes.length >= 1500) return;
@@ -324,7 +327,7 @@ export class DomLens extends SurfaceElement {
         const r = child.getBoundingClientRect();
         if (r.width && r.height) {
           boxes.push({
-            x: r.left - host.left, y: r.top - host.top, w: r.width, h: r.height, depth,
+            x: (r.left - host.left) / z, y: (r.top - host.top) / z, w: r.width / z, h: r.height / z, depth,
             label: child.localName + (child.id ? '#' + child.id : ''),
             interactive: child.matches(INTERACTIVE),
           });
