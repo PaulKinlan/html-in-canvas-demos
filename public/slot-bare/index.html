@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Just a slot in a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  #host { display: block; }
+  #host > [slot] { width: 260px; padding: 12px 14px; border-radius: 10px; font: 15px/1.45 system-ui; border: 1px solid; }
+  #host > [slot=first] { background: #fff4d6; color: #2c2205; border-color: #e6cf8a; }
+  #host > [slot=second] { background: #e3f1ff; color: #08233f; border-color: #a9cbee; }
+  #host button, #host input { font: inherit; }
+  iframe.sub { width: 100%; height: 300px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+  #fixtures { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin-bottom: 8px; }
+  #fixtures > * { min-height: 60px; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <div id="support"></div>
+  <h1>1b · Just <code>&lt;slot&gt;</code> inside <code>&lt;canvas&gt;</code></h1>
+  <p class="lede">
+    No custom element, no library. A <code>&lt;slot name="…"&gt;</code> sits inside the canvas, and ordinary DOM with a matching
+    <code>slot="…"</code> attribute is projected into it. The one requirement the platform imposes: slots only do anything inside a shadow tree,
+    so the canvas has to be in a shadow root. Declarative shadow DOM makes that plain HTML.
+  </p>
+
+  <div class="stage">
+    <!-- This is the whole pattern. -->
+    <div id="host">
+      <template shadowrootmode="open">
+        <canvas content="drawable" layoutsubtree style="display:block;width:100%;height:240px">
+          <slot name="first"></slot>
+          <slot name="second"></slot>
+        </canvas>
+      </template>
+
+      <section slot="first" drawable>
+        <strong>slot="first"</strong><br>
+        I'm a normal child of a normal <code>&lt;div&gt;</code>. <button id="btn" type="button">Clicked 0×</button>
+      </section>
+      <section slot="second" drawable>
+        <strong>slot="second"</strong><br>
+        <input placeholder="still an input">
+      </section>
+    </div>
+  </div>
+
+<pre><code>&lt;div id="host"&gt;
+  &lt;template shadowrootmode="open"&gt;
+    &lt;canvas content="drawable"&gt;
+      &lt;slot name="first"&gt;&lt;/slot&gt;
+      &lt;slot name="second"&gt;&lt;/slot&gt;
+    &lt;/canvas&gt;
+  &lt;/template&gt;
+
+  &lt;section slot="first"  drawable&gt;…&lt;/section&gt;
+  &lt;section slot="second" drawable&gt;…&lt;/section&gt;
+&lt;/div&gt;
+
+&lt;script&gt;
+  const canvas = host.shadowRoot.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.onpaint = () =&gt; {
+    ctx.reset();
+    for (const slot of canvas.querySelectorAll('slot'))
+      for (const el of slot.assignedElements())
+        ctx.drawElementImage(el, x, y);   // wherever you like
+  };
+&lt;/script&gt;</code></pre>
+
+  <h2>Page-level slots: a shadow root on <code>&lt;body&gt;</code></h2>
+  <p>
+    Pushing it further: <code>document.body</code> can host a shadow root. Put the canvas and its named slots there, plus a default
+    <code>&lt;slot&gt;</code> for everything else, and any top-level element on the page can opt in to the canvas just by adding
+    <code>slot="stage"</code>. The page's markup is otherwise untouched. <a href="/slot-bare/body.html">Open it on its own</a>.
+  </p>
+  <iframe class="sub" src="/slot-bare/body.html" title="Body shadow root demo"></iframe>
+
+  <h2>Does the bare pattern work? (live)</h2>
+  <div id="fixtures"></div>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Takeaways</h2>
+  <ul class="findings">
+    <li><strong>Yes: a slot in a canvas reprojects normal DOM,</strong> and you only need a shadow root, not a custom element. With declarative shadow DOM the structure is pure HTML; the only script is the <code>paint</code> handler.</li>
+    <li><strong>A <code>&lt;slot&gt;</code> in the light DOM does nothing.</strong> Outside a shadow tree it's an inert unknown-ish element, so <code>&lt;canvas&gt;&lt;slot name="x"&gt;</code> in a normal document never picks up <code>slot="x"</code> content from elsewhere. This is the gap between the idea and the platform.</li>
+    <li><strong>Projection is limited to the host's children.</strong> The body-shadow trick stretches "host" to the whole page, but only for <em>top-level</em> elements. A deeply nested element can't be slotted without moving it.</li>
+    <li><strong>The slotted element needs <code>drawable</code>,</strong> or the slot needs a drawable wrapper around it in the shadow tree. Several elements can share one slot name and each is drawable on its own.</li>
+    <li><strong>Slot fallback content draws too,</strong> so a canvas can ship default content that authors override by slotting.</li>
+    <li><strong>What a native version might look like:</strong> if canvas children could reference elements by id (like <code>popovertarget</code> or <code>aria-owns</code>), you'd get reprojection of any element with no shadow root. Worth raising on the WICG repo.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, nav, runTests, nextPaint, pixel, supported } from '/shared/support.js';
+  nav('/slot-bare/');
+  banner();
+
+  // ---- The whole of the hero demo's script ----
+  const host = document.getElementById('host');
+  const canvas = host.shadowRoot.querySelector('canvas');
+  let n = 0;
+  document.getElementById('btn').onclick = (e) => (e.target.textContent = `Clicked ${++n}×`);
+  if (supported) {
+    const ctx = canvas.getContext('2d');
+    new ResizeObserver(([entry]) => {
+      const box = entry.devicePixelContentBoxSize[0];
+      canvas.width = box.inlineSize;
+      canvas.height = box.blockSize;
+      canvas.requestPaint();
+    }).observe(canvas, { box: 'device-pixel-content-box' });
+    canvas.onpaint = () => {
+      const dpr = canvas.width / canvas.clientWidth;
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      let x = 24;
+      for (const slot of canvas.querySelectorAll('slot')) {
+        for (const el of slot.assignedElements()) {
+          ctx.save();
+          ctx.translate(x, 40);
+          ctx.rotate(slot.name === 'first' ? -0.06 : 0.05);
+          ctx.shadowColor = 'rgba(0,0,0,.25)';
+          ctx.shadowBlur = 16;
+          ctx.shadowOffsetY = 6;
+          ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight);
+          ctx.restore();
+          x += el.offsetWidth + 32;
+        }
+      }
+    };
+  }
+
+  // ---- Live tests ----
+  if (supported) {
+    const fixtures = document.getElementById('fixtures');
+    const box = 'style="background:#fc0;color:#000;padding:6px;width:160px;font:12px system-ui"';
+    const CANVAS = (inner) => `<canvas content="drawable" layoutsubtree width="210" height="60" style="width:210px;height:60px">${inner}</canvas>`;
+    async function check(canvas, el, x = 10, y = 10) {
+      await nextPaint(canvas);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.reset();
+      ctx.drawElementImage(el, x, y);
+      const px = pixel(ctx, x + 3, y + 3);
+      if (px === '0,0,0,0') throw new Error('drew nothing (transparent pixel)');
+      return `drawn, pixel ${px}`;
+    }
+    function shadowHost(shadowHTML, lightHTML) {
+      // Declarative shadow roots attach to the template's parent, so parse a wrapper.
+      const wrap = document.createElement('div');
+      wrap.setHTMLUnsafe(`<div><template shadowrootmode="open">${shadowHTML}</template>${lightHTML}</div>`);
+      const host = wrap.firstElementChild;
+      fixtures.append(host);
+      return host;
+    }
+    runTests(document.getElementById('results'), [
+      {
+        name: 'Declarative shadow DOM: <canvas><slot name> + <div slot drawable>',
+        why: 'The pattern above, built from an HTML string with no element definitions.',
+        run: () => {
+          const h = shadowHost(CANVAS('<slot name="a"></slot>'), `<div slot="a" drawable ${box}>declarative</div>`);
+          return check(h.shadowRoot.querySelector('canvas'), h.querySelector('[slot]'));
+        },
+      },
+      {
+        name: 'Light-DOM <canvas><slot name="a"> with <div slot="a"> elsewhere',
+        why: 'The literal reading of "just put a slot in a canvas", no shadow root.',
+        run: async () => {
+          const wrap = document.createElement('div');
+          wrap.innerHTML = CANVAS('<slot name="a"></slot>') + `<div slot="a" drawable ${box}>not projected</div>`;
+          fixtures.append(wrap);
+          const slot = wrap.querySelector('slot');
+          const el = wrap.querySelector('div[slot]');
+          if (slot.assignedElements().length === 0) {
+            try {
+              await check(wrap.querySelector('canvas'), el);
+            } catch (err) {
+              throw new Error(`slot.assignedElements() is empty and drawing throws: ${err.message}`);
+            }
+          }
+          return 'projected';
+        },
+      },
+      {
+        name: 'Light-DOM <canvas><slot><div drawable> (slot as a plain wrapper)',
+        why: 'Children of a light-DOM slot are just its children. Do they draw when nested?',
+        run: () => {
+          const wrap = document.createElement('div');
+          wrap.innerHTML = CANVAS(`<slot><div drawable ${box}>child of light slot</div></slot>`);
+          fixtures.append(wrap);
+          return check(wrap.querySelector('canvas'), wrap.querySelector('div[drawable]'));
+        },
+      },
+      {
+        name: 'Slot fallback content is drawable',
+        why: 'Shadow <slot name="a"><div drawable>default</div></slot> with nothing slotted.',
+        run: () => {
+          const h = shadowHost(CANVAS(`<slot name="a"><div drawable ${box}>fallback content</div></slot>`), '');
+          return check(h.shadowRoot.querySelector('canvas'), h.shadowRoot.querySelector('div[drawable]'));
+        },
+      },
+      {
+        name: 'Two elements in one slot, drawn separately',
+        why: 'Both have slot="a"; each should be its own drawable.',
+        run: async () => {
+          const h = shadowHost(CANVAS('<slot name="a"></slot>'), `<div slot="a" drawable ${box}>one</div><div slot="a" drawable ${box.replace('#fc0', '#9cf')}>two</div>`);
+          const c = h.shadowRoot.querySelector('canvas');
+          const [a, b] = h.querySelectorAll('[slot]');
+          await check(c, a, 5, 5);
+          const ctx = c.getContext('2d');
+          ctx.drawElementImage(b, 5, 32);
+          return `2 assigned, second pixel ${pixel(ctx, 8, 35)}`;
+        },
+      },
+      {
+        name: 'Slot nested deeper inside the canvas',
+        why: '<canvas><div><p><slot>: does the slotted element have to be a direct layout child?',
+        run: () => {
+          const h = shadowHost(CANVAS('<div><section><slot name="a"></slot></section></div>'), `<div slot="a" drawable ${box}>deep slot</div>`);
+          return check(h.shadowRoot.querySelector('canvas'), h.querySelector('[slot]'));
+        },
+      },
+      {
+        name: 'Nested shadow roots: slot → slot → canvas',
+        why: 'Content slotted through an outer component into an inner one that owns the canvas.',
+        run: () => {
+          const outer = shadowHost(`<div id="inner"><template shadowrootmode="open">${CANVAS('<slot name="a"></slot>')}</template><slot name="a" slot="a"></slot></div>`, `<div slot="a" drawable ${box}>through two roots</div>`);
+          const canvas = outer.shadowRoot.getElementById('inner').shadowRoot.querySelector('canvas');
+          return check(canvas, outer.querySelector('[slot]'));
+        },
+      },
+      {
+        name: 'Text node slotted into the default slot, drawable wrapper',
+        why: 'Bare text children with <div drawable><slot></slot></div> in the canvas.',
+        run: () => {
+          const h = shadowHost(CANVAS(`<div drawable ${box}><slot></slot></div>`), 'just some text');
+          return check(h.shadowRoot.querySelector('canvas'), h.shadowRoot.querySelector('div[drawable]'));
+        },
+      },
+    ]);
+  }
+</script>
+</body>
+</html>

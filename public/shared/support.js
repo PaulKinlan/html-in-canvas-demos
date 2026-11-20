@@ -78,6 +78,7 @@ export function nav(current) {
   const links = [
     ['/', 'Home', 'home'],
     ['/slot/', '1 · Slots'],
+    ['/slot-bare/', '1b · Bare slot'],
     ['/offscreen/', '2 · OffscreenCanvas'],
     ['/cross-tab/', '3 · Cross-tab'],
     ['/cross-origin/', '4 · Cross-origin'],
