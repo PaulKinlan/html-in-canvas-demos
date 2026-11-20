@@ -276,6 +276,13 @@ The same card (heading, sentence, text field, button, link) built into a canvas 
 - **`drawElementImage(el, x, y)` without a size draws in device pixels.** On a real HiDPI screen the element comes out at `devicePixelRatio` × its CSS size in canvas pixels, which is right for an unscaled context and wrong after `ctx.scale(devicePixelRatio, devicePixelRatio)`: it is then drawn (and hit-tested) dpr times too large. Pass the size: `drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight)`. Measured at 1, 1.5 and 2 with `--force-device-scale-factor`.
 - **Emulated device pixel ratios mislead in a different way.** DevTools device emulation and Playwright's `deviceScaleFactor` change `devicePixelRatio` and the snapshot size, but `devicePixelContentBoxSize` keeps reporting CSS pixels. A canvas sized from that box stays at 1× under emulation, its scale factor is 1, and the oversize drawing never shows. Test HiDPI with `--force-device-scale-factor` (and no viewport emulation), or on a device. The default size is also fractional at real phone ratios (262.33 × 104.8 for a 100 × 40 element at 2.625, measured in the motion thread), one more reason to pass the size.
 
+### Staying calm on a phone
+
+- Live checks that run on load are the main way a demo misbehaves on a phone: a test that calls `focus()` on a field opens the keyboard, `scrollIntoView` or moving a focused element makes the browser scroll the page, and rows of results arriving push the demo around.
+- The audit now measures this for every demo, before it touches the page: scroll position still at the top, nothing focused, cumulative layout shift while loading, and whether each canvas shows a picture (`canvasState(canvas)`: drawn, blank, one solid colour, WebGL context lost). `/a11y/?url=/slot/` checks one page.
+- A WebGL canvas reads back empty outside a frame, so it is sampled from inside `requestAnimationFrame` callbacks, and an empty read is reported as "could not be read", not "blank".
+- What keeps a test page calm: fixtures in a `position: fixed` strip inside the viewport (nothing to scroll to), `inputmode="none"` on any field a test focuses (focus without the keyboard), restore scroll after a run, and start anything heavy from a button on touch devices (`(hover: hover) and (pointer: fine)` tells them apart).
+
 ## Capture (`/capture/`, `public/lib/element-capture.js`)
 
 | Experiment | Result | Why |

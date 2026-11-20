@@ -28,7 +28,9 @@
   table.lab td.thumb canvas { display: block; width: 120px; height: 80px; border: 1px solid var(--line); border-radius: 4px; background: repeating-conic-gradient(#0001 0 25%, transparent 0 50%) 0 0 / 10px 10px; }
   table.lab .detail { font: 12px var(--mono); color: var(--muted); word-break: break-word; }
   .expected { color: var(--warn); }
-  #lab { position: relative; height: 0; overflow: visible; }
+  /* Fixed in the viewport, below the menu: a fixture that takes focus or is moved back into place
+     would otherwise make the browser scroll the page down to it. */
+  #lab { position: fixed; left: 0; top: 72px; width: 0; height: 0; z-index: 5; }
   #lab > * { position: absolute; left: 0; top: 0; opacity: 0.02; pointer-events: none; }
   h2 small { font: 13px var(--mono); color: var(--muted); font-weight: 400; margin-left: 8px; }
 </style>
@@ -85,7 +87,7 @@ const video = await exportVideo(el, { fps: 60 });         // WebCodecs: every an
 await printElement(el);                                   // paginated, 200 dpi</code></pre>
 
   <h2>A · Elements <small>captureElement, recordElement, printElement</small></h2>
-  <p id="scoreA" class="note">running…</p>
+  <div class="tools"><button id="runA" type="button">Run the element tests</button> <span id="scoreA" class="note"></span></div>
   <table class="lab"><tbody id="tA"></tbody></table>
 
   <h2>B · A whole ordinary page <small>temporarily wrap body in a canvas</small></h2>
@@ -95,7 +97,7 @@ await printElement(el);                                   // paginated, 200 dpi<
     and scroll position, focus, caret and form value survived. Side effects are listed either way.
   </p>
   <iframe id="page" title="Fixture page being captured"></iframe>
-  <p id="scoreB" class="note">waiting…</p>
+  <div class="tools"><button id="runB" type="button">Run the page tests</button> <span id="scoreB" class="note">Twelve whole-page captures in the frame above. They scroll and focus that page, so they wait for you.</span></div>
   <table class="lab"><tbody id="tB"></tbody></table>
 
   <h2>What this shows</h2>
@@ -138,7 +140,17 @@ await printElement(el);                                   // paginated, 200 dpi<
     const m = cap.lastCapture;
     metaEl.textContent = m ? `${m.strategy} · ${m.width}×${m.height} · scale ${(+m.scale).toFixed(2)} · ${m.frames} frame(s) · ${m.ms ?? '–'} ms ${extra}\n${(m.notes ?? []).join('\n')}` : extra;
   };
-  const img = (blob) => Object.assign(new Image(), { src: URL.createObjectURL(blob), alt: 'Captured element' });
+  const img = (blob) => {
+    const im = Object.assign(new Image(), { src: URL.createObjectURL(blob), alt: 'Captured element' });
+    // An empty capture looks like nothing happened. Say what came back.
+    im.decode().then(() => {
+      const c = new OffscreenCanvas(24, 24).getContext('2d'); c.drawImage(im, 0, 0, 24, 24);
+      const d = c.getImageData(0, 0, 24, 24).data;
+      let opaque = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 8) opaque++;
+      if (!opaque) metaEl.textContent += '\nThe capture came back blank: the browser produced no pixels for this element.';
+    }).catch(() => {});
+    return im;
+  };
   const actions = {
     png1: async () => show(img(await cap.captureElement(ticket, { scale: 1 }))),
     png4: async () => show(img(await cap.captureElement(ticket, { scale: 4 }))),
@@ -295,7 +307,7 @@ await printElement(el);                                   // paginated, 200 dpi<
       const el = fixture(`<div style="${BOX};height:110px"><input value="abc" size="8"><div class="sc" style="height:40px;overflow:auto"><div style="height:300px">scroll<br>me<br>down<br>more</div></div></div>`);
       lab.style.pointerEvents = 'auto';
       const input = el.querySelector('input'), sc = el.querySelector('.sc');
-      input.value = 'typed here'; input.focus({ preventScroll: true }); input.setSelectionRange(2, 5); sc.scrollTop = 57;
+      input.value = 'typed here'; input.setAttribute('inputmode', 'none'); input.focus({ preventScroll: true }); input.setSelectionRange(2, 5); sc.scrollTop = 57;
       const c = await cap.captureElement(el, { as: 'canvas' });
       thumbOf(t, c);
       const got = { focus: document.activeElement === input, caret: `${input.selectionStart}-${input.selectionEnd}`, value: input.value, scrollTop: sc.scrollTop };
@@ -615,12 +627,30 @@ await printElement(el);                                   // paginated, 200 dpi<
   if (only) {
     for (const list of [elementTests, pageTests]) list.splice(0, list.length, ...list.filter((t) => only.split(',').some((o) => t[0].toLowerCase().includes(o))));
   }
+  // Nothing that moves the page or takes focus starts by itself on a touch screen. With a mouse the
+  // element tests run on load; the whole-page tests always wait for their button.
+  // ?run=all starts both (automated runs), ?run=elements|page picks one, ?only= implies a run.
+  const want = (Q.get('run') ?? (only ? 'all' : '')).split(',');
+  const desktop = matchMedia('(hover: hover) and (pointer: fine)').matches;
+  window.__results = {};
+  const run = async (key, button, tbody, score, tests) => {
+    button.disabled = true;
+    const y = scrollY;
+    tbody.replaceChildren();
+    window.__results[key] = await runLab(tbody, score, tests);
+    document.activeElement?.blur?.();
+    scrollTo(scrollX, y);
+    button.disabled = false; button.textContent = 'Run again';
+  };
+  $('#runA').onclick = () => run('elements', $('#runA'), $('#tA'), $('#scoreA'), elementTests);
+  $('#runB').onclick = () => run('page', $('#runB'), $('#tB'), $('#scoreB'), pageTests);
   if (supported) {
-    window.__results = {};
-    window.__results.elements = await runLab($('#tA'), $('#scoreA'), elementTests);
-    window.__results.page = await runLab($('#tB'), $('#scoreB'), pageTests);
+    if (want.includes('all') || want.includes('elements') || (desktop && !Q.has('run') && !only)) await $('#runA').onclick();
+    else $('#scoreA').textContent = `${elementTests.length} captures of small fixtures. They move and focus things, so they wait for you on a touch screen.`;
+    if (want.includes('all') || want.includes('page')) await $('#runB').onclick();
     window.__done = true;
   } else {
+    $('#runA').disabled = $('#runB').disabled = true;
     $('#scoreA').textContent = 'HTML-in-canvas is not available, so nothing can be captured here. The buttons above will report NotSupportedError.';
     $('#scoreB').textContent = '';
   }
