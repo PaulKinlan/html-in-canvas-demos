@@ -17,7 +17,7 @@
 // do without an effect, and the element repaints by itself while something
 // is moving. onrender still works and gets the same draw(name, x, y).
 
-import { ElementTexture, geometryUnit, supportedGL } from './surface.js';
+import { ElementTexture, geometryUnit, cssZoom, supportedGL } from './surface.js';
 import {
   effects, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, Interaction, inverseHomography,
   setupQuad, compileEffect, setEffectUniforms, sharedGL, WGSL_HEAD, WGSL_TAIL, WGSL_UNIFORM_SIZE, packWGSLUniforms,
@@ -407,7 +407,8 @@ class SlotEffects {
   // Pointer position in each drawn slot's own (unshaded) coordinates.
   #local(e, s) {
     const r = this.#canvas.getBoundingClientRect();
-    return { x: e.clientX - r.left - s.x, y: e.clientY - r.top - s.y };
+    const z = cssZoom(this.#canvas);
+    return { x: (e.clientX - r.left) / z - s.x, y: (e.clientY - r.top) / z - s.y };
   }
   #inside(p, s) {
     return p.x >= 0 && p.y >= 0 && p.x <= s.w && p.y <= s.h;

@@ -185,7 +185,9 @@ export class SurfaceElement extends HTMLElement {
       h = Math.max(1, Math.round(h * k));
       if (this.canvas.width !== w) this.canvas.width = w;
       if (this.canvas.height !== h) this.canvas.height = h;
-      this.scale = w / cssW;
+      // Capping rounds the two sides separately; use the smaller ratio so the
+      // far edge of a very tall or wide element is not cut off.
+      this.scale = Math.min(w / cssW, h / cssH);
       this.#sized = true;
       this.contentDirty = true;
       this.resized?.();
@@ -269,11 +271,17 @@ export class SurfaceElement extends HTMLElement {
   /** Pointer position in content CSS px (origin: the host's top-left corner). */
   localPoint(event) {
     const r = this.getBoundingClientRect();
-    return { x: event.clientX - r.left, y: event.clientY - r.top };
+    const z = cssZoom(this);
+    return { x: (event.clientX - r.left) / z, y: (event.clientY - r.top) / z };
   }
 }
 
 const units = new WeakMap();
+
+/** The CSS zoom in effect on an element (1 where the zoom property is not used). */
+export function cssZoom(element) {
+  return element.currentCSSZoom || 1;
+}
 
 /**
  * updateElementGeometry()'s canvasTransform has been seen to work in CSS pixels
@@ -283,7 +291,10 @@ const units = new WeakMap();
  * that makes one unit one CSS pixel. Cached until the canvas changes size.
  */
 export function geometryUnit(canvas, element, cssWidth) {
-  const key = `${canvas.width}x${canvas.height}/${canvas.clientWidth}x${canvas.clientHeight}/${Math.round(cssWidth)}`;
+  // getBoundingClientRect() includes CSS zoom and cssWidth (layout px) does
+  // not, so the target is the zoomed width.
+  const zoom = cssZoom(element);
+  const key = `${canvas.width}x${canvas.height}/${canvas.clientWidth}x${canvas.clientHeight}/${Math.round(cssWidth)}/${zoom}`;
   const cached = units.get(canvas);
   if (cached?.key === key) return cached.unit;
   let unit = cached?.unit ?? 1;
@@ -291,7 +302,7 @@ export function geometryUnit(canvas, element, cssWidth) {
     canvas.updateElementGeometry(element, { canvasTransform: new DOMMatrix() });
     const measured = element.getBoundingClientRect().width;
     if (measured > 0 && cssWidth > 0) {
-      unit = cssWidth / measured;
+      unit = (cssWidth * zoom) / measured;
       units.set(canvas, { key, unit });
     }
   } catch {}
