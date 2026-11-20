@@ -41,22 +41,34 @@
   </p>
 
   <div class="stage">
+    <!-- #region orbit-markup -->
     <canvas-slot id="orbit" worker="/offscreen/renderer.js">
       <section slot="a" class="tile t1"><h3>Live clock</h3><time id="clock"></time></section>
       <section slot="b" class="tile t2"><h3>Button</h3><button id="b" type="button">Clicked 0×</button></section>
       <section slot="c" class="tile t3"><h3>Plain text</h3>Drawn off the main thread.</section>
     </canvas-slot>
+    <!-- #endregion orbit-markup -->
   </div>
   <div class="row" style="margin-top:10px">
     <button id="block">Block the main thread for 3s</button>
     <span id="fps">worker fps: –</span>
     <span id="geom" class="note"></span>
   </div>
+  <details class="show-code">
+    <summary>Show the code <small>DOM drawn by a worker</small></summary>
+    <ol>
+      <li data-code="#orbit-markup"><b>Put ordinary elements in the canvas element and name a worker script.</b> Each child has a <code>slot</code> name. They stay real DOM: the button still takes clicks.</li>
+      <li data-code="#orbit-page"><b>Load the element on the page.</b> That is all the page does. The worker can post messages back (here, its frame rate).</li>
+      <li data-code="/lib/canvas-slot.js#worker"><b>What the element does for you: hand the canvas to the worker, then send snapshots.</b> <code>transferControlToOffscreen()</code> once, then on every <code>paint</code> event <code>captureElementImage(el)</code> for each element that changed, and transfer the snapshots with <code>postMessage</code>.</li>
+      <li data-code="/offscreen/renderer.js"><b>The worker draws the snapshots.</b> It owns the canvas and runs its own <code>requestAnimationFrame</code>. <code>ctx.drawElementImage(img, …)</code> works with a transferred snapshot the same way it works with an element.</li>
+    </ol>
+  </details>
   <p class="note">While the main thread is blocked the orbit keeps moving (the worker owns the canvas), but the clock freezes: new snapshots only come from the main thread's rendering update. Try clicking the button while it orbits; drawing in the worker updates the element's geometry back on the main thread.</p>
 
   <h2>Reprojecting parts of the DOM</h2>
   <p>One element, drawn once, then re-used: a magnifier that follows the pointer or your finger (source-rect crops of the same snapshot), and plain <code>&lt;canvas&gt;</code> elements elsewhere on the page that copy regions of the source canvas.</p>
   <div class="stage">
+    <!-- #region lens-markup -->
     <canvas-slot id="doc">
       <article slot="doc">
         <h3>A document, drawn once</h3>
@@ -64,7 +76,16 @@
         <table><tr><th>Region</th><th>Q3</th><th>Q4</th></tr><tr><td>North</td><td>1,204</td><td id="live-cell">1,388</td></tr><tr><td>South</td><td>982</td><td>1,045</td></tr></table>
       </article>
     </canvas-slot>
+    <!-- #endregion lens-markup -->
   </div>
+  <details class="show-code">
+    <summary>Show the code <small>magnifier and mirrors</small></summary>
+    <ol>
+      <li data-code="#lens-markup"><b>One element in the canvas.</b></li>
+      <li data-code="#lens-draw"><b>Draw it once, then draw a crop of it again, bigger.</b> The nine-argument <code>drawElementImage(el, sx, sy, sw, sh, dx, dy, dw, dh)</code> takes a source rectangle in canvas pixels. <code>preserveElementGeometry</code> keeps clicks going to the first, full-size draw.</li>
+      <li data-code="#mirror-copy"><b>Copy regions into other canvases.</b> A snapshot only draws into its own canvas, so the mirrors copy pixels with plain <code>drawImage(sourceCanvas, …)</code>.</li>
+    </ol>
+  </details>
   <div class="mirrors">
     <figure><canvas id="m1" width="420" height="34"></canvas><figcaption>heading region</figcaption></figure>
     <figure><canvas id="m2" width="200" height="90"></canvas><figcaption>table region (live)</figcaption></figure>
@@ -86,22 +107,28 @@
 </main>
 
 <script type="module">
+  // #region orbit-page
   import '/lib/canvas-slot.js';
+  // #endregion orbit-page
   import { banner, nav, runTests, nextPaint, pixel, supported } from '/shared/support.js';
   nav('/offscreen/');
   banner();
 
   // ---- Worker orbit ----
+  // #region orbit-page
   const orbit = document.getElementById('orbit');
+  // #endregion orbit-page
   const clock = document.getElementById('clock');
   const tick = () => (clock.textContent = new Date().toLocaleTimeString([], { hour12: false }) + '.' + String(Date.now() % 1000).padStart(3, '0').slice(0, 1));
   setInterval(tick, 100);
   tick();
   let clicks = 0;
   document.getElementById('b').onclick = (e) => (e.target.textContent = `Clicked ${++clicks}×`);
+  // #region orbit-page
   orbit.addEventListener('workermessage', (e) => {
     if (e.detail.type === 'fps') document.getElementById('fps').textContent = `worker fps: ${e.detail.fps}`;
   });
+  // #endregion orbit-page
   let geomUpdates = 0;
   orbit.canvas.addEventListener('elementgeometryupdate', () => {
     geomUpdates++;
@@ -141,6 +168,7 @@
   doc.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') clearLens(); });
   const m1 = document.getElementById('m1').getContext('2d');
   const m2 = document.getElementById('m2').getContext('2d');
+  // #region lens-draw
   doc.onrender = ({ ctx, draw, elements, dpr }) => {
     const el = elements.get('doc');
     if (!el) return;
@@ -167,6 +195,7 @@
       ctx.lineWidth = 2;
       ctx.stroke();
     }
+    // #region mirror-copy
     // Pixel copies of regions into ordinary canvases elsewhere on the page.
     const src = doc.canvas;
     const h3 = el.querySelector('h3').getBoundingClientRect();
@@ -181,8 +210,10 @@
     if (!lens) {
       copy(m1, h3);
       copy(m2, table);
+    // #endregion mirror-copy
     }
   };
+  // #endregion lens-draw
   setInterval(() => {
     document.getElementById('live-cell').textContent = (1300 + Math.floor(Math.random() * 200)).toLocaleString();
   }, 1000);
