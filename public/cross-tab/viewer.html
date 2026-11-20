@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slot viewer</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 480px; }
+  .views { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+  .label { font: 12px var(--mono); color: var(--muted); margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 style="font-size:24px">Viewer</h1>
+  <p class="note" id="how">Connecting…</p>
+  <div class="views">
+    <div><div class="label">&lt;slot-view name="counter"&gt;</div><slot-view name="counter" aria-label="Remote counter"></slot-view></div>
+    <div><div class="label">&lt;slot-view name="notes"&gt; (click the input, then type)</div><slot-view name="notes" aria-label="Remote notes"></slot-view></div>
+    <div><div class="label">&lt;slot-view name="clock"&gt;</div><slot-view name="clock" aria-label="Remote clock"></slot-view></div>
+  </div>
+  <p class="note">Nothing here is DOM from the other page: these are ImageBitmaps arriving over a MessagePort, with your clicks and keys sent back.</p>
+</main>
+<script type="module">
+  import { connectBroker } from '/lib/slot-share.js';
+  const how = document.getElementById('how');
+  const views = [...document.querySelectorAll('slot-view')];
+  const attach = (port, via) => {
+    for (const v of views) v.attach(port);
+    how.textContent = `Connected via ${via}.`;
+  };
+
+  if (opener && new URLSearchParams(location.search).has('direct')) {
+    addEventListener('message', (e) => {
+      if (e.origin === location.origin && e.data?.type === 'port') attach(e.ports[0], 'a port posted by the opener window');
+    });
+    opener.postMessage({ type: 'viewer-ready' }, location.origin);
+  } else {
+    try {
+      connectBroker({ role: 'viewer', channel: 'cross-tab-demo', onPort: (port) => attach(port, 'a SharedWorker-brokered MessageChannel') });
+      how.textContent = 'Waiting for a publisher tab (open /cross-tab/ in another tab)…';
+    } catch (err) {
+      how.textContent = err.message;
+    }
+  }
+</script>
+</body>
+</html>

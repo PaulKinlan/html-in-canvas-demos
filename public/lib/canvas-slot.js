@@ -197,6 +197,8 @@ export class CanvasSlot extends HTMLElement {
     };
     const renderer = this.onrender ?? defaultRenderer;
     renderer({ ctx, canvas: this.#canvas, width, height, dpr, elements, draw, time: performance.now(), event });
+    // Let others (e.g. slot-share.js) react to a finished frame.
+    this.dispatchEvent(new CustomEvent('render', { detail: { elements, changed: new Set(event.changedElements ?? []), dpr } }));
   }
 }
 
