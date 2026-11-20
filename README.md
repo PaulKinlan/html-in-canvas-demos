@@ -56,7 +56,7 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
 - `public/lib/live-surface.js`: `<live-region>` and `attachSurface(el)` turn any element into a shareable surface (frames, redaction, element map, replayed input). `serve(surface, link)` speaks the protocol.
 - `public/lib/live-view.js`: `<live-view>`, the receiving end. Needs no HTML-in-canvas.
-- `public/lib/live-link.js`: `shareInRoom()` / `watchRoom()` over a relay room, WebRTC with a relayed-JPEG fallback.
+- `public/lib/live-link.js`: `shareInRoom()` / `watchRoom()` over a relay room, WebRTC with a relayed-JPEG fallback. Both emit `log` lines; `public/lib/live-log.js` (`connectionLog(el)`) shows them on the page.
 - `public/lib/live-card.js`: `<live-card src effect>` embeds a cross-origin card through a WebGL shader.
 - `public/lib/slot-view.js` and `public/lib/slot-provider.js`: the cross-site `<slot-view src name>` element and `provideSlots()` for the site being embedded.
 - `public/lib/element-pip.js`: `pipElement(el, { mode })` and `surfaceFor(el)`.
