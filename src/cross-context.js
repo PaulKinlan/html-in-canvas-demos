@@ -4,6 +4,7 @@
 //                           between everyone in it: WebRTC signalling, and the
 //                           frames themselves when WebRTC can't connect.
 //   GET  /api/x/ice         ICE servers for RTCPeerConnection. STUN always; TURN
+//                           (Cloudflare Realtime, credentials that last an hour)
 //                           if TURN_KEY_ID and TURN_KEY_API_TOKEN secrets are set.
 //   POST /api/x/vision      A frame of shared DOM plus a question, answered by a
 //                           vision model on Workers AI (binding: AI).
@@ -24,20 +25,24 @@ const json = (data, init = {}) =>
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...corsHeaders(init.request), ...(init.headers ?? {}) },
   });
 
-// The demos run on two sibling Workers (…-demos and …-remote) and on
-// localhost. Anything else may not call the API from a browser.
-function allowedOrigin(origin) {
+// Who may call the API from a browser: pages served by this same deployment,
+// whatever host it is reached on (workers.dev, a custom domain, a preview),
+// the sibling Workers (…-demos and …-remote), the custom domain and its
+// subdomains, and localhost.
+const SITES = /^(html-in-canvas-(demos|remote)\.[a-z0-9-]+\.workers\.dev|([a-z0-9-]+\.)?html-in-canvas\.page)$/;
+function allowedOrigin(origin, request) {
   if (!origin) return false;
   try {
-    const { hostname } = new URL(origin);
-    return hostname === 'localhost' || hostname === '127.0.0.1' || /^html-in-canvas-(demos|remote)\.[a-z0-9-]+\.workers\.dev$/.test(hostname);
+    const { hostname, host } = new URL(origin);
+    if (request && host === new URL(request.url).host) return true;
+    return hostname === 'localhost' || hostname === '127.0.0.1' || SITES.test(hostname);
   } catch {
     return false;
   }
 }
 function corsHeaders(request) {
   const origin = request?.headers.get('origin');
-  return allowedOrigin(origin) ? { 'access-control-allow-origin': origin, vary: 'origin' } : {};
+  return allowedOrigin(origin, request) ? { 'access-control-allow-origin': origin, vary: 'origin' } : {};
 }
 
 export async function handleCrossContextApi(request, env, ctx, url) {
@@ -56,34 +61,47 @@ export async function handleCrossContextApi(request, env, ctx, url) {
     if (request.headers.get('upgrade') !== 'websocket') return json({ error: 'expected a WebSocket' }, { status: 426, request });
     // Browsers always send Origin on WebSocket handshakes, and CORS does not
     // apply to them, so check it here.
-    if (!allowedOrigin(request.headers.get('origin'))) return json({ error: 'origin not allowed' }, { status: 403 });
+    if (!allowedOrigin(request.headers.get('origin'), request)) return json({ error: 'origin not allowed' }, { status: 403 });
     return env.ROOMS.get(env.ROOMS.idFromName('room:' + id)).fetch(request);
   }
 
-  if (path === 'ice') return json({ iceServers: await iceServers(env) }, { request });
+  if (path === 'ice') {
+    // TURN credentials cost money to use, so only our own pages get them:
+    // a same-origin fetch (no Origin header on a GET) or an allowed origin.
+    const origin = request.headers.get('origin');
+    const ours = origin ? allowedOrigin(origin, request) : request.headers.get('sec-fetch-site') === 'same-origin';
+    return json(await iceServers(env, ours), { request });
+  }
 
   if (path === 'vision' && request.method === 'POST') {
-    if (!allowedOrigin(request.headers.get('origin'))) return json({ error: 'origin not allowed' }, { status: 403 });
+    if (!allowedOrigin(request.headers.get('origin'), request)) return json({ error: 'origin not allowed' }, { status: 403 });
     return vision(request, env);
   }
 
   return json({ error: 'not found' }, { status: 404, request });
 }
 
-async function iceServers(env) {
-  const stun = [{ urls: 'stun:stun.cloudflare.com:3478' }];
-  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return stun;
+const STUN = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+
+async function iceServers(env, ours) {
+  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return { iceServers: STUN, turn: false, note: 'This deployment has no TURN key' };
+  if (!ours) return { iceServers: STUN, turn: false, note: 'TURN is only handed to this site\'s own pages' };
   try {
     const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
       method: 'POST',
       headers: { authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({ ttl: 3600 }),
     });
-    if (!res.ok) return stun;
+    if (!res.ok) return { iceServers: STUN, turn: false, note: `The TURN service refused the key (HTTP ${res.status})` };
     const data = await res.json();
-    return Array.isArray(data.iceServers) ? data.iceServers : [data.iceServers];
-  } catch {
-    return stun;
+    const list = (Array.isArray(data.iceServers) ? data.iceServers : [data.iceServers])
+      // Browsers refuse to connect to port 53, and wait for it to time out first.
+      .map((s) => ({ ...s, urls: [].concat(s.urls).filter((u) => !/:53(\?|$)/.test(u)) }))
+      .filter((s) => s.urls.length);
+    const turn = list.some((s) => s.urls.some((u) => u.startsWith('turn')));
+    return { iceServers: [...list, { urls: 'stun:stun.l.google.com:19302' }], turn, note: turn ? '' : 'The TURN service answered without TURN servers' };
+  } catch (err) {
+    return { iceServers: STUN, turn: false, note: `The TURN service could not be reached (${String(err?.message ?? err).slice(0, 120)})` };
   }
 }
 

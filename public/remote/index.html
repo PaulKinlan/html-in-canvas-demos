@@ -19,6 +19,7 @@
   #viewers li span { color: var(--muted); display: block; }
   .opts { font-size: 14px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
   #where { font: 13px var(--mono); color: var(--muted); }
+  #log { min-height: 32px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -56,6 +57,7 @@
       <ul id="viewers" aria-label="Connected viewers"></ul>
     </aside>
   </div>
+  <div id="log"></div>
 
   <h2>How it travels</h2>
   <ol>
@@ -74,14 +76,17 @@
     <li><strong>Controls that open native UI need help.</strong> A <code>&lt;select&gt;</code> popup or an on-screen keyboard belongs to the device in your hand, not the source. The source sends the options and the viewer shows its own native picker; a map of the element's fields tells the viewer when to raise its keyboard.</li>
     <li><strong>The element map is the part pixels can't carry.</strong> Alongside video the source sends roles, names and positions of the interactive elements, read from the real DOM. That is enough to rebuild an accessible outline at the far end.</li>
     <li><strong>The source tab must stay visible.</strong> A hidden tab stops painting, so the stream freezes. The viewer is told and says so.</li>
-    <li><strong>Without a TURN server some networks won't connect.</strong> That is what the relay fallback is for. It costs one Durable Object message per frame.</li>
+    <li><strong>STUN is enough for most home networks, not for phones on mobile data.</strong> STUN only tells each device its public address. Mobile carriers and many offices give every destination a different port (symmetric NAT), so the two addresses never match up and the connection fails after about 15 seconds. A TURN server relays the packets instead. This site asks <code>/api/x/ice</code> for servers: STUN always, plus Cloudflare Realtime TURN with one-hour credentials when the Worker has a key.</li>
+    <li><strong>Without TURN there is still the relay fallback.</strong> JPEGs through the room's WebSocket, at one Durable Object message per frame. The viewer switches to it after 7 seconds and moves to video if WebRTC connects later.</li>
+    <li><strong>A phone needs its errors on the page.</strong> Both ends keep a connection log: the room, the servers offered, each kind of candidate found, the route chosen and every error, with a button to copy it.</li>
   </ul>
 </main>
 
 <script src="/lib/vendor/qrcode.js"></script>
 <script type="module">
   import { supported } from '/lib/live-surface.js';
-  import { shareInRoom, newRoomId } from '/lib/live-link.js';
+  import { shareInRoom, newRoomId, iceConfig } from '/lib/live-link.js';
+  import { connectionLog } from '/lib/live-log.js';
   import { wireWidgets } from '/shared/live-widgets.js';
   import { banner, nav, runTests, apart, isBench } from '/shared/support.js';
   nav('/remote/');
@@ -94,6 +99,7 @@
   const list = document.getElementById('viewers');
   const relay = document.getElementById('relay');
   let session = null;
+  const log = connectionLog(document.getElementById('log'), { title: 'Connection log (this end)', open: false });
   let room = sessionStorage.getItem('remote-room') ?? newRoomId();
   sessionStorage.setItem('remote-room', room);
 
@@ -147,10 +153,11 @@
     if (!surface) return;
     session = await shareInRoom(surface, room, { kind: 'auto', transport: relay.checked ? 'relay' : 'auto', title: 'Living room' });
     window.session = session;
+    session.on('log', log.add);
     where.textContent =
       session.signal.kind === 'ws'
-        ? `Sharing in room ${room} through this site's relay. Any device with the link can join.`
-        : `No relay server on this host, so the room is a BroadcastChannel: only tabs in this browser can join.`;
+        ? `Sharing in room ${room}. Any device with the link can join. ${relay.checked ? 'Pictures go through this site.' : session.turn ? 'Devices connect directly, or through a TURN relay when they can\'t.' : 'Devices connect directly when their networks allow it; this site has no TURN relay, so the rest get slower relayed pictures.'}`
+        : `Only tabs in this browser can join: ${session.signal.fallback ?? 'no room server on this host'}.`;
     session.on('viewer', renderViewers);
     session.on('gone', renderViewers);
     surface.addEventListener('input', (e) => {
@@ -213,6 +220,39 @@
         run: async () => {
           if (session.signal.kind !== 'ws') throw new Error('no /api/x/room here; using BroadcastChannel instead');
           return `joined room ${room} as ${session.signal.id}`;
+        },
+      },
+      {
+        name: 'This device can learn its public address (STUN)',
+        apart: false,
+        why: 'Two devices on different networks can only connect directly if each finds the address the internet sees it at. Fails where UDP is blocked.',
+        run: async () => {
+          const cfg = await iceConfig();
+          const pc = new RTCPeerConnection({ iceServers: cfg.iceServers.filter((s) => [].concat(s.urls).some((u) => u.startsWith('stun'))) });
+          const kinds = new Set(), errors = new Set();
+          try {
+            pc.createDataChannel('probe');
+            pc.onicecandidate = (e) => e.candidate?.type && kinds.add(e.candidate.type);
+            pc.onicecandidateerror = (e) => errors.add(`${e.errorCode} ${e.errorText}`);
+            await pc.setLocalDescription(await pc.createOffer());
+            await until(() => kinds.has('srflx') || pc.iceGatheringState === 'complete', 5000);
+            if (!kinds.has('srflx')) throw new Error(`STUN did not answer (${[...errors].join('; ') || 'no error given'}). Found only: ${[...kinds].join(', ') || 'nothing'}`);
+            return `found ${[...kinds].join(' and ')} candidates`;
+          } finally {
+            pc.close();
+          }
+        },
+        timeout: 8000,
+      },
+      {
+        name: 'A TURN relay is on offer for networks STUN cannot cross',
+        apart: false,
+        why: 'Mobile data and many office networks need one. Without it those viewers get relayed pictures instead of video.',
+        run: async () => {
+          const cfg = await iceConfig();
+          const urls = cfg.iceServers.flatMap((s) => [].concat(s.urls)).filter((u) => u.startsWith('turn'));
+          if (!cfg.turn) throw new Error(`${cfg.note || 'no TURN servers'}. The Worker needs the TURN_KEY_ID and TURN_KEY_API_TOKEN secrets`);
+          return `${urls.length} TURN addresses from ${cfg.from}: ${[...new Set(urls.map((u) => u.split('?')[1] ?? 'transport=udp'))].join(', ')}`;
         },
       },
       {
