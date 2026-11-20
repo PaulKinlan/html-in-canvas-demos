@@ -13,18 +13,19 @@
 // Keep each entry on a single line and add new ones at the END of a group, so
 // branches that add demos in parallel merge cleanly. New group? Add it to
 // GROUPS, then use its key.
-// The site has two parts. The 'start' group is the tutorial. Every other group
-// holds experiments: pages that test what the API can and cannot do. They are
-// not lessons and have no reading order. The menu, the homepage and the
-// previous/next arrows follow the group order below (see the sort at the end).
+// The site has two parts. Most groups hold experiments: pages that test what
+// the API can and cannot do. They are not lessons and have no reading order.
+// The 'start' group is the tutorial. Experiments come first; the tutorial is
+// last. The menu, the homepage and the previous/next arrows follow the group
+// order below (see the sort at the end).
 window.DEMO_GROUPS = [
-  ['start', 'Learn the API'],
   ['slots', 'Experiments: slots'],
   ['primitives', 'Experiments: UI primitives'],
   ['motion', 'Experiments: transitions and motion'],
   ['3d', 'Experiments: 3D and shaders'],
   ['contexts', 'Experiments: workers, tabs and origins'],
   ['audit', 'Measurements: accessibility, capture and performance'],
+  ['start', 'Learn the API'],
 ];
 
 window.DEMOS = [

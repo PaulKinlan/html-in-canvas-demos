@@ -19,6 +19,7 @@ const grids = [];
   const demos = window.DEMOS ?? [];
   let n = 0;
   for (const [key, label] of window.DEMO_GROUPS ?? []) {
+    if (key === 'start') continue; // the tutorial has its own section below the list
     const items = demos.filter((d) => d.group === key);
     if (!items.length) continue;
     const h = document.createElement('h2');
