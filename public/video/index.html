@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A video element inside a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .bar label { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .bar select, .bar button { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; }
+  .bar input[type=range] { width: 120px; }
+  .stage { max-width: 640px; }
+  /* #region css */
+  #player { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden;
+    /* The stripes show through a video that has an alpha channel. */
+    background: repeating-linear-gradient(45deg, #1d2433 0 14px, #283044 14px 28px); }
+  #player video { display: block; width: 100%; height: 100%; }
+  #player video::cue { color: #ffe45c; background: rgb(10 20 60 / .85); font: 600 1em system-ui; }
+  #player .lower { position: absolute; left: 10px; top: 10px; display: flex; gap: 8px; align-items: center; padding: 4px 6px 4px 10px;
+    border-radius: 8px; background: rgb(0 0 0 / .6); color: #fff; font: 13px system-ui; }
+  #player .lower button { font: inherit; min-height: 32px; padding: 2px 10px; border-radius: 6px; border: 0; background: #d2491f; color: #fff; }
+  /* #endregion css */
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; }
+  #reference { margin: 8px 0; }
+  #reference video { display: block; width: min(320px, 100%); aspect-ratio: 16 / 9; background: #000; border-radius: 8px; }
+  #reference figcaption { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  figure { margin: 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A <code>&lt;video&gt;</code> element inside a canvas</h1>
+  <p class="lede">
+    The player below is a <code>&lt;div fx&gt;</code> that holds a <code>&lt;video controls&gt;</code> with a captions track, and an HTML
+    label with a button. All of it is drawn into a canvas through a fragment shader. Use the video's own controls and the button, then
+    change the source and the effect.
+  </p>
+
+  <div class="bar">
+    <label>Source
+      <select id="source">
+        <option value="clip">Clip with captions</option>
+        <option value="alpha">Clip with an alpha channel</option>
+        <option value="cross">Clip from another origin, no CORS</option>
+        <option value="cors">Clip from another origin, with CORS</option>
+        <option value="protected">Clear Key encrypted clip</option>
+        <option value="camera">Camera</option>
+      </select>
+    </label>
+    <label>Effect
+      <select id="effect">
+        <option value="none">none</option>
+        <option value="crt" selected>crt</option>
+        <option value="halftone">halftone</option>
+        <option value="edges">edges</option>
+        <option value="mosaic">mosaic</option>
+        <option value="ripple">ripple (tap the video)</option>
+        <option value="haze">haze</option>
+      </select>
+    </label>
+    <label>Strength <input type="range" id="amount" min="0" max="2" step="0.05" value="1"></label>
+  </div>
+  <div class="stage">
+    <!-- #region markup -->
+    <div id="player" fx="crt">
+      <video id="v" src="/media/clip.webm" controls muted playsinline loop autoplay preload="auto">
+        <track id="captions" default kind="captions" srclang="en" label="English" src="/media/clip.vtt">
+      </video>
+      <div class="lower">
+        <span>Frame <output id="frame">0</output></span>
+        <button type="button" id="like">Like 0</button>
+      </div>
+    </div>
+    <!-- #endregion markup -->
+  </div>
+  <p id="status" role="status"></p>
+  <div id="route"></div>
+  <figure id="reference" hidden>
+    <figcaption>The same source in a <code>&lt;video&gt;</code> that is not in a canvas:</figcaption>
+    <video id="ref" muted playsinline loop></video>
+  </figure>
+
+  <details class="show-code">
+    <summary>Show the code <small>a video under a shader</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> The <code>fx</code> attribute puts the <code>&lt;div&gt;</code> and everything in it into a canvas. The video has no <code>drawable</code> attribute of its own.</li>
+      <li data-code="#css"><b>The CSS.</b> <code>::cue</code> styles the captions. They are drawn into the canvas with that style.</li>
+      <li data-code="#effects"><b>Two effects written for this page.</b> Each is a GLSL function and the same function in WGSL. <code>tex(p)</code> samples the element, video frame included.</li>
+      <li data-code="#frame"><b>Reading the frame number.</b> <code>requestVideoFrameCallback()</code> runs once per presented frame. Writing the number into the label changes the DOM, and the canvas is repainted with the same frame.</li>
+      <li data-code="#sources"><b>Changing the source.</b> The cross-origin and encrypted sources are here to show what the canvas leaves out.</li>
+      <li data-code="#clearkey"><b>Clear Key.</b> The licence is a JSON object made in the page.</li>
+      <li data-code="/lib/shader-fx.js#render"><b>Inside the library: the upload and the draw.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>A <code>&lt;video&gt;</code> is drawn like any other element. The picture taken by <code>drawElementImage()</code>, <code>texElementSubImage2D()</code> or <code>drawElementImageToTexture()</code> holds the current frame, the native controls and the captions.</li>
+    <li>No render loop is needed for the video. The canvas gets a <code>paint</code> event for every new video frame.</li>
+    <li>The native controls are part of the element, so hit testing reaches them wherever the element's geometry is. The <code>fx</code> library leaves the element where layout put it, so the play button and the timeline work under the shader.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small canvas in a corner of the window. The player above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software video decoding and software rendering. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: frames, controls, captions.</strong> A playing video draws its current frame. Captions from a <code>&lt;track&gt;</code> are drawn with their <code>::cue</code> style. The controls are drawn when the element shows them.</li>
+    <li><strong>Works: the canvas follows the video clock.</strong> <code>paint</code> fired 30 times a second for a 30 fps clip with no call to <code>requestPaint()</code>. The frame in the canvas was the frame <code>requestVideoFrameCallback()</code> had just reported in 40 of 40 samples, and after <code>seeked</code> it was the frame asked for in 10 of 10.</li>
+    <li><strong>Works: input.</strong> Play, the timeline, mute and the overflow menu were pressed on the drawn controls, and the menu is drawn in the canvas too. A click on the timeline also seeks with the element drawn at half size in another place. Fullscreen and Picture-in-Picture were entered from script.</li>
+    <li><strong>Works: alpha.</strong> A VP9 clip with an alpha channel is drawn with it, so the content behind the video shows.</li>
+    <li><strong>Works: a camera stream</strong> in <code>srcObject</code> draws like a file (tested with Chromium's fake camera).</li>
+    <li><strong>Left out: cross-origin video without CORS.</strong> The video plays, but its pixels are missing from the element's picture and the area is clear. The canvas is not tainted, so <code>toDataURL()</code> and <code>getImageData()</code> still work. With <code>crossorigin</code> on the element and a CORS header on the file it is drawn.</li>
+    <li><strong>Left out: encrypted video.</strong> A Clear Key clip plays in a plain element and is black in the canvas. <code>drawImage(video)</code> gives the same black frame. Widevine was not tested.</li>
+    <li><strong>Left out: a nested <code>drawable</code>.</strong> A video with its own <code>drawable</code> attribute inside a <code>drawable</code> parent is missing from the parent's picture. Draw it with its own call, or leave the attribute off.</li>
+    <li><strong>Picture-in-Picture empties the element.</strong> While the video is in a Picture-in-Picture window the element paints a black placeholder, the canvas shows that, and <code>paint</code> nearly stops (2 events in 500 ms).</li>
+    <li><strong>A canvas can play its own stream.</strong> A child <code>&lt;video&gt;</code> whose <code>srcObject</code> is the canvas's own <code>captureStream()</code> draws, and the picture repeats inside itself.</li>
+    <li><strong>Not verified here:</strong> hardware-decoded video on a phone, HDR video, and the WebGPU route on screen. The first four live checks answer the first on your device.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/shader-fx.js';
+  import { defineEffect } from '/lib/shader-fx.js';
+  import { pictureDifference } from '/lib/gpu-util.js';
+  import { banner, runTests, supported, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import { routeSwitch } from '/shared/route-switch.js';
+  import { otherOrigin } from '/lib/live-origins.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const player = $('player'), v = $('v');
+
+  // #region effects
+  // Dots sized by brightness, on a grid turned 45 degrees.
+  defineEffect('halftone', {
+    glsl: `vec4 fx(vec2 p) {
+      float s = 7.0;
+      mat2 r = mat2(0.7071, -0.7071, 0.7071, 0.7071);
+      vec2 g = r * p;
+      vec2 cell = (floor(g / s) + 0.5) * s;
+      vec4 col = tex(cell * r);
+      float lum = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+      float edge = sqrt(lum) * 1.25;
+      float inside = 1.0 - smoothstep(edge - 0.15, edge + 0.15, length(g - cell) / (s * 0.5));
+      vec3 ink = mix(vec3(0.07, 0.05, 0.12), vec3(1.0, 0.96, 0.86), inside);
+      return vec4(mix(col.rgb, ink * col.a, clamp(u_amount, 0.0, 1.0)), col.a);
+    }`,
+    wgsl: `fn fx(p: vec2f) -> vec4f {
+      let s = 7.0;
+      let r = mat2x2f(0.7071, -0.7071, 0.7071, 0.7071);
+      let g = r * p;
+      let cell = (floor(g / s) + 0.5) * s;
+      let col = tex(cell * r);
+      let lum = dot(col.rgb, vec3f(0.299, 0.587, 0.114));
+      let edge = sqrt(lum) * 1.25;
+      let inside = 1.0 - smoothstep(edge - 0.15, edge + 0.15, length(g - cell) / (s * 0.5));
+      let ink = mix(vec3f(0.07, 0.05, 0.12), vec3f(1.0, 0.96, 0.86), inside);
+      return vec4f(mix(col.rgb, ink * col.a, clamp(u.amount, 0.0, 1.0)), col.a);
+    }`,
+  });
+  // A Sobel filter on brightness: eight more samples around each pixel.
+  defineEffect('edges', {
+    glsl: `float lum(vec2 p) { return dot(tex(p).rgb, vec3(0.299, 0.587, 0.114)); }
+    vec4 fx(vec2 p) {
+      float a = lum(p + vec2(-1.0, -1.0)), b = lum(p + vec2(0.0, -1.0)), c = lum(p + vec2(1.0, -1.0));
+      float d = lum(p + vec2(-1.0, 0.0)), e = lum(p + vec2(1.0, 0.0));
+      float f = lum(p + vec2(-1.0, 1.0)), g = lum(p + vec2(0.0, 1.0)), h = lum(p + vec2(1.0, 1.0));
+      vec2 grad = vec2(c + 2.0 * e + h - a - 2.0 * d - f, f + 2.0 * g + h - a - 2.0 * b - c);
+      float m = clamp(length(grad) * 2.0, 0.0, 1.0);
+      vec4 col = tex(p);
+      return vec4(mix(col.rgb, vec3(0.1, 1.0, 0.7) * m * col.a, clamp(u_amount, 0.0, 1.0)), col.a);
+    }`,
+    wgsl: `fn lum(p: vec2f) -> f32 { return dot(tex(p).rgb, vec3f(0.299, 0.587, 0.114)); }
+    fn fx(p: vec2f) -> vec4f {
+      let a = lum(p + vec2f(-1.0, -1.0)); let b = lum(p + vec2f(0.0, -1.0)); let c = lum(p + vec2f(1.0, -1.0));
+      let d = lum(p + vec2f(-1.0, 0.0)); let e = lum(p + vec2f(1.0, 0.0));
+      let f = lum(p + vec2f(-1.0, 1.0)); let g = lum(p + vec2f(0.0, 1.0)); let h = lum(p + vec2f(1.0, 1.0));
+      let grad = vec2f(c + 2.0 * e + h - a - 2.0 * d - f, f + 2.0 * g + h - a - 2.0 * b - c);
+      let m = clamp(length(grad) * 2.0, 0.0, 1.0);
+      let col = tex(p);
+      return vec4f(mix(col.rgb, vec3f(0.1, 1.0, 0.7) * m * col.a, clamp(u.amount, 0.0, 1.0)), col.a);
+    }`,
+  });
+  // #endregion effects
+  defineEffect('mosaic', {
+    glsl: `vec4 fx(vec2 p) { float s = max(1.0, 12.0 * u_amount); return tex((floor(p / s) + 0.5) * s); }`,
+    wgsl: `fn fx(p: vec2f) -> vec4f { let s = max(1.0, 12.0 * u.amount); return tex((floor(p / s) + 0.5) * s); }`,
+  });
+
+  $('effect').onchange = () => player.setAttribute('fx', $('effect').value);
+  $('amount').oninput = () => player.style.setProperty('--fx-amount', $('amount').value);
+  let likes = 0;
+  $('like').onclick = () => ($('like').textContent = `Like ${++likes}`);
+
+  // #region frame
+  const FPS = 30;
+  function watchFrames(video, out) {
+    if (!('requestVideoFrameCallback' in video)) return;
+    const each = (now, meta) => {
+      out.value = Math.round(meta.mediaTime * FPS);
+      video.requestVideoFrameCallback(each);
+    };
+    video.requestVideoFrameCallback(each);
+  }
+  watchFrames(v, $('frame'));
+  // #endregion frame
+
+  // #region clearkey
+  const KEY_ID = '000102030405060708090a0b0c0d0e0f', KEY = '0123456789abcdef0123456789abcdef';
+  const base64url = (hex) => btoa(String.fromCharCode(...hex.match(/../g).map((h) => parseInt(h, 16)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  async function clearKey(video) {
+    const access = await navigator.requestMediaKeySystemAccess('org.w3.clearkey', [{ initDataTypes: ['webm'], videoCapabilities: [{ contentType: 'video/webm; codecs="vp9"' }] }]);
+    const keys = await access.createMediaKeys();
+    await video.setMediaKeys(keys);
+    video.addEventListener('encrypted', async (e) => {
+      const session = keys.createSession();
+      session.addEventListener('message', () => {
+        const licence = { keys: [{ kty: 'oct', kid: base64url(KEY_ID), k: base64url(KEY) }] };
+        session.update(new TextEncoder().encode(JSON.stringify(licence)));
+      });
+      await session.generateRequest(e.initDataType, e.initData);
+    }, { once: true });
+  }
+  // #endregion clearkey
+
+  // The second origin serves the same files. On the custom domain the workers.dev address is the other origin.
+  const REMOTE = otherOrigin() ?? (location.hostname === 'html-in-canvas.page' ? 'https://html-in-canvas-demos.kinlan-test.workers.dev' : null);
+
+  // #region sources
+  const SOURCES = {
+    clip: { src: '/media/clip.webm', captions: true, say: 'Same-origin clip. The canvas gets each frame, the controls and the captions.' },
+    alpha: { src: '/media/alpha.webm', say: 'VP9 with an alpha channel. The striped background of the <div> shows around the disc.' },
+    cross: { src: REMOTE && `${REMOTE}/media/clip.webm`, reference: true, say: 'Cross-origin, no CORS. The video plays (the time in the controls advances) and its pixels are left out of the canvas. The plain element below shows it.' },
+    cors: { src: REMOTE && `${REMOTE}/media/clip.webm`, cors: true, say: 'Cross-origin with crossorigin="anonymous" and a CORS header on the file. It is drawn.' },
+    protected: { src: '/media/protected.webm', keys: true, reference: true, say: 'Clear Key encrypted. It plays in the plain element below and is black in the canvas.' },
+    camera: { camera: true, say: 'The camera, through getUserMedia() and srcObject.' },
+  };
+  let camera = null;
+  async function load(video, s) {
+    video.srcObject = null;
+    video.removeAttribute('src');
+    if (video.mediaKeys) await video.setMediaKeys(null).catch(() => {});
+    if (s.cors) video.crossOrigin = 'anonymous';
+    else video.removeAttribute('crossorigin');
+    if (s.keys) await clearKey(video);
+    if (s.camera) video.srcObject = camera ??= await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+    else video.src = s.src;
+    await video.play();
+  }
+  async function setSource(name) {
+    const s = SOURCES[name];
+    $('reference').hidden = !s.reference;
+    $('captions').track.mode = s.captions ? 'showing' : 'disabled';
+    if (!s.reference) { $('ref').removeAttribute('src'); $('ref').load(); }
+    if (!s.camera && camera) { for (const t of camera.getTracks()) t.stop(); camera = null; }
+    try {
+      if (!s.camera && !s.src) throw new Error('this address has no second origin to load from');
+      await load(v, s);
+      if (s.reference) await load($('ref'), s);
+      $('status').textContent = s.say;
+    } catch (err) {
+      $('status').textContent = `Could not play this source: ${err.message}`;
+    }
+  }
+  $('source').onchange = () => setSource($('source').value);
+  // #endregion sources
+  $('status').textContent = SOURCES.clip.say;
+  if (!supported) $('status').textContent = 'HTML-in-canvas is not available, so this is a plain video element with no effect.';
+
+  const surfaceOf = (el) => el.closest('fx-surface');
+  routeSwitch($('route'), {
+    targets: () => [player],
+    attr: 'fx-backend',
+    values: { webgpu: 'webgpu', webgl: 'gl' },
+    active: (el) => surfaceOf(el)?.backend,
+    note: (el) => surfaceOf(el)?.gpuNote,
+  });
+
+  // ---- live checks: every one on its own fixture ----
+  const made = [];
+  /** A 320x200 canvas whose one drawable child holds `inner`. */
+  function fixture(inner, { w = 320, h = 200, draw = (ctx, el, w, h) => ctx.drawElementImage(el, 0, 0, w, h), context = '2d' } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = w; c.height = h;
+    c.style.cssText = `width:${w}px;height:${h}px;flex:none`;
+    c.innerHTML = `<div drawable style="width:${w}px;height:${h}px;position:relative;background:#fff">${inner}</div>`;
+    testStage().append(c);
+    const f = { c, el: c.firstElementChild, paints: 0, onpaint: null, error: null };
+    f.video = f.el.querySelector('video');
+    if (f.video) made.push(f.video);
+    if (context === '2d') {
+      f.ctx = c.getContext('2d', { willReadFrequently: true });
+      c.addEventListener('paint', () => {
+        f.paints++;
+        try { f.ctx.clearRect(0, 0, w, h); draw(f.ctx, f.el, w, h); f.onpaint?.(); } catch (err) { f.error = err; }
+      });
+    }
+    f.paint = () => new Promise((resolve) => { f.onpaint = () => { f.onpaint = null; resolve(); }; c.requestPaint(); });
+    c.requestPaint();
+    return f;
+  }
+  // Give decoders back: a phone only has a few.
+  function release() {
+    for (const video of made.splice(0)) {
+      try { video.pause(); if (video.srcObject) { for (const t of video.srcObject.getTracks()) t.stop(); video.srcObject = null; } video.removeAttribute('src'); video.load(); } catch {}
+    }
+  }
+  const VIDEO = (attrs = '', src = '/media/clip.webm', inner = '') => `<video src="${src}" muted playsinline loop preload="auto" ${attrs} style="display:block;width:320px;height:180px">${inner}</video>`;
+  /** Resolve when the video has presented a frame. */
+  async function presented(video, ms = 6000) {
+    video.play().catch(() => {});
+    const got = await Promise.race([
+      new Promise((r) => ('requestVideoFrameCallback' in video ? video.requestVideoFrameCallback(() => r(true)) : video.addEventListener('timeupdate', () => r(true), { once: true }))),
+      sleep(ms).then(() => false),
+    ]);
+    if (!got) throw new Error(video.error ? `the video did not play: ${video.error.message}` : 'the video presented no frame');
+  }
+  /** The frame number written in the clip's top right corner: 16 stripes, lowest bit first. */
+  function barcode(ctx, x0 = 160, y = 4, stripe = 10) {
+    const d = ctx.getImageData(x0, y, stripe * 16, 1).data;
+    let n = 0;
+    for (let i = 0; i < 16; i++) if (d[(i * stripe + (stripe >> 1)) * 4] > 128) n |= 1 << i;
+    return n;
+  }
+  /** How many of a grid of samples in a rectangle differ from the fixture's white background. */
+  function picture(ctx, x, y, w, h) {
+    const d = ctx.getImageData(x, y, w, h).data;
+    let n = 0, total = 0;
+    for (let i = 0; i < d.length; i += 4 * 7) { total++; if (d[i] < 245 || d[i + 1] < 245 || d[i + 2] < 245) n++; }
+    return n / total;
+  }
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const each = (tests) => tests.map((t) => ({ timeout: 12000, ...t, run: async () => { need(); try { return await t.run(); } finally { release(); } } }));
+
+  runTests($('results'), [...each([
+    {
+      name: 'A playing video is drawn',
+      why: 'drawElementImage() on a <div> that holds a playing <video>.',
+      run: async () => {
+        const f = fixture(VIDEO());
+        await presented(f.video);
+        await f.paint();
+        const part = picture(f.ctx, 0, 20, 320, 160);
+        if (part < 0.5) throw new Error(`only ${(part * 100).toFixed(0)}% of the video area has a picture`);
+        return `${(part * 100).toFixed(0)}% of the video area has a picture; frame ${barcode(f.ctx)} was read from the canvas`;
+      },
+    },
+    {
+      name: 'paint fires for every video frame, with no requestPaint()',
+      why: 'The page asks for nothing for one second and counts paint events.',
+      run: async () => {
+        const f = fixture(VIDEO());
+        await presented(f.video);
+        await sleep(300);
+        // A slow device presents fewer frames than the clip has, so count what was presented, not what was due.
+        let shown = 0, counting = true;
+        const count = () => { if (counting) { shown++; f.video.requestVideoFrameCallback?.(count); } };
+        f.video.requestVideoFrameCallback?.(count);
+        const before = f.paints;
+        await sleep(1000);
+        counting = false;
+        const paints = f.paints - before, frames = shown || Math.round(FPS);
+        if (paints < frames * 0.6) throw new Error(`${paints} paint events for ${frames} presented video frames`);
+        return `${paints} paint events while the video presented ${frames} frames`;
+      },
+    },
+    {
+      name: 'The frame in the canvas is the frame requestVideoFrameCallback() reported',
+      why: 'Each callback asks for a paint. The paint handler reads the frame number out of the picture.',
+      run: async () => {
+        const f = fixture(VIDEO());
+        await presented(f.video);
+        if (!('requestVideoFrameCallback' in f.video)) throw new Error('no requestVideoFrameCallback()');
+        const lags = [];
+        await new Promise((resolve) => {
+          const cb = (now, meta) => {
+            const want = Math.round(meta.mediaTime * FPS);
+            f.onpaint = () => { f.onpaint = null; lags.push(barcode(f.ctx) - want); };
+            f.c.requestPaint();
+            if (lags.length < 20) f.video.requestVideoFrameCallback(cb); else resolve();
+          };
+          f.video.requestVideoFrameCallback(cb);
+          setTimeout(resolve, 5000);
+        });
+        const exact = lags.filter((d) => d === 0).length;
+        if (!lags.length || exact < lags.length * 0.8) throw new Error(`${exact} of ${lags.length} paints had the reported frame (differences: ${[...new Set(lags)].join(', ')})`);
+        return `${exact} of ${lags.length} paints had exactly the reported frame`;
+      },
+    },
+    {
+      name: 'After a seek the canvas has the frame that was asked for',
+      why: 'Sets currentTime, waits for seeked, asks for one paint and reads the frame number. This is what frame-by-frame export needs.',
+      run: async () => {
+        const f = fixture(VIDEO());
+        await presented(f.video);
+        f.video.pause();
+        const got = [];
+        const t0 = performance.now();
+        for (const n of [12, 13, 100, 250]) {
+          f.video.currentTime = (n + 0.5) / FPS;
+          await new Promise((r) => f.video.addEventListener('seeked', r, { once: true }));
+          await f.paint();
+          got.push([n, barcode(f.ctx)]);
+        }
+        const wrong = got.filter(([a, b]) => a !== b);
+        if (wrong.length) throw new Error(`asked for and got: ${got.map((p) => p.join('→')).join(', ')}`);
+        return `frames ${got.map(([a]) => a).join(', ')} were exact; ${((performance.now() - t0) / got.length).toFixed(0)} ms per seek and paint`;
+      },
+    },
+    {
+      name: 'Captions are drawn with their ::cue style',
+      why: 'A <track> with a yellow on blue ::cue rule. The check counts those two colours in the canvas.',
+      run: async () => {
+        const style = document.createElement('style');
+        style.textContent = '.cue-check::cue { color: #ffff00; background: #0000ff; }';
+        document.head.append(style);
+        try {
+          const f = fixture(VIDEO('class="cue-check"', '/media/clip.webm', '<track default kind="captions" srclang="en" src="/media/clip.vtt">'));
+          await presented(f.video);
+          let blue = 0, yellow = 0;
+          for (let tries = 0; tries < 20 && blue < 50; tries++) {
+            await sleep(150);
+            await f.paint();
+            const d = f.ctx.getImageData(0, 90, 320, 90).data;
+            blue = yellow = 0;
+            for (let i = 0; i < d.length; i += 4) {
+              if (d[i] < 50 && d[i + 1] < 50 && d[i + 2] > 200) blue++;
+              if (d[i] > 200 && d[i + 1] > 200 && d[i + 2] < 90) yellow++;
+            }
+          }
+          if (blue < 50) throw new Error(`no cue box in the canvas (${f.video.textTracks[0]?.activeCues?.length ?? 0} active cues)`);
+          return `${blue} blue and ${yellow} yellow pixels: the cue box and its text`;
+        } finally {
+          style.remove();
+        }
+      },
+    },
+    {
+      name: 'Native controls are drawn, and hit testing finds them where they were drawn',
+      why: 'A paused <video controls> drawn at half size, 100 px to the right. elementFromPoint() is asked at the drawn play button.',
+      run: async () => {
+        const f = fixture(VIDEO('controls'), { draw: (ctx, el, w, h) => { ctx.setTransform(0.5, 0, 0, 0.5, 100, 40); ctx.drawElementImage(el, 0, 0, w, h); ctx.setTransform(1, 0, 0, 1, 0, 0); } });
+        await presented(f.video);
+        f.video.pause();
+        await sleep(400);
+        await f.paint();
+        // The control bar is the bottom of the video: compare it with a bare frame of the same video.
+        const withControls = f.ctx.getImageData(100, 40 + 60, 160, 30);
+        const box = f.c.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.left + 100 + 12, box.top + 40 + 67);
+        const rect = f.video.getBoundingClientRect();
+        let white = 0;
+        for (let i = 0; i < withControls.data.length; i += 4) if (withControls.data[i] > 235 && withControls.data[i + 1] > 235 && withControls.data[i + 2] > 235) white++;
+        if (hit !== f.video) throw new Error(`elementFromPoint() at the drawn play button returned ${hit ? `<${hit.localName}>` : 'nothing'}`);
+        if (white < 8) throw new Error('no white control glyphs in the drawn control bar');
+        return `the play button's position returns the <video>; its box is ${rect.width.toFixed(0)}×${rect.height.toFixed(0)} at ${(rect.left - box.left).toFixed(0)},${(rect.top - box.top).toFixed(0)} in the canvas; ${white} white control pixels`;
+      },
+    },
+    {
+      name: 'A video with an alpha channel keeps it',
+      why: 'A VP9 alpha clip over a blue <div>. The blue must show around the disc.',
+      run: async () => {
+        const f = fixture(`<div style="background:#00aaff;width:200px;height:200px"><video src="/media/alpha.webm" muted playsinline loop style="display:block;width:200px;height:200px"></video></div>`);
+        await presented(f.video);
+        await f.paint();
+        const d = f.ctx.getImageData(0, 0, 200, 200).data;
+        let blue = 0, disc = 0;
+        for (let i = 0; i < d.length; i += 4) (Math.abs(d[i]) < 6 && Math.abs(d[i + 1] - 170) < 6 && d[i + 2] > 249 ? blue++ : disc++);
+        if (blue < 20000 || disc < 2000) throw new Error(`${blue} background pixels and ${disc} video pixels of 40000`);
+        return `${disc} video pixels, ${blue} pixels of the <div> behind it`;
+      },
+    },
+    {
+      name: 'The same frame reaches a WebGL texture',
+      why: 'texElementSubImage2D() into a texture, then readPixels() on the frame number.',
+      run: async () => {
+        const f = fixture(VIDEO(), { context: 'webgl2' });
+        const gl = f.c.getContext('webgl2');
+        if (!gl?.texElementSubImage2D) throw new Error('no texElementSubImage2D() here');
+        await presented(f.video);
+        // The texture must have the element's size in device pixels, which is not 320 by 200 on a phone.
+        const size = f.c.getElementImageDefaultSize(f.el);
+        const tw = Math.ceil(size.width), th = Math.ceil(size.height), k = tw / 320;
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, tw, th);
+        const fb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        const read = () => new Promise((resolve, reject) => {
+          f.c.addEventListener('paint', () => {
+            try {
+              gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, f.el);
+              let n = 0;
+              const px = new Uint8Array(4);
+              for (let i = 0; i < 16; i++) {
+                gl.readPixels(Math.round((160 + i * 10 + 5) * k), Math.round(4 * k), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+                if (px[0] > 128) n |= 1 << i;
+              }
+              resolve(n);
+            } catch (err) { reject(err); }
+          }, { once: true });
+          f.c.requestPaint();
+        });
+        f.video.pause();
+        f.video.currentTime = 77.5 / FPS;
+        await new Promise((r) => f.video.addEventListener('seeked', r, { once: true }));
+        const n = await read();
+        if (n !== 77) throw new Error(`asked for frame 77, the texture holds ${n}`);
+        return `frame 77 was asked for and read back from a ${tw}×${th} texture`;
+      },
+    },
+    {
+      name: 'A canvas shows its own captureStream() in a child video',
+      why: 'The video in the canvas plays the stream of that canvas, so the picture should repeat inside itself.',
+      run: async () => {
+        const f = fixture('<video muted playsinline style="position:absolute;left:40px;top:25px;width:240px;height:150px;outline:3px solid #ff00ff"></video>');
+        f.video.srcObject = f.c.captureStream(30);
+        f.video.play().catch(() => {});
+        let runs = 0;
+        for (let tries = 0; tries < 30 && runs < 4; tries++) {
+          await sleep(100);
+          await f.paint();
+          const d = f.ctx.getImageData(0, 100, 320, 1).data;
+          runs = 0;
+          for (let x = 0, on = false; x < 320; x++) {
+            const m = d[x * 4] > 200 && d[x * 4 + 1] < 90 && d[x * 4 + 2] > 200;
+            if (m && !on) runs++;
+            on = m;
+          }
+        }
+        if (runs < 4) throw new Error(`${runs} outline crossings on one row; a repeated picture has at least 4`);
+        return `one row of the canvas crosses the video's outline ${runs} times: ${runs / 2} pictures inside each other`;
+      },
+    },
+    {
+      name: 'A video with its own drawable attribute is drawn with its drawable parent',
+      expect: 'fail',
+      why: 'Records a limit: a nested drawable element is left out of its parent\'s picture.',
+      run: async () => {
+        const f = fixture(VIDEO('drawable'));
+        await presented(f.video);
+        await f.paint();
+        const part = picture(f.ctx, 0, 20, 320, 160);
+        if (part < 0.5) throw new Error(`the video area of the parent's picture is empty (${(part * 100).toFixed(0)}% drawn)`);
+        return 'it is drawn';
+      },
+    },
+    {
+      name: 'A cross-origin video without CORS is drawn',
+      expect: 'fail',
+      why: 'Records a limit: its pixels are left out. The canvas must stay readable.',
+      run: async () => {
+        if (!REMOTE) throw new Error('this address has no second origin to test with');
+        const f = fixture(VIDEO('', `${REMOTE}/media/clip.webm`));
+        await presented(f.video);
+        await f.paint();
+        const part = picture(f.ctx, 0, 20, 320, 160);
+        let readable = true;
+        try { f.c.toDataURL(); } catch { readable = false; }
+        if (part < 0.5) throw new Error(`the video plays (${f.video.videoWidth}×${f.video.videoHeight}) and ${(part * 100).toFixed(0)}% of its area is drawn; the canvas is ${readable ? 'still readable' : 'tainted'}`);
+        return `it is drawn; the canvas is ${readable ? 'readable' : 'tainted'}`;
+      },
+    },
+    {
+      name: 'A cross-origin video with CORS is drawn',
+      why: 'crossorigin="anonymous" on the element and Access-Control-Allow-Origin on the file.',
+      run: async () => {
+        if (!REMOTE) return 'this address has no second origin to test with';
+        const f = fixture(VIDEO('crossorigin="anonymous"', `${REMOTE}/media/clip.webm`));
+        await presented(f.video);
+        await f.paint();
+        const part = picture(f.ctx, 0, 20, 320, 160);
+        if (part < 0.5) throw new Error(`${(part * 100).toFixed(0)}% of the video area is drawn`);
+        f.c.toDataURL();
+        return `drawn, frame ${barcode(f.ctx)}, and the canvas is readable`;
+      },
+    },
+    {
+      name: 'A Clear Key encrypted video is drawn',
+      expect: 'fail',
+      why: 'Records a limit: the clip plays, and the canvas gets black.',
+      run: async () => {
+        const f = fixture('<video muted playsinline loop style="display:block;width:320px;height:180px"></video>');
+        await clearKey(f.video);
+        f.video.src = '/media/protected.webm';
+        await presented(f.video);
+        await sleep(300);
+        await f.paint();
+        const d = f.ctx.getImageData(0, 20, 320, 160).data;
+        let lit = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60 && d[i] + d[i + 1] + d[i + 2] < 720) lit++;
+        if (lit < 5000) throw new Error(`the video is at ${f.video.currentTime.toFixed(1)} s and playing; ${lit} of 51200 pixels in the canvas are neither black nor the white background`);
+        return `it is drawn (${lit} lit pixels)`;
+      },
+    },
+  ]),
+  {
+    name: 'The page\'s three effects on WebGPU: the same picture as WebGL',
+    why: 'halftone, edges and mosaic are each written in GLSL and WGSL. One fixture is drawn both ways (the WebGPU one into a texture) and compared. Needs a WebGPU adapter.',
+    timeout: 20000,
+    run: async () => {
+      need();
+      const make = async (attrs) => {
+        const holder = document.createElement('div');
+        holder.style.cssText = 'flex:none;width:240px';
+        holder.innerHTML = `<div ${attrs} style="width:220px;height:90px;padding:8px;box-sizing:border-box;background:linear-gradient(90deg,#103,#fc6);color:#fff"><b style="font:700 28px system-ui">Same picture</b><br>video effects</div>`;
+        testStage().append(holder);
+        let s;
+        for (let i = 0; i < 80; i++) { s = holder.firstElementChild.closest('fx-surface'); if (s?.ready) break; await sleep(25); }
+        if (!s?.ready) throw new Error('the fixture was never drawn');
+        return s;
+      };
+      const parts = [];
+      for (const name of ['halftone', 'edges', 'mosaic']) {
+        const gl = await make(`fx="${name}" fx-backend="direct"`);
+        const gpu = await make(`fx="${name}" fx-backend="webgpu" fx-offscreen`);
+        for (let i = 0; i < 40 && gpu.backend !== 'webgpu' && !gpu.gpuNote; i++) await sleep(50);
+        if (gpu.backend !== 'webgpu') throw new Error(`WebGPU is not in use: ${gpu.gpuNote || 'it did not start'}`);
+        await sleep(80);
+        const d = pictureDifference(await gl.readback(), await gpu.readback());
+        if (d.ink < 0.1) throw new Error(`${name}: WebGPU drew nothing`);
+        if (d.mean > 1.5) throw new Error(`${name}: mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+        parts.push(`${name} ${d.mean.toFixed(2)}`);
+        gl.remove();
+        gpu.remove();
+      }
+      return `mean difference per channel, of 255: ${parts.join(', ')}`;
+    },
+  },
+  stillDrawn(() => [{
+    name: 'the player',
+    ink: async () => { const s = surfaceOf(player); return s?.ready ? inkFraction(await s.readback()) : null; },
+    note: 'not in a canvas',
+  }]),
+  ]);
+</script>
+</body>
+</html>
