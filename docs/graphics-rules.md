@@ -24,6 +24,22 @@ Reported from the phone on 2026-11-21, after pull request 75 removed the timer: 
 
 Not verified: what loses the canvases on `/instruments/` and `/scoped-transitions/`. The guard now writes a record that survives a white tab (see "The record" below). The text of that record from the phone is what will identify the cause.
 
+## The cause found on the phone: `willReadFrequently` on a drawable canvas
+
+Reported from the phone on 2026-11-21 (Chrome 159, Android 10) by `/canvas-loss/`, which runs one operation at a time:
+
+| Trial | Result on the phone |
+|---|---|
+| A drawable canvas drawn once; a paint on every frame; `ctx.reset()` per paint; a draw at `globalAlpha` 0; `shadowBlur`; `ctx.filter`; 40 source-rectangle draws per paint; `canvas.width` assigned per frame; twelve canvases at once; a nested drawable | No loss, 240 paints in 4 s each |
+| One drawable canvas made with `willReadFrequently: true`, one `drawElementImage()`, one `getImageData()` of one pixel | 10 losses: the trial's canvas and the plain canvas that stays on the page, 35 ms after the draw, then again at 548 ms and 1,075 ms and so on. The guard's log: two 2D contexts lost every 0.5 s, six times, until it stopped drawing. Only the first loss had a readback before it. |
+| Twelve such canvases made, drawn, read and removed in a row | Not a valid result: it ran after the guard had stopped `paint` events, so nothing was drawn ("0 had a drawn pixel"). The tab did not stop. The copied text said "tab stopped" because it was copied while the next trial was running. |
+
+The trial draws and reads once and then removes its paint handler, so the later losses came with no draw and no readback by the page: the canvas existing, with its drawn child, was enough. Not separated: whether the first loss needs the `getImageData()` or only the `drawElementImage()`. Both happen in one paint handler, 9 ms before the loss. Live check fixtures were made this way in `lib/stage-2d.js` (`fixtureCanvas()`), in `lib/text-canvas.js` of pull request 80, in `/instruments/`, and in the check code of about twenty pages, which fits pages that ran their checks on load losing their canvases, and the losses coming in a loop. `/hardware-out/` drew its key pad and its sign that way after pull request 81, by the advice this document gave then.
+
+The fix is in the guard: `getContext('2d', { willReadFrequently: true })` on a canvas that has `layoutsubtree` or `content="drawable"` is made without the option, with a console warning and a `frequent-read-drawable` report. A canvas given its drawable attributes after `getContext()` cannot be changed; the guard warns and reports at its first `drawElementImage()`. Not covered: an `OffscreenCanvas` in a worker (`/transports/worker.js`), where the guard does not run.
+
+Not verified on the phone: that the fix holds (trials `wrf-guarded` and `fixtures-guarded`), and the trials after the one that stopped the tab (`gpu-read`, `copy-read`, `snapshots`, `float-copy`, `float`).
+
 ## Rules checked in the source (`npm run check:gfx`)
 
 | Rule | A page must not | Do this |
@@ -33,6 +49,7 @@ Not verified: what loses the canvases on `/instruments/` and `/scoped-transition
 | `webgl-context` | Call `getContext('webgl')` or `getContext('webgl2')`. Chrome on Android keeps 8 WebGL contexts per tab and takes the oldest away when a ninth is made. | `new ElementGL(canvas, …)` from `/lib/element-gl.js`: one canvas and one context for the page, which draws every element. |
 | `float-readback` | Call `getImageData()` with `pixelFormat: 'rgba-float16'`. | Not on a canvas that is shown. On the test phone one call on a tap lost the canvas. A page whose evidence is the float values may read once on a tap, with the exception comment below, if it replaces the canvas after a loss and does not read again on that device (`/hdr-glow/` does this from pull request 82). Copying with `drawImage()` into a second float16 canvas clamps to 1.0 in Chromium 157 (`findings/hdr-glow.md`), so a copy cannot carry values above 1.0. |
 | `timed-readback` | Call `getImageData()`, `readPixels()` or `mapAsync()` in the callback of `setInterval()` or `requestAnimationFrame()`. | Read back on a tap. For pixels that are needed often, copy the canvas with `drawImage()` into a second, plain 2D canvas (not a drawable one) made with `willReadFrequently: true`, and read from the copy. That canvas is kept in ordinary memory. |
+| (run time, in the guard) | Make a drawable canvas with `willReadFrequently: true`. | Leave the option out. Read pixels from a `drawImage()` copy in a plain canvas. See the section above. |
 
 An exception is a comment at the call, on the same line or the line above, with the reason:
 
@@ -110,7 +127,7 @@ The guard writes one line to `sessionStorage` under `gfx-visit` while a page is 
 
 The guard sends each loss, each stopped loop, script errors and a tab that died to `/api/reports`, filed by origin and page. `npm run reports` prints them. A page loaded within ten minutes of the same page dying in the same tab starts with its `paint` events held and a bar with "Draw anyway". Both are described in [crash-reports.md](crash-reports.md).
 
-`/canvas-loss/` runs seventeen 2D operations one at a time (a paint on every frame, `ctx.reset()`, a draw at alpha 0, shadow, filter, source-rectangle draws, resizing, twelve canvases, a nested drawable, `willReadFrequently` fixtures, GPU readbacks, snapshots never closed, a float readback) and reports which one loses a canvas or the tab. It is the way to identify the cause on the phone for the pages with only 2D canvases. Results are in `findings/canvas-loss.md`.
+`/canvas-loss/` runs twenty 2D operations one at a time (a paint on every frame, `ctx.reset()`, a draw at alpha 0, shadow, filter, source-rectangle draws, resizing, twelve canvases, a nested drawable, `willReadFrequently` fixtures, GPU readbacks, snapshots never closed, a float readback) and reports which one loses a canvas or the tab. It is the way to identify the cause on the phone for the pages with only 2D canvases. Results are in `findings/canvas-loss.md`.
 
 ## Not verified, needs the phone
 

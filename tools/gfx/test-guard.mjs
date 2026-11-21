@@ -261,6 +261,16 @@ await test('A page that died holds its paint events on the next load until "Draw
   return `held; ${before} paint events while held, ${after} after "Draw anyway"; reports: ${collected.map((r) => r.type).join(', ')}`;
 });
 
+await test('willReadFrequently is removed from a drawable canvas, kept on a plain one and with data-gfx-raw', '/', async (page, warnings) => {
+  const out = await page.evaluate(() => {
+    const make = (drawable, raw) => { const c = document.createElement('canvas'); if (drawable) { c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', ''); } if (raw) c.setAttribute('data-gfx-raw', ''); document.getElementById('stage').append(c); return c.getContext('2d', { willReadFrequently: true, alpha: true }).getContextAttributes().willReadFrequently; };
+    return { drawable: make(true, false), plain: make(false, false), raw: make(true, true), count: window.__gfx.frequentDrawable };
+  });
+  must(out.drawable === false && out.plain === true && out.raw === true && out.count === 1, JSON.stringify(out));
+  must(warnings.some((w) => /willReadFrequently was removed/.test(w)), 'no console warning');
+  return JSON.stringify(out);
+});
+
 await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 3000))]);
 server.close();
 for (const r of results) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name}\n       ${r.detail}`);

@@ -63,8 +63,9 @@
   <h2>Findings</h2>
   <p class="note">From Chromium 157 with software rendering, 2026-11-21. The rows above say what your browser does.</p>
   <ul class="findings" id="findings">
-    <li><strong>Measured: no trial loses a canvas in the test browser.</strong> All seventeen end with "no loss". That browser keeps canvases in ordinary memory, so this says the trials run, not that they are safe.</li>
-    <li><strong>Not verified: every trial on a phone.</strong> The page exists to be run there. A loss in one row and not in the base case names the operation.</li>
+    <li><strong>Measured: no trial loses a canvas in the test browser.</strong> All twenty end with "no loss". That browser keeps canvases in ordinary memory, so this says the trials run, not that they are safe.</li>
+    <li><strong>Reported from Chrome 159 on Android 10, 2026-11-21: a <code>willReadFrequently</code> drawable canvas loses every 2D canvas.</strong> The ten trials before it ended with "no loss". The "read once" trial lost its own canvas and the canvas that stays, 35 ms after one draw and one readback, and again about every half second with no further call, until the guard stopped drawing. Live check fixtures across this site were made that way.</li>
+    <li><strong>Fix: the guard removes the option.</strong> <code>/shared/context-guard.js</code> now takes <code>willReadFrequently</code> off a drawable canvas. Not verified on the phone: the two "guard" trials say whether that holds, and the readback, copy, snapshot and float trials have not run there yet.</li>
     <li><strong>Limit: one operation at a time.</strong> A loss that needs two of these together, or more than four seconds, is not found by this page.</li>
   </ul>
 </main>
@@ -97,7 +98,7 @@
     tr.innerHTML = '<td class="status"></td><td></td><td class="detail"></td>';
     const b = document.createElement('button');
     b.type = 'button';
-    b.textContent = 'Run';
+    b.textContent = t.manual ? 'Run (loses the canvases on Chrome 159 for Android)' : 'Run';
     b.addEventListener('click', () => run([t]));
     tr.children[1].append(t.name, Object.assign(document.createElement('small'), { textContent: t.what }), b);
     $('results').append(tr);
@@ -122,6 +123,8 @@
     window.__checkState = 'running'; // the guard counts readbacks made now as asked for
     for (const b of document.querySelectorAll('#trials button, #all')) b.disabled = true;
     const stage = $('stage');
+    let stoppedBy = '';
+    if (window.__gfx?.held || window.__gfx?.halted) { $('status').textContent = window.__gfx.held ? 'Drawing is held because this page stopped a moment ago. Press "Draw anyway" in the bar at the bottom, then run a trial.' : 'The guard stopped drawing on this page after a loss. Reload the page, then run a trial.'; list = []; }
     for (const t of list) {
       const made = [];
       losses = [];
@@ -143,12 +146,14 @@
       save(stored);
       window.__gfx?.report('trial', `${t.id}: ${state === 'ok' ? 'no loss' : state}`, { detail, guard: state === 'ok' ? '' : window.__gfx.summary() }, true);
       show();
+      // After a loss the guard may have stopped paint events, and later trials would report that and not their own result.
+      if (state === 'lost') { stoppedBy = t.id; break; }
       await sleep(1000);
     }
     busy = false;
     window.__checkState = 'done';
     for (const b of document.querySelectorAll('#trials button, #all')) b.disabled = false;
-    $('status').textContent = summary();
+    if (list.length) $('status').textContent = (stoppedBy ? `Stopped after "${stoppedBy}" lost a canvas. Reload the page before running another trial. ` : '') + summary();
     show();
   }
   // #endregion run
@@ -157,10 +162,11 @@
     const ran = TRIALS.filter((t) => stored[t.id]);
     const bad = ran.filter((t) => stored[t.id].state !== 'ok');
     if (!ran.length) return 'Nothing has run.';
-    return `${ran.length} of ${TRIALS.length} trials have run. ${bad.length ? `Not clean: ${bad.map((t) => `${t.id} (${stored[t.id].state === 'running' ? 'tab stopped' : stored[t.id].state})`).join(', ')}.` : 'None lost a canvas.'}`;
+    return `${ran.length} of ${TRIALS.length} trials have run ("Run every trial" leaves out the last three). ${bad.length ? `Not clean: ${bad.map((t) => `${t.id} (${stored[t.id].state === 'running' ? 'tab stopped' : stored[t.id].state})`).join(', ')}.` : 'None lost a canvas.'}`;
   }
 
-  $('all').addEventListener('click', () => run(TRIALS));
+  // The last three make the kind of canvas that lost every canvas on the test phone. They run only from their own button.
+  $('all').addEventListener('click', () => run(TRIALS.filter((t) => !t.manual)));
   $('clear').addEventListener('click', () => { if (busy) return; stored = {}; save(stored); show(); $('status').textContent = 'Cleared.'; });
   $('copy').addEventListener('click', async () => {
     const text = TRIALS.map((t) => { const r = stored[t.id]; return `${t.id}: ${!r ? 'not run' : r.state === 'running' ? 'TAB STOPPED during this trial' : `${r.state === 'ok' ? 'no loss' : r.state}. ${r.detail}`}`; }).join('\n') +
