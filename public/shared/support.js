@@ -132,6 +132,7 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/select/',
   '/datalist/',
   '/inputs/',
+  '/fold/',
 ];
 
 /** Should this page's checks start by themselves? ?autochecks=1 and ?autochecks=0 override the list. */

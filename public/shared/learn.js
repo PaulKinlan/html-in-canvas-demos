@@ -79,6 +79,9 @@
       '/xr/': { question: 'Can HTML panels be used in WebXR, where there is no mouse? Controller rays are converted to pointer events on the elements.', first: ['/three-form/'], api: ['WebXR', 'texElementSubImage2D()', 'PointerEvent'] },
       '/native-ui/': { question: 'Can a native UI toolkit compiled to WebAssembly (egui, Qt Quick) use real DOM inputs as widgets inside its own WebGL canvas?', result: 'Yes for both, with a bridge of about 200 lines and no change to the toolkit. Tab order and occlusion are left to the bridge.', first: ['/three-form/'], api: ['texElementSubImage2D()', 'updateElementGeometry()', 'WebAssembly'] },
 
+      // --- devices ---
+      '/fold/': { question: 'What can a canvas that draws live DOM do with the posture and the viewport segments of a foldable: place panes on each half, draw one element across the hinge, and keep input working on a tilted half?', result: 'All three work with a simulated fold. A real foldable has not been tried.', first: ['/start/', '/physical/'], api: ['navigator.devicePosture', 'viewport.segments', 'drawElementImage()', 'updateElementGeometry()'] },
+
       // --- audit ---
       '/a11y/': { question: 'Which accessibility features work for DOM drawn in a canvas, and which techniques on this site break them?', first: ['/start/'], api: ['accessibility tree', 'focus', 'forced-colors'] },
       '/capture/': { question: 'Can any element be exported as a PNG, a video or a printed page by wrapping it in a canvas for one frame?', first: ['/start/'], api: ['drawElementImage()', 'moveBefore()', 'VideoEncoder'] },
