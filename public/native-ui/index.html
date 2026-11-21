@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DOM elements inside egui and Qt Quick apps</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/native-ui/ui.css">
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>DOM elements inside egui and Qt Quick apps</h1>
+  <p class="lede">
+    egui (Rust) and Qt Quick (C++) are native UI toolkits. Compiled to WebAssembly they draw every widget themselves into one WebGL canvas,
+    so the page has no real inputs. Here both apps contain real <code>&lt;input&gt;</code>, <code>&lt;select&gt;</code> and <code>&lt;textarea&gt;</code>
+    elements. The toolkit lays them out and draws them from a texture filled by <code>texElementSubImage2D()</code>. The browser handles their input.
+  </p>
+
+  <h2 id="egui">egui</h2>
+  <div class="egui-stage" id="egui-stage">
+    <!-- #region egui-markup -->
+    <canvas id="egui-app" content="drawable" layoutsubtree aria-label="egui app: a sign-up form">
+      <input data-egui="email" type="email" autocomplete="email" placeholder="you@example.com" aria-label="Email">
+      <select data-egui="country" aria-label="Country"><option>United Kingdom</option><option>Japan</option><option>Brazil</option><option>Kenya</option></select>
+      <input data-egui="birthday" type="date" aria-label="Date of birth">
+      <textarea data-egui="about" rows="3" spellcheck="true" aria-label="About you">I liek canvas apps.</textarea>
+      <p data-egui="terms">By signing up you agree to the <a href="/start/">terms</a>. This sentence is DOM text: مرحبا, 你好, 👋🏽.</p>
+      <input data-egui="search" type="search" placeholder="Search" aria-label="Search">
+    </canvas>
+    <!-- #endregion egui-markup -->
+    <p class="stage-msg" id="egui-msg">Loading the egui app (3.3 MB of WebAssembly)…</p>
+  </div>
+  <p class="note">
+    Rows marked DOM are real elements: the mobile keyboard, autofill, the native date and select pickers, the caret and text selection are the browser's.
+    Rows marked egui are drawn by egui. Drag the egui window over the form, or use its sliders to change how the DOM fields are drawn.
+  </p>
+  <details class="show-code">
+    <summary>Show the code <small>a DOM element as an egui widget</small></summary>
+    <ol>
+      <li data-code="#egui-markup"><b>Put the elements inside the canvas that egui renders into.</b> Each one has a name in <code>data-egui</code>.</li>
+      <li data-code="/native-ui/ui.css#widget-css" data-lang="css"><b>Style them like any other element.</b> Their layout position is not used.</li>
+      <li data-code="#egui-start"><b>Start the app on that canvas.</b></li>
+      <li data-code="/native-ui/egui/src/lib.rs#app" data-lang="js"><b>Rust: use a DOM element like a widget.</b> <code>self.dom.show(ui, "email", width, look)</code> sits between egui's own <code>TextEdit</code> and <code>Slider</code>.</li>
+      <li data-code="/native-ui/egui/src/lib.rs#widget" data-lang="js"><b>Rust: the widget.</b> Ask the browser for the height, allocate that space in egui, report the final position to the browser, and add a paint callback.</li>
+      <li data-code="/native-ui/egui/src/lib.rs#draw" data-lang="js"><b>Rust: the paint callback.</b> It runs inside egui's WebGL pass, uploads the element if the browser repainted it, and draws one quad.</li>
+      <li data-code="/native-ui/egui/src/bridge.js#upload"><b>JavaScript: element to texture.</b> <code>texElementSubImage2D()</code> writes into the texture Rust has bound.</li>
+      <li data-code="/native-ui/egui/src/bridge.js#place"><b>JavaScript: tell the browser where egui drew it.</b> <code>updateElementGeometry()</code> moves the element's hit box, caret and accessibility bounds there.</li>
+      <li data-code="/native-ui/egui/src/bridge.js#init"><b>JavaScript: keep egui and the element from both handling one event,</b> and ask egui whether one of its windows is on top before an event reaches an element.</li>
+      <li data-code="/native-ui/egui/src/lib.rs" data-lang="js"><b>All of lib.rs.</b></li>
+      <li data-code="/native-ui/egui/src/bridge.js"><b>All of bridge.js.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="qt">Qt Quick</h2>
+  <div class="qt-stage" id="qt-stage">
+    <div id="qt-screen"></div>
+    <p class="stage-msg" id="qt-msg">
+      <button type="button" id="qt-load">Load the Qt Quick app (23 MB)</button>
+      <span>Qt 6.10 for WebAssembly, with Qt Quick Controls. It is not loaded until you ask.</span>
+    </p>
+  </div>
+  <!-- #region qt-markup -->
+  <!-- Qt creates its own canvas, so these start outside it. DomItem moves each one in. -->
+  <div id="qt-parts" hidden>
+    <input class="qt-dom" data-qt="email" type="email" autocomplete="email" placeholder="you@example.com" aria-label="Email">
+    <select class="qt-dom" data-qt="plan" aria-label="Plan"><option>Free</option><option>Team</option><option>Enterprise</option></select>
+    <textarea class="qt-dom" data-qt="notes" rows="3" aria-label="Notes">Typed into a real textarea.</textarea>
+  </div>
+  <!-- #endregion qt-markup -->
+  <p class="note">
+    The email, plan and notes fields are DOM elements shown by a <code>DomItem</code> in the QML scene. The sliders are Qt Quick Controls
+    that set the items' <code>opacity</code> and <code>rotation</code>, and the rotated field still takes clicks and typing where it is drawn.
+  </p>
+  <details class="show-code">
+    <summary>Show the code <small>a DOM element as a Qt Quick item</small></summary>
+    <ol>
+      <li data-code="#qt-markup"><b>The elements.</b> Qt's canvas is inside a shadow root, so page stylesheets do not reach it. The page copies each element's computed style inline before Qt takes it.</li>
+      <li data-code="/native-ui/qt/src/Main.qml#qml" data-lang="js"><b>QML: <code>DomItem</code> next to Qt Quick Controls.</b> Layouts, <code>opacity</code> and <code>rotation</code> apply to it like any item.</li>
+      <li data-code="/native-ui/qt/src/domitem.cpp#adopt" data-lang="js"><b>C++ with inline JavaScript: move the element into Qt's canvas.</b> <code>GLctx</code> is Emscripten's WebGL context, the one Qt Quick draws with.</li>
+      <li data-code="/native-ui/qt/src/domitem.cpp#qt-upload" data-lang="js"><b>C++: a GL texture that the scene graph draws.</b> The upload runs on <code>beforeRendering</code>; <code>QSGOpenGLTexture::fromNative()</code> hands the texture to a <code>QSGSimpleTextureNode</code>.</li>
+      <li data-code="/native-ui/qt/src/domitem.cpp#upload" data-lang="js"><b>The upload call.</b></li>
+      <li data-code="/native-ui/qt/src/domitem.cpp#place" data-lang="js"><b>Tell the browser where the item is.</b> <code>itemTransform()</code> gives the item's matrix in the window, rotation included.</li>
+      <li data-code="/native-ui/qt/src/domitem.cpp" data-lang="js"><b>All of domitem.cpp.</b></li>
+    </ol>
+  </details>
+
+  <h2>Live checks</h2>
+  <p class="note">The checks load a second copy of the egui app in a small frame, so they do not touch the one above. The Qt app was tested the same way with Playwright before it was published (see Findings).</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>Both toolkits took a DOM element as a widget without changes to the toolkit.</strong> egui needs a paint callback (<code>egui_glow::CallbackFn</code>). Qt Quick needs a <code>QQuickItem</code> whose node wraps a GL texture (<code>QSGOpenGLTexture::fromNative()</code>). Each bridge is about 200 lines.</li>
+    <li><strong>The element is drawn by the toolkit, so it is in the toolkit's z-order.</strong> An egui window covers the DOM fields, an egui scroll area clips them, and Qt Quick rotates and fades them. Toolkits that put HTML over or under the canvas cannot do this.</li>
+    <li><strong>Layout goes both ways.</strong> The toolkit sets the element's width, the browser lays it out, and the toolkit reads <code>offsetHeight</code> to size its widget. The paragraph of DOM text wraps to the width egui gives it.</li>
+    <li><strong>The browser does not know what the toolkit draws on top.</strong> An element is hit tested wherever its geometry is. The egui bridge asks egui (<code>Context::layer_id_at()</code>) in a capture-phase listener before an event reaches an element, and moves the element's geometry off the canvas when an egui window is over it at the pointer. The Qt proof does not do this yet.</li>
+    <li><strong>Two things on the page want each event.</strong> egui listens on the canvas and Qt on its window element, and an event on a child element bubbles to both. The bridges stop propagation at the element. egui already ignores pointer moves when <code>elementFromPoint()</code> is not its canvas, which helped.</li>
+    <li><strong>Focus is split.</strong> Tab moves between the DOM fields in DOM order and between toolkit widgets in the toolkit's order, and the two orders are not joined. A click hands focus over correctly in both directions.</li>
+    <li><strong>The texture must be premultiplied.</strong> egui and Qt Quick both blend premultiplied alpha. Without <code>UNPACK_PREMULTIPLY_ALPHA_WEBGL</code> text on a transparent background is drawn too heavy.</li>
+    <li><strong>Qt's canvas is in a shadow root and Qt creates it.</strong> The element has to be moved in after Qt has a GL context, and it needs inline styles. Setting <code>content="drawable"</code> on a canvas that already has a WebGL context works.</li>
+    <li><strong>Raw GL inside Qt Quick's frame prints warnings.</strong> Chromium logs five <code>texParameter: no texture bound</code> warnings per item at start-up, from Qt's renderer after the foreign texture is wrapped. The textures are drawn correctly. Not investigated further.</li>
+    <li><strong>Some of what the browser paints for a field is left out of the texture.</strong> The explainer excludes spelling and grammar markers, pending autofill previews, IME pop-ups and IME composition formatting from element images for privacy. The textarea has <code>spellcheck</code> on and a misspelt word, and no marker is drawn.</li>
+    <li><strong><code>updateElementGeometry()</code> does not drop cached hit-test results.</strong> In Chromium 157, <code>elementFromPoint()</code> at a point that was hit tested just before the call keeps returning the old element, while a point two pixels away is correct. Any DOM mutation clears it, so both bridges toggle an attribute on the canvas after each geometry update.</li>
+    <li><strong>eframe focuses its hidden text input when it starts.</strong> The page makes <code>focus()</code> a no-op while the app starts so that opening the page does not move focus.</li>
+    <li><strong>Not verified on a phone.</strong> Both apps were tested in headless Chromium 157 at a 2.625 device scale with touch events. DevTools device emulation gives egui a wrong scale (it reads a canvas size that is not in device pixels), so use a real phone. Touch-dragging on a DOM field does not scroll the egui scroll area under it.</li>
+  </ul>
+
+  <h2 id="research">Other frameworks</h2>
+  <p>
+    How Qt, Flutter, Compose Multiplatform, egui, Dear ImGui, Slint, Avalonia, Uno Platform, Unity and Godot render on the web today, what each does about text input,
+    accessibility and embedded HTML, and what HTML-in-canvas would change for each, with sources:
+    <a href="https://github.com/PaulKinlan/html-in-canvas-demos/blob/main/docs/native-frameworks.md">docs/native-frameworks.md</a>.
+  </p>
+  <div class="table-scroll">
+  <table class="results research">
+    <thead><tr><th>Framework</th><th>Draws into</th><th>Text input today</th><th>Accessibility today</th><th>HTML content today</th></tr></thead>
+    <tbody>
+      <tr><td>Qt for WebAssembly</td><td>One canvas per window. WebGL for Qt Quick, 2D <code>putImageData</code> for raster windows.</td><td>A hidden <code>&lt;input&gt;</code> per window.</td><td>A parallel tree of hidden ARIA elements, off by default.</td><td>Not documented.</td></tr>
+      <tr><td>Flutter web</td><td>WebGL canvas (CanvasKit or Skwasm).</td><td>A transparent <code>&lt;input&gt;</code> or <code>&lt;textarea&gt;</code> placed over the field.</td><td>A parallel <code>flt-semantics</code> tree, off until asked for.</td><td>Platform views: elements slotted between extra canvases.</td></tr>
+      <tr><td>Compose Multiplatform</td><td>Canvas (Skia).</td><td>Open issues are on the roadmap.</td><td>Initial support in 1.9.</td><td><code>WebElementView</code>: an element laid over the canvas.</td></tr>
+      <tr><td>egui</td><td>WebGL or WebGPU canvas.</td><td>A hidden <code>&lt;input&gt;</code> ("text agent").</td><td>None on the web apart from an experimental speech output.</td><td>None.</td></tr>
+      <tr><td>Slint</td><td>WebGL canvas.</td><td>No IME with the Emscripten backend.</td><td>Not available.</td><td>None.</td></tr>
+      <tr><td>Avalonia</td><td>WebGL canvas (Skia through CanvasKit).</td><td>Not stated.</td><td>Partial, through ARIA attributes.</td><td>JavaScript interop only.</td></tr>
+      <tr><td>Uno Platform (Skia)</td><td>WebGL canvas.</td><td>IME is work in progress.</td><td>Work in progress.</td><td>Native element hosting, no alpha blending.</td></tr>
+      <tr><td>Unity, Godot</td><td>WebGL canvas.</td><td>A real text field is needed to raise a mobile keyboard.</td><td>None documented for the web.</td><td>Page elements over the canvas, by hand.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">Each cell is sourced in the document. "Not stated" and "not documented" mean the framework's own pages did not say.</p>
+</main>
+<!-- #region egui-start -->
+<script type="module">
+import init, { start } from '/native-ui/egui/egui_dom.js';
+await init();                                        // fetch and compile the WebAssembly
+// eframe focuses its hidden text input when it starts. On a page with other content that
+// takes focus from the reader, so focus() does nothing until the app is up.
+const focus = HTMLElement.prototype.focus;
+HTMLElement.prototype.focus = function () {};
+try {
+  await start(document.getElementById('egui-app'));  // eframe::WebRunner on that canvas
+} finally {
+  HTMLElement.prototype.focus = focus;
+}
+</script>
+<!-- #endregion egui-start -->
+<script type="module" src="/native-ui/main.js"></script>
+</body>
+</html>
