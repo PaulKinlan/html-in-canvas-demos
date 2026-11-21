@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Probes: recent platform features on elements a canvas draws</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1000px; }
+  #rig-box { position: fixed; right: 8px; bottom: 8px; z-index: 50; width: 300px; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 24px #0004; }
+  #rig-box[hidden] { display: none; }
+  #rig-box p { margin: 0 0 4px; font: 12px var(--mono); color: var(--muted); }
+  #rig { width: 300px; height: 240px; overflow: hidden; background: repeating-conic-gradient(#8882 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+  .tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 14px 0; }
+  td.status.works, td.yes { color: var(--ok); }
+  td.status.fails, td.status.error { color: var(--bad); }
+  td.status.unsupported, td.status.manual, td.status.info, td.no { color: var(--muted); }
+  td.status.differs::after { content: ' (differs)'; color: var(--warn); font-weight: 400; }
+  .recorded { color: var(--muted); font-size: 13px; }
+  #detect { columns: 2 320px; padding: 0; list-style: none; font-size: 14px; }
+  #detect li { break-inside: avoid; padding: 3px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; }
+  #detect b.yes { color: var(--ok); } #detect b.no { color: var(--muted); font-weight: 400; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Probes: recent platform features on elements a canvas draws</h1>
+  <p class="lede">
+    Each probe puts a small element in a <code>&lt;canvas content="drawable"&gt;</code>, turns on one feature that shipped in Chrome 130 to 160,
+    draws the element with <code>drawElementImage()</code> and reads the pixels, the hit test or the element state back.
+    The results feed the <a href="/chrome-apis/">plan for new platform features</a>.
+  </p>
+
+  <div class="tools">
+    <button id="run" type="button">Run the probes in this browser</button>
+    <span id="now" class="note">Not run yet. The table shows the results recorded in the test browser.</span>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>the fixture and the probes</small></summary>
+    <ol>
+      <li data-code="/chrome-apis/probes.js#fixture"><b>The fixture: one canvas, one drawable child, draw it at an offset and read pixels back.</b> <code>ownPaint()</code> waits for a <code>paint</code> event that the browser raises with no <code>requestPaint()</code> call.</li>
+      <li data-code="/chrome-apis/probes.js"><b>All the probes.</b> Each one sets up markup and CSS for one feature and returns a status and a sentence.</li>
+    </ol>
+  </details>
+
+  <h2>Results</h2>
+  <table class="results" id="results">
+    <thead><tr><th>Probe</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Feature detection in this browser</h2>
+  <p class="note">Presence only. A feature that is present can still fail on a canvas child; the probes above test that.</p>
+  <ul id="detect"></ul>
+
+  <h2>Findings</h2>
+  <ul id="findings">
+    <li>The recorded column comes from <code>npm run record:probes</code>, which runs this page in two Chromium builds with real mouse and keyboard input and writes <code>/chrome-apis/probes-recorded.json</code>.</li>
+    <li>Three probes need a real pointer or key press (<code>::scroll-marker</code> click, <code>interestfor</code> hover, <code>focusgroup</code> arrow keys). The recording script supplies them. In a browser they report <i>manual</i>.</li>
+    <li>The <code>:visited</code> probe needs a browser profile that keeps history. The Chromium 153 run uses one and compares the picture with a screenshot of the same link outside the canvas.</li>
+  </ul>
+</main>
+
+<div id="rig-box" hidden><p>probe fixture: <span id="rig-name"></span></p><div id="rig"></div></div>
+
+<script type="module">
+  import { PROBES, runProbes, runDetect } from './probes.js';
+
+  const tbody = document.querySelector('#results tbody');
+  const now = document.getElementById('now');
+  const rigBox = document.getElementById('rig-box');
+  const rig = document.getElementById('rig');
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+  // Results recorded by `npm run record:probes`, one set per browser build.
+  let recorded = null;
+  try { recorded = await (await fetch('./probes-recorded.json')).json(); } catch {}
+  const runsRecorded = recorded?.runs ?? [];
+  const recordedFor = (id) => runsRecorded.map((run) => ({ browser: run.browser, r: run.results.find((x) => x.id === id) })).filter((x) => x.r);
+  const recordedHtml = (id) => recordedFor(id).map(({ browser, r }) => `<span class="recorded">${esc(browser)}: ${esc(r.status)}. ${esc(r.detail)}</span>`).join('<br>');
+
+  const rows = new Map();
+  for (const p of PROBES) {
+    const tr = document.createElement('tr');
+    const first = recordedFor(p.id)[0]?.r;
+    tr.innerHTML = `<td>${esc(p.title)}</td><td class="status ${first ? first.status : ''}">${first ? `${first.status}` : 'not run'}</td><td>${recordedHtml(p.id)}</td>`;
+    tbody.append(tr);
+    rows.set(p.id, tr);
+  }
+  if (recorded) now.textContent = `Not run yet. The table shows results recorded on ${recorded.date} in ${runsRecorded.map((r) => r.browser).join(' and in ')}.`;
+
+  // The recording script exposes real input as window.__auto* functions.
+  const auto = window.__autoClick
+    ? { click: window.__autoClick, move: window.__autoMove, press: window.__autoPress, shot: window.__autoShot }
+    : null;
+
+  async function run() {
+    document.getElementById('run').disabled = true;
+    rigBox.hidden = false;
+    const started = performance.now();
+    const results = await runProbes(rig, {
+      auto,
+      onResult(r) {
+        const tr = rows.get(r.id);
+        const first = recordedFor(r.id)[0]?.r;
+        const differs = first && first.status !== r.status && r.status !== 'manual';
+        tr.children[1].className = `status ${r.status}${differs ? ' differs' : ''}`;
+        tr.children[1].textContent = r.status;
+        tr.children[2].innerHTML = `${esc(r.detail)}<br>${recordedHtml(r.id)}`;
+        now.textContent = `Running: ${r.title}`;
+      },
+    });
+    rigBox.hidden = true;
+    now.textContent = `Ran ${results.length} probes in ${((performance.now() - started) / 1000).toFixed(1)} s.`;
+    document.getElementById('run').disabled = false;
+    window.__probeResults = results;
+  }
+  document.getElementById('run').onclick = run;
+
+  const detect = runDetect();
+  document.getElementById('detect').innerHTML = detect.map((d) =>
+    `<li><a href="https://chromestatus.com/feature/${d.feature}">${esc(d.label)}</a><b class="${d.ok ? 'yes' : 'no'}">${d.ok ? 'yes' : 'no'}</b></li>`).join('');
+  window.__detect = detect;
+
+  if (new URLSearchParams(location.search).has('run')) run();
+  window.__results = { total: PROBES.length };
+</script>
+</body>
+</html>

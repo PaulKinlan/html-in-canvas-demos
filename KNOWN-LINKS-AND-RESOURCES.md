@@ -110,7 +110,7 @@ Element-scoped view transitions shipped in Chrome 147, with developer testing fr
 |---|---|
 | Features by milestone, the source of the Chrome APIs plan (PR #50). The JSON response starts with `)]}'`, which must be removed before parsing. | `https://chromestatus.com/api/v0/features?milestone=N` for N = 130 to 160 |
 | One feature | `https://chromestatus.com/feature/<id>` |
-| The plan built from it | https://html-in-canvas.page/chrome-apis/ and `docs/chrome-apis-plan.md` (both arrive with PR #50) |
+| The plan built from it | https://html-in-canvas.page/chrome-apis/ and, as one document, https://html-in-canvas.page/chrome-apis/plan.md (`public/chrome-apis/plan.md` after `npm run build`) |
 | The probes | https://html-in-canvas.page/chrome-apis/probes.html (PR #50) |
 
 The plan document links the Chrome Platform Status entry of each of the 678 features it lists. On the fetch date, 2026-11-21, Chrome 159 was stable and 160 was beta.

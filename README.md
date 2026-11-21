@@ -93,6 +93,10 @@ The results of each experiment are in [findings/](findings/), one file per page 
 
 `src/index.js` routes `/api/*`; everything else is static. `src/cross-context.js` serves `/api/x/room/<id>` (WebSocket relay rooms in a Durable Object), `/api/x/ice` and `/api/x/vision` (Workers AI). Bindings are in `wrangler.jsonc`. Optional secrets `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` (a Cloudflare Realtime TURN key) add TURN servers for networks where WebRTC can't connect directly; without them the demos fall back to relayed frames.
 
+## Plan for new platform features
+
+`/chrome-apis/` is a plan, not a demo: every feature that chromestatus.com lists for Chrome 130 to 160, an idea for combining it with a drawable canvas, and a ranked list of demos to build. `npm run build` generates the page data and the one-document version, `public/chrome-apis/plan.md`, from `tools/chrome-apis/ideas.json` and `demos.json`. Neither output is committed. `npm run build:plan -- --fetch` downloads the feature lists again. When a planned demo is built, put `"plan": "<demo key>"` in the `page.json` of the page that builds it. `npm run record:probes` runs `/chrome-apis/probes.html` in Chromium and records the results that the plan cites.
+
 ## Pages must hold still
 
 Opening a demo must not move it. `npm run check:jank` opens every page that has a `page.json` as a phone (412 px wide, device scale factor 2.625, touch, CPU slowed 4x), touches nothing, and fails if the page shifts its layout, scrolls itself, moves focus, covers itself, blanks a canvas or flashes, from navigation until its live checks finish and through a change of viewport height like the URL bar hiding. It needs Playwright with Chromium (`npm i -D playwright`).

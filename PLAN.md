@@ -61,7 +61,7 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 | Learning resource | `/start/`, homepage, `shared/learn.js` | | #36, #38, #39, #40, #41 | Done. Open recommendations are listed below. |
 | Element catalogue | `/elements/`, `ELEMENTS.md` | `tools/elements/` | #48 (open) | Built, waiting to merge. 121 ideas, none built. |
 | Text selection | `/selection/`, `/caret/` | `selection-fx.js` | #49, #52 | Built. Demo 9 (carets and highlights) landed in #52 as `/caret/`. Touch selection is not verified. |
-| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `docs/chrome-apis-plan.md` | `tools/chrome-apis/` | #50 (open) | Plan written, 27 probes recorded. Building the 28 demos started on 2026-11-21. |
+| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `/chrome-apis/plan.md` | `tools/chrome-apis/` | #50 | Plan written, 27 probes recorded. Building the 28 demos started on 2026-11-21. |
 | Lost canvases on new pages | new pages | shared fix | none yet | In progress in its own thread. See "Site-wide work that is open". |
 
 ## Open pull requests
@@ -77,7 +77,7 @@ Each of them appends a section to FINDINGS.md. Merged the same day while this fi
 
 ## Planned demos from the Chrome APIs plan
 
-Source: `tools/chrome-apis/demos.json` and `docs/chrome-apis-plan.md` (PR #50). The plan surveys the 678 features that chromestatus.com lists for Chrome 130 to 160, has an idea for 359 of them, and ranks 28 demos in three tiers. The full description of each demo (what it shows, how to build it, what was measured, what is uncertain) is in the plan document. When a demo ships, set `"built": "/path/"` on its entry in `demos.json` and run `npm run build:plan`.
+Source: `tools/chrome-apis/demos.json` and `public/chrome-apis/plan.md` (written by `npm run build`). The plan surveys the 678 features that chromestatus.com lists for Chrome 130 to 160, has an idea for 359 of them, and ranks 28 demos in three tiers. The full description of each demo (what it shows, how to build it, what was measured, what is uncertain) is in the plan document. When a demo ships, set `"built": "/path/"` on its entry in `demos.json` and run `npm run build:plan`.
 
 "Thread" is the project thread the demo was assigned to on 2026-11-21. By 14:40 UTC that day two had shipped: demo 9 as `/caret/` (PR #52) and demo 19 as additions to the media pages (PR #51, FINDINGS.md "Media state, lazy loading, the iframe policy, output latency"). Check `demos.json` and the open pull requests for the current state.
 
@@ -268,7 +268,6 @@ Rank 2 and rank 3 are in `ELEMENTS.md` under "Ideas". Rank 2 includes developer 
 | Check the stated floor of Chrome 148 | learning-resource review | The pages say "Chrome 148+". Nothing older than Chromium 153 was tested. |
 | Unify `show-code.js` and `source-view.js` | PR #34 | Two listing components exist. |
 | Split FINDINGS.md | learning-resource review | Done 2026-11-21: one file per strand in `findings/`. The index, bug list and API requests in `FINDINGS.md` are not yet split and are updated in a documentation pass. |
-| Generate `docs/chrome-apis-plan.md` and `public/chrome-apis/data.js` at build time | ARCHITECTURE.md, "Files that parallel branches share" | They are committed generated files and conflicted in 3 merges. After PR #50 or #56 lands: add them to `.gitignore`, write them from `tools/chrome-apis/site-build.mjs`, and take a demo's "built" state from the `plan` field of the page's `page.json`. |
 | No CI | this document | `check:jank` and `check:fx` are run by hand. A GitHub Action would need Playwright with a Chromium that has the API. |
 
 ## Not verified: needs real hardware or a person
