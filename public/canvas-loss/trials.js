@@ -8,10 +8,12 @@ const RUN_MS = 4000;
 
 // #region drawable
 // A drawable canvas with one drawable child, sized once in device pixels.
-export function drawable(box, seen, { w = 300, h = 110, options, html = '<b>Trial</b> <span data-n>0</span> <button type="button">A button</button>' } = {}) {
+export function drawable(box, seen, { w = 300, h = 110, options, raw = false, html = '<b>Trial</b> <span data-n>0</span> <button type="button">A button</button>' } = {}) {
   const canvas = document.createElement('canvas');
   canvas.setAttribute('content', 'drawable');
   canvas.setAttribute('layoutsubtree', '');
+  // The guard removes willReadFrequently from a drawable canvas. data-gfx-raw keeps it, for the trials that measure it.
+  if (raw) canvas.setAttribute('data-gfx-raw', '');
   const dpr = Math.min(devicePixelRatio || 1, 3);
   canvas.style.cssText = `display:block;width:${w}px;height:${h}px;max-width:100%`;
   canvas.width = Math.round(w * dpr);
@@ -61,10 +63,10 @@ async function once(d, draw = plain) {
   d.canvas.onpaint = null;
 }
 
-async function fixtures(box, seen, count, retire) {
+async function fixtures(box, seen, count, retire, raw = true) {
   let read = 0;
   for (let i = 0; i < count; i++) {
-    const d = drawable(box, seen, { options: { willReadFrequently: true }, w: 240, h: 90 });
+    const d = drawable(box, seen, { options: { willReadFrequently: true }, raw, w: 240, h: 90 });
     await once(d, (x) => { plain(x); read += x.ctx.getImageData(Math.round(24 * x.dpr), Math.round(24 * x.dpr), 1, 1).data[3] ? 1 : 0; });
     await sleep(120);
     d.canvas.remove();
@@ -115,15 +117,6 @@ export const TRIALS = [
       const [a] = await Promise.all([loop(outer, plain), loop(inner, plain)]);
       return a + ' on the outer canvas';
     } },
-  { id: 'wrf', name: 'A willReadFrequently drawable canvas, read once',
-    what: 'A drawable canvas made with willReadFrequently: true. One drawElementImage(), then one getImageData() of one pixel in the paint handler. This is what a live check fixture is.',
-    run: async (box, seen) => { const d = drawable(box, seen, { options: { willReadFrequently: true } }); let px = null; await once(d, (x) => { plain(x); px = x.ctx.getImageData(Math.round(24 * x.dpr), Math.round(24 * x.dpr), 1, 1).data; }); await sleep(RUN_MS / 2); return `pixel read: ${px ? [...px].join(',') : 'no paint event'}`; } },
-  { id: 'fixtures', name: 'Twelve check fixtures in a row, freed',
-    what: 'Twelve willReadFrequently drawable canvases made, drawn, read, removed and given to window.__gfx.retire(), one after another. This is a page running twelve live checks.',
-    run: (box, seen) => fixtures(box, seen, 12, true) },
-  { id: 'fixtures-kept', name: 'Twelve check fixtures in a row, not freed',
-    what: 'The same, without retire(). The removed canvases keep their size until they are collected.',
-    run: (box, seen) => fixtures(box, seen, 12, false) },
   { id: 'gpu-read', name: 'getImageData() from an accelerated drawable canvas, twelve times',
     what: 'A drawable canvas made without willReadFrequently, in a paint loop. One pixel is read every 300 ms, which copies the canvas back from the GPU each time.',
     run: async (box, seen) => {
@@ -131,6 +124,16 @@ export const TRIALS = [
       const reading = (async () => { while (!stop) { await sleep(300); d.ctx.getImageData(20, 20, 1, 1); reads++; } })();
       const out = await loop(d, plain, 3600); stop = true; await reading;
       return `${out}, ${reads} readbacks`;
+    } },
+  { id: 'copy-read', name: 'Pixels read from a drawImage() copy, twelve times',
+    what: 'The drawable canvas is never read. Every 300 ms it is copied with drawImage() into a plain canvas made with willReadFrequently, and one pixel is read from the copy. This is the route the graphics rules give for pixels that are needed often.',
+    run: async (box, seen) => {
+      const d = drawable(box, seen); let reads = 0, stop = false, lit = 0;
+      const copy = document.createElement('canvas'); copy.width = 32; copy.height = 32;
+      const cc = copy.getContext('2d', { willReadFrequently: true }); seen(copy);
+      const reading = (async () => { while (!stop) { await sleep(300); cc.clearRect(0, 0, 32, 32); cc.drawImage(d.canvas, Math.round(24 * d.dpr), Math.round(24 * d.dpr), 32, 32, 0, 0, 32, 32); lit += cc.getImageData(4, 4, 1, 1).data[3] ? 1 : 0; reads++; } })();
+      const out = await loop(d, plain, 3600); stop = true; await reading;
+      return `${out}, ${reads} copies read, ${lit} had a drawn pixel`;
     } },
   { id: 'snapshots', name: 'Sixty captureElementImage() pictures, never closed',
     what: 'A paint loop in which a picture of the element is taken every fourth frame and kept in an array with no close(). /flip-clock/ and /split-flap/ did this once a second or on every change.',
@@ -142,20 +145,12 @@ export const TRIALS = [
       for (const k of kept) k?.close?.();
       return text;
     } },
-  { id: 'float', name: 'One float16 getImageData()',
-    what: 'A 2D canvas with colorType "float16", and one getImageData() with pixelFormat "rgba-float16". On /hdr-glow/ every 2D canvas on the page was lost at the times this ran.',
-    run: async (box, seen) => {
-      const c = document.createElement('canvas'); c.width = 64; c.height = 64; c.style.cssText = 'display:block;width:64px;height:64px'; box.append(c);
-      const ctx = c.getContext('2d', { colorType: 'float16', colorSpace: 'display-p3' }); seen(c);
-      ctx.fillStyle = 'color(display-p3 1 0.2 0.1)'; ctx.fillRect(0, 0, 64, 64);
-      await sleep(300);
-      let text;
-      // gfx-allow: float-readback this trial exists to find out if the call loses the canvases, and it runs once on a press
-      try { const d = ctx.getImageData(0, 0, 1, 1, { pixelFormat: 'rgba-float16' }); text = `read ${d.data.constructor.name} ${[...d.data].map((v) => v.toFixed(2)).join(',')}`; }
-      catch (e) { text = `getImageData threw ${e.name}`; }
-      await sleep(RUN_MS - 300);
-      return text;
-    } },
+  { id: 'wrf-guarded', name: 'willReadFrequently asked for on a drawable canvas, removed by the guard',
+    what: 'The same call as the "read once" trial below, without the mark that tells the guard to leave it alone. /shared/context-guard.js removes the option, so the canvas stays on the GPU. This row says whether that fix holds on this device.',
+    run: async (box, seen) => { const d = drawable(box, seen, { options: { willReadFrequently: true } }); let px = null; await once(d, (x) => { plain(x); px = x.ctx.getImageData(Math.round(24 * x.dpr), Math.round(24 * x.dpr), 1, 1).data; }); await sleep(RUN_MS / 2); return `pixel read: ${px ? [...px].join(',') : 'no paint event'}; the context reports willReadFrequently ${d.ctx.getContextAttributes?.().willReadFrequently}`; } },
+  { id: 'fixtures-guarded', name: 'Twelve check fixtures in a row, with the guard\'s fix',
+    what: 'Twelve drawable canvases that ask for willReadFrequently, made, drawn, read, removed and retired one after another. The guard removes the option from each. This is what a page running twelve live checks does now.',
+    run: (box, seen) => fixtures(box, seen, 12, true, false) },
   { id: 'float-copy', name: 'A float16 canvas copied to a willReadFrequently float16 canvas, and the copy read',
     what: 'The float canvas is never read. drawImage() copies it into a second float16 canvas made with willReadFrequently: true, and getImageData() with "rgba-float16" reads the copy. In Chromium 157 the copy is clamped to 1.0, so this row only says whether the loss follows the readback or the float canvas.',
     run: async (box, seen) => {
@@ -174,5 +169,28 @@ export const TRIALS = [
       await sleep(RUN_MS - 300);
       return text;
     } },
+  { id: 'float', name: 'One float16 getImageData()',
+    what: 'A 2D canvas with colorType "float16", and one getImageData() with pixelFormat "rgba-float16". On /hdr-glow/ every 2D canvas on the page was lost at the times this ran.',
+    run: async (box, seen) => {
+      const c = document.createElement('canvas'); c.width = 64; c.height = 64; c.style.cssText = 'display:block;width:64px;height:64px'; box.append(c);
+      const ctx = c.getContext('2d', { colorType: 'float16', colorSpace: 'display-p3' }); seen(c);
+      ctx.fillStyle = 'color(display-p3 1 0.2 0.1)'; ctx.fillRect(0, 0, 64, 64);
+      await sleep(300);
+      let text;
+      // gfx-allow: float-readback this trial exists to find out if the call loses the canvases, and it runs once on a press
+      try { const d = ctx.getImageData(0, 0, 1, 1, { pixelFormat: 'rgba-float16' }); text = `read ${d.data.constructor.name} ${[...d.data].map((v) => v.toFixed(2)).join(',')}`; }
+      catch (e) { text = `getImageData threw ${e.name}`; }
+      await sleep(RUN_MS - 300);
+      return text;
+    } },
+  { id: 'wrf', manual: true, name: 'A willReadFrequently drawable canvas, read once',
+    what: 'A drawable canvas made with willReadFrequently: true. One drawElementImage(), then one getImageData() of one pixel in the paint handler. This is what a live check fixture was. Chrome 159 on Android 10, 2026-11-21: every 2D canvas on the page was lost, and lost again about every half second after each restore.',
+    run: async (box, seen) => { const d = drawable(box, seen, { options: { willReadFrequently: true }, raw: true }); let px = null; await once(d, (x) => { plain(x); px = x.ctx.getImageData(Math.round(24 * x.dpr), Math.round(24 * x.dpr), 1, 1).data; }); await sleep(RUN_MS / 2); return `pixel read: ${px ? [...px].join(',') : 'no paint event'}`; } },
+  { id: 'fixtures', manual: true, name: 'Twelve check fixtures in a row, freed',
+    what: 'Twelve willReadFrequently drawable canvases made, drawn, read, removed and given to window.__gfx.retire(), one after another. This is a page running twelve live checks.',
+    run: (box, seen) => fixtures(box, seen, 12, true) },
+  { id: 'fixtures-kept', manual: true, name: 'Twelve check fixtures in a row, not freed',
+    what: 'The same, without retire(). The removed canvases keep their size until they are collected.',
+    run: (box, seen) => fixtures(box, seen, 12, false) },
 ];
 // #endregion trials

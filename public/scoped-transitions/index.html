@@ -718,11 +718,16 @@
   const r2d = $('r2d'), r2dk = $('r2dk'), r2di = $('r2di'), rnest = $('rnest'), rrows = $('rrows'), rdoc = $('rdoc'), rpuck = $('rpuck');
   const rig = { x: 20, follow: false, reset: true, old: null, want: null, drawOld: false, pixel: null };
   if (supported) {
-    const c2 = r2d.getContext('2d', { willReadFrequently: true });
+    // A drawable canvas is never made with willReadFrequently and is never read with getImageData():
+    // on Android that loses every 2D context on the page. Pixels are read from a drawImage() copy.
+    const c2 = r2d.getContext('2d');
+    const copy = document.createElement('canvas'); copy.width = copy.height = 1;
+    const copyCtx = copy.getContext('2d', { willReadFrequently: true });
+    const pixelAt = (x, y) => { copyCtx.clearRect(0, 0, 1, 1); copyCtx.drawImage(r2d, x, y, 1, 1, 0, 0, 1, 1); return [...copyCtx.getImageData(0, 0, 1, 1).data]; };
     r2d.addEventListener('paint', () => {
       if (rig.want) { rig.old?.close(); rig.old = r2d.captureElementImage(r2dk); rig.want(); rig.want = null; }
       c2.reset();
-      if (rig.drawOld && rig.old) { c2.drawElementImage(rig.old, 0, 0, 300, 60); rig.pixel = [...c2.getImageData(40, 20, 1, 1).data]; }
+      if (rig.drawOld && rig.old) { c2.drawElementImage(rig.old, 0, 0, 300, 60); rig.pixel = pixelAt(40, 20); }
       else c2.drawElementImage(r2dk, 0, 0, 300, 60);
       r2d.updateElementGeometry(r2dk, { canvasTransform: new DOMMatrix() });
     });
