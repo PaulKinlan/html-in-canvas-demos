@@ -135,6 +135,7 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/inputs/',
   '/selection/',
   '/caret/',
+  '/xr-room/',
 ];
 
 /** Should this page's checks start by themselves? ?autochecks=1 and ?autochecks=0 override the list. */
