@@ -10,7 +10,8 @@
 //                                 errors, rejected promises, a tab that died, as
 //                                 a text/plain beacon holding JSON.
 //   GET  /api/reports           Recent reports as JSON. Query: origin, page,
-//                               type, since (ms, or 90m / 6h / 2d), limit, q.
+//                               type, since (ms, or 90m / 6h / 2d), limit, q,
+//                               real=1 (no headless test browsers).
 //   GET  /api/reports/summary   Counts by origin, page and type. Same filters.
 //
 // Stored in D1 (binding REPORTS), one row per report, keyed by the origin of
@@ -98,6 +99,8 @@ function where(url, now) {
     if (key === 'origin' && v === 'preview') { clauses.push("origin LIKE '%-preview.%'"); continue; }
     if (v.includes('*')) { clauses.push(`${key} LIKE ?`); args.push(v.replaceAll('%', '').replaceAll('*', '%')); } else if (key === 'page') { clauses.push('(page = ? OR page = ?)'); args.push(v, `${v} (frame)`); } else { clauses.push(`${key} = ?`); args.push(v); }
   }
+  // real=1 leaves out headless test browsers, so that a count is evidence from devices.
+  if (url.searchParams.get('real')) clauses.push("ua NOT LIKE '%Headless%'");
   const q = url.searchParams.get('q');
   if (q) { clauses.push('(message LIKE ? OR body LIKE ?)'); args.push(`%${q}%`, `%${q}%`); }
   return { sql: clauses.join(' AND '), args };
