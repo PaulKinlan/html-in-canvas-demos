@@ -1,6 +1,10 @@
 # A WebAssembly loop on the paint event (`/wasm-ui/`)
 
+<<<<<<< HEAD
 Measured in C157 (headless, 2.625 device scale, touch) on 2026-11-21. `native/wasm-ui/ui.c` is 170 lines of C built with `clang --target=wasm32 -nostdlib` (3 KB). Demo 28 of the Chrome APIs plan.
+=======
+Tested in headless Chromium 157 at a 2.625 device scale with touch. `native/wasm-ui/ui.c` is 170 lines of C built with `clang --target=wasm32 -nostdlib` (3 KB). Demo 28 of the Chrome APIs plan.
+>>>>>>> 92afae7c8df7ebed18ba1a8a202a0abe3f3f0e1a
 
 | Experiment | Result | Detail |
 | --- | --- | --- |
@@ -9,6 +13,7 @@ Measured in C157 (headless, 2.625 device scale, touch) on 2026-11-21. `native/wa
 | A blocking modal dialog made of a real element with two real buttons | works | `ask()` has its own loop, suspends in the same import two C calls deep, and returns 1 or 0 to `run()`. |
 | Elements under the dialog take no input | works with `inert` | The browser hit tests an element where it was last drawn. The page sets `inert` on what the program draws as not interactive and on the dialog while it is not drawn. No `updateElementGeometry()` call was needed in a 2D canvas. |
 | A tap reaches the program as a press and a release | needs a queue | Both pointer events can arrive between two paint events. The page queues pointer states and gives the program one per frame. |
+<<<<<<< HEAD
 | `requestPaint()` called inside a `paint` listener | works | It gives a second paint event. |
 | Calling another export while `run()` is suspended | works | The C edge filter runs on the same memory. About 10 ms for 900×220 pixels read with `getImageData()`. |
 | The edge filter as a WebNN graph on the element's pixels | not verified | `navigator.ml` is missing from C153 and C157. |
@@ -30,3 +35,7 @@ Measured in C157 (headless, 2.625 device scale, touch) on 2026-11-21. `native/wa
 
 - Paint event: a WebAssembly program can block on `paint` through JSPI and draw in the microtask after the listener. (`/wasm-ui/`)
 - Hit testing: `inert` is enough to keep a drawn element from taking the pointer in a 2D canvas. (`/wasm-ui/`)
+=======
+| Calling another export while `run()` is suspended | works | The C edge filter runs on the same memory. About 10 ms for 900×220 pixels read with `getImageData()`. |
+| The edge filter as a WebNN graph on the element's pixels | not measured | `navigator.ml` is missing from both test browsers. The graph code ran only against a JavaScript stand-in for the WebNN calls, where it matched the C filter. |
+>>>>>>> 92afae7c8df7ebed18ba1a8a202a0abe3f3f0e1a
