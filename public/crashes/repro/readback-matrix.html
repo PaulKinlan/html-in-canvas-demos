@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Repro: which read of a canvas that drew an element loses the 2D contexts</title>
+<!-- A reduced reproduction for a browser bug report. One file, no libraries and none of the site's scripts.
+     Every case runs in a page load of its own, so that one case cannot leave the next in a broken state.
+     HTML-in-canvas must be on: chrome://flags/#canvas-draw-element. Listed at /crashes/. -->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 16px; max-width: 720px; }
+  h1 { font-size: 19px; line-height: 1.3; }
+  button { font: inherit; min-height: 44px; padding: 6px 14px; margin: 4px 6px 4px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  td, th { text-align: left; padding: 6px; border-bottom: 1px solid #8886; vertical-align: top; overflow-wrap: anywhere; }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+  .lost, .died { color: #c0392b; } .ok { color: #2e7d4f; }
+  canvas { display: block; border: 1px solid #8886; margin: 8px 0; max-width: 100%; }
+  .card { box-sizing: border-box; width: 240px; padding: 10px; border-radius: 8px; background: #fff7e6; color: #2a2116; }
+  #now { font: 13px/1.5 ui-monospace, monospace; min-height: 3em; }
+</style>
+<h1>Which read of a canvas that drew an element loses the 2D contexts</h1>
+<p>Each row is one case. "Run every case" loads this page once for each, runs it for three seconds and moves on. A plain 2D canvas that the case never touches is on the page too. A case is "lost" if either canvas gets a <code>contextlost</code> event. If the tab dies during a case, open this page again: it records that and continues with the next case.</p>
+<p><button id="all">Run every case</button><button id="copy">Copy the results</button><button id="clear">Clear</button> <a href="/crashes/#frequent-read-drawable">The entry on /crashes/</a></p>
+<p id="now"></p>
+<div id="stage"></div>
+<table><thead><tr><th>Result</th><th>Case</th><th>Detail</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+  const CARD = '<div class="card" drawable><b>An element</b> drawn by the canvas <button type="button">A button</button></div>';
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const stage = document.getElementById('stage');
+  // make(options, drawable) -> { canvas, ctx, el }
+  const make = (options, isDrawable = true) => {
+    const canvas = document.createElement('canvas');
+    if (isDrawable) { canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', ''); canvas.innerHTML = CARD; }
+    canvas.width = 300; canvas.height = 110; canvas.style.cssText = 'width:300px;height:110px';
+    stage.append(canvas);
+    return { canvas, ctx: canvas.getContext('2d', options), el: canvas.firstElementChild };
+  };
+  const painted = (canvas) => new Promise((resolve) => { canvas.addEventListener('paint', resolve, { once: true }); canvas.requestPaint(); });
+  const drawEl = async (c) => { await painted(c.canvas); c.ctx.drawElementImage(c.el, 10, 10, c.el.offsetWidth, c.el.offsetHeight); };
+  const fill = (c) => { c.ctx.fillStyle = '#fff7e6'; c.ctx.fillRect(10, 10, 240, 60); };
+  const px = (ctx, x = 30, y = 30) => [...ctx.getImageData(x, y, 1, 1).data].join(',');
+  const copyOf = (c, options) => { const k = document.createElement('canvas'); k.width = 64; k.height = 64; const kc = k.getContext('2d', options); kc.drawImage(c.canvas, 0, 0, 64, 64, 0, 0, 64, 64); return kc; };
+
+  const CASES = [
+    ['draw-only', 'drawElementImage(), no read', async () => { const c = make(); await drawEl(c); return 'drawn'; }],
+    ['fill-read', 'A drawable canvas, fillRect() only, getImageData()', async () => { const c = make(); fill(c); return 'read ' + px(c.ctx); }],
+    ['plain-read', 'A canvas that is not drawable, fillRect(), getImageData()', async () => { const c = make(undefined, false); fill(c); return 'read ' + px(c.ctx); }],
+    ['draw-read', 'drawElementImage(), then getImageData() on the same canvas', async () => { const c = make(); await drawEl(c); return 'read ' + px(c.ctx); }],
+    ['draw-read-later', 'drawElementImage(), 1 s wait, then getImageData() from a timer', async () => { const c = make(); await drawEl(c); await sleep(1000); return 'read ' + px(c.ctx); }],
+    ['draw-read-frequent', 'The same canvas made with willReadFrequently: true, drawElementImage(), getImageData()', async () => { const c = make({ willReadFrequently: true }); await drawEl(c); return 'read ' + px(c.ctx); }],
+    ['draw-frequent-no-read', 'willReadFrequently: true, drawElementImage(), no read', async () => { const c = make({ willReadFrequently: true }); await drawEl(c); return 'drawn'; }],
+    ['draw-copy-read', 'drawElementImage(), drawImage() into a plain canvas, getImageData() on the copy', async () => { const c = make(); await drawEl(c); return 'copy read ' + px(copyOf(c), 30, 30); }],
+    ['draw-copy-frequent-read', 'drawElementImage(), drawImage() into a willReadFrequently canvas, getImageData() on the copy', async () => { const c = make(); await drawEl(c); return 'copy read ' + px(copyOf(c, { willReadFrequently: true }), 30, 30); }],
+    ['draw-dataurl', 'drawElementImage(), then canvas.toDataURL()', async () => { const c = make(); await drawEl(c); return `toDataURL gave ${c.canvas.toDataURL().length} characters`; }],
+    ['draw-bitmap', 'drawElementImage(), then createImageBitmap(canvas)', async () => { const c = make(); await drawEl(c); const b = await createImageBitmap(c.canvas); const out = `bitmap ${b.width} x ${b.height}`; b.close(); return out; }],
+    ['draw-snapshot', 'drawElementImage(), then captureElementImage(), kept open', async () => { const c = make(); await drawEl(c); window.kept = c.canvas.captureElementImage(c.el); return 'snapshot taken'; }],
+  ];
+
+  const KEY = 'repro-readback-matrix';
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; } };
+  const save = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); } catch {} };
+  // Results also go to the site's report log, so that they can be read without copying. Nothing else is sent.
+  const report = (message, body = {}) => { try { navigator.sendBeacon('https://html-in-canvas.page/api/reports', new Blob([JSON.stringify([{ type: 'trial', url: location.origin + location.pathname, message: 'matrix ' + message, body, user_agent: navigator.userAgent }])], { type: 'text/plain' })); } catch {} };
+  const params = new URLSearchParams(location.search);
+  const results = load();
+
+  function show() {
+    document.getElementById('rows').replaceChildren(...CASES.map(([id, name]) => {
+      const r = results[id], tr = document.createElement('tr');
+      const state = !r ? 'not run' : r.state === 'running' ? 'tab died' : r.state;
+      tr.innerHTML = `<td class="${!r ? '' : r.state === 'no loss' ? 'ok' : r.state === 'running' ? 'died' : 'lost'}"></td><td></td><td></td>`;
+      tr.children[0].textContent = state;
+      tr.children[1].textContent = `${id}: ${name}`;
+      tr.children[2].textContent = r?.detail ?? '';
+      const b = document.createElement('button'); b.textContent = 'Run alone'; b.onclick = () => { location.search = `?case=${id}`; };
+      tr.children[1].append(document.createElement('br'), b);
+      return tr;
+    }));
+  }
+  const go = (search) => { location.search = search; };
+  const nextAfter = (id) => { const i = CASES.findIndex((c) => c[0] === id); return CASES[i + 1]?.[0]; };
+
+  async function runCase(id, chain) {
+    const [, name, fn] = CASES.find((c) => c[0] === id);
+    // This case was already "running" when the page loaded: the page load before this one ended in it.
+    if (results[id]?.state === 'running' && params.get('started') === String(results[id].at)) {
+      results[id] = { state: 'running', detail: 'The page ended during this case (a dead tab, or a reload).', at: results[id].at };
+      save(results); report(`${id}: tab died`);
+      if (chain && nextAfter(id)) return go(`?case=${nextAfter(id)}&chain=1`);
+      return show();
+    }
+    const at = Date.now();
+    results[id] = { state: 'running', at };
+    save(results);
+    // The address now says that this case has started, so that a reload by the browser is recognised.
+    history.replaceState(null, '', `?case=${id}${chain ? '&chain=1' : ''}&started=${at}`);
+    document.getElementById('now').textContent = `Running ${id}: ${name}`;
+    show();
+    const losses = [], t0 = performance.now();
+    const other = make(undefined, false); other.ctx.fillStyle = 'seagreen'; other.ctx.fillRect(0, 0, 120, 48);
+    other.canvas.addEventListener('contextlost', () => losses.push(`untouched canvas at ${Math.round(performance.now() - t0)} ms`));
+    new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) if (n.localName === 'canvas') n.addEventListener('contextlost', () => losses.push(`case canvas at ${Math.round(performance.now() - t0)} ms`)); }).observe(stage, { childList: true });
+    await sleep(300);
+    let detail, threw = false;
+    const start = Math.round(performance.now() - t0);
+    try { detail = await fn(); } catch (e) { threw = true; detail = `${e.name}: ${e.message}`; }
+    await sleep(3000);
+    const state = threw ? 'threw' : losses.length ? 'lost' : 'no loss';
+    detail = `${detail} (call at ${start} ms)` + (losses.length ? `. ${losses.length} contextlost: ${losses.slice(0, 6).join('; ')}` : '');
+    results[id] = { state, detail, at };
+    save(results); report(`${id}: ${state}`, { detail });
+    if (chain && nextAfter(id)) return go(`?case=${nextAfter(id)}&chain=1`);
+    history.replaceState(null, '', location.pathname);
+    document.getElementById('now').textContent = chain ? 'Every case has run.' : `${id}: ${state}`;
+    show();
+  }
+
+  document.getElementById('all').onclick = () => { save({}); go(`?case=${CASES[0][0]}&chain=1`); };
+  document.getElementById('clear').onclick = () => { save({}); location.href = location.pathname; };
+  document.getElementById('copy').onclick = async () => {
+    const text = CASES.map(([id, name]) => { const r = results[id]; return `${id} (${name}): ${!r ? 'not run' : r.state === 'running' ? 'TAB DIED' : r.state}${r?.detail ? '. ' + r.detail : ''}`; }).join('\n') + '\n' + navigator.userAgent;
+    try { await navigator.clipboard.writeText(text); document.getElementById('copy').textContent = 'Copied'; } catch { document.getElementById('copy').textContent = 'Could not copy'; }
+  };
+  show();
+  if (!('requestPaint' in HTMLCanvasElement.prototype)) document.getElementById('now').textContent = 'HTML-in-canvas is not available in this browser.';
+  else if (params.get('case') && CASES.some((c) => c[0] === params.get('case'))) runCase(params.get('case'), params.has('chain'));
+</script>
+</html>

@@ -51,6 +51,11 @@
 //  11. Counts snapshots. captureElementImage() returns a picture that holds
 //      GPU memory until close() is called on it. The guard counts the ones
 //      that are open and reports a page that keeps more than 24.
+//  12. Removes willReadFrequently from a drawable canvas. Reported from the
+//      test phone by /canvas-loss/ on 2026-11-21: such a canvas, drawn into
+//      and read once, lost every 2D canvas on the page, and they were lost
+//      again every half second while it existed. Live check fixtures were
+//      made this way.
 //
 // Rules for pages, checked by `npm run check:gfx` (static) and
 // `npm run check:jank` (measured): docs/graphics-rules.md.
@@ -115,6 +120,7 @@
     over: null,
     halted: false,
     held: false,
+    frequentDrawable: 0,
     reports: [],
     snapshots: { made: 0, open: 0, peak: 0 },
     report: send,
@@ -356,15 +362,52 @@
     for (var k = 0; k < gone.length && gl.size + 1 >= GL_LIMIT; k++) if (drop(gone[k])) prune();
   }
 
+  function isDrawable(canvas) { return canvas.hasAttribute('layoutsubtree') || canvas.getAttribute('content') === 'drawable'; }
+  // A canvas that was given its drawable attributes after getContext() cannot
+  // be changed any more. Say so the first time an element is drawn into it.
+  (function () {
+    var proto = window.CanvasRenderingContext2D && CanvasRenderingContext2D.prototype, draw = proto && proto.drawElementImage;
+    if (!draw) return;
+    proto.drawElementImage = function () {
+      try {
+        var i = info.get(this.canvas);
+        if (i && i.cpu && !i.toldCpu) {
+          i.toldCpu = true;
+          console.warn('context-guard: drawElementImage() into a canvas made with willReadFrequently. On Chrome for Android this loses every 2D canvas on the page.');
+          send('frequent-read-drawable', 'drawElementImage() into a willReadFrequently canvas', { id: this.canvas.id || '', raw: this.canvas.hasAttribute('data-gfx-raw') });
+        }
+      } catch (e) {}
+      return draw.apply(this, arguments);
+    };
+  })();
+
   function wrap(proto, where) {
     var original = proto.getContext;
     if (!original) return;
     proto.getContext = function (type) {
       var known = info.get(this);
       if (!known && isGL(type)) sweep();
-      var ctx = original.apply(this, arguments);
+      // Point 12. On the test phone (Chrome 159, Android 10), drawElementImage()
+      // into a 2D canvas made with willReadFrequently, read once, lost every
+      // 2D canvas on the page every half second. A drawable
+      // canvas therefore never gets that option. data-gfx-raw on the canvas
+      // keeps it, for the trial page that measures this.
+      var args = arguments;
+      try {
+        if (!known && type === '2d' && args[1] && args[1].willReadFrequently && this.getAttribute && isDrawable(this) && !this.hasAttribute('data-gfx-raw')) {
+          var kept = {};
+          for (var key in args[1]) if (key !== 'willReadFrequently') kept[key] = args[1][key];
+          args = [type, kept];
+          G.frequentDrawable++;
+          if (G.frequentDrawable === 1) {
+            console.warn('context-guard: willReadFrequently was removed from a drawable canvas. On Chrome for Android, drawElementImage() into such a canvas loses every 2D canvas on the page. Read pixels from a copy made with drawImage().');
+            send('frequent-read-drawable', 'willReadFrequently removed from a drawable canvas', { id: this.id || '' });
+          }
+        }
+      } catch (e) {}
+      var ctx = original.apply(this, args);
       if (!ctx || known) return ctx;
-      var attrs = arguments[1] || {};
+      var attrs = args[1] || {};
       var entry = { type: type, ctx: ctx, where: where, wasConnected: !!this.isConnected, goneAt: 0, lost: false, note: null, losses: [],
         float: attrs.colorType === 'float16', cpu: type === '2d' && attrs.willReadFrequently === true, antialias: isGL(type) && attrs.antialias !== false };
       try { if (entry.float && ctx.getContextAttributes && ctx.getContextAttributes().colorType !== 'float16') entry.float = false; } catch (e) {}

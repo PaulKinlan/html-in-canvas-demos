@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Crashes and lost canvases recorded so far</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center; margin: 10px 0; max-width: 720px; }
+  .bar button, .case button { font: inherit; min-height: 44px; padding: 4px 12px; border-radius: 8px; }
+  .bar label { display: inline-flex; gap: 6px; align-items: center; min-height: 44px; font-size: 14px; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; max-width: 720px; overflow-wrap: anywhere; }
+  .case { max-width: 720px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 12px 0; overflow-wrap: anywhere; }
+  .case h3 { margin: 6px 0 8px; font-size: 17px; line-height: 1.3; }
+  .case p, .case ol, .case ul { margin: 6px 0; font-size: 14.5px; line-height: 1.5; }
+  .case ol, .case ul { padding-left: 1.3em; }
+  .case .tags { display: flex; gap: 6px; flex-wrap: wrap; font: 12px/1.4 var(--mono); }
+  .case .tags span { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+  .case .tags .crash { border-color: var(--bad); color: var(--bad); }
+  .case .tags .loss { border-color: #b7791f; color: #b7791f; }
+  .case b.k { font-weight: 600; }
+  .case .count { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 1.5em; }
+  #received td:first-child { white-space: nowrap; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Crashes and lost canvases recorded so far</h1>
+  <p class="lede">
+    Every way a page of this project has crashed the tab or lost its canvases while using HTML-in-canvas, one entry each. An entry
+    says what was done, what happened, in which browser, whether a script measured it or it was reported from a phone, where to
+    reproduce it, what is not known, and what the pages do now. "Copy as a report" gives one entry as plain text, with the number of
+    matching reports that real devices have sent.
+  </p>
+
+  <div class="bar">
+    <button type="button" id="copyAll">Copy every entry</button>
+    <label><input type="checkbox" id="onlyApi" checked> Only entries about HTML-in-canvas</label>
+    <label><input type="checkbox" id="onlyIsolated"> Only entries with a page that isolates them</label>
+  </div>
+  <p id="status" role="status">Reading the report log.</p>
+
+  <div id="cases"></div>
+
+  <h2>Reports received</h2>
+  <p class="note">What browsers and the guard on each page have sent to <code>/api/reports</code> in the last 30 days, for every copy of the site. A count here is evidence that the entry happens on real devices. The page does not open any of the reproductions.</p>
+  <table class="results" id="received"><thead><tr><th>Reports</th><th>Type</th><th>Page</th><th>Last</th></tr></thead><tbody id="receivedRows"><tr><td colspan="4">Reading.</td></tr></tbody></table>
+
+  <details class="show-code">
+    <summary>Show the code <small>the entries, the text of a report, the counts</small></summary>
+    <ol>
+      <li data-code="/crashes/cases.js#cases"><b>The entries.</b> Data, one object each. A new crash is added here.</li>
+      <li data-code="/crashes/cases.js#text"><b>The text of a report.</b></li>
+      <li data-code="#counts"><b>The counts.</b> One request to the report log for each report type an entry names.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul>
+    <li>The entries are written by hand in <code>/crashes/cases.js</code> from the findings of each page. Each says "measured" (a script or a page produced it, in the browser named) or "reported" (seen on the project owner's phone, with what came back).</li>
+    <li><code>/shared/context-guard.js</code> runs on every page. It sends each lost context, each stopped loop of losses, script errors and a tab that died to <code>/api/reports</code>. The browser sends its own <code>crash</code> reports there through the Reporting API. <code>/canvas-loss/</code> sends the outcome of each trial.</li>
+    <li>An entry names the report types that count towards it, with text the report must contain. The page asks the log for each and shows the total.</li>
+    <li>No reproduction runs here. Ten entries have a standalone page in <code>/crashes/repro/</code>: one HTML file with no libraries and none of this site's scripts (so the guard does not change what happens), with a button for each case and a log that is kept if the tab dies. Several of them crash the tab when the button is pressed.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">One check, of the log itself. It waits for a press.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">State on 2026-11-21. Headless Chromium 157 for "measured", Chrome 159 on Android for "reported".</p>
+  <ul class="findings" id="findings">
+    <li><strong>Five renderer crashes reproduce in Chromium 157</strong> and involve a drawable canvas: a view transition on a drawable child, an iframe changed inside <code>paint</code>, <code>adoptNode()</code> of a painted canvas, opacity around a canvas in a drawn iframe, and <code>loseContext()</code> on a drawable WebGL canvas. Four have a standalone page that crashes there (the view transition, removing an iframe in <code>paint</code>, <code>adoptNode()</code>, the opacity box). The standalone page for <code>loseContext()</code> does not crash: that one needs something the fuller pages have.</li>
+    <li><strong>Two context losses on Chrome 159 for Android have their call identified:</strong> a drawable 2D canvas made with <code>willReadFrequently</code>, and a float16 <code>getImageData()</code>. Neither happens in the test browser. The first was isolated by <code>/canvas-loss/</code> on the phone; the second has not run alone yet. Their standalone pages have not been opened on the phone.</li>
+    <li><strong>None has been filed.</strong></li>
+    <li><strong>Not verified:</strong> that Chrome on Android sends <code>crash</code> reports for a dead tab to this site. None had arrived when this was written.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests } from '/shared/support.js';
+  import { CASES, reportText } from '/crashes/cases.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const LOG = 'https://html-in-canvas.page/api/reports';
+  const counts = new Map(); // entry id -> { n, last }
+  const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
+  const copy = async (button, text) => { const was = button.textContent; try { await navigator.clipboard.writeText(text); button.textContent = 'Copied'; } catch { button.textContent = 'Could not copy'; } setTimeout(() => (button.textContent = was), 1500); };
+  const ago = (at) => { const s = (Date.now() - at) / 1000; return s < 5400 ? `${Math.max(1, Math.round(s / 60))} min ago` : s < 172800 ? `${(s / 3600).toFixed(1)} h ago` : `${(s / 86400).toFixed(1)} d ago`; };
+
+  const shown = () => CASES.filter((c) => (!$('onlyApi').checked || c.related !== false) && (!$('onlyIsolated').checked || c.isolated));
+
+  function draw() {
+    const list = shown();
+    $('cases').replaceChildren(...list.map((c) => {
+      const n = counts.get(c.id);
+      const button = el('button', { type: 'button', textContent: 'Copy as a report' });
+      button.addEventListener('click', () => copy(button, reportText(c, n)));
+      return el('section', { className: 'case', id: c.id },
+        el('div', { className: 'tags' },
+          el('span', { className: c.kind, textContent: { crash: 'crash', loss: 'contexts lost', blank: 'blank canvas' }[c.kind] }),
+          el('span', { textContent: c.how }),
+          el('span', { textContent: c.date }),
+          el('span', { textContent: c.isolated ? 'isolated' : 'not isolated' }),
+          ...(c.related === false ? [el('span', { textContent: 'not about this API' })] : [])),
+        el('h3', { textContent: c.title }),
+        el('p', {}, el('b', { className: 'k', textContent: 'Browser. ' }), c.browser),
+        el('ol', {}, ...c.steps.map((s) => el('li', { textContent: s }))),
+        el('p', {}, el('b', { className: 'k', textContent: 'What happens. ' }), c.seen),
+        ...(c.notKnown ? [el('p', {}, el('b', { className: 'k', textContent: 'Not known. ' }), c.notKnown)] : []),
+        ...(c.standalone ? [el('p', {}, el('b', { className: 'k', textContent: 'Standalone reproduction. ' }), el('a', { href: c.standalone[0], textContent: c.standalone[0] }), ` One file, no libraries. ${c.standalone[1]}`)] : []),
+        ...(c.repro.length ? [el('ul', {}, ...c.repro.map(([path, what]) => el('li', {}, el('a', { href: path, textContent: path }), ` ${what}`)))] : []),
+        el('p', {}, el('b', { className: 'k', textContent: 'Now. ' }), c.now),
+        el('p', { className: 'count', textContent: !c.types.length ? 'No report type matches this entry: it was measured in the test browser.' : n === undefined ? '' : n === null ? 'The report log could not be read.' : n.n ? `${n.n} matching report${n.n === 1 ? '' : 's'} from real devices in 30 days, the last ${ago(n.last)}.` : 'No matching report in 30 days.' }),
+        button);
+    }));
+  }
+
+  // #region counts
+  async function summary(query) {
+    // real=1: reports from headless test browsers are left out, so a count is evidence from devices.
+    const r = await fetch(`${LOG}/summary?since=30d&real=1&${new URLSearchParams(query)}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return (await r.json()).groups;
+  }
+  async function readCounts() {
+    try {
+      await Promise.all(CASES.filter((c) => c.types.length).map(async (c) => {
+        let n = 0, last = 0;
+        for (const t of c.types) for (const g of await summary(t.q ? { type: t.type, q: t.q } : { type: t.type })) { n += g.n; last = Math.max(last, g.last); }
+        counts.set(c.id, { n, last });
+      }));
+      const all = await summary({});
+      const byType = new Map();
+      for (const g of all) { const k = `${g.type}|${g.page}`; const e = byType.get(k) ?? { type: g.type, page: g.page, n: 0, last: 0 }; e.n += g.n; e.last = Math.max(e.last, g.last); byType.set(k, e); }
+      const rows = [...byType.values()].sort((a, b) => b.last - a.last).slice(0, 40);
+      $('receivedRows').replaceChildren(...(rows.length ? rows.map((r) => el('tr', {}, el('td', { textContent: r.n }), el('td', { textContent: r.type }), el('td', { textContent: r.page }), el('td', { textContent: ago(r.last) }))) : [el('tr', {}, el('td', { colSpan: 4, textContent: 'No reports in 30 days.' }))]));
+      $('status').textContent = `${CASES.length} entries. The report log holds ${all.reduce((s, g) => s + g.n, 0)} reports from the last 30 days.`;
+    } catch (err) {
+      for (const c of CASES) if (c.types.length) counts.set(c.id, null);
+      $('receivedRows').replaceChildren(el('tr', {}, el('td', { colSpan: 4, textContent: `The report log could not be read (${err.message}).` })));
+      $('status').textContent = `${CASES.length} entries. The report log could not be read (${err.message}).`;
+    }
+    draw();
+  }
+  // #endregion counts
+
+  $('onlyApi').addEventListener('change', draw);
+  $('onlyIsolated').addEventListener('change', draw);
+  $('copyAll').addEventListener('click', () => copy($('copyAll'), shown().map((c) => reportText(c, counts.get(c.id))).join('\n\n----------------------------------------\n\n')));
+  draw();
+  readCounts();
+
+  runTests($('results'), [
+    {
+      name: 'The report log answers, and accepts a report from this page',
+      why: 'Sends one report of type "probe" with window.__gfx.report(), then asks the log for it by this page load\'s text.',
+      timeout: 15000,
+      run: async () => {
+        const mark = `probe ${Math.random().toString(36).slice(2, 10)}`;
+        if (!window.__gfx?.report) throw new Error('the guard is not on this page');
+        window.__gfx.report('probe', mark, {}, true);
+        for (let i = 0; i < 8; i++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          const r = await fetch(`${LOG}?since=10m&type=probe&q=${encodeURIComponent(mark)}`);
+          if (!r.ok) throw new Error(`the log answered HTTP ${r.status}`);
+          const { reports } = await r.json();
+          if (reports.length) return `stored under ${reports[0].origin}${reports[0].page} after ${i + 1} s`;
+        }
+        throw new Error(/^(localhost|127\.)/.test(location.hostname) ? 'not stored: the guard sends nothing from localhost' : 'the report was sent and is not in the log after 8 s');
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
