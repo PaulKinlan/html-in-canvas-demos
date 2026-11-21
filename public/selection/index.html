@@ -59,7 +59,7 @@
 
   <div class="stage2">
     <!-- #region markup -->
-    <selection-fx id="demo" effect="glow" highlight="found">
+    <selection-fx id="demo" effect="marker" highlight="found">
       <h3>Selecting text that a canvas draws</h3>
       <p>Press and hold a word on a phone, or drag with a mouse. The browser decides which characters are selected. The canvas only asks where they are, with <code>Range.getClientRects()</code>, and draws something there.</p>
       <p>The effect is a picture and nothing else. Copy, the handles, <em>double click to select a word</em>, Shift with the arrow keys and <a href="https://github.com/WICG/html-in-canvas">this link to the explainer</a> behave the way they do in any paragraph. Emoji and accents are measured like other text: 👩‍🚀 café, naïve, ﬁne.</p>
@@ -101,6 +101,7 @@
       <li data-code="/lib/selection-fx.js#effect-burn"><b>A shader effect</b>, in GLSL for WebGL and WGSL for WebGPU. <code>tex()</code> is the element, <code>sel()</code> the mask, <code>ink()</code> how much glyph is at a point.</li>
       <li data-code="/lib/selection-fx.js#webgl"><b>The WebGL frame.</b> <code>texElementSubImage2D</code> for the element, <code>texImage2D</code> for the mask, one triangle.</li>
       <li data-code="/lib/selection-fx.js#webgpu"><b>The WebGPU frame.</b> <code>queue.drawElementImageToTexture()</code> for the element, <code>copyExternalImageToTexture()</code> for the mask.</li>
+      <li data-code="/lib/selection-fx.js#recover"><b>When the canvas loses its context,</b> move the content to a new 2D canvas.</li>
       <li data-code="/lib/selection-fx.js"><b>The whole element.</b></li>
     </ol>
   </details>
@@ -140,7 +141,7 @@
   </details>
 
   <h2>Live checks</h2>
-  <p class="note">These run in your browser on small fixtures in a corner of the window. They do not change the selection if you have text selected: the checks that need a real selection wait until nothing is selected.</p>
+  <p class="note">These start when you press the button, because several of them create WebGL and WebGPU contexts and a phone allows only a few. They run on small fixtures in a corner of the window. They do not change the selection if you have text selected: the checks that need a real selection wait until nothing is selected.</p>
   <table class="results"><tbody id="tests"></tbody></table>
 
   <h2>Findings</h2>
@@ -157,6 +158,7 @@
     <li><strong>Selection does not cross into a <code>contenteditable</code> child</strong> when the drag starts outside it. That is the usual editing-boundary rule, not something the canvas adds.</li>
     <li><strong>The caret is drawn, and each blink fires <code>paint</code></strong> (4 events in 2.2 seconds with a focused editable element). A shader effect therefore uploads the element's texture twice a second while a caret is showing.</li>
     <li><strong>Text selected inside an <code>&lt;input&gt;</code> or <code>&lt;textarea&gt;</code> is highlighted in the picture but cannot be measured.</strong> <code>getSelection()</code> has no range inside the control and there is no rectangle API for <code>selectionStart</code>/<code>selectionEnd</code>, so these effects do not apply to form controls.</li>
+    <li><strong>Releasing a WebGL context can crash the tab.</strong> <code>WEBGL_lose_context.loseContext()</code> on a drawable canvas that is still in the document and holds an element texture crashed the renderer in Chromium 157. Removing the canvas from the document first does not. A WebGL canvas also reports loss with <code>webglcontextlost</code>, not the <code>contextlost</code> event of a 2D canvas.</li>
     <li><strong>Effects are visual only.</strong> <code>&lt;selection-fx&gt;</code> leaves the element's geometry at its layout position, so the caret, the handles and hit testing stay on the line even while the wave effect moves the glyphs by 4 px.</li>
     <li><strong>A shader needs to know which pixels are glyphs.</strong> The slotted content has a transparent background, so the element texture's alpha is the glyph coverage. For text on its own opaque background the shaders compare against <code>--selection-fx-bg</code>.</li>
     <li><strong>The rectangles reach a shader as a mask texture</strong> drawn with a 2D <code>OffscreenCanvas</code>, not as a uniform array, so the count of lines is not limited and the mask can carry a blurred copy and a fading history at no shader cost.</li>
@@ -165,6 +167,7 @@
   <ul class="findings">
     <li><strong>Touch selection.</strong> Long press did not select anything in the headless test browser, inside or outside a canvas, so press and hold, the Android handles and the copy menu are untested. Things to look at on a phone: whether the handles appear at the drawn position of a rotated line, whether they still appear when <code>::selection</code> is transparent, and whether the loupe effect is hidden under the finger or under Chrome's own magnifier.</li>
     <li><strong><code>::target-text</code> (text fragment links), find-in-page marks and spelling marks.</strong> The headless browser showed none of them even outside a canvas. The explainer says spelling marks and find-in-page marks are left out of an element's picture for privacy. <a href="#:~:text=the%20way%20they%20do%20in%20any%20paragraph">This link</a> scrolls to a text fragment in the demo above: if the browser marks it, the mark is either in the canvas (drawn with the text) or missing.</li>
+    <li><strong>Why a canvas lost its context on an Android phone.</strong> The first version of this page started on the glow shader and ran its checks on load, and on Chrome 159 the demo was a white box with a broken-picture icon. The cause is not identified. The page now starts on a 2D effect, creates GPU contexts only when a shader effect is picked or the checks are started, and <code>&lt;selection-fx&gt;</code> moves its content to a new 2D canvas when its canvas loses its context or shows no picture. The line under the demo says when that happened.</li>
     <li><strong>WebGPU on screen.</strong> The WGSL of each effect compiles here and an off-screen WebGPU frame is compared with the WebGL one in the checks. The software adapter cannot show a WebGPU canvas, so the on-screen route is untested.</li>
     <li><strong>Speed on a phone.</strong> Glow takes 24 texture samples per pixel and burn 16.</li>
   </ul>
@@ -259,7 +262,9 @@
     demo.refresh?.();
   });
   if (params.get('engine')) { demo.setAttribute('engine', params.get('engine')); $('engine').value = params.get('engine'); }
-  setEffect(selectionEffects.has(params.get('effect')) ? params.get('effect') : 'glow');
+  // The page starts on a 2D effect, so loading it never needs a GPU context. A shader effect starts one when it is picked.
+  setEffect(selectionEffects.has(params.get('effect')) ? params.get('effect') : 'marker');
+  demo.addEventListener('selectionfxfallback', (e) => { $('readout').textContent = `Changed engine: ${e.detail.reason}. Now drawing with ${demo.getAttribute('engine') || 'auto'}.`; if (demo.getAttribute('engine')) $('engine').value = demo.getAttribute('engine'); });
   demo.addEventListener('surfacefallback', (e) => { $('readout').textContent = `Showing plain HTML because of: ${e.detail.reason}. Selection works, the effects are off.`; });
 
   // ------------------------------------------------- the rotated paragraph
@@ -399,7 +404,7 @@
   /** Run fn with a real selection, once the reader has nothing selected. Clears it afterwards. */
   async function withSelection(range, fn) {
     for (let waited = 0; !getSelection().isCollapsed; waited += 300) {
-      if (waited > 8000) throw new Error('not run: text on the page stayed selected');
+      if (waited > 1800) throw new Error('not run: text on the page stayed selected. Clear the selection and run the checks again');
       await new Promise((r) => setTimeout(r, 300));
     }
     getSelection().removeAllRanges();
@@ -588,7 +593,7 @@
           const n = coloured(await el.readback());
           if (el.rects.length !== 1 || Math.abs(r.w - 72) > 2 || n < 100) throw new Error(`${el.rects.length} rects, width ${r?.w.toFixed(1)}, ${n} coloured pixels`);
           return `1 rectangle ${r.w.toFixed(1)}×${r.h.toFixed(1)} at ${r.x.toFixed(1)},${r.y.toFixed(1)}; ${n} coloured pixels`;
-        } finally { CSS.highlights.delete('fx-check'); }
+        } finally { CSS.highlights.delete('fx-check'); el.dispose(); }
       },
     },
     ...['glow', 'burn', 'wave'].map((name) => ({
@@ -603,7 +608,7 @@
           if (el.lastError) throw el.lastError;
           if (n < 40) throw new Error(`${n} coloured pixels`);
           return `${n} coloured pixels`;
-        } finally { CSS.highlights.delete('fx-check'); }
+        } finally { CSS.highlights.delete('fx-check'); el.dispose(); }
       },
     })),
     {
@@ -639,7 +644,7 @@
           if (!(diff.ink > 0.01)) throw new Error('the WebGPU picture is empty');
           if (diff.mean > 6) throw new Error(`mean difference ${diff.mean.toFixed(2)}, largest ${diff.max}`);
           return `mean difference ${diff.mean.toFixed(2)} of 255, ${(diff.ink * 100).toFixed(0)}% of pixels drawn`;
-        } finally { CSS.highlights.delete('fx-check'); }
+        } finally { CSS.highlights.delete('fx-check'); a.dispose(); b.dispose(); }
       },
     },
     stillDrawn(() => [

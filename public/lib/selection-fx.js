@@ -179,6 +179,11 @@ let listening = false;
 function listen() {
   if (listening) return;
   listening = true;
+  // A lost WebGPU device leaves its canvases showing the browser's broken-canvas
+  // picture, and nothing redraws an idle element. Move every element off it now.
+  addEventListener('webgpulost', () => {
+    for (const el of instances) el.gpuLost();
+  });
   // #region listen
   document.addEventListener('selectionchange', () => {
     for (const el of instances) el.refresh();
@@ -226,8 +231,84 @@ export class SelectionFx extends SurfaceElement {
     return ask;
   }
 
+  /** Called when the page's WebGPU device is lost. */
+  gpuLost() {
+    this.#leaveGPU(webgpu.reason || 'the WebGPU device was lost');
+  }
+
+  // #region recover
+  // A canvas that loses its context shows a white box with a broken-picture
+  // icon. Waiting for it to come back leaves that on screen, so the element
+  // moves its content to a new canvas with a 2D context straight away. A second
+  // loss on the 2D canvas is left to SurfaceElement, which shows plain HTML.
+  #losses = 0;
+  #watch(canvas) {
+    // 2D canvases fire contextlost, WebGL canvases webglcontextlost.
+    const lost = () => {
+      if (canvas !== this.canvas || !this.live) return;
+      const was = this.engine;
+      if (was === '2d' && this.#losses++ > 0) return;
+      this.#drop();
+      this.#lostNote = `the ${was} canvas lost its context`;
+      if (this.getAttribute('engine') === '2d') this.swapCanvas();
+      else this.setAttribute('engine', '2d');
+      this.dispatchEvent(new CustomEvent('selectionfxfallback', { detail: { from: was, reason: this.#lostNote }, bubbles: true }));
+    };
+    canvas.addEventListener('contextlost', lost);
+    canvas.addEventListener('webglcontextlost', lost);
+  }
+  #lostNote = '';
+  swapCanvas() {
+    super.swapCanvas();
+    if (this.canvas) this.#watch(this.canvas);
+  }
+  // #endregion recover
+
+  // #region look
+  // A GPU canvas can validate every call and still show nothing, or one flat
+  // colour (seen on Android). Look at a small copy of frames 3 and 20 on a GPU
+  // engine; if there is no picture, draw with the 2D canvas instead.
+  #engineFrames = 0;
+  #lookAtPicture() {
+    if (this.engine === '2d' || this.#offscreen) return;
+    const n = ++this.#engineFrames;
+    if (n !== 3 && n !== 20) return;
+    let flat = true;
+    try {
+      const probe = (SelectionFx.probe ??= new OffscreenCanvas(24, 24).getContext('2d', { willReadFrequently: true }));
+      probe.clearRect(0, 0, 24, 24);
+      probe.drawImage(this.canvas, 0, 0, 24, 24);
+      const d = probe.getImageData(0, 0, 24, 24).data;
+      for (let i = 4; i < d.length && flat; i += 4) flat = Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) + Math.abs(d[i + 3] - d[3]) < 12;
+    } catch {
+      return;
+    }
+    if (!flat) return;
+    const was = this.engine;
+    queueMicrotask(() => {
+      if (this.engine !== was) return;
+      this.#drop();
+      this.#lostNote = `the ${was} canvas showed no picture`;
+      this.setAttribute('engine', '2d');
+      this.dispatchEvent(new CustomEvent('selectionfxfallback', { detail: { from: was, reason: this.#lostNote }, bubbles: true }));
+    });
+  }
+  // #endregion look
+
+  /** Give the GPU context back now. For fixtures that are about to be removed. */
+  dispose() {
+    const gl = this.#gl?.gl;
+    this.#drop();
+    this.live = false;
+    // Out of the document first. In Chromium 157, losing the context of a WebGL
+    // canvas that is still attached and holds an element texture crashed the tab.
+    this.remove();
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  }
+
   connected() {
     instances.add(this);
+    this.#watch(this.canvas);
     listen();
     hideNativeHighlight();
     this.#syncLive();
@@ -278,7 +359,9 @@ export class SelectionFx extends SurfaceElement {
   createContext(canvas) {
     const want = this.#wanted;
     this.#offscreen = want === 'webgpu-offscreen';
-    this.note = '';
+    this.note = this.#lostNote;
+    this.#lostNote = '';
+    this.#engineFrames = 0;
     this.#gaveUp = false;
     if (want === '2d') return this.#context2d(canvas);
     if (want === 'webgl') return this.#contextGL(canvas);
@@ -457,6 +540,7 @@ export class SelectionFx extends SurfaceElement {
     this.setGeometry();
     this.contentDirty = false;
     this.frames++;
+    this.#lookAtPicture();
     if (this.engine !== this.#told) {
       this.#told = this.engine;
       this.dispatchEvent(new CustomEvent('selectionfxengine', { detail: { engine: this.engine, note: this.note }, bubbles: true }));
