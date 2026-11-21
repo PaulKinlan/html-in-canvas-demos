@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sound driving DOM in a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .bar label { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .bar select, .bar button { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; }
+  .stage { max-width: 560px; }
+  /* #region css */
+  /* The four levels are custom properties on the card. The shader reads them as uniforms,
+     and the bars below read the same four values with plain CSS. */
+  #deck { --fx-amount: 0; --fx-x: 0; --fx-y: 0; --fx-progress: 0;
+    padding: 16px; border-radius: 14px; background: linear-gradient(160deg, #1b1f3a, #3a1b3a); color: #fff; font: 15px/1.4 system-ui, sans-serif; }
+  #deck h2 { margin: 0 0 2px; font-size: 20px; }
+  #deck p { margin: 0 0 12px; opacity: .8; }
+  #deck audio { display: block; width: 100%; margin-bottom: 12px; }
+  #deck .bars { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; height: 70px; align-items: end; margin-bottom: 12px; }
+  #deck .bars i { display: block; border-radius: 6px 6px 0 0; background: #ffd166; min-height: 3px; }
+  #deck .bars i:nth-child(1) { height: calc(var(--fx-amount) * 100%); }
+  #deck .bars i:nth-child(2) { height: calc(var(--fx-x) * 100%); background: #06d6a0; }
+  #deck .bars i:nth-child(3) { height: calc(var(--fx-y) * 100%); background: #4cc9f0; }
+  #deck .bars i:nth-child(4) { height: calc(var(--fx-progress) * 100%); background: #f72585; }
+  #deck .row { display: flex; gap: 8px; }
+  #deck input[type=text] { flex: 1; min-width: 0; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid #fff5; background: #0004; color: #fff; font: inherit; }
+  #deck button { min-height: 40px; padding: 4px 14px; border-radius: 8px; border: 0; background: #ffd166; color: #222; font: 600 15px system-ui; }
+  /* #endregion css */
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Sound driving DOM in a canvas</h1>
+  <p class="lede">
+    The card below is HTML drawn through a fragment shader. Press play on its <code>&lt;audio&gt;</code> controls. An <code>AnalyserNode</code>
+    writes the level of four frequency bands to four CSS custom properties. The shader reads them as uniforms and the bars read them with CSS.
+    The text field and the buttons keep working.
+  </p>
+
+  <div class="bar">
+    <label>Effect
+      <select id="effect">
+        <option value="equalizer" selected>equalizer</option>
+        <option value="pulse">pulse</option>
+        <option value="wave">wave</option>
+        <option value="none">none (bars only)</option>
+      </select>
+    </label>
+    <button type="button" id="mic">Use the microphone</button>
+  </div>
+
+  <div class="stage">
+    <!-- #region markup -->
+    <article id="deck" fx="equalizer">
+      <h2>Test tones</h2>
+      <p>Ten seconds, looped. A low beat, four notes and a high warble.</p>
+      <audio id="player" src="/media/clip.webm" controls loop preload="metadata"></audio>
+      <div class="bars" role="img" aria-label="Level of four frequency bands"><i></i><i></i><i></i><i></i></div>
+      <div class="row">
+        <input type="text" id="note" aria-label="A note" placeholder="Type while it plays">
+        <button type="button" id="clap">Clap 0</button>
+      </div>
+    </article>
+    <!-- #endregion markup -->
+  </div>
+  <p id="status" role="status">Press play on the card. Sound analysis starts with the first tap.</p>
+  <div id="route"></div>
+
+  <details class="show-code">
+    <summary>Show the code <small>sound → custom properties → shader</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> An ordinary card with an <code>&lt;audio controls&gt;</code> element. <code>fx</code> names the effect.</li>
+      <li data-code="#analyse"><b>Sound to four numbers.</b> The audio element is routed through an <code>AnalyserNode</code>. Each frame, four bands of its spectrum are written to custom properties.</li>
+      <li data-code="#css"><b>The CSS.</b> The bars use the four properties directly.</li>
+      <li data-code="#effects"><b>The effect.</b> The same four properties arrive in the shader as <code>u_amount</code>, <code>u_xy</code> and <code>u_progress</code>.</li>
+      <li data-code="/lib/shader-fx.js#render"><b>Inside the library: the upload and the draw.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The <code>fx</code> library registers <code>--fx-amount</code>, <code>--fx-x</code>, <code>--fx-y</code> and <code>--fx-progress</code> as numbers and passes them to every effect. This page uses them as four band levels from 0 to 1.</li>
+    <li>The page never calls a canvas API. It sets four style properties per frame.</li>
+    <li>An <code>AudioContext</code> stays suspended until the person taps, so the analysis starts on the first <code>play</code> event.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own fixture in a corner of the window. The card above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: <code>&lt;audio controls&gt;</code> in a canvas.</strong> The native audio controls are drawn, and play, seek and volume work under the shader because the element keeps its layout position for hit testing.</li>
+    <li><strong>Works: custom properties as the link.</strong> One set of four numbers drives CSS inside the element and the shader that draws the element. Nothing else connects the audio code to the drawing code.</li>
+    <li><strong>Works: analysis with no gesture, off line.</strong> <code>OfflineAudioContext</code> decodes and analyses the clip without a tap, which is how the second live check gets band levels. Live analysis needs the tap.</li>
+    <li><strong>Cost: one upload per frame.</strong> The bars change the DOM every frame, so the element is uploaded to the texture every frame while sound plays. With the bars removed, only the uniforms change and the texture is reused.</li>
+    <li><strong>Not verified here:</strong> audible output and timing on a real device (the test browser has no sound card), the microphone, and the WebGPU route on screen.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/shader-fx.js';
+  import { defineEffect } from '/lib/shader-fx.js';
+  import { pictureDifference } from '/lib/gpu-util.js';
+  import { banner, runTests, supported, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import { routeSwitch } from '/shared/route-switch.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const deck = $('deck'), player = $('player');
+
+  // #region effects
+  // Bands: u_amount = bass, u_xy.x = low mid, u_xy.y = high mid, u_progress = treble. All 0..1.
+  // equalizer: 12 px columns of the element rise by the level of the band at their x position.
+  defineEffect('equalizer', {
+    animated: true,
+    bleed: 30, // the canvas reaches 30 px past the element, so lifted columns are not cut off
+    glsl: `float band(float x) {
+      float f = clamp(x, 0.0, 1.0) * 3.0;
+      float t = smoothstep(0.0, 1.0, fract(f));
+      if (f < 1.0) return mix(u_amount, u_xy.x, t);
+      if (f < 2.0) return mix(u_xy.x, u_xy.y, t);
+      return mix(u_xy.y, u_progress, min(t + step(3.0, f), 1.0));
+    }
+    vec4 fx(vec2 p) {
+      float column = (floor(p.x / 12.0) + 0.5) * 12.0;
+      float level = band(column / u_size.x);
+      vec4 col = tex(p + vec2(0.0, level * 28.0));
+      col.rgb += col.a * level * 0.25 * vec3(1.0, 0.8, 0.3);
+      return col;
+    }`,
+    wgsl: `fn band(x: f32) -> f32 {
+      let f = clamp(x, 0.0, 1.0) * 3.0;
+      let t = smoothstep(0.0, 1.0, fract(f));
+      if (f < 1.0) { return mix(u.amount, u.xy.x, t); }
+      if (f < 2.0) { return mix(u.xy.x, u.xy.y, t); }
+      return mix(u.xy.y, u.progress, min(t + step(3.0, f), 1.0));
+    }
+    fn fx(p: vec2f) -> vec4f {
+      let column = (floor(p.x / 12.0) + 0.5) * 12.0;
+      let level = band(column / u.size.x);
+      var col = tex(p + vec2f(0.0, level * 28.0));
+      col = vec4f(col.rgb + col.a * level * 0.25 * vec3f(1.0, 0.8, 0.3), col.a);
+      return col;
+    }`,
+  });
+  // #endregion effects
+  // pulse: the bass zooms the element from its centre, the treble splits red from blue.
+  defineEffect('pulse', {
+    animated: true,
+    bleed: 20,
+    glsl: `vec4 fx(vec2 p) {
+      vec2 c = u_size * 0.5;
+      vec2 q = c + (p - c) * (1.0 + 0.07 * u_amount);
+      float split = 7.0 * u_progress;
+      vec4 col = tex(q);
+      col.r = tex(q + vec2(split, 0.0)).r;
+      col.b = tex(q - vec2(split, 0.0)).b;
+      return col;
+    }`,
+    wgsl: `fn fx(p: vec2f) -> vec4f {
+      let c = u.size * 0.5;
+      let q = c + (p - c) * (1.0 + 0.07 * u.amount);
+      let split = 7.0 * u.progress;
+      var col = tex(q);
+      col.r = tex(q + vec2f(split, 0.0)).r;
+      col.b = tex(q - vec2f(split, 0.0)).b;
+      return col;
+    }`,
+  });
+  // wave: rows slide sideways. The low mids set how far, the high mids how fine.
+  defineEffect('wave', {
+    animated: true,
+    bleed: 26,
+    glsl: `vec4 fx(vec2 p) {
+      float shift = sin(p.y * (0.03 + 0.09 * u_xy.y) + u_time * 5.0) * 14.0 * u_xy.x + sin(p.y * 0.011 - u_time * 2.0) * 10.0 * u_amount;
+      return tex(p + vec2(shift, 0.0));
+    }`,
+    wgsl: `fn fx(p: vec2f) -> vec4f {
+      let shift = sin(p.y * (0.03 + 0.09 * u.xy.y) + u.time * 5.0) * 14.0 * u.xy.x + sin(p.y * 0.011 - u.time * 2.0) * 10.0 * u.amount;
+      return tex(p + vec2f(shift, 0.0));
+    }`,
+  });
+
+  $('effect').onchange = () => deck.setAttribute('fx', $('effect').value);
+  let claps = 0;
+  $('clap').onclick = () => ($('clap').textContent = `Clap ${++claps}`);
+
+  // #region analyse
+  const BANDS = [[40, 160], [160, 400], [400, 900], [900, 3000]]; // Hz
+  const PROPS = ['--fx-amount', '--fx-x', '--fx-y', '--fx-progress'];
+
+  /** Mean level, 0..1, of each band in an AnalyserNode's current spectrum. */
+  function levels(analyser, bins = new Uint8Array(analyser.frequencyBinCount)) {
+    analyser.getByteFrequencyData(bins);
+    const hz = analyser.context.sampleRate / analyser.fftSize;
+    return BANDS.map(([lo, hi]) => {
+      const a = Math.max(1, Math.round(lo / hz)), b = Math.min(bins.length, Math.round(hi / hz));
+      let sum = 0;
+      for (let i = a; i < b; i++) sum += bins[i];
+      return Math.min(1, sum / (b - a) / 255);
+    });
+  }
+
+  let context = null, analyser = null, elementSource = null, micSource = null, running = false;
+  function start() {
+    // Made on the first tap: before one, a new AudioContext is suspended and the analyser reads silence.
+    context ??= new AudioContext();
+    context.resume();
+    if (!analyser) {
+      analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.7;
+    }
+    if (!running) { running = true; requestAnimationFrame(tick); }
+  }
+  function tick() {
+    const live = micSource || !player.paused;
+    const now = live ? levels(analyser) : [0, 0, 0, 0];
+    PROPS.forEach((name, i) => deck.style.setProperty(name, now[i].toFixed(3)));
+    if (live) requestAnimationFrame(tick);
+    else running = false;
+  }
+  player.addEventListener('play', () => {
+    start();
+    if (!elementSource) {
+      // From here on the element's sound goes through the context, so it must also reach the speakers.
+      elementSource = context.createMediaElementSource(player);
+      elementSource.connect(analyser);
+      elementSource.connect(context.destination);
+    }
+    $('status').textContent = `Analysing the audio element. AudioContext is ${context.state}, ${context.sampleRate} Hz.`;
+  });
+  // #endregion analyse
+
+  $('mic').onclick = async () => {
+    try {
+      if (micSource) {
+        micSource.mediaStream.getTracks().forEach((t) => t.stop());
+        micSource.disconnect();
+        micSource = null;
+        $('mic').textContent = 'Use the microphone';
+        $('status').textContent = 'The microphone is off.';
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      start();
+      micSource = context.createMediaStreamSource(stream);
+      micSource.connect(analyser); // not to the speakers
+      if (!running) { running = true; requestAnimationFrame(tick); }
+      $('mic').textContent = 'Stop the microphone';
+      $('status').textContent = 'Analysing the microphone. Make a noise.';
+    } catch (err) {
+      $('status').textContent = `Could not use the microphone: ${err.message}`;
+    }
+  };
+  if (!supported) $('status').textContent = 'HTML-in-canvas is not available, so the card is plain HTML. The bars still follow the sound.';
+
+  const surfaceOf = (el) => el.closest('fx-surface');
+  routeSwitch($('route'), {
+    targets: () => [deck],
+    attr: 'fx-backend',
+    values: { webgpu: 'webgpu', webgl: 'gl' },
+    active: (el) => surfaceOf(el)?.backend,
+    note: (el) => surfaceOf(el)?.gpuNote,
+  });
+
+  // ---- live checks: every one on its own fixture ----
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const CARD = '<b style="font:700 28px system-ui">Same picture</b><br><span style="color:#06d6a0">sound → DOM</span>';
+  async function fxFixture(attrs, style = '') {
+    const holder = document.createElement('div');
+    holder.innerHTML = `<div ${attrs} style="width:220px;height:90px;padding:8px;box-sizing:border-box;background:linear-gradient(90deg,#1b1f3a,#a13a6a);color:#fff;${style}">${CARD}</div>`;
+    holder.style.cssText = 'flex:none;width:240px';
+    const el = holder.firstElementChild;
+    testStage().append(holder);
+    let s;
+    for (let i = 0; i < 80; i++) { s = el.closest('fx-surface'); if (s?.ready) break; await sleep(25); }
+    if (!s?.ready) throw new Error('the fixture was never drawn');
+    return { el, s };
+  }
+  const BAND_STYLE = '--fx-amount:0.9;--fx-x:0.2;--fx-y:0.7;--fx-progress:0.4;';
+
+  runTests($('results'), [
+    {
+      name: '<audio controls> is drawn in a canvas and hit testing finds it',
+      why: 'A 2D canvas with drawElementImage(). The control bar must leave pixels, and elementFromPoint() must return the element.',
+      run: async () => {
+        need();
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable');
+        c.setAttribute('layoutsubtree', '');
+        c.width = 320; c.height = 70;
+        c.style.cssText = 'width:320px;height:70px;flex:none';
+        c.innerHTML = '<div drawable style="width:320px;height:70px;background:#fff"><audio controls preload="none" src="/media/clip.webm" style="display:block;width:300px"></audio></div>';
+        testStage().append(c);
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        await new Promise((resolve) => { c.addEventListener('paint', () => { ctx.drawElementImage(c.firstElementChild, 0, 0, 320, 70); resolve(); }, { once: true }); c.requestPaint(); });
+        const d = ctx.getImageData(0, 0, 320, 70).data;
+        let ink = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] < 240 || d[i + 1] < 240 || d[i + 2] < 240) ink++;
+        const box = c.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.left + 30, box.top + 27);
+        if (ink < 500) throw new Error(`only ${ink} pixels of the control bar were drawn`);
+        if (hit?.localName !== 'audio') throw new Error(`elementFromPoint() returned ${hit ? `<${hit.localName}>` : 'nothing'}`);
+        return `${ink} pixels of controls drawn; elementFromPoint() at the play button returns the <audio>`;
+      },
+    },
+    {
+      name: 'The clip can be analysed with no tap',
+      why: 'OfflineAudioContext decodes the clip and runs it through an AnalyserNode. The four bands are read 1.02 s in.',
+      timeout: 10000,
+      run: async () => {
+        const data = await (await fetch('/media/clip.webm')).arrayBuffer();
+        const buffer = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(data);
+        const offline = new OfflineAudioContext(2, 48000 * 1.2, 48000);
+        const source = new AudioBufferSourceNode(offline, { buffer });
+        const node = new AnalyserNode(offline, { fftSize: 1024, smoothingTimeConstant: 0 });
+        source.connect(node).connect(offline.destination);
+        source.start();
+        let got = null;
+        offline.suspend(1.02).then(() => { got = levels(node); offline.resume(); });
+        await offline.startRendering();
+        if (!got) throw new Error('the context never paused for the reading');
+        if (Math.max(...got) < 0.05) throw new Error(`all four bands are silent: ${got.map((v) => v.toFixed(2)).join(', ')}`);
+        return `${buffer.duration.toFixed(1)} s decoded; bass, low mid, high mid, treble = ${got.map((v) => v.toFixed(2)).join(', ')}`;
+      },
+    },
+    {
+      name: 'The four custom properties change what the shader draws',
+      why: 'The equalizer effect on a fixture, once with all four at 0 and once with levels set. The two pictures must differ.',
+      timeout: 10000,
+      run: async () => {
+        need();
+        const quiet = await fxFixture('fx="equalizer" fx-backend="gl"', '--fx-amount:0;--fx-x:0;--fx-y:0;--fx-progress:0;');
+        const loud = await fxFixture('fx="equalizer" fx-backend="gl"', BAND_STYLE);
+        await sleep(120);
+        const a = await quiet.s.readback(), b = await loud.s.readback();
+        let changed = 0;
+        for (let i = 0; i < a.data.length; i += 4) if (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2]) > 30) changed++;
+        const part = changed / (a.data.length / 4);
+        if (part < 0.02) throw new Error(`only ${(part * 100).toFixed(1)}% of the pixels changed`);
+        // Changing the property on the live element must reach the next frame too.
+        quiet.el.style.cssText += BAND_STYLE;
+        await sleep(150);
+        const c = await quiet.s.readback();
+        let same = 0;
+        for (let i = 0; i < c.data.length; i += 4) if (Math.abs(c.data[i] - b.data[i]) + Math.abs(c.data[i + 1] - b.data[i + 1]) + Math.abs(c.data[i + 2] - b.data[i + 2]) <= 30) same++;
+        if (same / (c.data.length / 4) < 0.97) throw new Error('setting the properties later did not give the same picture');
+        return `${(part * 100).toFixed(0)}% of the pixels differ between silence and sound; setting the properties from script gives the same picture`;
+      },
+    },
+    {
+      name: 'The effects on WebGPU: the same picture as WebGL',
+      why: 'Each effect is written in GLSL and WGSL. One fixture is drawn both ways (the WebGPU one into a texture) and compared. Needs a WebGPU adapter.',
+      timeout: 15000,
+      run: async () => {
+        need();
+        const parts = [];
+        for (const name of ['equalizer', 'pulse']) {
+          const gl = await fxFixture(`fx="${name}" fx-backend="direct"`, BAND_STYLE);
+          const gpu = await fxFixture(`fx="${name}" fx-backend="webgpu" fx-offscreen`, BAND_STYLE);
+          for (let i = 0; i < 40 && gpu.s.backend !== 'webgpu' && !gpu.s.gpuNote; i++) await sleep(50);
+          if (gpu.s.backend !== 'webgpu') throw new Error(`WebGPU is not in use: ${gpu.s.gpuNote || 'it did not start'}`);
+          await sleep(80);
+          const d = pictureDifference(await gl.s.readback(), await gpu.s.readback());
+          if (d.ink < 0.1) throw new Error(`${name}: WebGPU drew nothing`);
+          if (d.mean > 1.5) throw new Error(`${name}: mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+          parts.push(`${name} ${d.mean.toFixed(2)}`);
+          gl.el.closest('fx-surface').remove();
+          gpu.el.closest('fx-surface').remove();
+        }
+        return `mean difference per channel, of 255: ${parts.join(', ')} (wave moves with time and is not compared)`;
+      },
+    },
+    stillDrawn(() => [{
+      name: 'the card',
+      ink: async () => { const s = surfaceOf(deck); return s?.ready ? inkFraction(await s.readback()) : null; },
+      note: 'not in a canvas',
+    }]),
+  ]);
+</script>
+</body>
+</html>
