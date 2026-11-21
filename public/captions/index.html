@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Captions drawn apart from the video with track.activeCues</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .bar label { display: inline-flex; gap: 4px 8px; align-items: center; flex-wrap: wrap; max-width: 100%; }
+  .bar select { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; max-width: 100%; }
+  .stage { max-width: 640px; position: relative; container-type: inline-size; }
+  /* The frame (16:9), the 48 px control bar and 150 px for captions. cqw is a hundredth of the stage's width. */
+  #screen { display: block; width: 100%; height: calc(56.25cqw + 198px); border-radius: 10px; background: #10131c; touch-action: manipulation; }
+  #blank[hidden] { display: none; }
+  #blank { margin: 0 0 8px; padding: 10px 14px; border-radius: 8px; font-size: 14px; background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  #say { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; margin: 8px 0; white-space: pre-line; }
+
+  /* #region css */
+  /* The video, the control bar and the caption box are three children of the canvas. Each has the
+     drawable attribute and is drawn by its own call. Their layout width is the width of the canvas. */
+  #talk { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+  #controls { display: flex; gap: 10px; align-items: center; width: 100%; height: 48px; padding: 0 10px; background: #1b2030; color: #fff; font: 14px system-ui, sans-serif; }
+  #controls button { min-width: 68px; min-height: 40px; border: 0; border-radius: 8px; background: #ffd166; color: #1b1400; font: 600 14px system-ui, sans-serif; }
+  #controls input { flex: 1; min-width: 0; accent-color: #ffd166; }
+  #controls output { font: 13px ui-monospace, monospace; }
+
+  #caps { width: 100%; padding: 10px 14px; color: #fff; font: 650 21px/1.3 system-ui, sans-serif; }
+  #caps .cue { margin: 0; }
+  #caps .cue::before { content: attr(data-voice); display: block; width: fit-content; margin-bottom: 4px; padding: 1px 8px; border-radius: 5px; font: 700 12px system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; background: #ffd166; color: #1b1400; }
+  #caps .cue[data-voice=Ben]::before { background: #7cc4ff; color: #04121f; }
+  /* Word states are set by cueLayer.update(). The colour change is a CSS transition, which raises paint by itself. */
+  #caps .w { color: #7d8496; transition: color .12s; cursor: pointer; }
+  #caps .w[data-state=past] { color: #fff; }
+  #caps .w[data-state=now] { color: #ffd166; text-decoration: underline 3px; text-underline-offset: 4px; }
+
+  /* "Filled with the frame": the canvas uses the text as a mask, so only its alpha matters. */
+  #caps[data-mode=mask] { font-size: 30px; font-weight: 900; line-height: 1.12; }
+  #caps[data-mode=mask] .cue::before { display: none; }
+  #caps[data-mode=mask] .w { color: rgb(255 255 255 / .42); }
+  #caps[data-mode=mask] .w[data-state=past], #caps[data-mode=mask] .w[data-state=now] { color: #fff; text-decoration: none; }
+
+  /* "Over the frame": a bubble as wide as its text, placed by the canvas from the cue's position setting. */
+  #caps[data-mode=inframe] { width: fit-content; max-width: 76%; padding: 0; font-size: 17px; }
+  #caps[data-mode=inframe] .cue { padding: 8px 12px 10px; border-radius: 14px; background: #fff; color: #111; }
+  #caps[data-mode=inframe] .w { color: #9aa0ad; }
+  #caps[data-mode=inframe] .w[data-state=past] { color: #111; }
+  #caps[data-mode=inframe] .w[data-state=now] { color: #b3261e; }
+  /* #endregion css */
+  .plain { display: grid; gap: 8px; padding: 10px; border-radius: 10px; background: #10131c; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Captions drawn apart from the video with <code>track.activeCues</code></h1>
+  <p class="lede">
+    The text track of this video is hidden, so the video draws no captions. The page reads <code>track.activeCues</code>, builds each cue as
+    HTML and the canvas draws that element by itself, away from the frame. Press Play, choose where the captions are drawn, and tap a word to
+    move the video to it.
+  </p>
+
+  <div class="stage">
+    <p id="blank" hidden></p>
+    <!-- #region markup -->
+    <canvas id="screen" content="drawable" layoutsubtree aria-label="A video, its controls and its captions">
+      <video id="talk" drawable playsinline preload="metadata">
+        <track kind="captions" srclang="en" label="English" src="/media/talk.vtt">
+      </video>
+      <div id="controls" drawable>
+        <button type="button" id="play">Play</button>
+        <input type="range" id="seek" min="0" max="22.3" step="0.01" value="0" aria-label="Position in the video">
+        <output id="clock">0:00.0</output>
+      </div>
+      <div id="caps" drawable data-mode="below" aria-label="Captions"></div>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+  <div class="bar">
+    <label>Draw the captions
+      <select id="mode">
+        <option value="below">under the frame, words lit as they are spoken</option>
+        <option value="mask">as large text filled with the video frame</option>
+        <option value="inframe">over the frame, at the cue's position setting</option>
+        <option value="native">natively (track.mode = "showing")</option>
+      </select>
+    </label>
+  </div>
+  <p id="say" role="status">The video has not been played yet.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>a hidden track, cues as elements, three ways to draw them</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> The video, a control bar and an empty caption box are children of the canvas. The <code>&lt;track&gt;</code> has no <code>default</code> attribute.</li>
+      <li data-code="/lib/cue-layer.js#layer"><b>Follow the active cues.</b> <code>track.mode = 'hidden'</code> loads the file without showing it. On <code>cuechange</code>, one element is added for each cue in <code>track.activeCues</code>.</li>
+      <li data-code="/lib/cue-layer.js#element"><b>Make an element from a cue.</b> <code>getCueAsHTML()</code> returns a fragment. Time stamps inside the cue arrive as processing instructions, and each word after one gets that time.</li>
+      <li data-code="#wire"><b>Connect the video.</b> <code>requestVideoFrameCallback()</code> gives the media time of the frame on screen, and the words are marked for that time.</li>
+      <li data-code="#paint"><b>Draw.</b> One <code>drawElementImage()</code> call each for the video, the control bar and the captions. The mask mode draws the captions, then draws the frame over them with <code>source-in</code>.</li>
+      <li data-code="#css"><b>The CSS.</b> The word states are attribute selectors with a colour transition.</li>
+      <li data-code="/lib/cue-layer.js"><b>The whole library file.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>A text track has three modes. In <code>hidden</code> the browser loads the file, keeps <code>activeCues</code> current and fires <code>cuechange</code>, and the video element draws nothing for it.</li>
+    <li><code>VTTCue.getCueAsHTML()</code> turns the cue text into nodes: <code>&lt;v Ada&gt;</code> becomes <code>&lt;span title="Ada"&gt;</code> and <code>&lt;00:00:01.626&gt;</code> becomes a <code>timestamp</code> processing instruction. <code>/lib/cue-layer.js</code> wraps each word in a <code>&lt;span&gt;</code> that carries the last time stamp before it.</li>
+    <li>The caption box is a second <code>drawable</code> child of the canvas. The paint handler chooses where it goes and at what size. The hit-test region follows the draw call, so a tap on a drawn word reaches its <code>&lt;span&gt;</code>, and the click handler sets <code>video.currentTime</code>.</li>
+    <li>In the mask mode the canvas clips to the caption area, draws the captions, sets <code>globalCompositeOperation = 'source-in'</code> and draws the video frame over the same area. The frame is kept only where the text is.</li>
+    <li>In the third mode the canvas reads <code>cue.position</code> and <code>cue.align</code> (set in the file as <code>position:4% align:start</code>) and puts the bubble on that side of the frame. It grows from 70% to full size over the first 0.2 s of the cue in media time.</li>
+    <li>The clip and its cue file are generated by <code>tools/speech-clip/make.mjs</code>. Cue times are measured. The word times inside a cue are estimates from the number of letters.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small video and canvas in a corner of the window. The player above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 headless with software video decoding, 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: a hidden track gives the cues without drawing them.</strong> With <code>mode = 'hidden'</code> the video's picture in the canvas has no caption pixels, and <code>activeCues</code> and <code>cuechange</code> behave as they do for a shown track.</li>
+    <li><strong>Works: cues as HTML in a second drawable element.</strong> The caption element can be drawn under the frame, scaled, or over the frame, and its words take taps where they are drawn.</li>
+    <li><strong>Works: <code>getCueAsHTML()</code> keeps voices, classes and time stamps.</strong> The time stamps are <code>ProcessingInstruction</code> nodes with the target <code>timestamp</code>. Nothing else in the DOM exposes them.</li>
+    <li><strong>Measured: <code>cuechange</code> lateness.</strong> The fourth check reports how far the media time had moved past a cue's start when <code>cuechange</code> arrived. For a frame-exact result (an export, for example), compare <code>track.cues</code> with the frame's media time: <code>layer.update(time, { exact: true })</code> does that.</li>
+    <li><strong>Works: the frame as the fill of the text.</strong> <code>source-in</code> with a clip keeps the composite inside the caption area. The canvas background has to be CSS, because the area must be clear before the text is drawn.</li>
+    <li><strong>Limit: native caption styling is not available to the page.</strong> <code>::cue(:past)</code> and <code>::cue(:future)</code> style the browser's own rendering, and that rendering stays inside the video's box. The elements here are styled with ordinary selectors.</li>
+    <li><strong>Not verified:</strong> a hardware-decoded video on Android as a direct <code>drawable</code> child, sound in step with the lit words on a real device, and a screen reader's reading of the caption box.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { cueLayer, cueElement, cuesAt } from '/lib/cue-layer.js';
+  import { fit, blobUrl, quietStage, hitAt, sleep, until, release } from '/lib/timed-stage.js';
+  import { banner, runTests, supported, nextPaint } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const CLIP = '/media/talk.webm';
+  const canvas = $('screen'), video = $('talk'), caps = $('caps'), controls = $('controls');
+  const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+  const stats = { changes: 0, late: null, paints: 0 };
+
+  // #region paint
+  /**
+   * Draw the video, the control bar and the caption element, each with its own call.
+   * `state()` returns { mode, time, cue }: the drawing mode, the media time and the first active cue.
+   */
+  function compose(canvas, video, controls, caps, state) {
+    const ctx = canvas.getContext('2d');
+    canvas.addEventListener('paint', () => {
+      stats.paints++;
+      const k = canvas.width / canvas.clientWidth; // device pixels per CSS pixel
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+      const vh = video.offsetHeight, bar = controls ? controls.offsetHeight : 0;
+      const { mode, time, cue } = state();
+      ctx.reset();
+      ctx.scale(k, k);
+      ctx.drawElementImage(video, 0, 0, W, vh);
+      if (controls) ctx.drawElementImage(controls, 0, vh, W, bar);
+      const top = vh + bar, room = H - top;
+      const cw = caps.offsetWidth, ch = caps.offsetHeight;
+      if (!ch || mode === 'native') return;
+
+      if (mode === 'below') {
+        ctx.drawElementImage(caps, 0, top, cw, ch);
+      } else if (mode === 'mask') {
+        // Fit the caption box to the area under the bar, then keep the video frame only where the text is.
+        const s = Math.min(1.25, room / ch, W / cw);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, top, W, room);
+        ctx.clip();
+        ctx.drawElementImage(caps, 0, top + (room - ch * s) / 2, cw * s, ch * s);
+        ctx.globalCompositeOperation = 'source-in';
+        ctx.filter = 'saturate(1.5) brightness(1.2)';
+        ctx.drawImage(video, 0, top, W, room);
+        ctx.restore();
+      } else if (mode === 'inframe') {
+        // cue.position is a percentage of the frame width. cue.align says which edge of the box sits there.
+        const position = typeof cue?.position === 'number' ? cue.position : 50;
+        const x = cue?.align === 'end' ? (W * position) / 100 - cw : cue?.align === 'start' ? (W * position) / 100 : (W - cw) / 2;
+        const y = vh * 0.92 - ch;
+        // Grow from the corner nearest the speaker during the first 0.2 s of the cue, in media time.
+        const age = cue ? Math.min(1, Math.max(0, (time - cue.startTime) / 0.2)) : 1;
+        const s = 0.7 + 0.3 * age * (2 - age);
+        const ox = cue?.align === 'end' ? x + cw : x, oy = y + ch;
+        ctx.translate(ox, oy);
+        ctx.rotate((cue?.align === 'end' ? 1 : -1) * 0.03 * (2 - age));
+        ctx.scale(s, s);
+        ctx.shadowColor = '#0008';
+        ctx.shadowBlur = 14;
+        ctx.shadowOffsetY = 4;
+        ctx.drawElementImage(caps, x - ox, y - oy, cw, ch);
+      }
+    });
+    return ctx;
+  }
+  // #endregion paint
+
+  // #region wire
+  /** Keep `caps` filled with the active cues of the video's first track, and mark words for each presented frame. */
+  function follow(video, caps, onframe = () => {}) {
+    const track = video.textTracks[0];
+    const layer = cueLayer(track, caps);
+    let stopped = false;
+    const mark = (time) => { if (!stopped) onframe(time, layer.update(time)); };
+    track.addEventListener('cuechange', () => mark(video.currentTime));
+    // A paused video presents no frames, so a seek marks the words too.
+    video.addEventListener('seeked', () => mark(video.currentTime));
+    if ('requestVideoFrameCallback' in video) {
+      const each = (now, frame) => { mark(frame.mediaTime); if (!stopped) video.requestVideoFrameCallback(each); };
+      video.requestVideoFrameCallback(each);
+    } else {
+      video.addEventListener('timeupdate', () => mark(video.currentTime));
+    }
+    // A tap on a word moves the video to that word's time stamp.
+    caps.addEventListener('click', (e) => {
+      const word = e.target.closest('.w');
+      if (word) video.currentTime = Number(word.dataset.t) + 0.01;
+    });
+    return { layer, track, stop() { stopped = true; layer.stop(); } };
+  }
+  // #endregion wire
+
+  let now = 0, first = null, player = null;
+  const mode = () => $('mode').value;
+  function say() {
+    const track = video.textTracks[0];
+    const cue = first?.cue;
+    $('say').textContent =
+      `track.mode "${track.mode}", ${track.cues?.length ?? 0} cues loaded, ${track.activeCues?.length ?? 0} active` +
+      (cue ? `\ncue ${cue.id} (${first.element.dataset.voice ?? 'no voice'}), word ${first.word + 1} of ${first.words}, position ${cue.position}, align ${cue.align}` : '\nno cue at this time') +
+      `\ncuechange events: ${stats.changes}` + (stats.late === null ? '' : `, the last one came ${stats.late.toFixed(0)} ms of media time after its cue's start`);
+  }
+
+  function showPlain(why) {
+    // No HTML-in-canvas: the children of a canvas are not rendered, so move them out of it.
+    const box = document.createElement('div');
+    box.className = 'plain';
+    box.append(video, controls, caps);
+    canvas.replaceWith(box);
+    $('blank').hidden = false;
+    $('blank').textContent = why;
+    $('mode').querySelector('[value=mask]').disabled = true;
+    $('mode').querySelector('[value=inframe]').disabled = true;
+  }
+
+  if (supported) {
+    fit(canvas);
+    compose(canvas, video, controls, caps, () => ({ mode: mode(), time: now, cue: first?.cue }));
+    canvas.addEventListener('contextlost', () => showPlain('The canvas lost its drawing context. The video and its captions are shown as plain HTML.'));
+  } else {
+    showPlain('This browser does not have HTML-in-canvas. The video and its captions are shown as plain HTML, under the frame.');
+  }
+
+  player = follow(video, caps, (time, shown) => {
+    now = time;
+    first = shown[0] ?? null;
+    $('seek').value = time;
+    $('clock').value = fmt(time);
+    say();
+    canvas.requestPaint?.();
+  });
+  player.track.addEventListener('cuechange', () => {
+    stats.changes++;
+    const cue = player.track.activeCues[0];
+    if (cue && !video.paused && !video.seeking) stats.late = (video.currentTime - cue.startTime) * 1000;
+  });
+  player.track.addEventListener?.('load', say);
+  video.textTracks[0].mode = 'hidden';
+  blobUrl(CLIP).then((url) => { video.src = url; }, () => { video.src = CLIP; });
+  video.addEventListener('loadedmetadata', () => { $('seek').max = video.duration.toFixed(2); say(); });
+  video.addEventListener('error', () => { $('say').textContent = `The video did not load: ${video.error?.message || 'unknown error'}`; });
+  video.addEventListener('ended', () => { video.currentTime = 0; video.play().catch(() => {}); });
+  for (const type of ['play', 'pause']) video.addEventListener(type, () => { $('play').textContent = video.paused ? 'Play' : 'Pause'; });
+  $('play').onclick = () => (video.paused ? video.play().catch((err) => { $('say').textContent = `play() was refused: ${err.message}`; }) : video.pause());
+  $('seek').oninput = () => { video.currentTime = Number($('seek').value); };
+  $('mode').onchange = () => {
+    const native = mode() === 'native';
+    caps.dataset.mode = mode();
+    caps.inert = native; // not drawn, so it must not take focus or hits
+    video.textTracks[0].mode = native ? 'showing' : 'hidden';
+    say();
+    canvas.requestPaint?.();
+  };
+
+  // ---- live checks: every one on its own fixture ----
+  const made = [];
+  /** A 320 px wide canvas with its own video, track and caption box. */
+  async function fixture({ mode = 'below', trackMode = 'hidden' } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = 'width:320px;height:300px;flex:none;background:#10131c';
+    c.width = 320; c.height = 300;
+    c.innerHTML = `<video drawable muted playsinline preload="auto" style="display:block;width:100%;aspect-ratio:16/9"><track kind="captions" srclang="en" src="/media/talk.vtt"></video>
+      <div drawable data-fixture data-mode="${mode}" style="width:100%;padding:8px;color:#fff;font:650 16px/1.3 system-ui"></div>`;
+    const v = c.querySelector('video'), box = c.querySelector('div');
+    const style = document.createElement('style');
+    style.textContent = '[data-fixture] .cue{margin:0}';
+    c.append(style);
+    quietStage().append(c);
+    v.textTracks[0].mode = trackMode;
+    v.src = await blobUrl(CLIP);
+    made.push(v);
+    const f = { c, v, box, track: v.textTracks[0], time: 0, shown: [] };
+    f.player = follow(v, box, (time, shown) => { f.time = time; f.shown = shown; c.requestPaint(); });
+    f.ctx = compose(c, v, null, box, () => ({ mode, time: f.time, cue: f.shown[0]?.cue }));
+    await until(() => v.readyState >= 2 && f.track.cues?.length, 8000, v.error ? `the video did not load: ${v.error.message}` : 'the video or its cue file did not load');
+    return f;
+  }
+  async function seek(f, t) {
+    const done = new Promise((r) => f.v.addEventListener('seeked', r, { once: true }));
+    f.v.currentTime = t;
+    await done;
+    await until(() => cuesAt(f.track, t).length === (f.track.activeCues?.length ?? 0), 3000, 'activeCues did not follow the seek');
+    await sleep(60);
+    await nextPaint(f.c);
+    await nextPaint(f.c);
+  }
+  /** Count pixels in a rectangle (CSS pixels of a 320 px fixture) that pass `test`. Reads a copy, not the canvas itself. */
+  function count(f, x, y, w, h, test) {
+    const copy = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
+    copy.drawImage(f.c, x, y, w, h, 0, 0, w, h);
+    const d = copy.getImageData(0, 0, w, h).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) n++;
+    return n;
+  }
+  // Caption text: bright and without colour. The clip's picture is a colour gradient.
+  const white = (r, g, b, a) => a > 200 && Math.min(r, g, b) > 185 && Math.max(r, g, b) - Math.min(r, g, b) < 24;
+  const each = (tests) => tests.map((t) => ({ ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { for (const v of made.splice(0)) release(v); } } }));
+
+  runTests($('results'), each([
+    {
+      name: 'A hidden track keeps activeCues current',
+      why: 'track.mode = "hidden", then a seek to 8.0 s. The third cue covers that time.',
+      run: async () => {
+        const f = await fixture();
+        let changes = 0;
+        f.track.addEventListener('cuechange', () => changes++);
+        await seek(f, 8);
+        const active = [...f.track.activeCues];
+        if (active.length !== 1 || active[0].id !== '3') throw new Error(`activeCues holds ${active.length} cues (${active.map((c) => c.id).join(', ')}), cue 3 was expected`);
+        if (!changes) throw new Error('no cuechange event after the seek');
+        return `mode "${f.track.mode}", ${f.track.cues.length} cues, activeCues is cue ${active[0].id}, ${changes} cuechange event${changes === 1 ? '' : 's'}`;
+      },
+    },
+    {
+      name: 'getCueAsHTML() gives the voice and the time stamps',
+      why: 'Cue 3 is "<v Ben>The <00:00:07.008>page …". The fragment should hold a span titled Ben and 11 timestamp processing instructions.',
+      run: async () => {
+        const f = await fixture();
+        const cue = f.track.cues[2];
+        const frag = cue.getCueAsHTML();
+        const voice = frag.querySelector('span[title]');
+        let stamps = 0;
+        const walk = document.createTreeWalker(frag, NodeFilter.SHOW_PROCESSING_INSTRUCTION);
+        while (walk.nextNode()) if (walk.currentNode.target === 'timestamp') stamps++;
+        const el = cueElement(cue);
+        const words = el.querySelectorAll('.w');
+        if (voice?.title !== 'Ben') throw new Error(`the voice span is ${voice ? `titled "${voice.title}"` : 'missing'}`);
+        if (stamps !== 11) throw new Error(`${stamps} time stamps, 11 expected`);
+        if (words.length !== 12 || Math.abs(Number(words[1].dataset.t) - 7.008) > 0.001) throw new Error(`${words.length} words, the second at ${words[1]?.dataset.t}`);
+        return `<span title="${voice.title}">, ${stamps} timestamp nodes, ${words.length} words, the second word at ${words[1].dataset.t} s`;
+      },
+    },
+    {
+      name: 'The captions are drawn outside the video\'s box and the video draws none',
+      why: 'At 8.0 s, with the track hidden, the caption element is drawn under the frame. The same fixture with the track showing is the comparison.',
+      run: async () => {
+        const hidden = await fixture();
+        await seek(hidden, 8);
+        const below = count(hidden, 0, 180, 320, 120, (r, g, b, a) => a > 200 && r + g + b > 500);
+        const inHidden = count(hidden, 0, 120, 320, 60, white);
+        const shown = await fixture({ mode: 'native', trackMode: 'showing' });
+        await seek(shown, 8);
+        const inShown = count(shown, 0, 120, 320, 60, white);
+        if (below < 100) throw new Error(`only ${below} text pixels under the frame`);
+        if (inHidden > inShown / 4 && inHidden > 20) throw new Error(`the hidden track still left ${inHidden} white pixels in the frame (${inShown} when showing)`);
+        if (inShown < 50) throw new Error(`the showing track drew only ${inShown} white pixels in the frame, so the comparison says nothing`);
+        return `${below} text pixels under the frame; white pixels in the bottom of the frame: ${inHidden} with the track hidden, ${inShown} with it showing`;
+      },
+    },
+    {
+      name: 'cuechange arrives close to the cue\'s start during playback',
+      why: 'Plays from 3.2 s across the start of cue 2 at 3.75 s and reads currentTime when cuechange arrives.',
+      run: async () => {
+        const f = await fixture();
+        await seek(f, 3.2);
+        const late = new Promise((resolve) => f.track.addEventListener('cuechange', function on() {
+          const cue = f.track.activeCues[0];
+          if (cue?.id === '2') { f.track.removeEventListener('cuechange', on); resolve((f.v.currentTime - cue.startTime) * 1000); }
+        }));
+        await f.v.play();
+        const ms = await Promise.race([late, sleep(5000).then(() => null)]);
+        f.v.pause();
+        if (ms === null) throw new Error('no cuechange for cue 2 within 5 s of playback');
+        if (ms > 300) throw new Error(`cuechange came ${ms.toFixed(0)} ms after the cue's start`);
+        return `cuechange came ${ms.toFixed(0)} ms of media time after the start of cue 2`;
+      },
+    },
+    {
+      name: 'Words are marked from the time stamps inside the cue',
+      why: 'At 9.2 s, the time stamps of eight words of cue 3 have passed. The eighth ("builds", 9.128 s) is the current one.',
+      run: async () => {
+        const f = await fixture();
+        await seek(f, 9.2);
+        const words = [...f.box.querySelectorAll('.w')];
+        const past = words.filter((w) => w.dataset.state === 'past').length;
+        const current = words.find((w) => w.dataset.state === 'now');
+        if (past !== 7 || current?.textContent !== 'builds') throw new Error(`${past} past words, current word "${current?.textContent}"`);
+        return `${past} past, current word "${current.textContent}", ${words.length - past - 1} future`;
+      },
+    },
+    {
+      name: 'A tap on a drawn word reaches its span and moves the video',
+      why: 'elementFromPoint() at the place the fourth word of cue 3 is drawn, then a click on what it returns.',
+      run: async () => {
+        const f = await fixture();
+        await seek(f, 8);
+        const word = f.box.querySelectorAll('.w')[3];
+        const r = word.getBoundingClientRect();
+        const hit = hitAt(r.left + r.width / 2, r.top + r.height / 2);
+        const canvasBox = f.c.getBoundingClientRect();
+        if (hit !== word) throw new Error(`elementFromPoint() returned ${hit ? `<${hit.localName}> "${hit.textContent.slice(0, 20)}"` : 'nothing'}`);
+        if (r.top - canvasBox.top < 170) throw new Error(`the word's box is at y = ${(r.top - canvasBox.top).toFixed(0)}, inside the frame`);
+        const seeked = new Promise((resolve) => f.v.addEventListener('seeked', resolve, { once: true }));
+        hit.click();
+        await seeked;
+        if (Math.abs(f.v.currentTime - Number(word.dataset.t) - 0.01) > 0.05) throw new Error(`currentTime is ${f.v.currentTime.toFixed(3)}, the word is at ${word.dataset.t}`);
+        return `"${word.textContent}" is hit at y = ${(r.top - canvasBox.top).toFixed(0)} px of the canvas, under the frame, and the click set currentTime to ${f.v.currentTime.toFixed(2)} s`;
+      },
+    },
+    {
+      name: 'The mask mode fills the text with the video frame',
+      why: 'The caption text is white. After source-in with the frame, the caption area should hold coloured pixels and almost no white ones.',
+      run: async () => {
+        const f = await fixture({ mode: 'mask' });
+        await seek(f, 8);
+        const filled = count(f, 0, 180, 320, 120, (r, g, b, a) => a > 100);
+        const coloured = count(f, 0, 180, 320, 120, (r, g, b, a) => a > 100 && Math.max(r, g, b) - Math.min(r, g, b) > 40);
+        const whites = count(f, 0, 180, 320, 120, white);
+        if (filled < 200) throw new Error(`only ${filled} pixels were drawn in the caption area`);
+        if (coloured < filled * 0.5) throw new Error(`${coloured} of ${filled} text pixels are coloured, ${whites} are white`);
+        return `${filled} text pixels, ${coloured} of them coloured by the frame, ${whites} white`;
+      },
+    },
+    {
+      name: 'A cue added by script is drawn like one from the file',
+      why: 'track.addCue(new VTTCue(18.3, 22, "<v Page>Added by <b>script</b>")) on the hidden track, then a seek to 19 s.',
+      run: async () => {
+        const f = await fixture();
+        const cue = new VTTCue(18.3, 22, '<v Page>Added by <b>script</b>');
+        let entered = 0;
+        cue.onenter = () => entered++;
+        f.track.addCue(cue);
+        await seek(f, 19);
+        const mine = f.player.layer.elements.find((el) => el.dataset.voice === 'Page');
+        if (!mine) throw new Error(`no element for the added cue; ${f.player.layer.elements.length} elements shown`);
+        if (!mine.querySelector('b')) throw new Error('the <b> tag in the cue text is missing from the element');
+        return `${f.track.activeCues.length} active cues, the added one has ${mine.querySelectorAll('.w').length} words and its <b>; its enter event fired ${entered} time${entered === 1 ? '' : 's'}`;
+      },
+    },
+  ]));
+</script>
+</body>
+</html>

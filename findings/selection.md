@@ -34,3 +34,64 @@ Measured in headless Chromium 157 (Linux, software renderer) on 2026-11-21. The 
 | WebGPU on screen, and shader speed on a phone | not verified | The software adapter cannot present a WebGPU canvas. |
 
 How `<selection-fx>` uses this: one `::selection` rule hides the browser's highlight inside the element, `selectionchange` triggers a measurement of one Range per text node, and the rectangles go to a 2D effect directly or to a shader as a mask texture (red: selected, green: selected in the last 1.2 s, blue: selected and blurred by 10 px). The element's geometry stays at its layout position, so the caret and hit testing do not follow what an effect draws.
+
+## Five pages drawn from ranges (`/selection-peers/`, `/selection-glyphs/`, `/redact/`, `/selection-heat/`, `/share-card/`)
+
+Measured in headless Chromium 157 (Linux, software renderer, device scale factor 2) on 2026-11-21. Each row is a live check on the page named. The first four pages are 2D effects registered on `<selection-fx>` with `defineSelectionEffect()` from their own modules. Shared helpers are in `lib/selection-tools.js` and shared styles in `lib/selection-article.css`.
+
+| Experiment | Result | Why |
+|---|---|---|
+| Rectangles of a range that is not selected (`/selection-peers/`) | works | `Range.getClientRects()` needs no selection. A canvas draws any number of other readers' ranges with no change to the DOM or to the document's selection (HTML and selection compared before and after). |
+| A selection sent as two offsets into `textContent` and rebuilt in another document | works | Round trip checked across an inline element. A message on a `BroadcastChannel` arrived in 25 ms and the range was drawn 48.2 px wide for 4 characters of 12 px. |
+| A same-origin frame as a second reader | works | Each document has its own selection, so selecting in the frame does not clear the page's selection. Checked with a script, not a live check: both selections were held at once and each side drew the other's range. |
+| One `Range` per character (`/selection-glyphs/`) | works | 12 rectangles for 12 letters, each 12.0 px wide in a 20 px monospace font. The box is the advance width and the line's text height, not the ink. |
+| Letters taken out of the element's picture with an even-odd clip and drawn elsewhere | works | After dropping 12 letters: 0 ink pixels on their line, 3047 under it, `textContent` unchanged. |
+| The canvas outside the element's ink | transparent | An element with no background leaves the canvas transparent between glyphs, so a piece of the canvas is a letter with nothing behind it. |
+| 288 letters per frame from a snapshot (`drawImage()`) against from the live element (`drawElementImage()` through a clip, once per letter) | 49.6 ms against 442.3 ms | Software renderer, and both numbers include `getImageData()` of the whole canvas. The live route replays the element's paint record once per letter. |
+| A bar drawn over a range after the element (`/redact/`) | covers every pixel | 10560 canvas pixels inside the range's rectangle, all the bar colour. |
+| The DOM after a canvas redaction | still has the text | `textContent`, `Range.toString()` and copy return it. The page's copy handler and "Remove the text from the DOM" are the two ways it offers to close that. |
+| `ctx.filter = 'blur()'` on `drawElementImage()` | works | The blur style changed 9196 pixels inside the range and 0 outside. Filter lengths are canvas pixels, so the page multiplies by the canvas scale. |
+| `drawImage(canvas)` with the canvas itself as the source, after `drawElementImage()` | works | The pixel style reads the part of the canvas it replaces. The canvas is not tainted by same-origin element content. |
+| Replacing characters in the DOM under a Custom Highlight range | offsets stay valid | Setting `node.data` collapses live ranges in that node, so the page rebuilds its ranges from stored offsets. 10 characters replaced, the range kept one rectangle. |
+| One element drawn twice in a frame at different sizes (`/selection-heat/`) | works | The minimap is the article at scale 0.169 in the fixture: 478 text pixels and 57 heat pixels at the scaled position. |
+| A minimap in a second canvas | not possible | An element is drawn only by its own canvas (known from the first findings), so the minimap is inside the article's canvas, in a column the article reserves with padding. |
+| `document.caretPositionFromPoint()` on text drawn by the canvas | works | Returned offset 7 for a point on the eighth character. |
+| An element drawn at four times its layout size (`/share-card/`) | drawn again, not stretched | A 1 px line became 4 black pixels with 0 grey pixels beside it. |
+| `canvas.toBlob()` after `drawElementImage()` | works | PNGs of 1200×630, 1080×1080 and 1080×1920 decoded at those sizes. |
+| `scrollHeight` and `clientHeight` on a canvas child | work | They drive the card's type size: 67.5 px for 3 words, smaller for 420 characters, both fit. |
+| A canvas child wider than the canvas element | works | The figure is 600 px wide in a canvas shown about 396 px wide. The picture is complete. |
+
+### Things that bit
+
+- `shared/style.css` gives `figure` a `max-width: 100%`, and a canvas child obeys it against the canvas's CSS width. The share card was laid out 396 px wide and drawn stretched until the figure got `max-width: none`.
+- After a 2D `drawElementImage()` with a size different from the layout size, `getBoundingClientRect()` of the element reports the drawn size (396×208 for a 600×315 figure). Layout sizes come from `offsetWidth` and `clientHeight`.
+- `s.rects` in a `<selection-fx>` effect holds the selection and the `highlight` attribute's ranges together. An effect that draws the two differently reads `s.marked` for the ranges and uses `s.rects` only while something is selected.
+- Fitting type by `scrollHeight` and then changing `line-height` undoes the fit. The line height is fixed in CSS.
+- Reported from Paul's phone (Android Chrome 159) through the coordinator on 2026-11-21, not measured here: a drawable 2D canvas that is read back with `getImageData()` (with `willReadFrequently`) lost every 2D context on the page. These five pages never call `getImageData()` on a drawable canvas. `snapshot()` and `copyCanvas()` in `lib/selection-tools.js` copy the canvas to an `OffscreenCanvas` with `drawImage()` and read the copy.
+- The site menu stays at the top of the window, so a minimap that follows the scroll is placed 64 px below the window's top edge.
+- The article's own minimap column is part of the element, so the minimap shows an empty strip at its right edge.
+
+### Not verified
+
+- Touch on all five pages: long-press selection, the Android handles, the automatic drop 0.7 s after the last selection change on `/selection-glyphs/`, and dragging in the minimap column on `/selection-heat/`. Needs a phone.
+- Frame rate with several hundred loose letters, and how closely the minimap follows a touch scroll. Needs a phone.
+- `navigator.share()` with a PNG file and `navigator.clipboard.write()` with a PNG on `/share-card/`. The headless browser has no share sheet and no clipboard permission. Press Share and Copy picture on a phone.
+- What find-in-page and TalkBack report for a range covered on `/redact/`. Both read the DOM, so the expected answer is the original text until it is removed.
+- Two people on two devices on `/selection-peers/`. The page has a `BroadcastChannel` only, so it reaches tabs and frames of one browser. A relay server would carry the same message.
+
+### Ideas not built
+
+- A relay (Durable Object or WebRTC data channel) so `/selection-peers/` works between devices, and readers' carets as well as selections.
+- Letters on `/selection-glyphs/` that collide with each other and can be pushed with a finger.
+- Redaction that also exports a PDF, and a "peek" that shows a range while it is pressed.
+- Heat collected from real visitors, and a minimap for a whole page of several canvases.
+- Share cards with a QR code of a text-fragment link to the passage.
+
+### For the index
+
+- Text and ranges: any `Range` has rectangles at the drawn position whether or not it is selected; one `Range` per character gives per-letter boxes (`/selection-peers/`, `/selection-glyphs/`).
+- 2D drawing: `ctx.filter`, `clip('evenodd')` and a self-sourced `drawImage()` all apply to `drawElementImage()` output (`/redact/`, `/selection-glyphs/`).
+- 2D drawing: an element drawn larger than its layout is re-rasterised, and one element can be drawn several times per frame at different sizes (`/share-card/`, `/selection-heat/`).
+- Export: `toBlob()` and `getImageData()` work after `drawElementImage()` of same-origin content (`/share-card/`, `/redact/`).
+- Layout: `scrollHeight` works on canvas children; `max-width: 100%` on a canvas child resolves against the canvas's CSS width (`/share-card/`).
+- Accessibility and privacy: drawing over text in the canvas hides nothing from the DOM (`/redact/`).
