@@ -124,6 +124,8 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/shader-css/',
   '/slot-effects/',
   '/physical/',
+  '/fold/',
+  '/hardware-out/',
   '/video/',
   '/overlay/',
   '/audio/',
@@ -131,11 +133,11 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/player-fx/',
   '/native-ui/',
   '/select/',
+  '/component-kit/',
   '/datalist/',
   '/inputs/',
   '/selection/',
-  '/fold/',
-  '/hardware-out/',
+  '/caret/',
 ];
 
 /** Should this page's checks start by themselves? ?autochecks=1 and ?autochecks=0 override the list. */
