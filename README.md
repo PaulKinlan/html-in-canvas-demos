@@ -76,6 +76,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
 | `/player-fx/` | One WebGL shader over the native controls and the video frame as two textures from one `<video>`: the play button grows into a lens, the controls refract, melt into and light the picture. Finds the box of each control without script access |
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
+| `/wasm-ui/` | A C program whose blocking main loop and blocking modal dialog wait for the canvas `paint` event through JSPI, drawing real elements with `drawElementImage()`. One edge filter as a WebNN graph and as C. |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
@@ -176,6 +177,8 @@ The slot pages use `shared/source-view.js` instead, which shows whole stand-alon
 
 - `native/egui-dom/` (Rust, egui 0.37). Build with `native/egui-dom/build.sh`. Needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` 0.2.130; `wasm-opt` is used if installed.
 - `native/qt-dom/` (C++, Qt Quick 6.10.3). Build with `QT=… EMSDK=… native/qt-dom/build.sh`. Needs Qt for WebAssembly (single-threaded), the matching desktop Qt and Emscripten 4.0.7.
+
+`/wasm-ui/` runs `native/wasm-ui/ui.c`. Build with `native/wasm-ui/build.sh`. Needs only clang with the wasm32 target and wasm-ld; the output `public/wasm-ui/ui.wasm` is committed.
 
 The build output is committed in `public/native-ui/egui/` and `public/native-ui/qt/`, because the deploy does not have these toolchains. Each build script also copies the sources next to the output for the page's code listings, so edit the files in `native/` and rebuild. The Qt binary is statically linked against the open-source edition of Qt (LGPL-3.0 and GPL-3.0); its complete source is `native/qt-dom/` plus Qt 6.10.3 from download.qt.io.
 

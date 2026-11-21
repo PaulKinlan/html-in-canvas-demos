@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A WebAssembly program whose loop waits for the paint event</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/wasm-ui/ui.css">
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A WebAssembly program whose loop waits for the paint event</h1>
+  <p class="lede">
+    A native UI program has a main loop that blocks until there is an event, and a modal dialog is a function that returns the answer.
+    A web page cannot block. JavaScript Promise Integration (JSPI) lets a WebAssembly import return a promise while the WebAssembly code
+    sees an ordinary blocking call. Question: can a C program draw DOM elements with <code>drawElementImage()</code> from a loop that blocks
+    on the canvas <code>paint</code> event, and can it show a modal dialog made of real buttons from a nested blocking loop?
+  </p>
+
+  <div class="ui-stage" id="stage">
+    <!-- #region markup -->
+    <canvas id="app" content="drawable" layoutsubtree aria-label="Project settings, drawn by a WebAssembly program">
+      <h3 data-ui="title" drawable>Project settings</h3>
+      <label data-ui="name-label" drawable for="ui-name">Name</label>
+      <input data-ui="name" drawable id="ui-name" value="Demo project" autocomplete="off">
+      <textarea data-ui="notes" drawable rows="3" aria-label="Notes">These two fields are real elements. The slider and the Delete button are drawn by the C program.</textarea>
+      <p data-ui="fade-label" drawable>Opacity of the two fields: <output>100</output>%</p>
+      <span data-ui="delete-label" drawable>Delete project…</span>
+      <p data-ui="status" drawable data-words="ask() is running.|ask() has not been called.|ask() returned 0: Cancel.|ask() returned 1: Delete.">C says: <output>ask() has not been called.</output></p>
+      <div data-ui="dialog" drawable role="dialog" aria-modal="true" aria-labelledby="ui-question">
+        <p id="ui-question">Delete this project? The C function ask() does not return until you choose.</p>
+        <div>
+          <button type="button" data-ui="dialog-ok">Delete</button>
+          <button type="button" data-ui="dialog-cancel" data-first>Cancel</button>
+        </div>
+      </div>
+    </canvas>
+    <!-- #endregion markup -->
+    <p class="ui-msg" id="msg" role="status">Starting the program (3 KB of WebAssembly)…</p>
+  </div>
+  <p class="note loop-state" id="loop" aria-live="off">The program has not started.</p>
+  <p class="note">
+    The name field and the notes field are real elements, and so are the two buttons in the dialog. The slider and the Delete button are
+    rectangles drawn by the C program, which reads the pointer itself. The whole program is 170 lines of C with no libc and no toolkit library.
+  </p>
+  <details class="show-code">
+    <summary>Show the code <small>a blocking C loop on the paint event</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The elements go inside the canvas.</b> The program refers to them by number, in document order.</li>
+      <li data-code="/wasm-ui/ui.c#loop" data-lang="js"><b>C: the main loop.</b> It never returns. <code>wait_event()</code> is an import.</li>
+      <li data-code="/wasm-ui/ui.c#modal" data-lang="js"><b>C: a modal dialog as a function that returns the answer.</b> It has its own loop and blocks in the same import, two calls deep.</li>
+      <li data-code="/wasm-ui/ui.c#widgets" data-lang="js"><b>C: widgets the program draws itself.</b></li>
+      <li data-code="/wasm-ui/ui.js#wait"><b>JavaScript: <code>wait_event()</code> returns a promise that the next <code>paint</code> event settles.</b></li>
+      <li data-code="/wasm-ui/ui.js#imports"><b>JavaScript: the imports.</b> <code>WebAssembly.Suspending</code> marks the one that may suspend. <code>dom_draw()</code> is <code>drawElementImage()</code>.</li>
+      <li data-code="/wasm-ui/ui.js#start"><b>JavaScript: start it.</b> <code>WebAssembly.promising()</code> wraps the export so that the call returns when the program first waits.</li>
+      <li data-code="/wasm-ui/ui.js#pointer"><b>JavaScript: queue pointer states,</b> so a tap that begins and ends between two frames still reaches the program as a press and a release.</li>
+      <li data-code="/wasm-ui/ui.css#widget-css" data-lang="css"><b>CSS for the elements.</b></li>
+      <li data-code="/wasm-ui/ui.c" data-lang="js"><b>All of ui.c.</b> Built with <code>clang --target=wasm32 -nostdlib</code>.</li>
+      <li data-code="/wasm-ui/ui.js"><b>All of ui.js.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="edges">An edge filter on a live field: WebNN and WebAssembly</h2>
+  <p>
+    The plan for this page also asks whether a WebNN graph can run on the pixels of a live element. The button reads the pixels the program drew for
+    the notes field and runs a Sobel edge filter on them twice: as a WebNN graph (one 3×3 convolution with two filters, then an L2 norm) and as a C
+    function in the same WebAssembly module. After the first run the filter runs again on every frame the program draws, so typing in the field updates the picture.
+  </p>
+  <p><button type="button" id="edge-run">Run the edge filter on the notes field</button></p>
+  <canvas class="edge-out" id="edge-out" hidden aria-label="Edges of the notes field"></canvas>
+  <p class="note" id="edge-state" role="status"></p>
+  <details class="show-code">
+    <summary>Show the code <small>the filter as a WebNN graph and as C</small></summary>
+    <ol>
+      <li data-code="/wasm-ui/edges.js#webnn-edges"><b>WebNN.</b> The graph takes the RGBA bytes from <code>getImageData()</code> as a <code>uint8</code> tensor.</li>
+      <li data-code="/wasm-ui/ui.c#edges" data-lang="js"><b>C.</b></li>
+      <li data-code="/wasm-ui/edges.js#wasm-edges"><b>JavaScript: call the C function while <code>run()</code> is suspended.</b></li>
+      <li data-code="/wasm-ui/main.js#edge-stage"><b>JavaScript: run both and show the result.</b></li>
+    </ol>
+  </details>
+
+  <h2>Live checks</h2>
+  <p class="note">The checks load a second copy of the program in a small frame, so they do not touch the one above.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>Yes to both.</strong> <code>run()</code> in C is an endless loop that is called once. It draws real elements with <code>drawElementImage()</code>, blocks in <code>wait_event()</code>, and continues when the canvas fires <code>paint</code>. <code>ask()</code> blocks in the same import from a nested loop and returns 1 or 0 to its caller when a real <code>&lt;button&gt;</code> in the dialog is clicked. Measured in Chromium 157.</li>
+    <li><strong>The JavaScript for JSPI is two calls.</strong> <code>new WebAssembly.Suspending(fn)</code> on the import and <code>WebAssembly.promising(run)</code> on the export. The C source has no async code, no state machine and no Asyncify build step. The module is 3 KB.</li>
+    <li><strong>The loop does no work between events.</strong> With nothing happening the program draws 0 frames while the page has 30 animation frames. One change to a field gives one paint event and one frame. A focused text field gives a frame for each blink of its caret, because the browser repaints the field.</li>
+    <li><strong>Drawing after the promise settles still counts as drawing in the paint event.</strong> The program continues in a microtask of the <code>paint</code> listener. <code>drawElementImage()</code> worked there in every run, and <code>requestPaint()</code> called from there gives another paint event.</li>
+    <li><strong>The first frame has to wait for the first paint event.</strong> Before it the elements have no paint record and <code>drawElementImage()</code> throws. The page calls <code>run()</code> after the first <code>paint</code>.</li>
+    <li><strong>A blocking loop sees one pointer state per frame.</strong> A tap can begin and end between two paint events. The page queues each pointer change and gives the program one per frame, and asks for another paint while the queue is not empty.</li>
+    <li><strong>A modal dialog needs the page to say what is under it.</strong> The browser hit tests an element wherever it was last drawn and does not know the program drew a dimmed layer and a dialog over it. The page sets <code>inert</code> on every element the program draws as not interactive, and on the dialog while it is not drawn. In a 2D canvas that was enough: no <code>updateElementGeometry()</code> call was needed.</li>
+    <li><strong>The module can be called while <code>run()</code> is suspended.</strong> The edge filter is a second export of the same module and runs on the same memory while the main loop is stopped inside <code>wait_event()</code>.</li>
+    <li><strong>The pixels of a drawn element can be read back and filtered.</strong> <code>getImageData()</code> on the drawable canvas returns the pixels of the notes field, and the C filter takes about 10 ms for 900×220 pixels in the test browser. Chromium logs a notice that repeated readback is faster with <code>willReadFrequently</code>.</li>
+    <li><strong>WebNN was not measured.</strong> <code>navigator.ml</code> is missing from both test browsers (Chromium 153 and 157), and the plan lists it as an origin trial that needs a GPU. The graph code on this page was run only against a JavaScript stand-in for the seven WebNN calls it uses, where its output matched the C filter. Whether it builds and runs in a real WebNN implementation is unknown. The live check for it is expected to fail where <code>navigator.ml</code> is missing.</li>
+    <li><strong>The widgets the program draws have no DOM node.</strong> The slider and the Delete button cannot be reached with the keyboard or a screen reader. The fields, the text and the dialog buttons can.</li>
+    <li><strong>Not verified on a phone.</strong> Tested in headless Chromium 157 at a 2.625 device scale with touch events: tapping, typing, dragging the slider and both dialog buttons. If the canvas loses its drawing context the page shows a message, and the program draws again when the context is restored.</li>
+  </ul>
+  <p class="note">
+    This page follows <a href="/native-ui/">DOM elements inside egui and Qt Quick apps</a>, where the toolkits keep their own frame loops.
+    Source: <a href="https://github.com/PaulKinlan/html-in-canvas-demos/tree/main/native/wasm-ui">native/wasm-ui</a>.
+  </p>
+</main>
+<script type="module" src="/wasm-ui/main.js"></script>
+</body>
+</html>
