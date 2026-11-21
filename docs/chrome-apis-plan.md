@@ -293,6 +293,7 @@ A headset, a foldable, a real GPU, a peripheral or an installed app.
 
 #### 25. HTML panels in a real room
 
+- **Built:** [/xr-room/](https://html-in-canvas.page/xr-room/)
 - **Shows:** HTML panels pressed with fingertips, attached to detected walls and tables, hidden behind real objects with depth sensing, and composited as WebXR quad layers for sharp text.
 - **Build:** Extensions to html3d.js and the XR page: a hand pointer beside the controller ray, plane anchors, a depth test in the panel shader, a layer path that uploads elements with texElementSubImage2D().
 - **Uncertain:** The cloud browser has no immersive session, so all of it is unverified. Whether texElementSubImage2D() can target a layer's texture.

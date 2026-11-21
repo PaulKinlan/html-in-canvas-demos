@@ -376,7 +376,7 @@ The main results. Each is backed by the tables in the sections below.
 - [Video and sound (/video/, /overlay/, /audio/, /player-parts/, /player-fx/)](#video-and-sound-video-overlay-audio-player-parts-player-fx)
 - [Customisable select (/select/, lib/select-picker.js)](#customisable-select-select-libselect-pickerjs)
 - [Datalist and other inputs (/datalist/, /inputs/)](#datalist-and-other-inputs-datalist-inputs)
-- [3D and spatial (/three-form/, /board/, /xr/)](#3d-and-spatial-three-form-board-xr)
+- [3D and spatial (/three-form/, /board/, /xr/, /xr-room/)](#3d-and-spatial-three-form-board-xr)
 - [Every HTML element (/elements/)](#every-html-element-elements)
 - [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
@@ -931,6 +931,22 @@ Measured in headless Chromium 157 with software rendering, three.js r187 (vendor
 
 Not tested here: a real headset or Android AR session. Whether `paint` keeps firing while the page is hidden behind an immersive session is the open question; `/xr/` counts paint events in session, shows the result on a panel inside the headset, and falls back to uploading from the last paint record if they stop.
 
+### Panels in a real room (`/xr-room/`, `lib/xr-room.js`)
+
+Demo 24 of the Chrome APIs plan. Measured on 2026-11-21 in headless Chromium 157 in two ways: a simulated room on the page (a pointer-driven fingertip, a wall and a table standing in for detected planes, a column standing in for a real object) and the IWER headset emulator (`?emulate=1`). Neither is a device.
+
+| Experiment | Result | Detail |
+| --- | --- | --- |
+| A fingertip position as a pointer | works, simulated and emulated | `FingerPointer` takes one world position per frame. Within 20 cm in front of a panel it moves the pointer, at 8 mm it presses, past 2.5 cm it releases and clicks. Buttons, a range input and a scrolling list respond. In the emulator the position comes from three's `getHand(i).joints['index-finger-tip']`, the same path a tracked hand uses. |
+| A press that starts on plain content scrolls | works | After 8 px of travel the nearest scroller is scrolled and the release is not a click. |
+| Snap a panel to a plane | works with simulated planes | `snapToPlane()` takes the `XRPlane` shape (pose matrix, polygon in x and z, orientation). Input needs no change after the move because it is mapped through the mesh's UVs. No real `detectedPlanes` set has been read. |
+| Anchor a placed panel | works in the emulator | `frame.createAnchor()` succeeds in IWER and the pose is re-read every frame. A real anchor moving as the map is refined has not been seen. |
+| Depth occlusion | simulated only | three.js draws a GPU depth texture into the depth buffer when the session provides one. The emulator grants `depth-sensing` as `gpu-optimized` but supplies no texture. On the page, the column writes depth or does not. A session that only offers `cpu-optimized` depth gets no occlusion from this page. |
+| Occlusion and input | by design | Depth hides pixels only. A ray or fingertip still reaches a panel behind a real object, because the page has no depth values to test against. |
+| The status panel as an `XRQuadLayer`, filled with `texElementSubImage2D()` | not verified | `ElementQuadLayer` tries a direct upload into the layer's texture and falls back to a framebuffer blit from the panel's own texture. The emulator does not grant `layers`. The "layer" row on the page says which path ran. |
+
+To settle on a device: whether hand joints, planes and depth are granted on Android Chrome and on a headset, whether `paint` keeps firing in AR, and whether `texElementSubImage2D()` accepts a layer's colour texture. The page's "What a session reports" table records each after a session ends.
+
 ## Pages that hold still (`npm run check:jank`, `tools/jank/`)
 
 On a phone every demo jumped, flashed or scrolled itself while loading. Measured on 2026-11-20 with Chromium 157 driven over the DevTools Protocol as a phone (412 px wide, real device scale factor 2.625, touch, CPU slowed 4x), touching nothing from navigation until the page's live checks finished plus three seconds: layout-shift entries with their sources, every scroll and focus the page did by itself with the line of code that did it, canvas backing-store writes, long tasks, a trace for layout counts, and every compositor frame from a screencast compared with the ones before it.
@@ -1252,6 +1268,7 @@ Tested in headless Chromium 157 at 1x, 1.5x and a phone profile. `<kit-slot>` an
 Lines in the element, old code against new: registry 11 to 5, slots 15 to 6, label 15 to 1, closing snapshots 22 to 21, paint handlers 13 to 6. `moveBefore()` adds lines because the old path stays as the fallback. The page counts these from the running source.
 
 Not confirmed on a phone: which of the six features Chrome 159 on Android reports, and whether the three small canvases on the page keep their contexts there.
+
 ## Recent platform features on drawn elements (`/chrome-apis/`)
 
 `/chrome-apis/` lists the 678 features that chromestatus.com records for Chrome 130 to 160 with an idea for 359 of them and a ranked plan of 28 demos; the same content is `docs/chrome-apis-plan.md`. `/chrome-apis/probes.html` holds 27 probes, each of which draws one small element with one feature on and reads the result back. `npm run record:probes` runs them with real mouse and keyboard input in the two Chromium builds installed beside Playwright: the 157 headless shell and the 153 full browser with the `canvas-draw-element` flag.
