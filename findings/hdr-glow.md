@@ -75,6 +75,17 @@ Fourth report, a screenshot at 18:03 on the same preview: "As stored", headroom 
 | A float16 Display P3 2D canvas with tone mapping reported as `standard` shows values above 1.0 at the brightness of white, on a screen that matches `(dynamic-range: high)` | reported, A159, with the context line in the screenshot |
 | `dynamic-range-limit: no-limit` on the canvas does not change that | reported, A159, same screenshot |
 
+Fifth report, four screenshots at 19:57 on the same preview with chrome://flags "Experimental Web Platform features" turned on:
+
+| Observation | Label |
+|---|---|
+| The context line reads "float16, display-p3, tone mapping extended". Without the flag it read "standard". So `getContext('2d', { toneMapping: { mode: 'extended' } })` is accepted on Chrome 159 Android only with the flag | reported, A159 |
+| The screen line is unchanged: dynamic-range high, colour gamut srgb | reported, A159 |
+| In the screenshot the white strip is blank. A screenshot is an SDR picture, so it cannot show whether the word was brighter than white on the screen itself. Not answered yet | not verified |
+| The map view drew once (424 paint events): badge, Deploy button and its halo, bar, focus ring, heading and the first line of text are coloured as above 1.0. The strip is coloured only in its left third, with a stepped edge, while the canvas holds 4.0 across the whole strip | reported, A159. The cause of the partial strip is not known: a partial float readback is one explanation |
+| A later float readback lost the context ("last seen right after a float readback with getImageData(), 32.3 s after load"). The panel moved to a new float16 canvas, which kept drawing (669 and 729 paint events) with tone mapping extended, and readback and the map were switched off | reported, A159. This is the first real run of the path that had only been tested with a dispatched event |
+| So a float readback does not lose the context every time: at least one full-canvas readback returned data before the one that lost it | reported, A159 |
+
 What the page does now: it reads floats back only when "Read values back" is pressed or the map view is chosen, and its live checks wait for a tap. When a float16 context is lost within 2.5 seconds of a readback, the panel moves into a new float16 canvas, and readback and the map view are switched off on that device (`localStorage`). When it is lost with no readback before, the new canvas is 8-bit and the notice says so (`sessionStorage`). "Reset and reload" clears both. Both paths were tested in the test browser with a dispatched `contextlost` event, not with a real loss.
 
 ## Things that bit
@@ -85,7 +96,8 @@ What the page does now: it reads floats back only when "Read values back" is pre
 
 ## Not verified
 
-- Whether `toneMapping: { mode: 'extended' }` (behind the experimental canvas flag) makes the phone show values above 1.0 brighter than white. With tone mapping `standard` it does not (fourth report above). To verify: turn on chrome://flags "Experimental Web Platform features" on the phone and look for the word in the white strip; the context line should then read tone mapping extended.
+- Whether the phone shows values above 1.0 brighter than white with tone mapping `extended` (flag on). The context is created that way (fifth report above), but a screenshot cannot show it. To verify: with the flag on and "As stored" selected, look at the white strip on the screen itself for the word BRIGHTER.
+- Why the map view coloured only the left third of the white strip on the phone.
 - The effect of `dynamic-range-limit` on the canvas element. The page has a select for it.
 - `(dynamic-range: high)` on the test phone. The page prints what the screen reports.
 - Whether an 8-bit readback (`getImageData()` with no `pixelFormat`) of a float16 canvas also loses the context on the phone, and whether the loss is a GPU process crash. Not tried.
