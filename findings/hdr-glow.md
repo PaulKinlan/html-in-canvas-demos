@@ -68,7 +68,12 @@ Third report, same phone, on the preview of PR 82, 2026-11-21 17:47, asked to pi
 |---|---|
 | A value of headroom times white in the canvas is shown at the same brightness as white: values above 1.0 do not appear brighter than white on this phone | reported, A159, once |
 
-The report did not include the page's "Context" line, so it does not say whether the canvas was float16 or the 8-bit fallback at that moment. In an 8-bit canvas the word and the strip are the same colour by construction. The same phone reported colour gamut srgb with dynamic-range high. What would settle it: the "Context" line reading `float16, display-p3` while the word is still unreadable.
+Fourth report, a screenshot at 18:03 on the same preview: "As stored", headroom 4.0, `dynamic-range-limit: no-limit`, 533 paint events, no readback pressed. The page's lines read "Screen: dynamic-range high, colour gamut srgb. Context: float16, display-p3, tone mapping standard." The white strip was blank. So the canvas was float16 and held the values, and the screen showed 4.0 times white as white.
+
+| Result | Label |
+|---|---|
+| A float16 Display P3 2D canvas with tone mapping reported as `standard` shows values above 1.0 at the brightness of white, on a screen that matches `(dynamic-range: high)` | reported, A159, with the context line in the screenshot |
+| `dynamic-range-limit: no-limit` on the canvas does not change that | reported, A159, same screenshot |
 
 What the page does now: it reads floats back only when "Read values back" is pressed or the map view is chosen, and its live checks wait for a tap. When a float16 context is lost within 2.5 seconds of a readback, the panel moves into a new float16 canvas, and readback and the map view are switched off on that device (`localStorage`). When it is lost with no readback before, the new canvas is 8-bit and the notice says so (`sessionStorage`). "Reset and reload" clears both. Both paths were tested in the test browser with a dispatched `contextlost` event, not with a real loss.
 
@@ -80,7 +85,7 @@ What the page does now: it reads floats back only when "Read values back" is pre
 
 ## Not verified
 
-- Whether values above 1.0 in a float16 2D canvas can reach an HDR screen above standard white in Chrome 157 to 159. One phone report says they do not (see the third report above), with the canvas format at that moment unknown. Not tried: `toneMapping: extended` behind its flag, and a second HDR device.
+- Whether `toneMapping: { mode: 'extended' }` (behind the experimental canvas flag) makes the phone show values above 1.0 brighter than white. With tone mapping `standard` it does not (fourth report above). To verify: turn on chrome://flags "Experimental Web Platform features" on the phone and look for the word in the white strip; the context line should then read tone mapping extended.
 - The effect of `dynamic-range-limit` on the canvas element. The page has a select for it.
 - `(dynamic-range: high)` on the test phone. The page prints what the screen reports.
 - Whether an 8-bit readback (`getImageData()` with no `pixelFormat`) of a float16 canvas also loses the context on the phone, and whether the loss is a GPU process crash. Not tried.
