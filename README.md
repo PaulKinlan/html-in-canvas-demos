@@ -61,6 +61,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
+| `/transports-2/` | Newer transport APIs for a drawn element: WebRTC sender settings, a data channel in a worker, shared memory under Document-Isolation-Policy, WebTransport, Element Capture, and a tab freeze test |
 | `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
 | `/embed/` | Cross-origin cards the host distorts and restyles without DOM access |
 | `/support/` | Share one region of a page with a support agent or a vision model |
@@ -101,6 +102,7 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
 - `public/lib/live-surface.js`: `<live-region>` and `attachSurface(el)` turn any element into a shareable surface (frames, redaction, element map, replayed input). `serve(surface, link)` speaks the protocol.
 - `public/lib/live-view.js`: `<live-view>`, the receiving end. Needs no HTML-in-canvas.
+- `public/lib/freeze-log.js`: `freezeLog()`, `onThaw(fn)`. Records when the browser froze or stalled the page (`freeze` / `resume` events and timer gaps), so a page that streams an element can say how long it sent nothing.
 - `public/lib/live-link.js`: `shareInRoom()` / `watchRoom()` over a relay room, WebRTC with a relayed-JPEG fallback. Both emit `log` lines; `public/lib/live-log.js` (`connectionLog(el)`) shows them on the page.
 - `public/lib/live-card.js`: `<live-card src effect>` embeds a cross-origin card through a WebGL shader.
 - `public/lib/slot-view.js` and `public/lib/slot-provider.js`: the cross-site `<slot-view src name>` element and `provideSlots()` for the site being embedded.

@@ -223,6 +223,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 - **Shows:** WebTransport datagrams as a pixel route. Element Capture against canvas.captureStream(). WebRTC with its own adaptation turned off so text stays sharp. Input events handled in a worker. SharedArrayBuffer routes under Document-Isolation-Policy. What happens to each route when Android freezes the source tab after one minute.
 - **Build:** Add routes to the lab's table. A Worker endpoint echoes WebTransport datagrams. The cross-tab page states the freeze rules it measured.
+- **Measured:** Chromium 157: at 40 kbit/s a 960×540 element arrives as 320×180 by default and as 960×540 with maintain-framerate-and-resolution. scaleResolutionDownTo, RTCDataChannel in a worker, rtpTimestamp, Uint8Array base64 and SharedArrayBuffer in a Document-Isolation-Policy frame work. track.stats is undefined on a canvas capture track. Cloudflare Workers have no WebTransport server. Element Capture and tab freezing could not be run in the test browsers.
 - **Uncertain:** WebTransport needs an HTTP/3 endpoint; Cloudflare Workers support has to be checked. Element Capture needs a tab-capture prompt, which headless cannot answer.
 - **Needs:** The phone for SharedWorker on Android and the freeze timing.
 - **Builds on:** [/transports/](https://html-in-canvas.page/transports/), [/remote/](https://html-in-canvas.page/remote/), [/cross-tab/](https://html-in-canvas.page/cross-tab/), [/support/](https://html-in-canvas.page/support/)
