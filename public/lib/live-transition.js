@@ -391,6 +391,9 @@ function morph(p, { W, H, quad, pairs }) {
 
 // ---------------------------------------------------------------- element
 
+/** CSS zoom in effect on an element (1 when there is none). Pointer positions are in zoomed px; layout is not. */
+const zoomOf = (el) => el.currentCSSZoom || 1;
+
 export class LiveTransition extends HTMLElement {
   static supported = SUPPORTED;
   /** Mesh effects by name. Add your own: LiveTransition.effects.swirl = (p, env) => { … }. */
@@ -494,6 +497,7 @@ export class LiveTransition extends HTMLElement {
     this.#mo.observe(this, { childList: true });
     this.#ro = new ResizeObserver(() => this.#measure());
     this.#ro.observe(this);
+    try { this.#ro.observe(this.#canvas, { box: 'device-pixel-content-box' }); } catch { /* older browsers: zoom is picked up on the next resize */ }
     addEventListener('pointermove', this.#onPointer, { passive: true });
     addEventListener('pointerdown', this.#onPointer, { passive: true, capture: true });
     addEventListener('click', this.#onClick, { capture: true });
@@ -760,7 +764,8 @@ export class LiveTransition extends HTMLElement {
     for (const l of this.#layers) h = Math.max(h, l.el.offsetHeight);
     if (!this.style.height && !this.hasAttribute('fixed-height')) this.style.minHeight = `${h}px`;
     const r = this.getBoundingClientRect();
-    const dpr = devicePixelRatio || 1;
+    // Backing pixels per layout pixel: the screen's ratio times any CSS zoom, so zoomed states stay sharp.
+    const dpr = (devicePixelRatio || 1) * zoomOf(this);
     const W = this.offsetWidth, H = this.offsetHeight;
     const cw = Math.round((W + 2 * this.#bleed) * dpr), ch = Math.round((H + 2 * this.#bleed) * dpr);
     if (cw !== this.#canvas.width || ch !== this.#canvas.height) {
@@ -956,12 +961,12 @@ export class LiveTransition extends HTMLElement {
   }
 
   #pairs(aEl, bEl) {
-    const host = this.getBoundingClientRect();
+    const host = this.getBoundingClientRect(), z = zoomOf(this);
     const boxes = (root) => {
       const map = new Map();
       for (const el of root.querySelectorAll('[data-morph]')) {
         const r = el.getBoundingClientRect();
-        if (r.width && r.height) map.set(el.dataset.morph, { x: r.x - host.x, y: r.y - host.y, w: r.width, h: r.height });
+        if (r.width && r.height) map.set(el.dataset.morph, { x: (r.x - host.x) / z, y: (r.y - host.y) / z, w: r.width / z, h: r.height / z });
       }
       return map;
     };
@@ -1174,8 +1179,8 @@ export class LiveTransition extends HTMLElement {
   }
 
   #onPointer = (e) => {
-    const r = this.getBoundingClientRect();
-    this.#pointer = { x: e.clientX - r.x, y: e.clientY - r.y };
+    const r = this.getBoundingClientRect(), z = zoomOf(this);
+    this.#pointer = { x: (e.clientX - r.x) / z, y: (e.clientY - r.y) / z };
     if (this.#anim) this.#route();
   };
 
@@ -1184,8 +1189,8 @@ export class LiveTransition extends HTMLElement {
   // right; if the click went to the wrong element, hand it to the one under the finger.
   #onClick = (e) => {
     if (!this.#anim || !e.isTrusted) return;
-    const r = this.getBoundingClientRect();
-    if (!this.pick(e.clientX - r.x, e.clientY - r.y)) return;
+    const r = this.getBoundingClientRect(), z = zoomOf(this);
+    if (!this.pick((e.clientX - r.x) / z, (e.clientY - r.y) / z)) return;
     const el = document.elementFromPoint(e.clientX, e.clientY);
     if (!el || el === e.target || !this.contains(el) || el === this) return;
     e.stopImmediatePropagation();
@@ -1208,9 +1213,17 @@ export class LiveTransition extends HTMLElement {
       const l = this.#layers[i];
       const mine = hit && hit.state === i;
       l.wrap.classList.toggle('off', !mine);
-      if (mine) this.#canvas.updateElementGeometry(l.wrap, { canvasTransform: this.#place(hit.matrix) });
+      if (mine) {
+        const m = this.#place(hit.matrix);
+        this.#canvas.updateElementGeometry(l.wrap, { canvasTransform: m });
+        // The browser remembers what it found at a point, and moving a hit box this way does not make it
+        // forget (Chromium 157; live check on /particles/). A DOM change does, so make a tiny one when the box moves.
+        const key = `${i}:${m.a.toFixed(3)},${m.b.toFixed(3)},${m.c.toFixed(3)},${m.d.toFixed(3)},${m.e.toFixed(1)},${m.f.toFixed(1)}`;
+        if (key !== this.#routeKey) { this.#routeKey = key; l.wrap.toggleAttribute('data-moved'); }
+      }
     }
   }
+  #routeKey = '';
   // #endregion route
 }
 

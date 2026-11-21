@@ -58,6 +58,7 @@ window.DEMOS = [
 
   // --- motion ---
   { group: 'motion', href: '/transitions/', title: 'Live view transitions', blurb: 'Shatter, fold, burn or morph between two states that are both live DOM. Stop half way and press a button riding a shard.', tags: ['texElementSubImage2D', 'updateElementGeometry'] },
+  { group: 'motion', href: '/view-transitions/', title: 'View Transitions API with HTML-in-canvas', blurb: 'A canvas that draws HTML inside <code>startViewTransition()</code>: which element can carry a name, a shader in place of the cross-fade, and a transition between two documents.', tags: ['startViewTransition', 'view-transition-name', '@view-transition'] },
   { group: 'motion', href: '/time-scrubber/', title: 'Time scrubber', blurb: 'A ring buffer of DOM frames. Scrub the interface back in time, leave motion trails, and restore a past moment, form values included.', tags: ['ElementImage', 'changedElements'] },
   { group: 'motion', href: '/particles/', title: 'Typography as particles', blurb: 'Text explodes into glyph particles and reassembles while staying selectable, searchable, linked and editable. No spans.', tags: ['Range rects', 'WebGL instancing'] },
 
