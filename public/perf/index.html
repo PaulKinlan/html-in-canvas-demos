@@ -27,6 +27,8 @@
   #wall td.wall { font-weight: 700; }
   #wall tr.group td { text-align: left; font-weight: 600; background: color-mix(in srgb, var(--fg) 5%, transparent); }
   h2 small { font: 13px var(--mono); color: var(--muted); font-weight: 400; margin-left: 8px; }
+  #tier { font-size: 14px; min-height: 3em; }
+  table.lat td.num { font: 13px var(--mono); white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -70,9 +72,61 @@
     A row stops at the first count under half the refresh rate.
   </p>
 
+  <h2 id="latency-h">Latency: from a DOM change to the frame that shows it</h2>
+  <p>
+    The wall above measures frame rate. This measures delay. Each sample adds a line of text and reads when the browser presented it, from the element's
+    <a href="https://developer.mozilla.org/docs/Web/API/PerformanceElementTiming">Element Timing</a> entry.
+    The fixtures are drawn in the box at the top of the page.
+  </p>
+  <div class="tools">
+    <button id="lat" type="button">Measure latency (about 5 s)</button>
+    <button id="loaf" type="button">Measure long frames (about 15 s)</button>
+    <span id="latNow" class="note"></span>
+  </div>
+  <table class="results lat" id="latTable">
+    <thead><tr><th>Route</th><th>Median</th><th>Detail</th></tr></thead>
+    <tbody><tr><td colspan="3" class="note">Not run yet.</td></tr></tbody>
+  </table>
+  <h3>Where a long frame goes</h3>
+  <p class="note">
+    From <code>long-animation-frame</code> entries, which exist only for frames over 50 ms. The scene is a grid of small cells whose text all changes every frame.
+    The cell count doubles until plain DOM frames are that long, and the canvas then draws the same grid.
+  </p>
+  <table class="results lat" id="loafTable">
+    <thead><tr><th>Scene</th><th>Frame</th><th>Script</th><th>Style, layout, paint</th><th>After the main thread</th><th>Detail</th></tr></thead>
+    <tbody><tr><td colspan="6" class="note">Not run yet.</td></tr></tbody>
+  </table>
+  <details class="show-code">
+    <summary>Show the code <small>latency, long frames and the device tier</small></summary>
+    <ol>
+      <li data-code="/perf/latency.js#change"><b>The change being timed.</b> A new element with an <code>elementtiming</code> attribute.</li>
+      <li data-code="/perf/latency.js#latency-2d"><b>2D canvas: compare the time of the <code>paint</code> event with the presentation time.</b></li>
+      <li data-code="/perf/latency.js#latency-never"><b>A canvas that draws nothing still gets an entry.</b></li>
+      <li data-code="/perf/latency.js#latency-worker"><b>Worker: snapshot in the paint event, draw in the worker, report on the epoch clock.</b></li>
+      <li data-code="/perf/latency-worker.js"><b>The latency worker.</b></li>
+      <li data-code="/perf/latency.js#frames"><b>Long frames: split each entry at <code>renderStart</code>, <code>styleAndLayoutStart</code> and <code>presentationTime</code>.</b></li>
+      <li data-code="/lib/device-tier.js#tier"><b>The device tier: <code>navigator.cpuPerformance</code>, or cores and memory.</b></li>
+      <li data-code="/lib/device-tier.js#gpu"><b>Software WebGPU adapter check.</b></li>
+    </ol>
+  </details>
+
+  <h2>Device tier</h2>
+  <p id="tier" class="note"></p>
+  <div class="tools"><button id="gpu" type="button">Check the WebGPU adapter</button> <span id="gpuNow" class="note">Asks for an adapter and no device.</span></div>
+
   <h2>Reading the result</h2>
   <ul class="findings" id="reading">
     <li>Run it to see what this device does.</li>
+  </ul>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>A 2D canvas adds no frame of delay.</strong> In Chromium 157 the <code>paint</code> event that draws a change runs in the same frame that paints the changed element, before that frame is presented.</li>
+    <li><strong>Element Timing does not tell you the canvas drew anything.</strong> An entry with a <code>presentationTime</code> arrives for a canvas child even when the paint handler never draws it. The time is when the element's picture was painted.</li>
+    <li><strong>A worker canvas draws the snapshot within a few milliseconds.</strong> The snapshot is taken in the paint event of the same frame as the change and the worker draws it on its next frame: a median of 3 ms after the change in the test browser. When the worker's frame reaches the screen cannot be read from the page.</li>
+    <li><strong>The canvas's extra cost in a long frame comes after the main thread.</strong> With a grid of 16,000 cells, the main-thread part of the frame was 115 ms as plain DOM and 108 ms in a canvas. The time from the end of the frame to its presentation was 4 ms as plain DOM and 61 ms in a canvas. <code>drawElementImage()</code> itself took 3.8 ms.</li>
+    <li><strong>The <code>paint</code> handler is not listed in a long frame's <code>scripts</code>.</strong> Only the <code>requestAnimationFrame</code> callback is.</li>
+    <li><strong>Open:</strong> the numbers above are from a headless desktop browser with software rendering. A phone's numbers come from the two buttons. Chromium 157 has no separate style and layout durations on the entry; the table shows them when the browser provides them.</li>
   </ul>
 
   <h2>What the rows mean</h2>
@@ -88,6 +142,8 @@
 <script type="module">
   import { banner, nav, supported } from '/shared/support.js';
   import { canvasState } from '/lib/a11y-audit.js';
+  import { deviceTier, softwareGpu } from '/lib/device-tier.js';
+  import { measureLatency, measureFrames } from '/perf/latency.js';
   const flagBlank = (state) => {
     const el = document.getElementById('blankNote');
     el.hidden = false;
@@ -370,15 +426,51 @@
     }
     if (r['worker-m-c100'] && r['2d-m-c100']) out.push(`<strong>Where it does not:</strong> when every element changes every frame the worker needs a fresh snapshot of each one from the main thread (wall ${wall('worker-m-c100') || '< 10'}) and has no advantage over drawing directly (wall ${wall('2d-m-c100') || '< 10'}).`);
     if (r['2d-s'] && r['2d-l']) out.push(`<strong>Size matters less than count on the main thread:</strong> wall of ${wall('2d-s') || '< 10'} small chips, ${wall('2d-m') || '< 10'} cards, ${wall('2d-l') || '< 10'} large panels.`);
+    if (r['2d-m']) out.push(`<strong>Device tier against the wall:</strong> <code>deviceTier()</code> said ${tier.tier} (from ${tier.source}) and the main-thread canvas held ${wall('2d-m') || 'fewer than 10'} cards. Paste both numbers from a few devices into an issue to tune the tiers.`);
     if (!out.length) out.push('No complete rows yet.');
     $('#reading').innerHTML = out.map((t) => `<li>${t}</li>`).join('');
   }
+
+  // ---- device tier: read before anything is drawn ----
+  const tier = deviceTier();
+  const inp = tier.inputs;
+  $('#tier').innerHTML = `Tier <strong>${tier.tier}</strong>, from ${tier.source}. <code>navigator.cpuPerformance</code> is ${inp.cpuPerformance ?? 'not in this browser'}, ${inp.cores ?? '?'} cores, ${inp.memoryGB ?? '?'} GB device memory. <code>deviceTier()</code> would pick a ${tier.quality.mesh} by ${tier.quality.mesh} mesh, ${tier.quality.blurTaps} blur taps, ${tier.quality.fps} fps${tier.quality.shaders ? '' : ' and no shaders'}. Run the wall to see whether the tier matches what this device does.`;
+  $('#gpu').onclick = async () => {
+    const g = await softwareGpu();
+    $('#gpuNow').textContent = !g.webgpu ? `No WebGPU adapter here (${g.detail}).` : `WebGPU adapter: ${g.detail || 'no description'}. isFallbackAdapter is ${g.fallback === null ? 'not reported' : g.fallback}.${g.fallback ? ' It is a software adapter, so a 2D or WebGL route will be faster.' : ''}`;
+    window.__gpu = g;
+  };
+
+  // ---- latency and long frames ----
+  const busy = (on) => { for (const id of ['quick', 'full', 'lat', 'loaf']) $('#' + id).disabled = on || !supported; };
+  const ms = (x) => (x == null || !Number.isFinite(x) ? 'no result' : `${x.toFixed(1)} ms`);
+  $('#lat').onclick = async () => {
+    busy(true);
+    const body = $('#latTable tbody'); body.replaceChildren();
+    $('#latNow').textContent = 'Measuring…';
+    const rows = await measureLatency(stage, {
+      onRow(r) { body.insertAdjacentHTML('beforeend', `<tr><td>${r.label}</td><td class="num">${ms(r.ms)}</td><td>${r.detail}${r.samples ? ` <span class="note">Samples: ${r.samples.map((x) => (Number.isFinite(x) ? x.toFixed(0) : '?')).join(', ')} ms.</span>` : ''}</td></tr>`); },
+    });
+    $('#latNow').textContent = `Done. One frame on this display is ${(1000 / (refresh || 60)).toFixed(1)} ms.`;
+    window.__latency = rows;
+    busy(false);
+  };
+  $('#loaf').onclick = async () => {
+    busy(true);
+    const body = $('#loafTable tbody');
+    const r = await measureFrames(stage, { onStatus: (t) => ($('#latNow').textContent = `Measuring: ${t}`) });
+    if (r.error) body.innerHTML = `<tr><td colspan="6">${r.error}</td></tr>`;
+    else body.innerHTML = r.rows.map((x) => `<tr><td>${x.kind === 'dom' ? 'Plain DOM' : '2D canvas'}, ${x.n} cells</td><td class="num">${ms(x.total)}</td><td class="num">${ms(x.script)}</td><td class="num">${ms(x.render)}${x.split ? ` (style ${ms(x.split.style)}, layout ${ms(x.split.layout)})` : ''}</td><td class="num">${ms(x.after)}</td><td>${x.long} long frames of 12. ${x.perFrame.toFixed(0)} ms from one requestAnimationFrame to the next.${x.kind === 'dom' ? '' : ` drawElementImage() took ${x.handlerMs.toFixed(1)} ms per frame.`}</td></tr>`).join('');
+    $('#latNow').textContent = 'Done.';
+    window.__frames = r;
+    busy(false);
+  };
 
   $('#quick').onclick = () => run('quick');
   $('#full').onclick = () => run('full');
   $('#stop').onclick = () => (stopFlag = true);
   $('#copy').onclick = async () => {
-    await navigator.clipboard.writeText(JSON.stringify({ when: new Date().toISOString(), userAgent: navigator.userAgent, devicePixelRatio, cores: navigator.hardwareConcurrency, refresh, results }, null, 2));
+    await navigator.clipboard.writeText(JSON.stringify({ when: new Date().toISOString(), userAgent: navigator.userAgent, devicePixelRatio, cores: navigator.hardwareConcurrency, tier, refresh, results, latency: window.__latency ?? null, frames: window.__frames ?? null }, null, 2));
     now.textContent = 'Copied.';
   };
 

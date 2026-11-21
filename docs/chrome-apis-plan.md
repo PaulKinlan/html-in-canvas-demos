@@ -214,6 +214,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 17. Latency from DOM change to canvas pixels, and a device tier
 
+- **Built:** [/perf/#latency-h](https://html-in-canvas.page/perf/#latency-h)
 - **Shows:** New rows for the performance wall: time from a DOM change to presentation for plain DOM against a canvas-drawn element, style and layout time per frame from Long Animation Frames, and effect quality chosen from the CPU Performance API before the first frame.
 - **Build:** elementtiming attributes on canvas children, a PerformanceObserver for element and long-animation-frame entries, navigator.cpuPerformance for the tier.
 - **Measured:** Element Timing entries with presentationTime are reported for text and an image inside a drawable canvas (Chromium 153 and 157).
