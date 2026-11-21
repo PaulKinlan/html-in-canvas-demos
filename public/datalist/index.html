@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A datalist drawn by a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  /* #region css */
+  /* The popover takes its colours from the input it belongs to. */
+  .fields input[type="text"], .fields input:not([type]) {
+    font: inherit; min-height: 44px; width: 100%; box-sizing: border-box;
+    padding: 6px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--fg);
+  }
+  .placed-popover { --picker-bg: var(--card); --picker-ink: var(--fg); --picker-accent: var(--accent); font-size: 15px; }
+  /* Options are styled like any other element. The canvas draws whatever they look like. */
+  /* An option in a datalist draws only its text, so the swatch is a pseudo-element. */
+  #colours option::before { content: ""; display: inline-block; vertical-align: -4px; margin-right: 8px; width: 18px; height: 18px; border-radius: 5px; border: 1px solid #0003; background: var(--swatch); }
+  #colours option::after { font-family: var(--mono); }
+  /* #endregion css */
+
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  .field { display: grid; gap: 4px; align-content: start; font-size: 14px; }
+  .field b { font-size: 15px; }
+  .field small { color: var(--muted); }
+  output.form-data { display: block; margin-top: 14px; font: 13px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; min-height: 3em; }
+  .canvas-note:empty { display: none; }
+  .canvas-note { color: var(--muted); font-size: 14px; }
+  #zoomBox { max-width: 460px; }
+  #zoomText { font-family: var(--mono); color: var(--muted); }
+  #sample { margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; height: 76px; line-height: 1.3; }
+  #tilt { display: block; width: 100%; height: 150px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  #tilted-box { box-sizing: border-box; width: 250px; padding: 12px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); display: grid; gap: 6px; font-size: 14px; }
+  #tilted-box input { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); min-width: 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A <code>&lt;datalist&gt;</code> drawn by a canvas</h1>
+  <p class="lede">
+    The suggestions of <code>&lt;input list&gt;</code> appear in a popup that the browser draws. It has no pseudo-element, it ignores CSS, and
+    it shows only each option's <code>value</code> and <code>label</code>. This page asks how much of a datalist a canvas can draw.
+    The built-in popup is out of reach, but the <code>&lt;datalist&gt;</code> element and its options are ordinary elements, so they can be
+    put in a canvas and drawn there.
+  </p>
+
+  <h2 id="suggest">Suggestions drawn one option at a time</h2>
+  <p>
+    Each field below is an <code>&lt;input list&gt;</code> with a <code>&lt;datalist&gt;</code>. A script moves the datalist into a canvas inside a
+    popover and removes the input's <code>list</code> attribute, which stops the built-in popup. Type in a field: options that stop matching fade
+    out and the rest move into the gaps. The arrow keys, Enter and Escape work as they do with a built-in datalist.
+  </p>
+  <!-- #region markup -->
+  <form id="tripForm" class="fields">
+    <label class="field"><b>Station</b>
+      <input name="station" list="stations" picker="list" placeholder="Type a station" enterkeyhint="done">
+      <small>A list. The highlight behind the active row is drawn by the canvas.</small>
+    </label>
+    <label class="field"><b>Ingredient</b>
+      <input name="ingredient" list="ingredients" picker="chips" placeholder="Type an ingredient" enterkeyhint="done">
+      <small>The same kind of datalist laid out as wrapping pills.</small>
+    </label>
+    <label class="field"><b>Colour</b>
+      <input name="colour" list="colours" picker="list" placeholder="Type a colour name" enterkeyhint="done">
+      <small>Each option has a swatch, drawn by <code>::before</code>, and a hex code.</small>
+    </label>
+    <datalist id="stations"></datalist>
+    <datalist id="ingredients"></datalist>
+    <datalist id="colours"></datalist>
+  </form>
+  <!-- #endregion markup -->
+  <output id="trip" class="form-data"></output>
+  <p class="canvas-note" id="suggestNote"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>a datalist in a popover canvas</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Write an input with a datalist and add <code>picker="list"</code> or <code>picker="chips"</code>.</b> Without the library, or without HTML-in-canvas, this is a normal datalist.</li>
+      <li data-code="#page"><b>Load the library.</b> The page script only fills the three datalists with <code>&lt;option value label&gt;</code> elements.</li>
+      <li data-code="/lib/datalist-picker.js#takeover"><b>Inside the library: stop the built-in popup and move the datalist into a canvas.</b> The canvas is in a <code>popover="manual"</code> element positioned next to the input with CSS anchor positioning.</li>
+      <li data-code="/lib/datalist-picker.js#filter"><b>Decide which options match.</b></li>
+      <li data-code="/lib/datalist-picker.js#layouts"><b>A layout gives each matching option a place.</b></li>
+      <li data-code="/lib/placed-popover.js#draw"><b>Each frame, move every option a little towards its place and draw it.</b> <code>drawElementImage()</code> also moves the option's hit box, so a tap lands on the option that is drawn there.</li>
+      <li data-code="/lib/datalist-picker.js#keys"><b>The keyboard.</b> The browser's datalist keyboard handling went away with the <code>list</code> attribute, so this part is written by hand.</li>
+      <li data-code="/lib/datalist-picker.js#choose"><b>Choosing an option</b> sets the input's value and fires <code>input</code> and <code>change</code>.</li>
+    </ol>
+  </details>
+
+  <h2 id="range">Labels for the ticks of a range input</h2>
+  <p>
+    <code>&lt;input type="range" list&gt;</code> draws a tick mark for each option of its datalist and nothing else: the option's label is never shown.
+    Here the range input and its datalist are both children of one canvas. The canvas draws the input, then draws each
+    <code>&lt;option&gt;</code> under its tick, larger when the thumb is near. The labels are the real options. Tap one to jump to its value.
+  </p>
+  <!-- #region range-markup -->
+  <div id="zoomBox">
+    <input id="zoom" type="range" min="12" max="28" step="1" value="16" list="zooms" aria-label="Text size">
+    <datalist id="zooms">
+      <option value="12">Small</option>
+      <option value="16">Normal</option>
+      <option value="20">Large</option>
+      <option value="24">Larger</option>
+      <option value="28">Huge</option>
+    </datalist>
+  </div>
+  <!-- #endregion range-markup -->
+  <p id="sample"><span id="zoomText">16px</span> The quick brown fox jumps over the lazy dog.</p>
+  <p class="canvas-note" id="rangeNote"></p>
+  <details class="show-code">
+    <summary>Show the code <small>datalist options as tick labels</small></summary>
+    <ol>
+      <li data-code="#range-markup"><b>A range input with a datalist.</b> The text inside each option is the label.</li>
+      <li data-code="#range-page"><b>One line in the page.</b></li>
+      <li data-code="/lib/datalist-picker.js#range-labels"><b>Inside the library: both elements go into a canvas, which draws the input and then every option.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="native">The built-in popup, with the input drawn in a canvas</h2>
+  <p>
+    This input keeps its <code>list</code> attribute and is drawn rotated by a canvas. Type in it. The expected result, by analogy with
+    <a href="/select/#in-canvas">a select in a canvas</a>, is that the built-in popup opens upright next to the bounding box of the rotated
+    input, and is not part of what the canvas draws. The test browser used for this page runs without a window and never shows that popup, so
+    this is not confirmed.
+  </p>
+  <canvas id="tilt" content="drawable" layoutsubtree>
+    <div id="tilted-box" drawable>
+      <label for="tilted">Built-in datalist</label>
+      <input id="tilted" list="fruit" placeholder="Type a fruit">
+      <datalist id="fruit"><option value="Apple"><option value="Apricot"><option value="Banana"><option value="Blackcurrant"><option value="Cherry"><option value="Damson"></datalist>
+    </div>
+  </canvas>
+  <p class="canvas-note" id="tiltNote"></p>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings" id="findingsList">
+    <li><strong>The built-in datalist popup cannot be drawn or styled.</strong> It is not an element, it has no pseudo-element like <code>::picker(select)</code>, and <code>appearance: base-select</code> does nothing for it. Everything on this page works by replacing it.</li>
+    <li><strong>A <code>&lt;datalist&gt;</code> can be displayed and drawn.</strong> Its default style is <code>display: none</code>. With <code>display: block</code> inside a canvas, each <code>&lt;option drawable&gt;</code> in it can be passed to <code>drawElementImage()</code>, although the options are grandchildren of the canvas. Without the <code>drawable</code> attribute on the option the call throws.</li>
+    <li><strong>An option in a datalist shows only text.</strong> <code>&lt;option&gt;Leeds &lt;small&gt;LDS&lt;/small&gt;&lt;/option&gt;</code> parses and keeps the <code>&lt;small&gt;</code> in the DOM, but the option renders its label as plain text: the <code>&lt;small&gt;</code> has no box and <code>checkVisibility()</code> is false. Only options in a select with <code>appearance: base-select</code> render their children. <code>display</code> on the option also stays <code>block</code> whatever the page sets. <code>::before</code> and <code>::after</code> do render, so the hex codes and swatches above are pseudo-elements.</li>
+    <li><strong>The typed letters cannot be marked inside an option.</strong> The CSS Custom Highlight API needs a range in rendered text. The text an option shows is in the browser's internal tree, not in the option's own text node, so a highlight on the text node paints nothing.</li>
+    <li><strong>Hit testing follows the drawing.</strong> <code>elementFromPoint()</code> at a drawn option returns that option, <code>:hover</code> applies, and a click reaches it. Options that are filtered out are moved away with <code>updateElementGeometry()</code>.</li>
+    <li><strong>Removing <code>list</code> removes everything the browser did.</strong> There is no way to keep the built-in keyboard handling and replace only the popup. Arrow keys, Enter, Escape, filtering and the <code>role="combobox"</code> wiring are rewritten in about 60 lines.</li>
+    <li><strong>An <code>&lt;option&gt;</code> in a datalist cannot take focus.</strong> The active suggestion is tracked with <code>aria-activedescendant</code> on the input, and focus never leaves the input, so the on-screen keyboard stays open on a phone.</li>
+    <li><strong>A range input draws its ticks when it is drawn in a canvas.</strong> The tick marks from the datalist are part of the input's picture. The labels are extra elements drawn by the canvas at positions the page works out from <code>min</code>, <code>max</code> and the thumb width, because the input does not report where its ticks are.</li>
+    <li><strong>Not verified on real hardware.</strong> These results are from Chromium 157 driven by Playwright with a mouse and emulated touch. The built-in popup of the rotated input was not observed. The position of the suggestions above an on-screen keyboard has not been tried on a phone.</li>
+  </ul>
+
+  <h2 id="ideas">More to try with a datalist</h2>
+  <ul class="ideas">
+    <li><strong>Suggestions as a shader.</strong> Draw the popover with WebGL and blur or dim the options by how badly they match, with the fx library from <a href="/fx/">/fx/</a>.</li>
+    <li><strong>Suggestions inline, after the caret.</strong> Draw the best option directly after the typed text inside the input's box, as ghost text, with the input itself drawn in the same canvas.</li>
+    <li><strong>A datalist for <code>&lt;input type="color"&gt;</code> and <code>type="date"</code>.</strong> Both accept <code>list</code> for suggested values. The same takeover would give a palette or a row of suggested dates. See <a href="/inputs/">/inputs/</a> for date and time pickers drawn by a canvas.</li>
+    <li><strong>Rich suggestions.</strong> Replace the datalist with a customisable select that has no button, so its options render their children, and drive it from the input. That would allow a canvas or an image in each suggestion.</li>
+    <li><strong>A two-dimensional datalist.</strong> Place the options by meaning, for example cities on a map or colours on a wheel, and move the view to the matches as the person types.</li>
+  </ul>
+
+  <h2 id="checks">Live checks</h2>
+  <p class="note">These run on test inputs in a panel at the bottom of the window, not on the fields above. They wait for a tap because they open test pickers on top of the page.</p>
+  <table class="results"><tbody id="results"></tbody></table>
+</main>
+
+<!-- #region page -->
+<script type="module" src="/lib/datalist-picker.js"></script>
+<!-- #endregion page -->
+<script type="module">
+  import { banner, supported } from '/shared/support.js';
+  import { DatalistPicker, RangeLabels } from '/lib/datalist-picker.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+
+  // #region page
+  const fill = (id, rows) => {
+    for (const [value, label] of rows) {
+      const option = document.createElement('option');
+      option.value = value;
+      if (label) option.label = label;
+      if (id === 'colours') option.style.setProperty('--swatch', label);
+      $(id).append(option);
+    }
+  };
+  fill('stations', [
+    ['Aberdeen', 'ABD'], ['Bath Spa', 'BTH'], ['Birmingham New Street', 'BHM'], ['Brighton', 'BTN'], ['Bristol Temple Meads', 'BRI'],
+    ['Cambridge', 'CBG'], ['Cardiff Central', 'CDF'], ['Carlisle', 'CAR'], ['Crewe', 'CRE'], ['Darlington', 'DAR'], ['Derby', 'DBY'],
+    ['Durham', 'DHM'], ['Edinburgh Waverley', 'EDB'], ['Exeter St Davids', 'EXD'], ['Glasgow Central', 'GLC'], ['Inverness', 'INV'],
+    ['Lancaster', 'LAN'], ['Leeds', 'LDS'], ['Leicester', 'LEI'], ['Liverpool Lime Street', 'LIV'], ['London Euston', 'EUS'],
+    ['London Kings Cross', 'KGX'], ['London Paddington', 'PAD'], ['Manchester Piccadilly', 'MAN'], ['Newcastle', 'NCL'], ['Norwich', 'NRW'],
+    ['Nottingham', 'NOT'], ['Oxford', 'OXF'], ['Penzance', 'PNZ'], ['Plymouth', 'PLY'], ['Preston', 'PRE'], ['Reading', 'RDG'],
+    ['Sheffield', 'SHF'], ['Southampton Central', 'SOU'], ['Swansea', 'SWA'], ['York', 'YRK'],
+  ]);
+  fill('ingredients', [
+    'Anchovy', 'Aubergine', 'Basil', 'Bay leaf', 'Black pepper', 'Butter', 'Caper', 'Cardamom', 'Carrot', 'Chilli', 'Cinnamon', 'Coriander',
+    'Cumin', 'Fennel', 'Garlic', 'Ginger', 'Leek', 'Lemon', 'Lime', 'Mint', 'Mustard', 'Nutmeg', 'Olive oil', 'Onion', 'Paprika', 'Parsley',
+    'Rosemary', 'Saffron', 'Sage', 'Shallot', 'Soy sauce', 'Thyme', 'Tomato', 'Turmeric',
+  ].map((name) => [name]));
+  fill('colours', [
+    ['Coral', '#ff7f50'], ['Crimson', '#dc143c'], ['Dark orange', '#ff8c00'], ['Gold', '#ffd700'], ['Khaki', '#f0e68c'], ['Olive', '#808000'],
+    ['Forest green', '#228b22'], ['Sea green', '#2e8b57'], ['Teal', '#008080'], ['Turquoise', '#40e0d0'], ['Steel blue', '#4682b4'],
+    ['Royal blue', '#4169e1'], ['Navy', '#000080'], ['Indigo', '#4b0082'], ['Orchid', '#da70d6'], ['Plum', '#dda0dd'], ['Hot pink', '#ff69b4'],
+    ['Sienna', '#a0522d'], ['Chocolate', '#d2691e'], ['Slate grey', '#708090'],
+  ]);
+  // #endregion page
+
+  const form = $('tripForm');
+  const showTrip = () => { $('trip').textContent = 'FormData: ' + new URLSearchParams(new FormData(form)).toString(); };
+  form.addEventListener('input', showTrip);
+  form.addEventListener('submit', (e) => e.preventDefault());
+  showTrip();
+
+  const pickers = [...form.querySelectorAll('input[picker]')].map((input) => DatalistPicker.for(input) ?? new DatalistPicker(input));
+  if (!supported) $('suggestNote').textContent = 'HTML-in-canvas is not available, so these three fields show the browser\'s own datalist popup.';
+  setInterval(() => {
+    const bad = pickers.find((p) => p.pop?.note);
+    if (bad) $('suggestNote').textContent = `The suggestions canvas reported: ${bad.pop.note}.`;
+  }, 2000);
+
+  // ---- Range labels ---------------------------------------------------------
+  const zoom = $('zoom');
+  const showZoom = () => { $('zoomText').textContent = `${zoom.value}px`; $('sample').style.fontSize = `${zoom.value}px`; };
+  zoom.addEventListener('input', showZoom);
+  showZoom();
+  // #region range-page
+  const labels = new RangeLabels(zoom);
+  // #endregion range-page
+  if (!supported) $('rangeNote').textContent = 'HTML-in-canvas is not available, so the slider shows its tick marks without labels.';
+  else labels.canvas.addEventListener('contextlost', () => { $('rangeNote').textContent = 'This canvas lost its context, so the slider is not drawn. Reload the page to draw it again.'; });
+
+  // ---- The built-in datalist on a rotated input -----------------------------
+  const tilt = $('tilt'), box = $('tilted-box');
+  if (supported) {
+    const ctx = tilt.getContext('2d');
+    new ResizeObserver(([entry]) => {
+      const size = entry.devicePixelContentBoxSize[0];
+      if (tilt.width !== size.inlineSize) tilt.width = size.inlineSize;
+      if (tilt.height !== size.blockSize) tilt.height = size.blockSize;
+      tilt.requestPaint();
+    }).observe(tilt, { box: 'device-pixel-content-box' });
+    tilt.onpaint = () => {
+      const dpr = tilt.width / tilt.clientWidth;
+      const w = box.offsetWidth, h = box.offsetHeight;
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      ctx.translate(tilt.clientWidth / 2, tilt.clientHeight / 2);
+      ctx.rotate(-0.14);
+      ctx.drawElementImage(box, -w / 2, -h / 2, w, h);
+    };
+    tilt.addEventListener('contextlost', () => { $('tiltNote').textContent = 'This canvas lost its context, so the input is not drawn. Reload the page to draw it again.'; });
+  } else {
+    $('tiltNote').textContent = 'HTML-in-canvas is not available, so the input is not drawn.';
+  }
+
+  window.__datalist = { pickers, labels }; // for tests
+</script>
+<script type="module" src="/datalist/checks.js"></script>
+</body>
+</html>

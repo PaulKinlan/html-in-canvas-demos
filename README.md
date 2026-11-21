@@ -50,10 +50,14 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
 | `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
+| `/select/` | `<select picker="wheel">`: a customisable select whose options are drawn by a canvas inside the picker (wheel, fisheye list, radial, 3D carousel, hand of cards, colour grid, helix); a canvas in the button; a canvas inside each option; a select drawn in a canvas |
+| `/datalist/` | `<input list picker="list">`: datalist suggestions drawn one option at a time by a canvas in a popover; datalist options as tick labels of a range input |
+| `/inputs/` | `<input type="time" picker="clock">`, `type="date" picker="calendar"`, `type="color" picker="swatches"`: pickers made of buttons in a canvas; every built-in form control drawn rotated in a canvas |
 | `/a11y/` | Accessibility audit: API probes, a pattern-by-pattern table (tree, focus order, find, selection, zoom), the same audit run over every demo, and a by-hand checklist |
 | `/capture/` | Any element or a whole page to PNG (up to print quality), video (MediaRecorder or frame-exact WebCodecs) or print with one call |
 | `/perf/` | Performance wall: how many live elements before frames drop; DOM vs 2D canvas vs worker |
 | `/transitions/` | `<live-transition>`: shatter, fold, burn, morph or your own fragment shader between two states that both stay live and clickable |
+| `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
 | `/selection/` | `<selection-fx>`: the canvas draws the highlight of selected text (2D and shader effects), plus measurements of what the browser paints for a selection in a canvas |
@@ -66,18 +70,24 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/xr/` | WebXR panels made of HTML, with controller rays, an on-panel keyboard and a built-in headset emulator (`?emulate=1`) |
 | `/slot-view/` | `<slot-view src name>`: a live piece of another site with no iframe box, consent on the providing side, input forwarded ([protocol](public/slot-view/PROTOCOL.md)) |
 | `/pip/` | `pipElement(el)`: picture-in-picture for any element, moved for real, as a live picture, or as a video |
+| `/video/` | A `<video controls>` with captions as a canvas child under a shader. What is drawn (frames, controls, `::cue`), and what is left out (cross-origin, encrypted) |
+| `/overlay/` | HTML over video in one canvas: recorded with sound, exported frame by frame with WebCodecs, sent over WebRTC |
+| `/audio/` | Web Audio band levels as CSS custom properties that drive a shader over a working `<audio>` card |
+| `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
+| `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
 ## Library
 
 - `public/lib/canvas-slot.js`: the `<canvas-slot>` element. `onrender = ({ ctx, draw, elements, time }) => …`; `worker="url"` for OffscreenCanvas mode.
+- `public/lib/video-export.js`: for a canvas that draws a `<video>` and HTML together. `recordCanvas(canvas, { ms, audioFrom })` (MediaRecorder with the video's sound), `exportFrames(canvas, { video, root, from, seconds, fps, audio })` (seeks the video and steps CSS animations one frame at a time, WebCodecs, WebM with Opus), `decodeSound(url)`, `loopback(stream)` (what a WebRTC peer receives). Test media is rebuilt with `tools/media/make.sh`.
 - `public/lib/slot-share.js`: `publish(canvasSlot)` and `<slot-mirror name>` to share slots over a MessagePort; `connectBroker()` introduces same-origin tabs through a SharedWorker (`broker.js`).
 - `public/lib/element-capture.js`: `captureElement(el, { scale })`, `capturePage({ full })`, `recordElement(el)`, `exportVideo(el, { fps })` (WebCodecs, frame by frame), `encodeFrames(frames)`, `printElement(el)`, `copyElement(el)`; `{ dpi: 300 }` for print-quality PNG. Works on elements that were never written for canvas.
 - `public/lib/a11y-audit.js`: `auditDocument(doc)` runs the accessibility checks from `/a11y/` on any same-origin document. Demos registered in `shared/demos.js` are audited automatically; `/a11y/?url=/path/` adds another page. `auditPattern(doc)` measures one pattern fixture; add a pattern in `public/a11y/patterns.js` and `pattern.html`.
 - `public/lib/live-transition.js`: `<live-transition>`. Children are states; `show(i, { effect, origin })`, or `begin(i)` then set `progress` to hold part way. Effects are functions in `LiveTransition.effects`. Or write your own blend: `LiveTransition.shaders.name = { glsl, pick? }`, where `glsl` is a `vec4 transition(vec2 uv)` in the gl-transitions convention (`getFromColor`, `getToColor`, `progress`, `ratio`), then `show(i, { effect: 'name' })`. Both states stay live inside the shader; `pick(x, y, p)` says which state the pointer reaches at a point. `backend="webgpu|webgl"` names a route (WebGPU when usable otherwise); a shader with a `wgsl` string beside `glsl` runs on both.
 - `public/lib/dom-rewind.js`: `<dom-rewind seconds trails>`. `place(el, { x, y, rotate })`, `seek(secondsAgo)`, `replay()`, `restore()`, `oncapture` / `onrestore` for app state. `for await (const { time, bitmap } of rw.frames({ seconds, fps }))` hands the recorded history back as ImageBitmaps for a video encoder. If the canvas context is lost, `<live-transition>` and `<dom-rewind>` show their children as plain HTML until it returns (`fallbackReason`, `showPlain(reason)`, `showCanvas()`, events `livefallback` / `rewindfallback`), as `<glyph-field>` already did.
-- `public/lib/glyph-field.js`: `<glyph-field pointer="repel" engine="2d|webgl|webgpu|auto">`. `explode()`, `rain()`, `vortex()`, `scatter()`, `assemble()`, `highlight(text)`.
+- `public/lib/glyph-field.js`: `<glyph-field pointer="repel" engine="2d|webgl|webgpu|auto">`. `explode()`, `rain()`, `vortex()`, `scatter()`, `assemble()`, `highlight(text)`. While letters are in flight the hit box follows the pointer, so a flying letter of a link can be hovered, clicked or tapped (`particleAt(x, y)` says which letter is under a point).
 - `public/lib/dom-portal.js`: `<dom-portal for="id" scale="0.5">` mirrors any element; `<dom-portal-source layer="top">` for sources inside clipping ancestors.
 - `public/lib/dom-lens.js`: `<dom-lens mode="magnify|glass|fisheye|…" zoom radius>` around any markup. The lenses are fragment shaders: GLSL in `public/lib/lens-gl.js` (`LENSES`) and WGSL in `public/lib/lens-gpu.js` (`WGSL`); add an entry to both to add a lens. WebGPU is used when it works, then WebGL, then 2D.
 - `public/shared/backend.js`: `pickBackend()` and `webgpu()` choose between WebGPU, WebGL and 2D for a page, and share one WebGPU device. WebGPU is only chosen with a real adapter that passes a self-test.
@@ -96,6 +106,10 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/live-card.js`: `<live-card src effect>` embeds a cross-origin card through a WebGL shader.
 - `public/lib/slot-view.js` and `public/lib/slot-provider.js`: the cross-site `<slot-view src name>` element and `provideSlots()` for the site being embedded.
 - `public/lib/element-pip.js`: `pipElement(el, { mode })` and `surfaceFor(el)`.
+- `public/lib/select-picker.js`: `<select picker="wheel|fisheye|radial|carousel|fan|grid|helix">`. Moves the options into a drawable canvas inside the select; the select keeps the value, keyboard and form entry. `new SelectPicker(select, { layout, backend, canvas })`, `choose(i)`, `close()`, `refresh()`; add a layout with `layouts.name = { size, place }`. The carousel and helix use WebGPU, WebGL 2, then 2D. `rollSelected(select)` draws `<selectedcontent>` with a canvas in the button.
+- `public/lib/placed-popover.js`: `new PlacedPopover({ anchor, items, size, place })`. A popover next to an element, holding a canvas that draws each item where `place(i)` says and eases it there when the answer changes. `under(ctx)` draws below the items. The base of the two libraries below.
+- `public/lib/datalist-picker.js`: `<input list picker="list|chips">`. Moves the `<datalist>` into a popover canvas and draws its options as the suggestions. `RangeLabels(input)` draws a range input's datalist options as tick labels.
+- `public/lib/input-pickers.js`: `<input type="time" picker="clock">`, `<input type="date" picker="calendar">`, `<input type="color" picker="swatches" list>`. Each picker is real buttons in a popover canvas.
 
 ## Worker
 
@@ -154,6 +168,15 @@ Then list the steps in the page:
 For rows of a results table that each run their own function, `window.showCode.block(fn, 'js', label)` returns a listing of that function's own text (see `rowCode` in `/transports/` and `/a11y/`).
 
 The slot pages use `shared/source-view.js` instead, which shows whole stand-alone example files.
+
+## Native UI proofs
+
+`/native-ui/` runs two WebAssembly apps whose sources are outside `public/`:
+
+- `native/egui-dom/` (Rust, egui 0.37). Build with `native/egui-dom/build.sh`. Needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` 0.2.130; `wasm-opt` is used if installed.
+- `native/qt-dom/` (C++, Qt Quick 6.10.3). Build with `QT=… EMSDK=… native/qt-dom/build.sh`. Needs Qt for WebAssembly (single-threaded), the matching desktop Qt and Emscripten 4.0.7.
+
+The build output is committed in `public/native-ui/egui/` and `public/native-ui/qt/`, because the deploy does not have these toolchains. Each build script also copies the sources next to the output for the page's code listings, so edit the files in `native/` and rebuild. The Qt binary is statically linked against the open-source edition of Qt (LGPL-3.0 and GPL-3.0); its complete source is `native/qt-dom/` plus Qt 6.10.3 from download.qt.io.
 
 ## Develop and deploy
 

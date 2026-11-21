@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parts of the native media player in a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .bar label { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .bar select { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; max-width: 100%; }
+  .stage { max-width: 640px; }
+  .say { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; }
+  .player { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; background: #000; }
+  .player video { display: block; width: 100%; height: 100%; }
+
+  /* #region themes */
+  /* The controls are elements in the video's own shadow tree. A page cannot select them as
+     elements, but each has a pseudo-element name. These rules are drawn into the canvas. */
+  .theme-ink video::-webkit-media-controls-panel { background: linear-gradient(transparent 55%, #0b1b3a 78%); }
+  .theme-ink video::-webkit-media-controls-timeline { accent-color: #ffd166; }
+  .theme-ink video::-webkit-media-controls-current-time-display,
+  .theme-ink video::-webkit-media-controls-time-remaining-display { color: #ffd166; font-family: ui-monospace, monospace; }
+  .theme-ink video::-webkit-media-controls-play-button { background-color: #d2491f; border-radius: 50%; }
+  .theme-ink video::cue { color: #ffd166; background: #0b1b3a; }
+
+  .theme-few video::-webkit-media-controls-panel { background: none; }
+  .theme-few video::-webkit-media-controls-current-time-display,
+  .theme-few video::-webkit-media-controls-time-remaining-display,
+  .theme-few video::-webkit-media-controls-fullscreen-button,
+  .theme-few video::-webkit-media-controls-mute-button,
+  .theme-few video::-webkit-media-controls-volume-control-container { display: none; }
+  .theme-few video::-webkit-media-controls-timeline { accent-color: #fff; }
+
+  .theme-big video::-webkit-media-controls { zoom: 1.5; }
+  /* #endregion themes */
+
+  /* #region state */
+  /* Two numbers the shader reads. CSS moves them when the player's state changes. */
+  #stateful { --fx-amount: 0; --fx-progress: 0; transition: --fx-amount .5s, --fx-progress .2s; }
+  /* Media state pseudo-classes. Each rule stands alone, so a browser without them drops only these. */
+  #stateful:has(video:paused) { --fx-amount: 1; }
+  #stateful:has(video:seeking) { --fx-progress: 1; }
+  #stateful:has(video:muted) .muted { display: block; }
+  /* The same three rules for browsers without the pseudo-classes: the page sets attributes from media events. */
+  #stateful[data-paused] { --fx-amount: 1; }
+  #stateful[data-seeking] { --fx-progress: 1; }
+  #stateful[data-muted] .muted { display: block; }
+  /* #endregion state */
+  #stateful .muted { display: none; position: absolute; left: 10px; top: 10px; padding: 3px 9px; border-radius: 6px; background: #c8102e; color: #fff; font: 600 13px system-ui; }
+
+  /* #region strip */
+  /* A <video> that shows only its controls: 80 px tall, the frame moved out of its box. */
+  #strip video { display: block; width: 100%; height: 80px; background: transparent; object-fit: none; object-position: -9999px 0; }
+  #strip video::-webkit-media-controls-panel { background: none; }
+  /* During playback Chrome fades the controls out. These two rules keep the panel and the timeline.
+     The row of buttons has no name a page can use, so it still fades until the pointer or a tap comes back. */
+  #strip video::-webkit-media-controls-panel,
+  #strip video::-webkit-media-controls-timeline { opacity: 1 !important; }
+  /* An <audio> element playing the same file. Its controls never fade. */
+  #astrip audio { display: block; width: 100%; height: 54px; }
+  #astrip audio::-webkit-media-controls-enclosure { border-radius: 0; }
+  #astrip audio::-webkit-media-controls-panel { background: #dfe3ec; }
+  /* #endregion strip */
+  #layers { display: block; width: 100%; border-radius: 10px; background: #14161c; touch-action: manipulation; }
+  #strip { background: #14161c; }
+  #astrip { background: #dfe3ec; }
+  #htmlbar { display: flex; gap: 8px; align-items: center; height: 80px; padding: 0 10px; box-sizing: border-box; background: #14161c; color: #fff; font: 14px system-ui; }
+  #htmlbar button { min-width: 64px; min-height: 44px; border: 0; border-radius: 8px; background: #2b3040; color: #fff; font: inherit; }
+  #htmlbar input { flex: 1; min-width: 0; accent-color: #ffd166; }
+  #htmlbar output { font: 13px ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Parts of the native media player in a canvas</h1>
+  <p class="lede">
+    Chrome builds the controls of <code>&lt;video&gt;</code> and <code>&lt;audio&gt;</code> as elements in a shadow tree that pages cannot open. This page tests what
+    a canvas can still do with them: restyle the parts, let the player's state drive a shader, and draw the controls apart from the picture.
+  </p>
+
+  <h2 id="restyle">1. Restyle the parts</h2>
+  <div class="bar">
+    <label>Controls
+      <select id="theme">
+        <option value="">Browser default</option>
+        <option value="theme-ink" selected>Recoloured panel, timeline, time and play button</option>
+        <option value="theme-few">Play, timeline and menu only</option>
+        <option value="theme-big">1.5× size</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="crt"> CRT shader</label>
+  </div>
+  <div class="stage">
+    <!-- #region markup -->
+    <div class="player theme-ink" id="themed" fx="none">
+      <video data-src="/media/clip.webm" controls muted playsinline loop preload="auto">
+        <track default kind="captions" srclang="en" label="English" src="/media/clip.vtt">
+      </video>
+    </div>
+    <!-- #endregion markup -->
+  </div>
+  <p class="note">Tap the video to show its controls. Everything in the picture is drawn into a canvas.</p>
+
+  <h2 id="state">2. The player's state drives a shader, in CSS</h2>
+  <div class="stage">
+    <div class="player" id="stateful" fx="player-state">
+      <video data-src="/media/clip.webm" controls muted playsinline loop autoplay preload="auto"></video>
+      <div class="muted">Muted</div>
+    </div>
+  </div>
+  <p class="say" id="stateSay" role="status"></p>
+  <p class="note">Pause it: the picture fades to grey over half a second. Drag the timeline: it turns to blocks while seeking. Unmute it: the label goes. No script changes the shader.</p>
+
+  <h2 id="layers-h">3. Controls and picture as two layers</h2>
+  <div class="bar">
+    <label>Controls
+      <select id="where">
+        <option value="under">Native, under the picture</option>
+        <option value="over">Native, over the picture</option>
+        <option value="big">Native, 1.5× size</option>
+        <option value="audio">Native, from an audio element</option>
+        <option value="html">Written in HTML</option>
+      </select>
+    </label>
+    <label>Picture
+      <select id="filter">
+        <option value="none">No filter</option>
+        <option value="blur(5px)">blur(5px)</option>
+        <option value="grayscale(1) contrast(1.4)">grayscale(1) contrast(1.4)</option>
+        <option value="hue-rotate(140deg) saturate(1.6)" selected>hue-rotate(140deg) saturate(1.6)</option>
+        <option value="invert(1)">invert(1)</option>
+      </select>
+    </label>
+  </div>
+  <div class="stage">
+    <!-- #region layers-markup -->
+    <canvas id="layers" content="drawable" layoutsubtree aria-label="Video with its controls drawn as a separate layer">
+      <div id="strip" drawable>
+        <video id="lv" data-src="/media/clip.webm" controls muted playsinline loop preload="auto"></video>
+      </div>
+      <div id="astrip" drawable style="display:none">
+        <audio id="la" data-src="/media/clip.webm" controls loop preload="metadata"></audio>
+      </div>
+      <div id="htmlbar" drawable style="display:none">
+        <button type="button" id="hPlay">Play</button>
+        <input type="range" id="hSeek" min="0" max="10" step="0.01" value="0" aria-label="Position">
+        <output id="hTime">0:00</output>
+        <button type="button" id="hMute">Unmute</button>
+      </div>
+    </canvas>
+    <!-- #endregion layers-markup -->
+  </div>
+  <p class="say" id="layerSay" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>player parts, state, layers</small></summary>
+    <ol>
+      <li data-code="#markup"><b>1. The markup.</b> A plain <code>&lt;video controls&gt;</code> in a <code>&lt;div fx&gt;</code>.</li>
+      <li data-code="#themes"><b>1. The rules that restyle the parts.</b></li>
+      <li data-code="#state"><b>2. State to shader, in CSS.</b> <code>:has(video:paused)</code> on the element that carries <code>fx</code> sets a custom property, and a transition moves it.</li>
+      <li data-code="#state-effect"><b>2. The effect that reads the two properties.</b></li>
+      <li data-code="#state-fallback"><b>2. The fallback when the browser has no media pseudo-classes.</b></li>
+      <li data-code="#layers-markup"><b>3. The markup.</b> The video is a child of the canvas, 80 px tall.</li>
+      <li data-code="#strip"><b>3. The CSS that leaves only the controls.</b></li>
+      <li data-code="#audio-strip"><b>3. An audio element as the control strip.</b> Its controls stay visible during playback. The video follows it.</li>
+      <li data-code="#layers"><b>3. The paint handler.</b> <code>drawImage(video)</code> draws the frame with a filter. <code>drawElementImage()</code> draws the controls, and sets where they take clicks.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The controls cannot be reached as elements. They can be reached with CSS: about twenty <code>::-webkit-media-controls-*</code> pseudo-elements, and <code>::cue</code> for captions. A canvas draws whatever those rules produce.</li>
+    <li>The state of the player is visible to CSS through <code>:paused</code>, <code>:seeking</code>, <code>:muted</code> and others where the browser has them. <code>:has()</code> carries that state to a parent, and a registered custom property carries it into a shader.</li>
+    <li>A canvas can get a video frame two ways: as part of the element's picture, with controls and captions, or bare with <code>drawImage(video)</code>. Part 3 uses the bare frame for the picture and reduces the element to its controls.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small canvas in a corner of the window. The players above are not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: pseudo-element rules are drawn.</strong> Background, colour, <code>accent-color</code>, <code>border-radius</code>, <code>display: none</code> and <code>zoom</code> on <code>::-webkit-media-controls-*</code> parts all show in the canvas, on <code>&lt;video&gt;</code> and <code>&lt;audio&gt;</code>, and the restyled controls keep working.</li>
+    <li><strong>Works behind a flag: state pseudo-classes.</strong> <code>:paused</code>, <code>:playing</code>, <code>:seeking</code>, <code>:muted</code>, <code>:buffering</code>, <code>:stalled</code> and <code>:volume-locked</code> are not valid selectors in Chromium 157 by default. With experimental web platform features on they work, and <code>:has(video:paused)</code> on a canvas child changes a custom property that the shader reads. <code>:picture-in-picture</code> and <code>:fullscreen</code> work without the flag. Without the pseudo-classes, event listeners that set three attributes give the same result.</li>
+    <li><strong>Works: the controls as their own layer.</strong> <code>object-position: -9999px 0</code> moves the frame out of the element's box and leaves the controls on a clear background. An 80 px tall <code>&lt;video&gt;</code> is then a control strip. The canvas draws the frame from <code>drawImage(video)</code> with any filter, and draws the strip anywhere, at any size. Hit testing follows the strip.</li>
+    <li><strong>Limit: no script access.</strong> <code>video.shadowRoot</code> is <code>null</code> and <code>attachShadow()</code> throws <code>NotSupportedError</code>. One part cannot be given <code>drawable</code>, measured, or drawn by itself. The page cannot ask where the play button is.</li>
+    <li><strong>Limit: nothing can be put inside.</strong> Children of <code>&lt;video&gt;</code> are not rendered, so a canvas or any HTML cannot sit among the controls. HTML over the video is a sibling in the same drawn element (see <a href="/overlay/">HTML overlays on video</a>).</li>
+    <li><strong>Limit: the controls stay inside the element's box.</strong> A transform on the panel that moves it below the video is clipped. To put controls outside the picture, shrink the element to the controls (part 3) instead of moving the controls.</li>
+    <li><strong>Limit: the buttons of a video fade during playback.</strong> After about three seconds of playback with no pointer over the video, Chrome fades the controls and then sets the panel to <code>display: none</code>. <code>opacity: 1 !important</code> on <code>::-webkit-media-controls-panel</code> and <code>::-webkit-media-controls-timeline</code> keeps the timeline. The row of buttons is <code>::-internal-media-controls-button-panel</code>, a name pages cannot use, so no rule keeps it. It comes back when the pointer moves over the strip or the strip is tapped.</li>
+    <li><strong>Works: an audio element as a control strip that never fades.</strong> The controls of <code>&lt;audio&gt;</code> stay visible. An audio element playing the same file, with a muted video that copies its play, pause, seek and speed, gives native controls under a picture the canvas draws. It has no fullscreen or captions button, and the two decoders need a drift correction.</li>
+    <li><strong>Limit: one element, one hit region.</strong> The control strip can be moved and scaled as a whole. Its buttons cannot be placed one by one.</li>
+    <li><strong>Native against HTML controls.</strong> Native controls bring the menu, captions switch, playback speed, Picture-in-Picture, keyboard and accessibility for no code, and can only be restyled part by part. Controls written in HTML take about 25 lines for play, seek, time and mute, can be laid out and drawn piece by piece, and have none of the rest until it is written.</li>
+    <li><strong>Not verified here:</strong> which state pseudo-classes Chrome 159 on Android has by default, and how the touch layout of the controls (larger buttons, double-tap to seek) fits an 80 px strip.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/shader-fx.js';
+  import { defineEffect } from '/lib/shader-fx.js';
+  import { banner, runTests, supported, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // A phone has few video decoders. Each player gets its file when it is scrolled near, and pauses when it leaves the window.
+  const near = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      for (const v of e.target.querySelectorAll('video')) {
+        if (e.isIntersecting && !v.src) v.src = v.dataset.src;
+        else if (!e.isIntersecting && !v.paused) v.pause();
+        else if (e.isIntersecting && v.autoplay && v.paused && !v.dataset.pausedByPerson) v.play().catch(() => {});
+      }
+    }
+  }, { rootMargin: '200px 0px' });
+  for (const stage of document.querySelectorAll('.stage')) near.observe(stage);
+  // A media error is written under its player, with a button that loads the file again.
+  const errorNames = { 1: 'aborted', 2: 'network', 3: 'decode', 4: 'source not supported' };
+  for (const media of document.querySelectorAll('.stage video, .stage audio')) {
+    media.addEventListener('error', () => {
+      const stage = media.closest('.stage');
+      let note = stage.nextElementSibling?.classList.contains('media-error') ? stage.nextElementSibling : null;
+      if (!note) {
+        note = document.createElement('p');
+        note.className = 'note media-error';
+        note.setAttribute('role', 'status');
+        stage.after(note);
+      }
+      const err = media.error;
+      note.textContent = `The ${media.localName} stopped with an error: ${errorNames[err?.code] ?? 'unknown'}${err?.message ? ` (${err.message})` : ''}. `;
+      const again = document.createElement('button');
+      again.type = 'button';
+      again.textContent = 'Load it again';
+      again.onclick = () => { note.remove(); media.src = media.dataset.src; media.load(); };
+      note.append(again);
+    });
+  }
+
+  // ---- 1. restyle ----
+  const themed = $('themed');
+  $('theme').onchange = () => (themed.className = `player ${$('theme').value}`);
+  $('crt').onchange = () => themed.setAttribute('fx', $('crt').checked ? 'crt' : 'none');
+
+  // ---- 2. state ----
+  // #region state-effect
+  // u_amount: 0 playing, 1 paused. u_progress: 1 while seeking.
+  defineEffect('player-state', {
+    glsl: `vec4 fx(vec2 p) {
+      float s = 1.0 + 15.0 * u_progress;
+      vec4 col = tex(u_progress > 0.01 ? (floor(p / s) + 0.5) * s : p);
+      float grey = dot(col.rgb, vec3(0.299, 0.587, 0.114));
+      col.rgb = mix(col.rgb, vec3(grey) * vec3(0.55, 0.6, 0.7), clamp(u_amount, 0.0, 1.0));
+      return col;
+    }`,
+    wgsl: `fn fx(p: vec2f) -> vec4f {
+      let s = 1.0 + 15.0 * u.progress;
+      let q = select(p, (floor(p / s) + 0.5) * s, u.progress > 0.01);
+      let col = tex(q);
+      let grey = dot(col.rgb, vec3f(0.299, 0.587, 0.114));
+      return vec4f(mix(col.rgb, vec3f(grey) * vec3f(0.55, 0.6, 0.7), clamp(u.amount, 0.0, 1.0)), col.a);
+    }`,
+  });
+  // #endregion state-effect
+
+  // #region state-fallback
+  const hasStateSelectors = CSS.supports('selector(:paused)') && CSS.supports('selector(:seeking)') && CSS.supports('selector(:muted)');
+  function mirrorState(video, host) {
+    const set = () => {
+      host.toggleAttribute('data-paused', video.paused);
+      host.toggleAttribute('data-seeking', video.seeking);
+      host.toggleAttribute('data-muted', video.muted);
+    };
+    for (const type of ['play', 'pause', 'seeking', 'seeked', 'volumechange']) video.addEventListener(type, set);
+    set();
+  }
+  if (!hasStateSelectors) mirrorState($('stateful').querySelector('video'), $('stateful'));
+  // #endregion state-fallback
+  $('stateSay').textContent = hasStateSelectors
+    ? 'This browser has :paused, :seeking and :muted. The CSS rules do all of it.'
+    : 'This browser does not have :paused, :seeking and :muted as selectors, so event listeners set data-paused, data-seeking and data-muted and the attribute rules apply.';
+
+  // ---- 3. layers ----
+  const canvas = $('layers'), strip = $('strip'), astrip = $('astrip'), bar = $('htmlbar'), lv = $('lv'), la = $('la');
+  const STRIP = 80;
+  // #region layers
+  function layout() {
+    const w = canvas.clientWidth, mode = $('where').value, scale = mode === 'big' ? 1.5 : 1;
+    const picture = Math.round((w * 9) / 16);
+    const controls = { html: bar, audio: astrip }[mode] ?? strip;
+    const stripHeight = (mode === 'audio' ? 54 : STRIP) * scale;
+    // The canvas is as tall as the picture plus the controls, except when the controls lie over the picture.
+    const height = picture + (mode === 'over' ? 0 : stripHeight);
+    canvas.style.height = `${height}px`;
+    const dpr = devicePixelRatio;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(height * dpr);
+    strip.style.display = controls === strip ? 'block' : 'none';
+    astrip.style.display = controls === astrip ? 'block' : 'none';
+    bar.style.display = controls === bar ? 'flex' : 'none';
+    lv.controls = controls === strip;
+    // At 1.5× the strip is laid out narrower and drawn enlarged, so it still spans the canvas.
+    controls.style.width = `${w / scale}px`;
+    return { w, picture, controls, stripHeight, dpr, top: mode === 'over' ? picture - STRIP : picture };
+  }
+  let at = null;
+  function paint() {
+    if (!at) return;
+    const ctx = canvas.getContext('2d');
+    const { w, picture, controls, stripHeight, dpr, top } = at;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // The bare frame: no controls, no captions, and any 2D filter.
+    if (lv.readyState >= 2) {
+      ctx.filter = $('filter').value;
+      ctx.drawImage(lv, 0, 0, w * dpr, picture * dpr);
+      ctx.filter = 'none';
+    }
+    // The controls: an element, drawn where and as large as this call says. Clicks follow it.
+    ctx.drawElementImage(controls, 0, top * dpr, w * dpr, stripHeight * dpr);
+  }
+  if (supported) {
+    canvas.addEventListener('paint', paint);
+    const relayout = () => { at = layout(); canvas.requestPaint(); };
+    new ResizeObserver(relayout).observe(canvas.parentElement);
+    $('where').onchange = relayout;
+    $('filter').onchange = () => canvas.requestPaint();
+    // The frame is not part of any drawn element now, so new frames do not invalidate the canvas by themselves.
+    const each = () => { canvas.requestPaint(); lv.requestVideoFrameCallback?.(each); };
+    lv.requestVideoFrameCallback?.(each);
+    for (const type of ['seeked', 'loadeddata']) lv.addEventListener(type, () => canvas.requestPaint());
+    // A tap on the picture plays or pauses. A tap on the controls goes to the controls.
+    // Chrome keeps the buttons showing during playback only while the video has focus, so the tap gives it focus.
+    canvas.addEventListener('click', (e) => {
+      if (e.target !== canvas) return;
+      const player = $('where').value === 'audio' ? la : lv;
+      player.paused ? player.play() : player.pause();
+    });
+  }
+  // #endregion layers
+  if (!supported) $('layerSay').textContent = 'HTML-in-canvas is not available, so the canvas above is empty.';
+
+  // #region audio-strip
+  // The audio element is the player the person operates. The muted video follows it and supplies the frames.
+  const led = () => $('where').value === 'audio';
+  la.addEventListener('play', () => led() && lv.play());
+  la.addEventListener('pause', () => led() && lv.pause());
+  la.addEventListener('ratechange', () => led() && (lv.playbackRate = la.playbackRate));
+  for (const type of ['seeking', 'seeked']) la.addEventListener(type, () => led() && (lv.currentTime = la.currentTime));
+  // Two decoders drift apart. Pull the video back when it is more than a tenth of a second out.
+  la.addEventListener('timeupdate', () => { if (led() && Math.abs(lv.currentTime - la.currentTime) > 0.1) lv.currentTime = la.currentTime; });
+  // #endregion audio-strip
+  $('where').addEventListener('change', () => {
+    la.pause();
+    lv.pause();
+    lv.playbackRate = 1;
+    if (led()) {
+      if (!la.src) la.src = la.dataset.src; // loaded only when this option is chosen
+      lv.muted = true;
+      la.currentTime = lv.currentTime;
+    }
+  });
+
+  // Controls written in HTML, for comparison.
+  const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  $('hPlay').onclick = () => (lv.paused ? lv.play() : lv.pause());
+  $('hMute').onclick = () => (lv.muted = !lv.muted);
+  $('hSeek').oninput = () => (lv.currentTime = +$('hSeek').value);
+  const sync = () => {
+    $('hPlay').textContent = lv.paused ? 'Play' : 'Pause';
+    $('hMute').textContent = lv.muted ? 'Unmute' : 'Mute';
+    if (Number.isFinite(lv.duration)) $('hSeek').max = lv.duration;
+    if (document.activeElement !== $('hSeek')) $('hSeek').value = lv.currentTime;
+    $('hTime').value = fmt(lv.currentTime);
+  };
+  for (const type of ['play', 'pause', 'timeupdate', 'volumechange', 'loadedmetadata', 'seeked']) lv.addEventListener(type, sync);
+  const explain = {
+    under: 'The <video> element is the 80 px strip under the picture. The picture is drawImage(video) with the filter.',
+    over: 'The same strip, drawn over the bottom of the picture. The filter does not reach it.',
+    big: 'The strip is laid out at two thirds of the width and drawn 1.5 times larger. Taps land on the enlarged buttons.',
+    audio: 'The controls belong to an <audio> element that plays the same file. They do not fade. The muted video follows its play, pause, seek and speed.',
+    html: 'The video has no controls attribute. A <div> with two buttons, a range input and an <output> is drawn instead.',
+  };
+  const say = () => { if (supported) $('layerSay').textContent = explain[$('where').value]; };
+  $('where').addEventListener('change', say);
+  say();
+
+  // ---- live checks: every one on its own fixture ----
+  const made = [];
+  // The fixture box lies over the bottom left of the window while checks run. It lets taps through, except for the moment a check asks what is at a point.
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const hitAt = (x, y) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { s.style.pointerEvents = 'none'; } };
+  function fixture(inner, { w = 320, h = 200, cls = '', draw = (ctx, el) => ctx.drawElementImage(el, 0, 0, w, h) } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = w; c.height = h;
+    c.style.cssText = `width:${w}px;height:${h}px;flex:none`;
+    c.innerHTML = `<div drawable class="${cls}" style="width:${w}px;height:${h}px;position:relative">${inner}</div>`;
+    quietStage().append(c);
+    const f = { c, el: c.firstElementChild, ctx: c.getContext('2d', { willReadFrequently: true }), paints: 0 };
+    f.media = f.el.querySelector('video, audio');
+    if (f.media) made.push(f.media);
+    c.addEventListener('paint', () => { f.paints++; f.ctx.clearRect(0, 0, w, h); draw(f.ctx, f.el); });
+    f.paint = () => new Promise((resolve) => { c.addEventListener('paint', () => resolve(), { once: true }); c.requestPaint(); });
+    return f;
+  }
+  const VIDEO = (attrs = '', inner = '') => `<video src="/media/clip.webm" muted playsinline loop controls preload="auto" ${attrs} style="display:block;width:320px;height:180px">${inner}</video>`;
+  /** A paused video with a frame, so its controls are showing. */
+  async function loaded(f) {
+    const m = f.media;
+    if (m.readyState < 2) await Promise.race([new Promise((r) => m.addEventListener('loadeddata', r, { once: true })), sleep(6000)]);
+    if (m.readyState < 2) throw new Error('the clip did not load');
+    await sleep(350);
+    await f.paint();
+  }
+  function count(ctx, test, x = 0, y = 0, w = ctx.canvas.width, h = ctx.canvas.height) {
+    const d = ctx.getImageData(x, y, w, h).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) n++;
+    return n;
+  }
+  const isGreen = (r, g, b) => r < 60 && g > 200 && b < 60;
+  const isBlue = (r, g, b) => r < 60 && g < 60 && b > 200;
+  const isMagenta = (r, g, b) => r > 200 && g < 60 && b > 200;
+  function withStyle(css, run) {
+    const style = document.createElement('style');
+    style.textContent = css;
+    document.head.append(style);
+    return Promise.resolve().then(run).finally(() => style.remove());
+  }
+  function release() {
+    for (const m of made.splice(0)) { try { m.pause(); m.removeAttribute('src'); m.load(); } catch {} }
+  }
+  const each = (tests) => tests.map((t) => ({ timeout: 12000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { release(); } } }));
+
+  runTests($('results'), [...each([
+    {
+      name: 'Rules on ::-webkit-media-controls-* parts are drawn',
+      why: 'A green panel, a magenta timeline and a blue play button, set with pseudo-elements. The check counts those colours in the canvas.',
+      run: () => withStyle(`.pp-a video::-webkit-media-controls-panel { background: #00ff00; }
+        .pp-a video::-webkit-media-controls-timeline { background: #ff00ff; }
+        .pp-a video::-webkit-media-controls-play-button { background-color: #0000ff; }`, async () => {
+        const f = fixture(VIDEO(), { cls: 'pp-a' });
+        await loaded(f);
+        const n = [count(f.ctx, isGreen), count(f.ctx, isMagenta), count(f.ctx, isBlue)];
+        if (n.some((v) => v < 100)) throw new Error(`green panel ${n[0]}, magenta timeline ${n[1]}, blue play button ${n[2]} pixels`);
+        return `panel ${n[0]}, timeline ${n[1]}, play button ${n[2]} pixels in the rule's colour`;
+      }),
+    },
+    {
+      name: 'The same rules work on <audio controls>',
+      why: 'A green panel on an audio element.',
+      run: () => withStyle('.pp-b audio::-webkit-media-controls-panel { background: #00ff00; }', async () => {
+        const f = fixture('<audio src="/media/clip.webm" controls preload="metadata" style="display:block;width:300px"></audio>', { cls: 'pp-b', h: 70 });
+        await sleep(400);
+        await f.paint();
+        const n = count(f.ctx, isGreen);
+        if (n < 1000) throw new Error(`${n} green pixels`);
+        return `${n} green pixels`;
+      }),
+    },
+    {
+      name: 'display: none on one part removes it from the picture',
+      why: 'The same paused video twice, once with the fullscreen and mute buttons hidden. The control rows must differ.',
+      run: () => withStyle(`.pp-c video::-webkit-media-controls-fullscreen-button, .pp-c video::-webkit-media-controls-mute-button { display: none; }`, async () => {
+        const a = fixture(VIDEO()), b = fixture(VIDEO(), { cls: 'pp-c' });
+        await loaded(a);
+        await loaded(b);
+        const white = (f) => count(f.ctx, (r, g, bl) => r > 230 && g > 230 && bl > 230, 160, 110, 160, 50);
+        const [wa, wb] = [white(a), white(b)];
+        if (wa - wb < 40) throw new Error(`${wa} white glyph pixels with all buttons, ${wb} with two hidden`);
+        return `${wa} white glyph pixels on the right of the control row with all buttons, ${wb} with two hidden`;
+      }),
+    },
+    {
+      name: 'Media state pseudo-classes reach a custom property through :has()',
+      why: ':has(video:paused) on the drawn element sets --state. Reports whether this browser has :paused, :playing, :seeking and :muted.',
+      run: async () => {
+        const names = [':paused', ':playing', ':seeking', ':muted', ':buffering', ':stalled', ':volume-locked', ':picture-in-picture'];
+        const have = names.filter((n) => CSS.supports(`selector(${n})`));
+        if (!have.includes(':paused')) throw new Error(`:paused is not a valid selector here. Supported of the eight tried: ${have.join(', ') || 'none'}. The page uses attributes set by events instead.`);
+        return withStyle('.pp-d:has(video:paused) { --state: 1; } .pp-d:has(video:playing) { --state: 2; }', async () => {
+          const f = fixture(VIDEO(), { cls: 'pp-d' });
+          await loaded(f);
+          const read = () => getComputedStyle(f.el).getPropertyValue('--state').trim();
+          const paused = read();
+          await f.media.play();
+          await sleep(200);
+          const playing = read();
+          if (paused !== '1' || playing !== '2') throw new Error(`--state was "${paused}" paused and "${playing}" playing`);
+          return `--state is 1 while paused and 2 while playing. Supported: ${have.join(', ')}`;
+        });
+      },
+    },
+    {
+      name: 'The frame can be moved out of the element, leaving the controls',
+      why: 'object-position: -9999px 0 on the video. Its picture must be clear where the frame was and still hold the control glyphs. drawImage(video) must still give the frame.',
+      run: () => withStyle('.pp-e video { background: transparent; object-fit: none; object-position: -9999px 0; } .pp-e video::-webkit-media-controls-panel { background: none; }', async () => {
+        const f = fixture(VIDEO(), { cls: 'pp-e' });
+        await loaded(f);
+        const clear = count(f.ctx, (r, g, b, a) => a === 0, 0, 0, 320, 100) / 32000;
+        const glyphs = count(f.ctx, (r, g, b, a) => a > 200, 0, 110, 320, 70);
+        const bare = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+        bare.canvas.width = 320; bare.canvas.height = 180;
+        bare.drawImage(f.media, 0, 0, 320, 180);
+        const frame = count(bare, (r, g, b) => r + g + b > 40, 0, 20, 320, 100) / 32000;
+        if (clear < 0.98) throw new Error(`${(clear * 100).toFixed(0)}% of the frame area is clear`);
+        if (glyphs < 150) throw new Error(`only ${glyphs} control pixels are left`);
+        if (frame < 0.5) throw new Error('drawImage(video) gave no frame');
+        return `${(clear * 100).toFixed(0)}% of the frame area is clear, ${glyphs} control pixels remain, and drawImage(video) still has the frame`;
+      }),
+    },
+    {
+      name: 'A control strip drawn at 1.5× takes hits where it is drawn',
+      why: 'A 200 by 64 px video with its frame moved out, drawn 300 by 96 px, 90 px down. elementFromPoint() is asked at the enlarged play button and above the strip.',
+      run: () => withStyle('.pp-f video { background: transparent; object-fit: none; object-position: -9999px 0; }', async () => {
+        const f = fixture('<video src="/media/clip.webm" muted playsinline controls preload="auto" style="display:block;width:200px;height:64px"></video>', {
+          cls: 'pp-f', w: 200, h: 64,
+          draw: (ctx, el) => ctx.drawElementImage(el, 0, 90, 300, 96),
+        });
+        f.c.width = 320; f.c.height = 200;
+        f.c.style.width = '320px'; f.c.style.height = '200px';
+        await loaded(f);
+        const box = f.c.getBoundingClientRect();
+        const onButton = hitAt(box.left + 24, box.top + 90 + 30);
+        const above = hitAt(box.left + 24, box.top + 40);
+        const r = f.media.getBoundingClientRect();
+        if (onButton !== f.media) throw new Error(`at the drawn play button: ${onButton ? `<${onButton.localName}>` : 'nothing'}`);
+        if (above === f.media) throw new Error('the video also takes hits above the strip');
+        return `the video's box is ${r.width.toFixed(0)}×${r.height.toFixed(0)} at y ${(r.top - box.top).toFixed(0)}; it is hit at the play button and not above the strip`;
+      }),
+    },
+    {
+      name: 'A script can reach the parts of the player',
+      expect: 'fail',
+      why: 'Records a limit: the controls are in a shadow tree the page cannot open, so no part can be marked drawable or measured.',
+      run: async () => {
+        const v = document.createElement('video');
+        v.controls = true;
+        let attach = 'attached';
+        try { v.attachShadow({ mode: 'open' }); } catch (err) { attach = err.name; }
+        if (v.shadowRoot === null || attach !== 'attached') throw new Error(`video.shadowRoot is ${v.shadowRoot === null ? 'null' : 'set'} and attachShadow() gave ${attach}`);
+        return 'the shadow tree is open';
+      },
+    },
+    {
+      name: 'HTML placed inside <video> is drawn',
+      expect: 'fail',
+      why: 'Records a limit: children of a video are fallback content and are not rendered, in or out of a canvas.',
+      run: async () => {
+        const f = fixture(VIDEO('', '<div style="position:absolute;inset:0;background:#ff00ff">inside</div>'));
+        await loaded(f);
+        const n = count(f.ctx, isMagenta);
+        if (n < 100) throw new Error(`${n} pixels of the child were drawn`);
+        return `${n} pixels of the child were drawn`;
+      },
+    },
+    {
+      name: 'The controls can be moved outside the video\'s box',
+      expect: 'fail',
+      why: 'Records a limit: a transform on the panel that moves it 40 px below the video. The canvas is checked below the video.',
+      run: () => withStyle('.pp-g video { overflow: visible; } .pp-g video::-webkit-media-controls-panel { background: #00ff00; transform: translateY(40px); }', async () => {
+        const f = fixture(VIDEO(), { cls: 'pp-g', h: 240 });
+        await loaded(f);
+        const inside = count(f.ctx, isGreen, 0, 0, 320, 180), below = count(f.ctx, isGreen, 0, 181, 320, 58);
+        if (below < 100) throw new Error(`${inside} panel pixels inside the video's box and ${below} below it: the panel is clipped to the box`);
+        return `${below} panel pixels below the box`;
+      }),
+    },
+  ]),
+  stillDrawn(() => [themed, $('stateful')].map((el) => ({
+    name: `player ${el.id}`,
+    ink: async () => { const s = el.closest('fx-surface'); return s?.ready ? inkFraction(await s.readback()) : null; },
+    note: 'not in a canvas',
+  }))),
+  ]);
+</script>
+</body>
+</html>
