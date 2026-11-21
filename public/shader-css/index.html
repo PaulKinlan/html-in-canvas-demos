@@ -36,7 +36,10 @@
 
   .play { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
   @media (max-width: 720px) { .play { grid-template-columns: 1fr; } }
-  #glsl { width: 100%; height: 210px; font: 12.5px/1.5 var(--mono); padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); resize: vertical; tab-size: 2; }
+  .play label { display: block; font: 600 12px var(--mono); color: var(--muted); margin: 10px 0 4px; }
+  #wgslError { font: 12px var(--mono); color: var(--bad); white-space: pre-wrap; min-height: 1.5em; }
+  #customRoute { font-size: 13px; color: var(--muted); min-height: 2.8em; margin: 0; }
+  #glsl, #wgsl { width: 100%; height: 180px; font: 12.5px/1.5 var(--mono); padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); resize: vertical; tab-size: 2; }
   #glslError { font: 12px var(--mono); color: var(--bad); white-space: pre-wrap; min-height: 1.5em; }
   #backends { font: 12px var(--mono); color: var(--muted); }
   #fixtures { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
@@ -140,10 +143,11 @@
 &lt;article class="card" fx="dissolve"&gt;Hover to burn&lt;/article&gt;</code></pre>
 
   <h2>Write your own</h2>
-  <p>An effect is one GLSL function. <code>p</code> is in CSS pixels from the element's top-left; <code>tex(p)</code> samples the element. Edit it: the card on the right updates as you type.</p>
+  <p>An effect is one function, written twice: in GLSL for WebGL and in WGSL for WebGPU. <code>p</code> is in CSS pixels from the element's top-left; <code>tex(p)</code> samples the element. Edit the one that is running (the line under the editors says which): the card updates as you type.</p>
   <div class="play">
     <div>
-      <textarea id="glsl" spellcheck="false" aria-label="GLSL for the custom effect">vec4 fx(vec2 p) {
+      <label for="glsl">GLSL, for WebGL</label>
+      <textarea id="glsl" spellcheck="false">vec4 fx(vec2 p) {
   // slide each row sideways on a sine wave
   float wave = sin(p.y * 0.08 + u_time * 3.0) * 6.0 * u_amount;
   vec4 col = tex(p + vec2(wave, 0.0));
@@ -153,6 +157,17 @@
   return col;
 }</textarea>
       <div id="glslError"></div>
+      <label for="wgsl">WGSL, for WebGPU</label>
+      <textarea id="wgsl" spellcheck="false">fn fx(p: vec2f) -> vec4f {
+  // slide each row sideways on a sine wave
+  let wave = sin(p.y * 0.08 + u.time * 3.0) * 6.0 * u.amount;
+  let col = tex(p + vec2f(wave, 0.0));
+  // tint towards the pointer
+  let glow = exp(-distance(p, u.pointer) / 60.0) * u.hover;
+  return vec4f(col.rgb + col.a * glow * vec3f(0.3, 0.1, 0.0), col.a);
+}</textarea>
+      <div id="wgslError"></div>
+      <p id="customRoute" role="status"></p>
     </div>
     <div class="tile">
       <!-- #region custom -->
@@ -162,7 +177,7 @@
         <input type="text" placeholder="Type here" aria-label="Type here">
       </div>
       <!-- #endregion custom -->
-      <code>defineEffect('custom', { animated: true, glsl })</code>
+      <code>defineEffect('custom', { animated: true, glsl, wgsl })</code>
     </div>
   </div>
 
@@ -170,14 +185,14 @@
     <summary>Show the code <small>your own effect</small></summary>
     <ol>
       <li data-code="#custom"><b>Use the name in <code>fx</code>.</b></li>
-      <li data-code="#custom-page"><b>Register a GLSL function under that name.</b> <code>glsl.value</code> is the text in the editor: a <code>vec4 fx(vec2 p)</code> that samples the element with <code>tex(p)</code>. Calling <code>defineEffect</code> again replaces it.</li>
+      <li data-code="#custom-page"><b>Register the function under that name, in GLSL and in WGSL.</b> <code>glsl.value</code> and <code>wgsl.value</code> are the text in the editors: a <code>vec4 fx(vec2 p)</code> and a <code>fn fx(p: vec2f) -&gt; vec4f</code> that sample the element with <code>tex(p)</code>. Leave <code>wgsl</code> out and the element is drawn with WebGL. Calling <code>defineEffect</code> again replaces it.</li>
       <li data-code="/lib/effects.js#ripple"><b>A built-in effect for comparison.</b></li>
     </ol>
   </details>
   <h2 id="how">How it works</h2>
   <ul class="findings">
     <li><strong>The attribute wraps the element.</strong> A MutationObserver finds <code>[fx]</code> and wraps the element in <code>&lt;fx-surface&gt;</code>, which slots it into a canvas the same size. Remove the attribute and it is unwrapped.</li>
-    <li><strong>WebGPU first.</strong> When the page has a usable WebGPU device (a real adapter that passes a self-test) and the effect has WGSL source, the canvas is WebGPU: <code>queue.drawElementImageToTexture()</code> uploads the DOM and one render pass draws it. Otherwise the surface uses WebGL, and the line under the cards says why. <code>fx-backend="webgpu|gl"</code> names a route by hand. A custom effect needs a <code>wgsl</code> string beside its <code>glsl</code> to run on WebGPU.</li>
+    <li><strong>WebGPU first.</strong> When the page has a usable WebGPU device (a real adapter that passes a self-test) and the effect has WGSL source, the canvas is WebGPU: <code>queue.drawElementImageToTexture()</code> uploads the DOM and one render pass draws it. Otherwise the surface uses WebGL, and the line under the cards says why. <code>fx-backend="webgpu|gl"</code> names a route by hand. A custom effect needs a <code>wgsl</code> string beside its <code>glsl</code> to run on WebGPU; the editor above has both. WGSL that does not compile is the effect's error, not WebGPU's: the element is drawn unshaded and stays on WebGPU.</li>
     <li><strong>Direct backend:</strong> the canvas is WebGL and <code>texElementSubImage2D()</code> uploads the DOM straight into a texture, only when the DOM repaints. One quad, one fragment shader.</li>
     <li><strong>Shared backend:</strong> browsers allow about 16 WebGL contexts per page, so after the first eight surfaces the rest use a 2D canvas: <code>drawElementImage()</code>, copy into one shared WebGL context, shade, draw back. Unlimited surfaces for two extra copies per frame.</li>
     <li><strong>CSS is the control surface.</strong> <code>--fx-progress</code> and <code>--fx-amount</code> are registered as numbers, so they transition and animate. The surface samples the computed value each frame and redraws only when a uniform changed.</li>
@@ -192,6 +207,8 @@
   // #region page
   import { FxSurface, defineEffect } from '/lib/shader-fx.js';
   // #endregion page
+  import { checkEffectWGSL } from '/lib/effects.js';
+  import { webgpu } from '/shared/backend.js';
   import { routeSwitch } from '/shared/route-switch.js';
   import { pictureDifference } from '/lib/gpu-util.js';
   import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn, supported } from '/shared/support.js';
@@ -214,17 +231,48 @@
   // #endregion page
 
   // #region custom-page
-  const glsl = $('glsl');
+  const glsl = $('glsl'), wgsl = $('wgsl');
+  let goodWGSL = wgsl.value;   // the last WGSL that compiled: a half-typed line must not take the card off WebGPU
   function compile() {
-    defineEffect('custom', { animated: true, glsl: glsl.value });
+    defineEffect('custom', { animated: true, glsl: glsl.value, wgsl: goodWGSL });
+    // #endregion custom-page
     setTimeout(() => {
-      const err = $('custom').closest('fx-surface')?.error;
+      const s = $('custom').closest('fx-surface');
+      const err = s?.backend === 'webgpu' ? null : s?.error;
       $('glslError').textContent = err ? String(err.message).replace('shader compile failed: ', '') : '';
     }, 120);
+    // #region custom-page
   }
   glsl.oninput = compile;
   compile();
   // #endregion custom-page
+
+  // The WGSL is compiled before it is used, so a mistake shows its error here and the card keeps the last version that worked.
+  // Any device can compile: the page's own, or one asked for only for this where the page's is not usable.
+  const compiler = webgpu().then((gpu) => gpu ?? webgpu({ force: true }));
+  let wgslTurn = 0;
+  wgsl.oninput = async () => {
+    const turn = ++wgslTurn, text = wgsl.value;
+    const gpu = await compiler;
+    if (turn !== wgslTurn) return;
+    if (!gpu) {
+      $('wgslError').textContent = '';
+      goodWGSL = text;
+      return compile();
+    }
+    const problem = await checkEffectWGSL(gpu.device, text);
+    if (turn !== wgslTurn) return;
+    $('wgslError').textContent = problem;
+    if (problem) return;
+    goodWGSL = text;
+    compile();
+  };
+  setInterval(() => {
+    const s = $('custom').closest('fx-surface');
+    if (!s?.backend) return;
+    const text = s.backend === 'webgpu' ? 'This card is drawn with WebGPU, so the WGSL is what you see. Edit that one.' : `This card is drawn with WebGL, so the GLSL is what you see. Edit that one.${s.gpuNote ? ` WebGPU is not in use: ${s.gpuNote.replace(/\.$/, '')}.` : ''}`;
+    if ($('customRoute').textContent !== text) $('customRoute').textContent = text;
+  }, 500);
 
   // "Drawn with": fx-backend on each card. Without it a surface takes WebGPU when the page has a usable device, else WebGL.
   const surfaceOf = (el) => el.closest('fx-surface');
@@ -247,7 +295,7 @@
   async function fixture(attrs = '', inner = 'chip <button>b</button>') {
     const el = document.createElement('div');
     // The checks below are about the WebGL routes unless they name another one.
-    if (!attrs.includes('fx-backend')) attrs += ' fx-backend="gl"';
+    if (!attrs.includes('fx-backend') && !attrs.includes('fx-offscreen')) attrs += ' fx-backend="gl"';
     el.innerHTML = `<div class="chip" ${attrs}>${inner}</div>`;
     const chip = el.firstElementChild;
     fixtures.append(chip);
@@ -339,6 +387,42 @@
             parts.push(`${name} ${d.mean.toFixed(2)}`);
           }
           return `mean difference per channel, of 255: ${parts.join(', ')}`;
+        },
+      },
+      {
+        name: 'A custom effect in WGSL, and a broken one',
+        why: 'defineEffect() with both glsl and wgsl: the WGSL version is drawn by WebGPU and compared with the GLSL one. Then WGSL that does not compile: the element is drawn unshaded with the error reported, and WebGPU stays in use for everything else. Needs a WebGPU adapter.',
+        timeout: 15000,
+        run: async () => {
+          const started = async (f) => { for (let i = 0; i < 40 && f.s.backend !== 'webgpu' && !f.s.gpuNote; i++) await sleep(50); return f; };
+          defineEffect('test-swap', { glsl: 'vec4 fx(vec2 p) { return tex(p).bgra; }', wgsl: 'fn fx(p: vec2f) -> vec4f { return tex(p).bgra; }' });
+          const gl = await fixture('fx="test-swap" fx-backend="direct"', 'same <b>picture</b>');
+          const gpu = await started(await fixture('fx="test-swap" fx-offscreen', 'same <b>picture</b>'));
+          if (gpu.s.backend !== 'webgpu') throw new Error(`WebGPU is not in use: ${gpu.s.gpuNote || 'it did not start'}`);
+          await sleep(80);
+          const d = pictureDifference(await gl.s.readback(), await gpu.s.readback());
+          if (d.ink < 0.1) throw new Error('WebGPU drew nothing');
+          if (d.mean > 1.5) throw new Error(`mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+          // No WGSL at first, so WebGL; defining it later moves the element to WebGPU.
+          defineEffect('test-late', { glsl: 'vec4 fx(vec2 p) { return tex(p); }' });
+          const late = await started(await fixture('fx="test-late" fx-offscreen'));
+          const before = late.s.backend;
+          defineEffect('test-late', { glsl: 'vec4 fx(vec2 p) { return tex(p); }', wgsl: 'fn fx(p: vec2f) -> vec4f { return tex(p); }' });
+          await sleep(400);
+          const moved = late.chip.closest('fx-surface');
+          if (before === 'webgpu' || moved.backend !== 'webgpu') throw new Error(`without WGSL it was drawn with ${before}; after adding WGSL, with ${moved.backend} (${moved.gpuNote})`);
+          defineEffect('test-broken-wgsl', { glsl: 'vec4 fx(vec2 p) { return tex(p); }', wgsl: 'fn fx(p: vec2f) -> vec4f { return nonsense; }' });
+          const bad = await started(await fixture('fx="test-broken-wgsl" fx-offscreen'));
+          await sleep(400);
+          const badNow = bad.chip.closest('fx-surface');
+          if (badNow.backend !== 'webgpu' || !badNow.error) throw new Error(`broken WGSL: drawn with ${badNow.backend}, error ${badNow.error?.message ?? 'not reported'} (${badNow.gpuNote})`);
+          const px = await badNow.readback();
+          const i = (Math.round((4 + badNow.bleed) * badNow.scale) * px.width + Math.round((4 + badNow.bleed) * badNow.scale)) * 4;
+          const p = Array.from(px.data.slice(i, i + 4));
+          if (!isYellow(p)) throw new Error(`broken WGSL: the element should be drawn unshaded, pixel is ${p}`);
+          const after = await started(await fixture('fx="none" fx-offscreen'));
+          if (after.s.backend !== 'webgpu') throw new Error(`after a broken effect, a new element was drawn with ${after.s.backend}: ${after.s.gpuNote}`);
+          return `WGSL against GLSL: mean difference ${d.mean.toFixed(2)} of 255. Adding WGSL later moved an element from ${before} to WebGPU. Broken WGSL: drawn unshaded, error reported, WebGPU still in use`;
         },
       },
       {

@@ -374,15 +374,40 @@ export function gpuEffect(device, format, name) {
     }),
   };
   // Compile errors arrive later. Remember them, so the next frame shows the element unshaded instead of nothing.
-  module.getCompilationInfo?.().then(
+  entry.checked = (module.getCompilationInfo?.() ?? Promise.resolve({ messages: [] })).then(
     (info) => {
-      const errors = info.messages.filter((m) => m.type === 'error');
-      if (errors.length) entry.error = new Error(`WGSL compile failed: ${errors.map((m) => `${m.lineNum}: ${m.message}`).join('; ')}`);
+      const text = wgslErrors(info);
+      if (text) entry.error = new Error(`WGSL compile failed: ${text}`);
+      return entry.error;
     },
-    () => {},
+    () => null,
   );
   cache.set(key, entry);
   return entry.pipeline;
+}
+
+const WGSL_HEAD_LINES = WGSL_HEAD.split('\n').length - 1;
+// Compile errors, with line numbers counted in the effect's own source (the shared header comes first in the module).
+function wgslErrors(info) {
+  return info.messages.filter((m) => m.type === 'error').map((m) => `line ${Math.max(1, m.lineNum - WGSL_HEAD_LINES)}: ${m.message}`).join('\n');
+}
+
+/**
+ * Resolves to the compile error of an effect's WGSL on this device, or null.
+ * A surface asks this when WebGPU rejects a frame: a typing mistake in a
+ * custom effect is the effect's fault, not a reason to give up on WebGPU.
+ */
+export function gpuEffectProblem(device, format, name) {
+  return gpuPipelines.get(device)?.get(`${name}|${format}`)?.checked ?? Promise.resolve(null);
+}
+
+/** Compile an effect's WGSL (fn fx(p: vec2f) -> vec4f) without using it. Resolves to '' or the error text. */
+export async function checkEffectWGSL(device, wgsl) {
+  try {
+    return wgslErrors(await device.createShaderModule({ code: WGSL_HEAD + wgsl + WGSL_TAIL }).getCompilationInfo());
+  } catch (err) {
+    return err.message;
+  }
 }
 
 /** The sampler effects use, one per device. */

@@ -52,7 +52,7 @@
 // The element stays where layout put it for hit testing: effects are visual.
 
 import { SurfaceElement, ElementTexture, supported, supportedGL } from './surface.js';
-import { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, inverseHomography, setupQuad, compileEffect, setEffectUniforms, sharedGL, hasWGSL, gpuEffect, gpuSampler, WGSL_UNIFORM_SIZE, packWGSLUniforms } from './effects.js';
+import { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, inverseHomography, setupQuad, compileEffect, setEffectUniforms, sharedGL, hasWGSL, gpuEffect, gpuEffectProblem, gpuSampler, WGSL_UNIFORM_SIZE, packWGSLUniforms } from './effects.js';
 import { supportedGPU, GPUCanvas, GPUElementTexture, watchFrame } from './gpu-util.js';
 import { webgpu } from '../shared/backend.js';
 
@@ -155,9 +155,12 @@ export class FxSurface extends SurfaceElement {
       return this.#contextGL(canvas, null);
     }
     const start = (gpu) => {
+      this.#noWGSL = false;
       if (!gpu || gpu.lost) this.gpuNote = webgpu.reason || 'WebGPU did not start';
-      else if (want !== 'webgpu' && !hasWGSL(this.effectName)) this.gpuNote = `the effect "${this.rawEffect}" has no WGSL source`;
-      else {
+      else if (want !== 'webgpu' && !hasWGSL(this.effectName)) {
+        this.gpuNote = `the effect "${this.rawEffect}" has no WGSL source`;
+        this.#noWGSL = true;
+      } else {
         try {
           this.#gpu = new GPUCanvas(canvas, gpu, { present: !this.#offscreen });
           this.backend = 'webgpu';
@@ -266,9 +269,12 @@ export class FxSurface extends SurfaceElement {
     const want = this.#want;
     const kind = KINDS.includes(want) ? want : null;
     if (this.backend && kind !== this.#wanted) return this.#restart();
+    // On WebGL only for want of WGSL, and the effect now has some: try WebGPU again.
+    if (this.backend && this.#noWGSL && hasWGSL(this.effectName)) return this.#restart();
     this.invalidate();
   }
   #wanted = null;
+  #noWGSL = false;
 
   #restart() {
     if (this.backend === 'direct') {
@@ -429,7 +435,15 @@ export class FxSurface extends SurfaceElement {
     };
     if (this.#gpuChecked) return frame();
     // The first frame is watched: a browser whose WebGPU rejects the element upload goes to WebGL, with the reason.
-    watchFrame(device, frame, (problem) => this.#gpu === g && this.leaveGPU(`WebGPU rejected the first frame: ${problem}`));
+    watchFrame(device, frame, async (problem) => {
+      // An effect whose WGSL does not compile fails this frame too. That is the effect's error, shown unshaded; WebGPU itself is fine.
+      const broken = await gpuEffectProblem(device, g.format, name);
+      if (this.#gpu !== g) return;
+      if (!broken) return this.leaveGPU(`WebGPU rejected the first frame: ${problem}`);
+      this.#gpuChecked = false;
+      this.#signature = '';
+      this.invalidate();
+    });
     this.#gpuChecked = true;
   }
 
