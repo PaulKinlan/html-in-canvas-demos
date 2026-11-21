@@ -123,6 +123,8 @@ What the page does now: it reads floats back only when "Read values back" is pre
 - `getContext('2d', { toneMapping: 'extended' })` throws, so the page tries the dictionary form and falls back to no option.
 - The halo has to be clipped off the element with an even-odd clip, because the shadow of a filled shape is solid under the shape.
 
+- The WebGPU route gave `updateElementGeometry()` a transform scaled by the device pixel ratio. The transform is in CSS pixels (measured in C157 at a scale of 2: with the identity the Deploy button answers `elementFromPoint()` at its drawn place, with `scale(2)` it does not). The controls of that route were clicked at the wrong place on any screen with a ratio above 1. Corrected on 2026-11-21 with `/plan-followups/`.
+
 ## Not verified
 
 - Whether the WebGPU route shows values above 1.0 brighter than white on the test phone. To verify: press "Use a WebGPU canvas", pick "As stored", and look for the word BRIGHTER in the strip on the screen itself. Then move the headroom slider between 1.0 and 8.0: if the word appears and gets stronger, the range is shown. In a screenshot the word and the strip are 255 and 254.
