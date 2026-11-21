@@ -50,7 +50,9 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
 | `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
-| `/select/` | `<select picker="wheel">`: a customisable select whose options are drawn by a canvas inside the picker (wheel, fisheye list, radial, 3D carousel); a canvas inside each option; a select drawn in a canvas |
+| `/select/` | `<select picker="wheel">`: a customisable select whose options are drawn by a canvas inside the picker (wheel, fisheye list, radial, 3D carousel, hand of cards, colour grid, helix); a canvas in the button; a canvas inside each option; a select drawn in a canvas |
+| `/datalist/` | `<input list picker="list">`: datalist suggestions drawn one option at a time by a canvas in a popover; datalist options as tick labels of a range input |
+| `/inputs/` | `<input type="time" picker="clock">`, `type="date" picker="calendar"`, `type="color" picker="swatches"`: pickers made of buttons in a canvas; every built-in form control drawn rotated in a canvas |
 | `/a11y/` | Accessibility audit: API probes, a pattern-by-pattern table (tree, focus order, find, selection, zoom), the same audit run over every demo, and a by-hand checklist |
 | `/capture/` | Any element or a whole page to PNG (up to print quality), video (MediaRecorder or frame-exact WebCodecs) or print with one call |
 | `/perf/` | Performance wall: how many live elements before frames drop; DOM vs 2D canvas vs worker |
@@ -96,7 +98,10 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/live-card.js`: `<live-card src effect>` embeds a cross-origin card through a WebGL shader.
 - `public/lib/slot-view.js` and `public/lib/slot-provider.js`: the cross-site `<slot-view src name>` element and `provideSlots()` for the site being embedded.
 - `public/lib/element-pip.js`: `pipElement(el, { mode })` and `surfaceFor(el)`.
-- `public/lib/select-picker.js`: `<select picker="wheel|fisheye|radial|carousel">`. Moves the options into a drawable canvas inside the select; the select keeps the value, keyboard and form entry. `new SelectPicker(select, { layout, backend, canvas })`, `choose(i)`, `close()`, `refresh()`; add a layout with `layouts.name = { size, place }`. The carousel uses WebGPU, WebGL 2, then 2D.
+- `public/lib/select-picker.js`: `<select picker="wheel|fisheye|radial|carousel|fan|grid|helix">`. Moves the options into a drawable canvas inside the select; the select keeps the value, keyboard and form entry. `new SelectPicker(select, { layout, backend, canvas })`, `choose(i)`, `close()`, `refresh()`; add a layout with `layouts.name = { size, place }`. The carousel and helix use WebGPU, WebGL 2, then 2D. `rollSelected(select)` draws `<selectedcontent>` with a canvas in the button.
+- `public/lib/placed-popover.js`: `new PlacedPopover({ anchor, items, size, place })`. A popover next to an element, holding a canvas that draws each item where `place(i)` says and eases it there when the answer changes. `under(ctx)` draws below the items. The base of the two libraries below.
+- `public/lib/datalist-picker.js`: `<input list picker="list|chips">`. Moves the `<datalist>` into a popover canvas and draws its options as the suggestions. `RangeLabels(input)` draws a range input's datalist options as tick labels.
+- `public/lib/input-pickers.js`: `<input type="time" picker="clock">`, `<input type="date" picker="calendar">`, `<input type="color" picker="swatches" list>`. Each picker is real buttons in a popover canvas.
 
 ## Worker
 

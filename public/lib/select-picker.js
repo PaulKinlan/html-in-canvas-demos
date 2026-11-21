@@ -11,6 +11,11 @@
 // picker="fisheye"   every option at once; the ones near the pointer are full size (2D canvas)
 // picker="radial"    options on a circle around the button (2D canvas)
 // picker="carousel"  cards on a 3D carousel with reflections (WebGPU, WebGL 2, then 2D)
+// picker="fan"       a hand of cards; slide along it and lift to choose (2D canvas)
+// picker="grid"      a grid of small options, enlarged near the pointer (2D canvas)
+// picker="helix"     a long list wound round a cylinder (WebGPU, WebGL 2, then 2D)
+//
+// rollSelected(select) animates the chosen value in the button; see the end of this file.
 //
 // How it works. The select uses `appearance: base-select`, so its picker is
 // ordinary HTML in the top layer. This file moves the options into a
@@ -192,7 +197,86 @@ const carousel = {
 };
 // #endregion carousel
 
-export const layouts = { wheel, fisheye, radial, carousel };
+// #region fan
+// A hand of cards. Each card is rotated about a point below the canvas. The
+// card under the pointer, or the focused one, is lifted and drawn last.
+const fan = {
+  size: (n, vw) => [Math.min(360, vw - 24), 236],
+  releasePicks: true,
+  prepare(s) {
+    // The outermost cards must stay inside the canvas, so the spread depends on its width.
+    const R = 330, half = Math.max(...s.sizes.map((o) => o.w), 80) / 2 + 14;
+    const spread = (2 * Math.asin(clamp((s.w / 2 - half) / R, 0.05, 1)) * 180) / Math.PI;
+    const step = Math.min(13, spread / Math.max(1, s.n - 1));
+    s.fan = { step, R, px: s.w / 2, py: s.h + 196 };
+    s.hot = s.active;
+    if (s.pointer) {
+      // The pointer's angle about the pivot picks the card.
+      const deg = (Math.atan2(s.px - s.fan.px, s.fan.py - s.py) * 180) / Math.PI;
+      s.hot = clamp(Math.round(deg / step + (s.n - 1) / 2), 0, s.n - 1);
+    }
+  },
+  place(i, s) {
+    const { step, R, px, py } = s.fan, o = s.sizes[i];
+    const hot = i === s.hot;
+    const a = (i - (s.n - 1) / 2) * step * s.open;
+    const m = T(px, py).rotate(a).translate(0, -(R + (hot ? 24 : 0))).scale(hot ? 1.12 : 1).translate(-o.w / 2, -o.h / 2);
+    return { m, alpha: s.open, order: hot ? 1e3 : i };
+  },
+};
+// #endregion fan
+
+// #region grid
+// A grid of small options. The ones near the pointer are enlarged and their
+// neighbours are pushed outwards, like a magnifying dock in two dimensions.
+const grid = {
+  size(n, vw) {
+    const w = Math.min(312, vw - 24), cols = 8, cell = (w - 20) / cols;
+    return [w, Math.round(Math.ceil(n / cols) * cell + 20)];
+  },
+  releasePicks: true,
+  place(i, s) {
+    const cols = 8, cell = (s.w - 20) / cols, o = s.sizes[i];
+    let x = 10 + (i % cols + 0.5) * cell, y = 10 + (Math.floor(i / cols) + 0.5) * cell;
+    let scale = (cell - 6) / Math.max(o.w, o.h);
+    const [fx, fy] = s.pointer ? [s.px, s.py] : [10 + (s.active % cols + 0.5) * cell, 10 + (Math.floor(s.active / cols) + 0.5) * cell];
+    const dx = x - fx, dy = y - fy, near = Math.exp(-(dx * dx + dy * dy) / (2 * (cell * 1.25) ** 2));
+    const grow = s.pointer ? 1.15 : 0.6;
+    x += dx * near * 0.55 * grow;
+    y += dy * near * 0.55 * grow;
+    scale *= 1 + near * grow;
+    return { m: T(x, y).scale(scale * (0.4 + 0.6 * s.open)).translate(-o.w / 2, -o.h / 2), alpha: s.open, order: near };
+  },
+};
+// #endregion grid
+
+// #region helix
+// A long list wound round a vertical cylinder. The option at s.pos faces the
+// viewer; the ones behind the cylinder show through, dimmed.
+const helix = {
+  size: (n, vw) => [Math.min(300, vw - 24), 330],
+  axis: 'y',
+  pitch: 38,
+  live: true,
+  gpu: true,
+  place(i, s) {
+    const d = i - s.pos;
+    if (Math.abs(d) > 8.5) return null;
+    const o = s.sizes[i], turn = d * 42 * (0.3 + 0.7 * s.open), rad = (turn * Math.PI) / 180, R = 84;
+    const eye = new DOMMatrix();
+    eye.m34 = -1 / 700;
+    const m = T(s.w / 2, s.h / 2)
+      .multiply(eye)
+      .translate(Math.sin(rad) * R, d * 30, (Math.cos(rad) - 1) * R)
+      .rotate(0, turn, 0)
+      .translate(-o.w / 2, -o.h / 2);
+    const front = Math.cos(rad);
+    return { m, alpha: clamp(8.5 - Math.abs(d), 0, 1) * s.open * (front < 0 ? 0.3 : 1), shade: 0.55 + 0.45 * Math.max(0, front), order: front };
+  },
+};
+// #endregion helix
+
+export const layouts = { wheel, fisheye, radial, carousel, fan, grid, helix };
 
 // ---------------------------------------------------------------------------
 // Styles. Everything about an option's look is ordinary CSS on the option.
@@ -202,6 +286,8 @@ const CSS_TEXT = `
 select[picker], select[picker]::picker(select) { appearance: base-select; }
 select[picker]::picker(select) { padding: 0; border: 0; margin: 6px 0; background: none; box-shadow: none; overflow: visible; }
 select[picker][picker-center]::picker(select) { position-area: center; margin: 0; }
+select[picker] > button > canvas { display: block; flex: 1; min-width: 0; height: 1.5em; }
+select[picker] > button > canvas > selectedcontent { display: block; width: max-content; }
 select[picker] > canvas {
   display: block; touch-action: none; user-select: none; -webkit-user-select: none; cursor: default;
   border-radius: 16px; background: var(--picker-bg, Canvas); color: var(--picker-ink, CanvasText);
@@ -217,6 +303,9 @@ select[picker] option { touch-action: none; }
 :where(select[picker="fisheye"]) option { width: calc(var(--picker-w) - 20px); height: 28px; font-size: 15px; justify-content: flex-start; transform-origin: 0 0; }
 :where(select[picker="radial"]) option { width: max-content; min-width: 64px; height: 40px; border-radius: 20px; padding: 0 12px; gap: 6px; background: color-mix(in srgb, currentColor 9%, var(--picker-bg, Canvas)); }
 :where(select[picker="radial"]) option:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--picker-accent, AccentColor) 30%, var(--picker-bg, Canvas)); }
+:where(select[picker="fan"]) option { width: 96px; height: 132px; display: block; padding: 0; border-radius: 10px; white-space: normal; overflow: hidden; }
+:where(select[picker="grid"]) option { width: 34px; height: 34px; padding: 0; border-radius: 8px; overflow: hidden; }
+:where(select[picker="helix"]) option { width: 180px; height: 38px; font-size: 17px; background: color-mix(in srgb, currentColor 8%, var(--picker-bg, Canvas)); }
 :where(select[picker="carousel"]) option { width: 150px; height: 190px; display: block; padding: 0; border-radius: 14px; white-space: normal; overflow: hidden; }
 `;
 
@@ -843,6 +932,62 @@ class GPURenderer {
   }
 }
 // #endregion webgpu
+
+// #region roll
+/**
+ * Animate the chosen value in the select's button. The button holds
+ *
+ *   <button><canvas content="drawable"><selectedcontent drawable></selectedcontent></canvas></button>
+ *
+ * <selectedcontent> is still filled in by the browser. The canvas draws it,
+ * and when it changes the old picture rolls out and the new one rolls in.
+ */
+export function rollSelected(select, { ms = 280 } = {}) {
+  const canvas = select.querySelector(':scope > button canvas');
+  const content = canvas?.querySelector('selectedcontent');
+  if (!supported || !content) return null;
+  canvas.setAttribute('content', 'drawable');
+  canvas.setAttribute('layoutsubtree', '');
+  content.setAttribute('drawable', '');
+  const ctx = canvas.getContext('2d');
+  const old = new OffscreenCanvas(1, 1), oldCtx = old.getContext('2d');
+  let shown = null, index = select.selectedIndex, from = 0, dir = 1;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  new ResizeObserver(([entry]) => {
+    const box = entry.devicePixelContentBoxSize[0];
+    if (canvas.width !== box.inlineSize || canvas.height !== box.blockSize) { canvas.width = box.inlineSize; canvas.height = box.blockSize; }
+    canvas.requestPaint();
+  }).observe(canvas, { box: 'device-pixel-content-box' });
+
+  canvas.addEventListener('paint', () => {
+    const now = performance.now(), dpr = canvas.width / Math.max(1, canvas.clientWidth), h = canvas.clientHeight;
+    const text = content.innerHTML;
+    if (shown !== null && text !== shown && !reduced && canvas.width > 1) {
+      // The value changed. Keep the picture of the old value, which is still on the canvas.
+      old.width = canvas.width;
+      old.height = canvas.height;
+      oldCtx.drawImage(canvas, 0, 0);
+      from = now;
+      dir = select.selectedIndex >= index ? 1 : -1;
+    }
+    shown = text;
+    index = select.selectedIndex;
+    const t = from ? Math.min(1, (now - from) / ms) : 1, e = 1 - (1 - t) ** 3;
+    ctx.reset();
+    if (t < 1) {
+      ctx.globalAlpha = 1 - e;
+      ctx.drawImage(old, 0, -dir * e * canvas.height);
+      ctx.globalAlpha = e;
+    } else from = 0;
+    ctx.scale(dpr, dpr);
+    try { ctx.drawElementImage(content, 0, (h - content.offsetHeight) / 2 + dir * (1 - e) * h, content.offsetWidth, content.offsetHeight); } catch {}
+    if (t < 1) requestAnimationFrame(() => canvas.requestPaint());
+  });
+  canvas.requestPaint();
+  return canvas;
+}
+// #endregion roll
 
 /** For tests: the renderers, so a page can draw one frame to a texture and read it back. */
 export const renderers = { GLRenderer, GPURenderer };
