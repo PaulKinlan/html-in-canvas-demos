@@ -74,6 +74,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/overlay/` | HTML over video in one canvas: recorded with sound, exported frame by frame with WebCodecs, sent over WebRTC |
 | `/audio/` | Web Audio band levels as CSS custom properties that drive a shader over a working `<audio>` card |
 | `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
+| `/player-fx/` | One WebGL shader over the native controls and the video frame as two textures from one `<video>`: the play button grows into a lens, the controls refract, melt into and light the picture. Finds the box of each control without script access |
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
