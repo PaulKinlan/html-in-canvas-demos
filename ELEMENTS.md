@@ -20,22 +20,22 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 ## Ideas that are not built yet
 
 - **Picker wheel from select multiple** (`<select multiple>`). The only form of select whose list is drawn in the canvas. Draw it on a cylinder as a picker wheel: the options are real option elements, the selection is form state, and updateElementGeometry() keeps taps on the right option.
-- **Textarea as a CRT terminal** (`<textarea>`). A terminal on a curved CRT: a real textarea drawn through a barrel-distortion and scan-line shader, with the hit region re-placed under the pointer so the caret lands where you tap.
+- **Textarea as a CRT terminal** (`<textarea>`). A real textarea drawn through a barrel-distortion and scan-line shader, with the hit region re-placed under the pointer so the caret lands where you tap.
 - **Mixing desk from rotated range inputs** (`<input type=range>`). Draw range inputs rotated 90 degrees as the faders of a mixing desk. The hit region follows the transform, so no writing-mode or custom drag code is needed.
-- **Step sequencer from a grid of checkboxes** (`<input type=checkbox>`). A step sequencer: a grid of real checkboxes drawn as lit pads. The pattern is form state, so it can be submitted, reset and read by a screen reader.
+- **Step sequencer from a grid of checkboxes** (`<input type=checkbox>`). A grid of real checkboxes drawn as lit pads. The pattern is form state, so it can be submitted, reset and read by a screen reader.
 - **In-canvas dialog with a shader backdrop** (`<dialog>`). For a dialog that belongs to the scene, use the open attribute with position: static and set inert on the rest. The canvas then owns the backdrop and can do what ::backdrop cannot: blur, desaturate or shatter the pixels of everything behind the dialog.
-- **Anchored popover call-outs on drawn elements** (`[popover]`). Call-outs on a moving scene with no positioning script: anchor popovers to elements drawn on a rotating object. The canvas moves the anchors, the browser keeps upright, sharp labels attached to them.
+- **Anchored popover call-outs on drawn elements** (`[popover]`). Anchor popovers to elements drawn on a rotating object. The canvas moves the anchors and the browser keeps upright, sharp labels attached to them, with no positioning script.
 - **Set inert on undrawn children automatically** (`[inert]`). FINDINGS.md lists one accessibility hazard: children that are in the canvas but not drawn are still focusable. Setting inert on every child the paint handler did not draw closes it.
-- **Find in page that moves the camera** (`[hidden=until-found]`). Find in page that moves the camera: put the text of every panel of a 3D scene in hidden=until-found sections and fly to the panel on beforematch.
-- **MathML terms that move between steps of a derivation** (`<math>`). Animated algebra: MathML tokens are real boxes with Range rectangles, so a canvas can move each term from its place in one line of a derivation to its place in the next.
+- **Find in page that moves the camera** (`[hidden=until-found]`). Put the text of every panel of a 3D scene in hidden=until-found sections and fly the camera to the panel on beforematch.
+- **MathML terms that move between steps of a derivation** (`<math>`). MathML tokens are real boxes with Range rectangles, so a canvas can move each term from its place in one line of a derivation to its place in the next.
 - **Video with native controls and captions on a drawn screen** (`<video>`). The video sets the repaint rate itself. A television in a 3D room needs a paint handler and no frame loop.
 - **Image map on a perspective floor plan** (`<area>`). Image maps follow the transform. Draw a floor plan or a map in perspective and each area is a link and a focus stop with no hit-testing code.
-- **Cover flow from a ul** (`<ul>`). Cover flow from a list: each li is a card in a 3D row, and Tab and screen-reader order follow the list.
-- **Radial menu from a menu element** (`<menu>`). A radial menu: make each button a drawable child and draw them rotated around a centre. The hit regions rotate with them.
-- **Table cells that extrude into a bar chart** (`<table>`). A table that is its own chart: read each cell's rectangle and number, and draw a 3D bar rising out of the cell. The table stays the accessible data.
-- **Animated diff from ins and del** (`<ins>`). An animated diff: glyphs of ins assemble and glyphs of del burn away, driven by the same markup a static diff uses.
-- **Editable style element drawn in the scene** (`<style> (display: block, contenteditable)`). A stylesheet you edit inside the scene it styles: the editor is the style element itself, drawn on a panel next to the content.
-- **LED ticker from a marquee** (`<marquee>`). An LED ticker: draw a marquee through a dot-matrix shader. The marquee provides the motion, the repaint signal and the text for screen readers.
+- **Cover flow from a ul** (`<ul>`). Each li is a card in a 3D row, and Tab and screen-reader order follow the list.
+- **Radial menu from a menu element** (`<menu>`). Make each button a drawable child and draw them rotated around a centre. The hit regions rotate with them.
+- **Table cells that extrude into a bar chart** (`<table>`). Read each cell's rectangle and number, and draw a 3D bar rising out of the cell. The table stays the accessible data.
+- **Animated diff from ins and del** (`<ins>`). Glyphs of ins assemble and glyphs of del burn away, driven by the same markup a static diff uses.
+- **Editable style element drawn in the scene** (`<style> (display: block, contenteditable)`). A stylesheet edited inside the scene it styles. The editor is the style element itself, drawn on a panel next to the content.
+- **LED ticker from a marquee** (`<marquee>`). Draw a marquee through a dot-matrix shader. The marquee provides the motion, the repaint signal and the text for screen readers.
 
 ## Forms
 
@@ -52,7 +52,7 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 | `<datalist>` | No box | No box. The input that uses it draws. | The suggestion list is a native popup and was not observed. | Read input.list.options and draw the suggestions in the canvas yourself, for example as a ring of chips around the field. |
 | `<optgroup>` | Works | Draws inside a list box with its label. |  | In a picker wheel, draw each optgroup as its own ring. |
 | `<option>` | Works (1/1 input checks) | Draws inside a list box and a click selects it. |  | Options have rectangles (getBoundingClientRect), so a canvas can draw a highlight that slides between options. |
-| `<textarea>` | Works (2/2 input checks) | Typing works, and dragging the resize handle at its drawn position resizes it. |  | A terminal on a curved CRT: a real textarea drawn through a barrel-distortion and scan-line shader, with the hit region re-placed under the pointer so the caret lands where you tap. |
+| `<textarea>` | Works (2/2 input checks) | Typing works, and dragging the resize handle at its drawn position resizes it. |  | A real textarea drawn through a barrel-distortion and scan-line shader, with the hit region re-placed under the pointer so the caret lands where you tap. |
 | `<output>` | Works | Draws its text. |  | Changing output.value fires paint. Draw the value as a split-flap or odometer display where each digit rolls to the new one. |
 | `<progress>` | Works | Draws the bar. |  | Read progress.value in the paint handler and draw a liquid fill, while the element stays the accessible progress bar. |
 | `<progress> (indeterminate)` | Works | Its animation fires paint continuously with no script. |  | An indeterminate progress element is a clock for the canvas: while it is in the tree the canvas repaints, and when loading ends and it gets a value the repaints stop. |
@@ -78,7 +78,7 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 | `<input type=month>` | Works (1/1 input checks) | The fields take keyboard input. | The picker popup is native and was not observed. | Use the native field for editing and let the canvas decide where and how it is shown. |
 | `<input type=week>` | Works (1/1 input checks) | The fields take keyboard input. | The picker popup is native and was not observed. | Use the native field for editing and let the canvas decide where and how it is shown. |
 | `<input type=color>` | Works | The swatch draws. | The colour picker is a native window and was not observed. | Feed the value to a shader uniform: the swatch sits inside the scene it recolours. |
-| `<input type=checkbox>` | Works (1/1 input checks) | Click toggles it. |  | A step sequencer: a grid of real checkboxes drawn as lit pads. The pattern is form state, so it can be submitted, reset and read by a screen reader. |
+| `<input type=checkbox>` | Works (1/1 input checks) | Click toggles it. |  | A grid of real checkboxes drawn as lit pads. The pattern is form state, so it can be submitted, reset and read by a screen reader. |
 | `<input type=radio>` | Works (1/1 input checks) | Click checks it. |  | Draw a radio group as a rotary switch: the checked radio decides the knob angle, and arrow keys already move between positions. |
 | `<input type=file>` | Works (1/1 input checks) | A click at the drawn position opens the file chooser. |  | Place the file input on an object in a scene (a drawn scanner or letter box) and draw the chosen images into the scene. |
 | `<input type=submit>` | Works | Draws the same as outside the canvas, and typing or stepping with the keyboard changes the value. |  | Use the native field for editing and let the canvas decide where and how it is shown. |
@@ -95,14 +95,14 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 | `<summary>` | Works (1/1 input checks) | Click toggles its details. |  | Draw summaries as drawer fronts of a cabinet and each details body as the open drawer. |
 | `<dialog>` | Partly (1/3 input checks) | A closed dialog has no box. show() draws only if the dialog stays inside its drawable ancestor's box: with the default position: absolute it is laid out outside that box and is clipped away. showModal() moves it to the top layer, where the page paints it centred in the viewport, and nothing is drawn into the canvas (drawElementImage(dialog) throws "No cached paint record"). |  | For a dialog that belongs to the scene, use the open attribute with position: static and set inert on the rest. The canvas then owns the backdrop and can do what ::backdrop cannot: blur, desaturate or shatter the pixels of everything behind the dialog. |
 | `<dialog open>` | Works | Draws and takes clicks when it is positioned inside its drawable ancestor. |  | See dialog. |
-| `[popover]` | Partly (3/4 input checks) | The popover opens in the top layer and the page paints it; nothing is drawn into the canvas. CSS anchor positioning places it against the drawn position of its anchor, and an open popover moves when the anchor is drawn somewhere else. |  | Call-outs on a moving scene with no positioning script: anchor popovers to elements drawn on a rotating object. The canvas moves the anchors, the browser keeps upright, sharp labels attached to them. |
+| `[popover]` | Partly (3/4 input checks) | The popover opens in the top layer and the page paints it; nothing is drawn into the canvas. CSS anchor positioning places it against the drawn position of its anchor, and an open popover moves when the anchor is drawn somewhere else. |  | Anchor popovers to elements drawn on a rotating object. The canvas moves the anchors and the browser keeps upright, sharp labels attached to them, with no positioning script. |
 | `[contenteditable]` | Works (1/1 input checks) | Click places the caret and typing edits the text. |  | Rich text editing on a surface that is not flat: a page of a book that curls, a note pinned to a board. |
 | `[title] tooltip` | Works | The element draws. Its padding overflows the line box and is clipped at the wrapper's edge. | The tooltip is native and was not observed. | Read the title and draw your own tooltip in the scene. |
 | `<a>` | Works (1/1 input checks) | A click on the drawn link navigates. | :visited styling is not painted into the canvas (the explainer excludes it so pixels can be read back). | Links stay links in any projection: text on a 3D object or in a headset can be opened in a new tab, copied and focused with Tab. |
 | `[tabindex]` | Works (1/1 input checks) | Click focuses it, and the focus ring is part of the drawn picture. |  | Make scene objects focusable with a tabindex element drawn on each, so Tab walks the scene in DOM order. |
 | `[draggable]` | Works (1/1 input checks) | A mouse drag fires dragstart, drag and dragend. | The drag image the browser shows was not observed. | Native drag and drop out of a scene: drag a drawn card to another window or the desktop, with setDragImage() given the canvas pixels of the card. |
 | `[inert]` | Works (1/1 input checks) | A click on a drawn inert subtree goes to what is behind it. |  | FINDINGS.md lists one accessibility hazard: children that are in the canvas but not drawn are still focusable. Setting inert on every child the paint handler did not draw closes it. |
-| `[hidden=until-found]` | No box | No box while hidden. | Find in page should fire beforematch and reveal the content, after which it has a box and can be drawn. This needs a person: window.find() does not trigger it. | Find in page that moves the camera: put the text of every panel of a 3D scene in hidden=until-found sections and fly to the panel on beforematch. |
+| `[hidden=until-found]` | No box | No box while hidden. | Find in page should fire beforematch and reveal the content, after which it has a box and can be drawn. This needs a person: window.find() does not trigger it. | Put the text of every panel of a 3D scene in hidden=until-found sections and fly the camera to the panel on beforematch. |
 
 ## Embedded content
 
@@ -116,7 +116,7 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 | `<source>` | No box | No box. |  | See picture. |
 | `<svg>` | Works | Draws, and the shapes inside are hit targets. |  | An SVG chart as a live texture: hover styles and links on its shapes keep working while the canvas tilts or lights it. |
 | `<svg foreignObject>` | Works (1/1 input checks) | HTML inside foreignObject draws, and a click reaches a button inside it. foreignObject cannot be the drawable child itself. |  | Nothing beyond svg. |
-| `<math>` | Works | Draws MathML. |  | Animated algebra: MathML tokens are real boxes with Range rectangles, so a canvas can move each term from its place in one line of a derivation to its place in the next. |
+| `<math>` | Works | Draws MathML. |  | MathML tokens are real boxes with Range rectangles, so a canvas can move each term from its place in one line of a derivation to its place in the next. |
 | `<canvas>` | Works | A 2D canvas inside the drawn element is drawn with its content. | WebGL and WebGPU inner canvases were not measured. | Compose a canvas-based chart with HTML legends and controls in one outer canvas, then export all of it with one call. |
 | `<canvas> (drawable, nested)` | Works (1/1 input checks) | A drawable canvas inside a drawable canvas works two levels deep, and a click reaches the innermost button. |  | Give a widget its own canvas and effect, then draw the widget, effect included, inside a scene-level canvas with a second effect. |
 | `<video>` | Works (1/1 input checks) | The current frame draws, and each new video frame fires paint. |  | The video sets the repaint rate itself. A television in a 3D room needs a paint handler and no frame loop. |
@@ -180,8 +180,8 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 | `<pre>` | Works | Draws with its white space. |  | See textarea: a pre is the read-only half of a terminal. |
 | `<blockquote>` | Works | Draws. |  | Pull quotes that leave the column: draw the blockquote a second time, large, behind the text. |
 | `<ol>` | Works | Draws with its numbers. |  | Draw each li at a delay from its index for a staggered entrance, with the list markers included in each picture. |
-| `<ul>` | Works | Draws with its bullets. |  | Cover flow from a list: each li is a card in a 3D row, and Tab and screen-reader order follow the list. |
-| `<menu>` | Works | Draws as a list, and the buttons inside take clicks. |  | A radial menu: make each button a drawable child and draw them rotated around a centre. The hit regions rotate with them. |
+| `<ul>` | Works | Draws with its bullets. |  | Each li is a card in a 3D row, and Tab and screen-reader order follow the list. |
+| `<menu>` | Works | Draws as a list, and the buttons inside take clicks. |  | Make each button a drawable child and draw them rotated around a centre. The hit regions rotate with them. |
 | `<li>` | Works | Draws with its marker. |  | See ul. |
 | `<dl>` | Works | Draws. |  | Glossary cards: dt on the front, dd on the back, flipped in 3D. |
 | `<dt>` | Works | Draws and hit tests the same as outside the canvas. |  | Each block is one drawable unit: draw blocks at their own depth, angle or time offset while the document order stays intact for reading and tabbing. |
@@ -215,7 +215,7 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 
 | Element | Result | Found | Not measured | Idea |
 |---|---|---|---|---|
-| `<table>` | Works | Draws with caption, header, body and footer. |  | A table that is its own chart: read each cell's rectangle and number, and draw a 3D bar rising out of the cell. The table stays the accessible data. |
+| `<table>` | Works | Draws with caption, header, body and footer. |  | Read each cell's rectangle and number, and draw a 3D bar rising out of the cell. The table stays the accessible data. |
 | `<caption>` | Works | Draws as part of its table. Drawn as a direct child of the canvas, a table part becomes a block box and loses the table layout, so draw the whole table or a wrapper around it. |  | Read cell positions with getBoundingClientRect() and add canvas drawing between and behind the cells. |
 | `<colgroup>` | Works | Its background is drawn behind its columns' cells. Hit testing reports the cell. |  | See table. |
 | `<col>` | Works | Its background is drawn behind the column's cells. Hit testing reports the cell. |  | See table. |
@@ -230,7 +230,7 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 
 | Element | Result | Found | Not measured | Idea |
 |---|---|---|---|---|
-| `<ins>` | Works | Draws underlined. |  | An animated diff: glyphs of ins assemble and glyphs of del burn away, driven by the same markup a static diff uses. |
+| `<ins>` | Works | Draws underlined. |  | Glyphs of ins assemble and glyphs of del burn away, driven by the same markup a static diff uses. |
 | `<del>` | Works | Draws struck through. |  | See ins. |
 
 ## Scripting
@@ -256,13 +256,13 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 | `<link>` | No box | No box by default (display: none), so there is nothing to draw and drawElementImage() throws "No cached paint record for element". |  | Nothing to draw. |
 | `<meta>` | No box | No box by default (display: none), so there is nothing to draw and drawElementImage() throws "No cached paint record for element". |  | Nothing to draw. |
 | `<style>` | No box | No box by default, and its rules apply to drawn content as usual. |  | See the next row. |
-| `<style> (display: block, contenteditable)` | Works (1/1 input checks) | With display: block the stylesheet text is drawn. With contenteditable it can be edited in the canvas, and the rules apply as you type. |  | A stylesheet you edit inside the scene it styles: the editor is the style element itself, drawn on a panel next to the content. |
+| `<style> (display: block, contenteditable)` | Works (1/1 input checks) | With display: block the stylesheet text is drawn. With contenteditable it can be edited in the canvas, and the rules apply as you type. |  | A stylesheet edited inside the scene it styles. The editor is the style element itself, drawn on a panel next to the content. |
 
 ## Obsolete and non-standard
 
 | Element | Result | Found | Not measured | Idea |
 |---|---|---|---|---|
-| `<marquee>` | Works (1/1 input checks) | The text scrolls, and each step fires paint with no script. |  | An LED ticker: draw a marquee through a dot-matrix shader. The marquee provides the motion, the repaint signal and the text for screen readers. |
+| `<marquee>` | Works (1/1 input checks) | The text scrolls, and each step fires paint with no script. |  | Draw a marquee through a dot-matrix shader. The marquee provides the motion, the repaint signal and the text for screen readers. |
 | `<center>` | Works | Still parsed and drawn by Chromium. |  | Nothing specific. |
 | `<font>` | Works | Still parsed and drawn by Chromium. |  | Nothing specific. |
 | `<big>` | Works | Still parsed and drawn by Chromium. |  | Nothing specific. |

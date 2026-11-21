@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fx on a page of your own</title>
+<!--
+  A complete page that uses the fx library and nothing else from this site.
+  Copy it, and change /lib/fx.js to https://html-in-canvas.page/lib/fx.js
+  (or to wherever you put your own copy of that one file).
+-->
+
+<!-- #region include -->
+<script type="module" src="/lib/fx.js"></script>
+<!-- #endregion include -->
+
+<!-- #region declared -->
+<!-- An effect declared in markup. The name is in data-effect. One script per
+     shading language; the type only has to be one the browser will not run. -->
+<script type="text/glsl" data-effect="stripes">
+vec4 fx(vec2 p) {
+  vec4 c = tex(p);                                    // the element's own pixel
+  float stripe = step(0.5, fract((p.x + p.y) / 16.0)); // 0 or 1, in 16px diagonal bands
+  c.rgb *= 1.0 - 0.3 * stripe * u_amount;             // darken every other band
+  return c;
+}
+</script>
+<script type="text/wgsl" data-effect="stripes">
+fn fx(p: vec2f) -> vec4f {
+  let c = tex(p);
+  let stripe = step(0.5, fract((p.x + p.y) / 16.0));
+  return vec4f(c.rgb * (1.0 - 0.3 * stripe * u.amount), c.a);
+}
+</script>
+<!-- #endregion declared -->
+
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; padding: 16px; max-width: 640px; }
+  h1 { font-size: 22px; }
+  .card { margin: 12px 0 4px; padding: 14px 16px; border-radius: 10px; background: #1f3a5f; color: #fff; }
+  .card input { font: inherit; padding: 4px 8px; }
+  code { font-size: 13px; }
+  #status { font: 12px/1.6 ui-monospace, monospace; white-space: pre-line; color: #555; }
+  /* #region css */
+  /* --fx-amount is a registered number, so it can be transitioned. */
+  #wobbly { --fx-amount: 0.4; transition: --fx-amount 300ms; }
+  #wobbly:hover, #wobbly:focus-within { --fx-amount: 1.5; }
+  /* #endregion css */
+</style>
+</head>
+<body>
+<h1>fx on a page of your own</h1>
+<p>This page loads one file, <code>/lib/fx.js</code>. It has no build step and no other script from the site.</p>
+
+<!-- #region use -->
+<div class="card" fx="ripple">
+  <strong>A built-in effect.</strong> Press anywhere on this card.
+  <button type="button">A real button</button>
+</div>
+<code>fx="ripple"</code>
+
+<div class="card" fx="stripes">
+  <strong>Declared in markup.</strong> Two <code>&lt;script data-effect="stripes"&gt;</code> elements hold the GLSL and the WGSL.
+</div>
+<code>fx="stripes"</code>
+
+<div class="card" fx="wobble" id="wobbly">
+  <strong>Defined from script.</strong> Hover, or focus the field:
+  <input type="text" placeholder="Type here" aria-label="Type here">
+</div>
+<code>fx="wobble"</code>
+<!-- #endregion use -->
+
+<p id="status" role="status"></p>
+
+<!-- #region define -->
+<script type="module">
+  import { defineEffect } from '/lib/fx.js';
+
+  defineEffect('wobble', {
+    // The same function in both languages. p is in CSS px from the element's top-left.
+    glsl: `vec4 fx(vec2 p) {
+      float dx = sin(p.y * 0.12 + u_time * 4.0) * 5.0 * u_amount;
+      return tex(p + vec2(dx, 0.0));
+    }`,
+    wgsl: `fn fx(p: vec2f) -> vec4f {
+      let dx = sin(p.y * 0.12 + u.time * 4.0) * 5.0 * u.amount;
+      return tex(p + vec2f(dx, 0.0));
+    }`,
+    bleed: 8, // rows move up to 7.5px sideways, so the canvas needs that much room around the element
+  });
+</script>
+<!-- #endregion define -->
+
+<script type="module">
+  // Not needed on your page: this prints which route drew each card.
+  const status = document.getElementById('status');
+  const report = () => {
+    const rows = [...document.querySelectorAll('[fx]')].map((el) => {
+      const s = el.closest('fx-surface');
+      const name = el.getAttribute('fx');
+      if (!s) return { name, backend: null, note: 'plain HTML (no HTML-in-canvas in this browser)' };
+      return { name, backend: s.backend, frames: s.frames, error: s.error?.message ?? '', note: s.error ? `error: ${s.error.message}` : `drawn with ${s.backend === 'webgpu' ? 'WebGPU' : s.backend ? `WebGL (${s.backend})` : 'nothing yet'}` };
+    });
+    status.textContent = rows.map((r) => `fx="${r.name}": ${r.note}`).join('\n');
+    window.__standalone = rows; // read by a live check on /shader-css/
+  };
+  setInterval(report, 500);
+  addEventListener('load', () => setTimeout(report, 100));
+</script>
+</body>
+</html>
