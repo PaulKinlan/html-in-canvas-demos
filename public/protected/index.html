@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What a canvas may not see</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1000px; }
+  .tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 14px 0; }
+  #rig-box { position: fixed; right: 8px; bottom: 8px; z-index: 50; width: 300px; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 24px #0004; }
+  #rig-box[hidden] { display: none; }
+  #rig-box p { margin: 0 0 4px; font: 12px var(--mono); color: var(--muted); }
+  #rig { width: 300px; height: 200px; overflow: hidden; background: repeating-conic-gradient(#8882 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+  table.results tr.group th { padding-top: 18px; font-size: 13px; color: var(--muted); text-transform: none; }
+  td.v { white-space: nowrap; font-weight: 600; }
+  td.v.person, td.v.unsupported, td.v.na, td.v.idle { color: var(--muted); font-weight: 400; }
+  td.v.error { color: var(--bad); }
+  .recorded { display: block; color: var(--muted); font-size: 13px; margin-top: 4px; }
+  @media (max-width: 620px) { td.v::before { content: attr(data-l) ': '; font-weight: 400; color: var(--muted); } td.v { display: inline-block !important; margin-right: 12px; } }
+
+  /* #region hand-styles */
+  #hand { display: block; width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  #sheet { box-sizing: border-box; width: 100%; padding: 12px 14px; background: #fff; color: #1d1c1a; font: 15px/1.4 system-ui, sans-serif; color-scheme: light; }
+  #sheet h3 { margin: 12px 0 4px; font-size: 14px; }
+  #sheet h3:first-child { margin-top: 0; }
+  #sheet .perm { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; min-height: 44px; }
+  #sheet label { display: block; margin: 0 0 6px; font-size: 13px; }
+  #sheet input, #sheet textarea { display: block; box-sizing: border-box; width: 100%; max-width: 320px; font: 16px system-ui, sans-serif; padding: 6px 8px; border: 1px solid #999; border-radius: 6px; background: #fff; color: #000; }
+  #sheet ::spelling-error { background: #f00; color: #000; text-decoration: none; }
+  a.pv { font-weight: 700; text-decoration: none; }
+  a.pv:link { color: #00f; } a.pv:visited { color: #f00; }
+  /* #endregion hand-styles */
+  #plain { margin: 10px 0; padding: 12px 14px; border: 1px dashed var(--line); border-radius: 10px; }
+  #plain .perm { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; min-height: 44px; }
+  #readout { font: 13px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); min-height: 9em; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>What a canvas may not see</h1>
+  <p class="lede">
+    Some content is protected by the browser: permission buttons, the colour of visited links, spelling markers, autofill suggestions,
+    frames and images from other origins. This page puts each one in a <code>&lt;canvas content="drawable"&gt;</code> and measures three things:
+    whether it is in the picture, whether script can read its pixels, and whether it still works.
+    The table shows results recorded in the test browser. Press the button to measure this browser. Four cases need a person, and they are under "Try it by hand".
+  </p>
+
+  <div class="tools">
+    <button id="run" type="button">Measure this browser</button>
+    <span id="now" class="note">Not run yet.</span>
+  </div>
+
+  <div style="overflow-x:auto">
+    <table class="results" id="results">
+      <thead><tr><th>Content</th><th>In the picture</th><th>Script can read it</th><th>Still works</th><th>Detail</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>the fixture and the measurements</small></summary>
+    <ol>
+      <li data-code="/protected/cases.js#fixture"><b>The fixture: a 300 by 200 canvas with one drawable child.</b> <code>ink()</code> counts the pixels inside one element's box that are not transparent.</li>
+      <li data-code="/protected/cases.js#permission"><b>Permission elements.</b> Draw the element at three places, read <code>isValid</code> and <code>invalidReason</code>, then compare with the same element outside a canvas.</li>
+      <li data-code="/protected/cases.js#cross-origin"><b>Content from another origin.</b> Count its pixels, then call <code>getImageData()</code> and <code>toDataURL()</code> to see whether the canvas is tainted.</li>
+      <li data-code="/protected/cases.js#webgl"><b>The same frame as a WebGL texture.</b> <code>texElementSubImage2D()</code>, then <code>readPixels()</code> through a framebuffer.</li>
+      <li data-code="/protected/cases.js#visited"><b>The visited link.</b> A link to this page, with different <code>:link</code> and <code>:visited</code> colours.</li>
+      <li data-code="/protected/cases.js"><b>All the cases.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="hand-h">Try it by hand</h2>
+  <p>
+    The white panel is one canvas. Everything in it is a real element drawn with <code>drawElementImage()</code> at its own position, with no transform.
+    The dashed box under it holds the same permission elements and the same link outside any canvas.
+    The readout updates each time the canvas repaints.
+  </p>
+  <ol>
+    <li>Tap each permission button in the canvas, then the same button in the dashed box. A prompt from the browser means the button works.</li>
+    <li>Tap the link in the dashed box once. It opens this page again, which puts the page in your history. Then compare the colour of the two links.</li>
+    <li>Type a misspelt word in the first field and leave the field.</li>
+    <li>Tap the name field and move through the autofill suggestions without choosing one, then choose one.</li>
+  </ol>
+  <!-- #region hand-markup -->
+  <canvas id="hand" content="drawable" layoutsubtree>
+    <div id="sheet" drawable>
+      <h3>Permission elements</h3>
+      <div class="perm" id="perm-in"></div>
+      <h3>A visited link</h3>
+      <p style="margin:0"><a class="pv" href="/protected/">This page</a></p>
+      <h3>Spelling</h3>
+      <label>Type a misspelt word <textarea id="spell" rows="2" spellcheck="true" lang="en" autocomplete="off"></textarea></label>
+      <h3>Autofill</h3>
+      <form id="fill" autocomplete="on" onsubmit="return false">
+        <label>Name <input name="name" autocomplete="name"></label>
+        <label>Email <input name="email" type="email" autocomplete="email"></label>
+        <label>Phone <input name="tel" type="tel" autocomplete="tel"></label>
+      </form>
+    </div>
+  </canvas>
+  <!-- #endregion hand-markup -->
+  <p id="blank" class="note fail" hidden></p>
+  <div id="plain">
+    <div class="perm" id="perm-out"></div>
+    <p style="margin:8px 0 0"><a class="pv" href="/protected/">This page</a> <span class="note">(outside the canvas)</span></p>
+  </div>
+  <div id="readout" aria-live="off">Waiting for the first paint.</div>
+
+  <details class="show-code">
+    <summary>Show the code <small>the canvas you can touch</small></summary>
+    <ol>
+      <li data-code="#hand-markup"><b>Markup: the elements are children of the canvas.</b></li>
+      <li data-code="#hand-draw"><b>Draw the panel at its own position on each <code>paint</code> event.</b> The canvas keeps one backing pixel per device pixel.</li>
+      <li data-code="#hand-read"><b>Read the picture back after each paint</b> and count pixels in the colours the page chose for <code>:visited</code>, <code>::spelling-error</code> and the autofill background.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    A drawable canvas lays out its children and paints them into a picture that <code>drawElementImage()</code> copies into the canvas.
+    The page can then read the canvas with <code>getImageData()</code>, or pass the element through a shader.
+    That would expose anything the browser paints but does not tell script about, so the browser has to do one of three things with protected content:
+    leave it out of the picture, paint a neutral version of it, or paint it and stop it working.
+    Each row above shows which.
+  </p>
+
+  <h2>Findings</h2>
+  <ul class="findings" id="findings">
+    <li><b>The canvas is never tainted.</b> In Chromium 157 no case makes <code>getImageData()</code> or <code>toDataURL()</code> throw. Content the page may not read is left out of the picture: a cross-origin <code>&lt;iframe&gt;</code>, a cross-origin <code>&lt;img&gt;</code> or <code>&lt;video&gt;</code> loaded without CORS, and a cross-origin CSS background all draw 0 pixels. An image loaded with <code>crossorigin</code> from a server that allows it is drawn.</li>
+    <li><b>A shader gets the same picture.</b> <code>texElementSubImage2D()</code> of an element holding a cross-origin frame uploads a texture with the frame missing.</li>
+    <li><b>Permission elements are drawn and readable, and do not work.</b> <code>&lt;geolocation&gt;</code> reports <code>isValid</code> false with the reason <code>intersection_occluded_or_distorted</code> as soon as it is a canvas child, even when it is drawn exactly over its own box. A real click reaches it and opens no prompt. The same element outside a canvas is valid, and a click opens the prompt. To keep a permission button usable, position it over the canvas and do not make it a child.</li>
+    <li><b>Links are drawn as unvisited.</b> The picture uses the <code>:link</code> colour while the screen uses the <code>:visited</code> colour (recorded in Chromium 153 with a profile that keeps history).</li>
+    <li><b>System colours are readable, and they were before.</b> <code>AccentColor</code> and the others read back as the values <code>getComputedStyle()</code> reports.</li>
+    <li><b>Popovers and modal dialogs are not in the picture.</b> The browser draws the top layer itself, above the canvas.</li>
+    <li><b>Open:</b> spelling markers and the autofill preview cannot be produced by a script or by the test browser. They need the steps under "Try it by hand" on a real device. So does the system accent colour on a device where the person has changed it.</li>
+    <li><b>Chromium 157 crash:</b> calling <code>WEBGL_lose_context.loseContext()</code> on a drawable canvas and then removing the canvas crashes the tab. It happens at once when both are in one task, and after a wait too when the canvas has an <code>&lt;iframe&gt;</code> child. The WebGL row here keeps one context and does not release it.</li>
+  </ul>
+</main>
+
+<div id="rig-box" hidden><p>fixture: <span id="rig-name"></span></p><div id="rig"></div></div>
+
+<script type="module">
+  import { CASES, runCases } from './cases.js';
+  import { canvasState } from '/lib/a11y-audit.js';
+
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+  // ---- the table ----
+  let recorded = null;
+  try { recorded = await (await fetch('./recorded.json')).json(); } catch {}
+  const runs = recorded?.runs ?? [];
+  const recordedFor = (id) => runs.map((run) => ({ browser: run.browser, r: run.results.find((x) => x.id === id) })).filter((x) => x.r);
+  const WORD = { yes: 'yes', no: 'no', 'n/a': 'n/a', person: 'needs a person', unsupported: 'not in this browser', error: 'error' };
+  const cell = (label, v) => `<td class="v ${v === 'n/a' ? 'na' : v ?? 'idle'}" data-l="${label}">${v ? WORD[v] ?? esc(v) : 'not run'}</td>`;
+  const recordedHtml = (id) => recordedFor(id).map(({ browser, r }) => `<span class="recorded">${esc(browser)}: ${esc(r.detail)}</span>`).join('');
+
+  const tbody = $('#results tbody');
+  const rows = new Map();
+  let group = null;
+  for (const c of CASES) {
+    if (c.group !== group) {
+      group = c.group;
+      tbody.insertAdjacentHTML('beforeend', `<tr class="group"><th colspan="5" scope="colgroup">${esc(group)}</th></tr>`);
+    }
+    // Show the first recorded run that got an answer without a person.
+    const pick = (key) => { const all = recordedFor(c.id).map((x) => x.r[key]); return all.find((v) => v !== 'person' && v !== 'unsupported') ?? all[0]; };
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${esc(c.title)}</td>${cell('In the picture', pick('drawn'))}${cell('Script can read it', pick('read'))}${cell('Still works', pick('works'))}<td>${recordedHtml(c.id)}</td>`;
+    tbody.append(tr);
+    rows.set(c.id, tr);
+  }
+  const now = $('#now');
+  if (recorded) now.textContent = `Not run yet. The table shows results recorded on ${recorded.date} in ${runs.map((r) => r.browser).join(' and in ')}.`;
+
+  async function run() {
+    $('#run').disabled = true;
+    $('#rig-box').hidden = false;
+    const started = performance.now();
+    const results = await runCases($('#rig'), {
+      auto: window.__auto ?? null,
+      only: window.__only ?? null,
+      onResult(r) {
+        const tr = rows.get(r.id);
+        tr.innerHTML = `<td>${esc(r.title)}</td>${cell('In the picture', r.drawn)}${cell('Script can read it', r.read)}${cell('Still works', r.works)}<td>This browser: ${esc(r.detail)}${recordedHtml(r.id)}</td>`;
+        now.textContent = `Measured: ${r.title}`;
+      },
+    });
+    $('#rig-box').hidden = true;
+    now.textContent = `Measured ${results.length} cases in ${((performance.now() - started) / 1000).toFixed(1)} s.`;
+    $('#run').disabled = false;
+    window.__caseResults = results;
+    return results;
+  }
+  $('#run').onclick = run;
+  window.__run = run;
+
+  // ---- the canvas a person can touch ----
+  const canvas = $('#hand'), sheet = $('#sheet'), readout = $('#readout');
+  const PERMISSION = ['geolocation', 'camera', 'microphone', 'usermedia', 'install'];
+  const events = [];
+  // validationstatuschange only repaints: the readout shows the state itself.
+  const say = (where, el, ev) => { if (ev !== 'validationstatuschange') { events.push(`${where} <${el.localName}> ${ev}`); if (events.length > 6) events.shift(); } canvas.requestPaint(); };
+  const have = [];
+  for (const name of PERMISSION) {
+    if (document.createElement(name) instanceof HTMLUnknownElement) continue;
+    have.push(name);
+    for (const [where, host] of [['canvas', $('#perm-in')], ['outside', $('#perm-out')]]) {
+      const el = document.createElement(name);
+      for (const ev of ['click', 'promptaction', 'promptdismiss', 'location', 'stream', 'track', 'validationstatuschange']) el.addEventListener(ev, () => say(where, el, ev));
+      host.append(el);
+    }
+  }
+  if (!have.length) for (const host of [$('#perm-in'), $('#perm-out')]) host.innerHTML = '<span style="font-size:13px;color:#666">This browser has no permission elements (&lt;geolocation&gt;, &lt;camera&gt; and the others).</span>';
+
+  // #region hand-draw
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let scale = 1;
+  // One backing pixel per device pixel. Assign width and height only when they change.
+  new ResizeObserver(([e]) => {
+    const b = e.devicePixelContentBoxSize?.[0];
+    const w = Math.max(1, b ? b.inlineSize : Math.round(e.contentRect.width * devicePixelRatio));
+    const h = Math.max(1, b ? b.blockSize : Math.round(e.contentRect.height * devicePixelRatio));
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    canvas.requestPaint();
+  }).observe(canvas, { box: 'device-pixel-content-box' });
+  // The canvas is as tall as its content.
+  new ResizeObserver(() => { canvas.style.height = `${sheet.offsetHeight + 2}px`; }).observe(sheet);
+
+  canvas.addEventListener('paint', () => {
+    scale = canvas.width / (canvas.clientWidth || 1);
+    ctx.reset();
+    ctx.scale(scale, scale);
+    // Pass the size: without it the element is drawn in device pixels.
+    ctx.drawElementImage(sheet, 0, 0, sheet.offsetWidth, sheet.offsetHeight);
+    report();
+  });
+  canvas.addEventListener('contextlost', () => { $('#blank').hidden = false; $('#blank').textContent = 'The browser took this canvas\'s drawing context away. It redraws when the context comes back.'; });
+  canvas.addEventListener('contextrestored', () => { $('#blank').hidden = true; canvas.requestPaint(); });
+  canvas.requestPaint();
+  // #endregion hand-draw
+
+  // #region hand-read
+  // Count pixels inside one element's box that pass a test. Positions are CSS px
+  // relative to the canvas, times the backing-store scale.
+  function count(el, test) {
+    const c = canvas.getBoundingClientRect(), b = el.getBoundingClientRect();
+    const x = Math.max(0, Math.round((b.left - c.left) * scale)), y = Math.max(0, Math.round((b.top - c.top) * scale));
+    const w = Math.min(canvas.width - x, Math.round(b.width * scale)), h = Math.min(canvas.height - y, Math.round(b.height * scale));
+    if (w <= 0 || h <= 0) return { n: 0, total: 0 };
+    let d;
+    try { d = ctx.getImageData(x, y, w, h).data; } catch (err) { return { n: 0, total: 0, error: err.name }; }
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) n++;
+    return { n, total: w * h };
+  }
+  const red = (r, g, b) => r > 200 && g < 70 && b < 70;
+  const ink = (r, g, b, a) => a > 0 && (r < 245 || g < 245 || b < 245);
+  const tinted = (r, g, b) => Math.min(r, g, b) > 180 && Math.max(r, g, b) - Math.min(r, g, b) > 10; // a light colour that is not white or grey
+
+  function report() {
+    const lines = [];
+    for (const el of $('#perm-in').children) {
+      if (!have.includes(el.localName)) continue;
+      const twin = [...$('#perm-out').children].find((x) => x.localName === el.localName);
+      const state = (x) => ('isValid' in x ? (x.isValid ? 'valid' : `invalid (${x.invalidReason || 'no reason'})`) : 'no isValid property');
+      lines.push(`<${el.localName}> in the canvas: ${count(el, ink).n} px drawn, ${state(el)}. Outside: ${state(twin)}.`);
+    }
+    if (events.length) lines.push(`last events: ${events.join('; ')}`);
+    const link = sheet.querySelector('a.pv');
+    lines.push(`link: ${count(link, red).n} px of the picture are in the :visited colour (red). Blue in the canvas and red in the dashed box means the canvas was given an unvisited link.`);
+    const spell = $('#spell');
+    lines.push(`spelling: ${count(spell, red).n} px in the ::spelling-error colour (red) inside the field.`);
+    for (const input of $('#fill').elements) {
+      let auto = false;
+      try { auto = input.matches(':autofill'); } catch {}
+      const t = count(input, tinted);
+      lines.push(`${input.name}: value has ${input.value.length} characters, :autofill ${auto ? 'matches' : 'does not match'}, ${t.total ? Math.round(100 * t.n / t.total) : 0}% of the field is tinted, ${count(input, ink).n} px of ink.`);
+    }
+    readout.textContent = lines.join('\n');
+  }
+  // #endregion hand-read
+  for (const ev of ['input', 'change', 'focusin', 'focusout']) sheet.addEventListener(ev, () => canvas.requestPaint());
+  document.addEventListener('selectionchange', () => canvas.requestPaint());
+
+  // A canvas that shows nothing gets a message in place of a white box.
+  setTimeout(async () => {
+    const st = await canvasState(canvas);
+    if (st.state !== 'drawn') {
+      $('#blank').hidden = false;
+      $('#blank').textContent = `The canvas above came up ${st.state}: this browser did not paint the elements into it. The steps below it cannot be tried here.`;
+    }
+  }, 1500);
+
+  if (new URLSearchParams(location.search).has('run')) run();
+  window.__results = [];
+</script>
+</body>
+</html>
