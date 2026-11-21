@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Five follow-ups to the Chrome APIs plan</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; max-width: 520px; height: 400px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #0b0d14; }
+  #stage canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: manipulation; }
+  #stage canvas.off { opacity: 0; pointer-events: none; }
+  #stage.plain canvas { display: none; }
+  #plain { display: none; margin: 0; padding: 16px; color: #e9ecf5; }
+  #stage.plain #plain { display: block; }
+  #tabs { border: 0; padding: 0; margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  #status { font: 13px/1.4 var(--mono); color: var(--muted); min-height: 5.6em; margin: 6px 0; white-space: pre-wrap; }
+  #notice { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--warn); border-radius: 8px; font-size: 14px; }
+  #notice[hidden] { display: none; }
+  #controls { min-height: 150px; }
+  #controls > div { display: none; gap: 10px 18px; flex-wrap: wrap; align-items: center; }
+  #controls > div.on { display: flex; }
+  #controls output { font-family: var(--mono); display: inline-block; min-width: 2.6em; }
+  #controls fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 4px 12px; flex-wrap: wrap; }
+  #rules { display: block; flex: 1 1 100%; box-sizing: border-box; padding: 8px; border-radius: 8px; background: #0b0d14; color: #9fe3b5; font: 12px/1.45 var(--mono); white-space: pre-wrap; outline: none; }
+  #rules:focus { box-shadow: 0 0 0 2px #9fe3b5; }
+
+  /* Everything below is a child of one of the two canvases. Each child is laid out at 0, 0 with its own size. */
+  /* #region zoom-css */
+  .tile, .sum { box-sizing: border-box; width: 260px; height: 170px; padding: 12px; border-radius: 12px; overflow: hidden; cursor: pointer;
+    background: #171b29; border: 1px solid #39405a; color: #dfe3ee; font: 14px/1.4 system-ui, sans-serif; }
+  .tile h3 { margin: 0 0 6px; font-size: 16px; color: #fff; }
+  .tile p { margin: 0; }
+  /* The stand-in for a tile that is too small to read: one sentence in letters that survive the scale. */
+  .sum { display: flex; align-items: center; background: #1d2a44; border-color: #4f6aa8; color: #fff; font: 700 23px/1.2 system-ui, sans-serif; }
+  /* #endregion zoom-css */
+
+  #line { margin: 0; width: max-content; white-space: nowrap; font: 24px/1.5 serif; color: #e9ecf5; }
+  #line::selection { background: #2a6cf0; }
+
+  /* #region book-css */
+  /* Five columns side by side in one element, so one picture holds five pages. The canvas shows one fifth of it at a time. */
+  #book { box-sizing: border-box; width: 1250px; height: 330px; columns: 5; column-gap: 0; column-fill: auto; overflow: hidden;
+    background: #f4efe2; color: #26221a; font: 14px/1.45 Georgia, serif; }
+  #book p, #book h3 { margin: 0; padding: 0 18px 9px; }
+  #book h3 { padding-top: 16px; font: 700 16px/1.3 Georgia, serif; }
+  #book a { color: #7a3b00; }
+  /* #endregion book-css */
+
+  #hdrp { box-sizing: border-box; width: 300px; height: 210px; padding: 16px; border-radius: 14px; display: flex; flex-direction: column; gap: 12px;
+    background: #0b0d14; border: 1px solid #39405a; color: #e9ecf5; font: 15px/1.4 system-ui, sans-serif; }
+  #hdrp header { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+  #hdrp .badge { margin-left: auto; min-width: 26px; height: 26px; box-sizing: border-box; padding: 0 8px; border-radius: 13px; background: #ff3b33; color: #fff; font: 700 14px/26px system-ui; text-align: center; }
+  #hdrp button { align-self: flex-start; font: 600 15px system-ui; padding: 10px 18px; border-radius: 10px; border: 0; background: #2a6cf0; color: #fff; }
+  /* 8-bit picture: the word and the bars are 255, the strip is 254. The shader raises 255. */
+  #hdrp .strip { margin: 0; padding: 5px 40% 5px 5px; border-radius: 6px; font: 800 15px/1.3 system-ui; letter-spacing: .3em; text-align: center; color: #fff;
+    background: linear-gradient(90deg, rgb(254 254 254) 62%, transparent 62%), repeating-linear-gradient(90deg, #fff 0 12px, rgb(254 254 254) 12px 24px); }
+  #probe { width: 40px; height: 40px; background: #fff; }
+
+  .fx { box-sizing: border-box; width: 112px; height: 150px; padding: 9px; border-radius: 12px; display: flex; flex-direction: column; gap: 6px;
+    background: linear-gradient(150deg, #2b3350, #151824); border: 1px solid #ffffff2b; color: #e8eaf2; font: 13px/1.3 system-ui, sans-serif; }
+  .fx b { font-size: 15px; }
+  .fx button { margin-top: auto; font: 13px system-ui; padding: 7px 9px; border-radius: 7px; border: 1px solid #ffffff55; background: #0c0e16; color: #fff; }
+</style>
+<!-- #region rules -->
+<style id="rules-source">
+.fx { transition: --u-amount .4s, --u-tint .4s; }
+.fx.a { --fx: wave; }
+.fx.b { --fx: split; }
+.fx.c { --fx: lines; }
+.fx.on { --u-amount: 1; --u-tint: #ffb40055; }
+</style>
+<!-- #endregion rules -->
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Five follow-ups to the Chrome APIs plan</h1>
+  <p class="lede">
+    Five small experiments that the Chrome APIs plan left open, on one stage. Pick one. <b>Semantic zoom</b> swaps a tile that is too small to read for a one-sentence stand-in.
+    <b>Column pages</b> turns the columns of a multi-column element like pages. <b>Text rectangles</b> compares the selection rectangles of canvas text with those of a DOM range.
+    <b>Float buffer</b> draws a panel into a 16-bit float WebGL buffer with a bloom pass. <b>Effect from CSS</b> picks the shader effect of each card with a custom property.
+    The stage starts on a 2D canvas. The WebGL context is made when one of the last three is first chosen.
+  </p>
+  <p id="support"></p>
+
+  <fieldset id="tabs">
+    <label><input type="radio" name="tab" value="zoom" checked> Semantic zoom</label>
+    <label><input type="radio" name="tab" value="pages"> Column pages</label>
+    <label><input type="radio" name="tab" value="metrics"> Text rectangles</label>
+    <label><input type="radio" name="tab" value="hdr"> Float buffer</label>
+    <label><input type="radio" name="tab" value="fx"> Effect from CSS</label>
+  </fieldset>
+
+  <div id="stage">
+    <p id="plain">This browser cannot draw elements into a canvas, so the five experiments are not shown.</p>
+    <canvas id="flat" content="drawable" layoutsubtree>
+      <!-- #region tiles -->
+      <article class="tile" drawable><h3>Paint event</h3><p>The canvas gets a paint event when a child changes. The handler draws each child, so a page with no animation draws nothing between changes.</p></article>
+      <article class="tile" drawable><h3>Hit testing</h3><p>A child is clicked where it was last drawn. A 2D draw records the place by itself, and a WebGL or WebGPU draw reports it with updateElementGeometry().</p></article>
+      <article class="tile" drawable><h3>Float canvas</h3><p>A 16-bit float canvas keeps CSS colour values above 1.0 from a drawn element. An HDR screen shows them brighter than white.</p></article>
+      <article class="tile" drawable><h3>Readback</h3><p>Reading float pixels back from a shown canvas lost the canvas on the test phone. The pages read from a copy, or only when asked.</p></article>
+      <article class="tile" drawable><h3>Textures</h3><p>WebGL and WebGPU receive an element as an 8-bit picture. A shader decides which pixels go above 1.0.</p></article>
+      <article class="tile" drawable><h3>Custom properties</h3><p>A change to a custom property alone raises no paint event. A page that drives a shader from CSS reads the computed values once a frame.</p></article>
+      <!-- #endregion tiles -->
+      <div class="sum" drawable></div><div class="sum" drawable></div><div class="sum" drawable></div><div class="sum" drawable></div><div class="sum" drawable></div><div class="sum" drawable></div>
+      <p id="line" drawable>AV fi office עברית Wave 12:45</p>
+    </canvas>
+    <canvas id="glc" class="off" content="drawable" layoutsubtree>
+      <article id="book" drawable>
+        <h3>Columns as pages</h3>
+        <p>This element has five columns and a fixed height. The text runs down the first column and continues at the top of the next, which is what a book does at the foot of a page.</p>
+        <p>The element is 1,250 pixels wide and the stage shows 250 of them. The canvas uploads the element once as one picture and draws one fifth of it on a quad. The other four fifths are the other pages.</p>
+        <p>When you ask for the next page, the canvas draws two quads from the same picture. The page underneath is flat. The page on top goes through a shader that rolls it over a cylinder, and the cylinder moves from the right edge to the left.</p>
+        <h3>What stays HTML</h3>
+        <p>The text is still text. It can be selected, a screen reader reads it in order, and <a href="/css-uniforms/">this link</a> can be followed. After each draw the canvas tells the browser where the picture is, shifted left by the width of the pages before the one on show.</p>
+        <p>Only the page that is shown lines up with its picture. A tap lands on the text of that page, and the other pages are outside the canvas.</p>
+        <h3>What the browser does</h3>
+        <p>The browser breaks the text into columns. Nothing in the script measures a line or decides where a page ends. Change the font size or the words and the page breaks move by themselves.</p>
+        <p>The multi-column scroller with its column pseudo-elements and scroll markers is the other way to do this. The live checks measure what a canvas gets from that route.</p>
+        <h3>Limits</h3>
+        <p>The picture of five pages is one texture, 3,281 pixels wide on the test phone. Ten pages would pass the largest texture many phones allow, so a longer book needs one element for each handful of pages.</p>
+        <p>The last page ends here.</p>
+      </article>
+      <section id="hdrp" drawable>
+        <header>Build 482 <span class="badge">7</span></header>
+        <button type="button" id="hdr-button">Deploy</button>
+        <p class="strip" aria-hidden="true">BRIGHTER</p>
+      </section>
+      <div class="fx a" drawable><b>Card one</b><span>--fx: <i></i></span><button type="button">On</button></div>
+      <div class="fx b" drawable><b>Card two</b><span>--fx: <i></i></span><button type="button">On</button></div>
+      <div class="fx c" drawable><b>Card three</b><span>--fx: <i></i></span><button type="button">On</button></div>
+      <div id="probe" drawable></div>
+    </canvas>
+  </div>
+  <p id="status">&nbsp;</p>
+  <p id="notice" hidden></p>
+
+  <div id="controls">
+    <div data-for="zoom" class="on">
+      <label>Zoom <input type="range" id="zoom" min="0.3" max="1.2" step="0.01" value="0.45"> <output id="zoom-out">0.45</output></label>
+      <button type="button" id="summarise">Use the Summarizer API</button>
+      <span>Tap a tile to zoom in on it. Tap it again to zoom out.</span>
+    </div>
+    <div data-for="pages">
+      <button type="button" id="prev">Previous page</button>
+      <button type="button" id="next">Next page</button>
+      <output id="page-out">1 of 5</output>
+    </div>
+    <div data-for="metrics">
+      <label>Start <input type="range" id="sel-a" min="0" max="30" step="1" value="3"> <output id="sel-a-out">3</output></label>
+      <label>End <input type="range" id="sel-b" min="0" max="30" step="1" value="22"> <output id="sel-b-out">22</output></label>
+      <span>Or select part of the top line.</span>
+    </div>
+    <div data-for="hdr">
+      <label>Headroom <input type="range" id="headroom" min="1" max="8" step="0.5" value="4"> <output id="headroom-out">4.0×</output></label>
+      <label>Bloom <input type="range" id="strength" min="0" max="2" step="0.1" value="1"> <output id="strength-out">1.0</output></label>
+      <fieldset id="buffers">
+        <label><input type="radio" name="buffer" value="float"> RGBA16F drawing buffer</label>
+        <label><input type="radio" name="buffer" value="8"> 8-bit drawing buffer</label>
+      </fieldset>
+      <fieldset id="views">
+        <label><input type="radio" name="view" value="0" checked> As stored</label>
+        <label><input type="radio" name="view" value="1"> Exposed down</label>
+        <label><input type="radio" name="view" value="2"> Map of values above 1.0</label>
+      </fieldset>
+    </div>
+    <div data-for="fx">
+      <span>These rules are live. Edit them: the effect names are <code>none</code>, <code>wave</code>, <code>split</code> and <code>lines</code>.</span>
+      <style id="rules" contenteditable="plaintext-only" spellcheck="false"></style>
+    </div>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>five paint routines on two canvases, one shader</small></summary>
+    <ol>
+      <li data-code="#zoom"><b>Semantic zoom.</b> Each tile and its stand-in are drawn at the same place, with the alpha set by the size of the tile's text on screen.</li>
+      <li data-code="#summarise"><b>The Summarizer call</b> that replaces the stand-in text.</li>
+      <li data-code="#book-css"><b>Column pages: the element.</b> Five columns in one element.</li>
+      <li data-code="#pages"><b>Column pages: the draw.</b> Two quads from one texture while a page turns.</li>
+      <li data-code="/plan-followups/stage.js#fragment"><b>The fragment shader.</b> Four modes: plain, page turn, raise above 1.0, effect chosen in CSS.</li>
+      <li data-code="#metrics"><b>Text rectangles.</b> <code>Range.getClientRects()</code> on the drawn element and <code>TextMetrics.getSelectionRects()</code> on canvas text.</li>
+      <li data-code="#hdr"><b>Float buffer.</b> The panel goes into a float texture, then the bloom chain.</li>
+      <li data-code="/plan-followups/stage.js#float-buffer"><b>The float drawing buffer</b> and extended tone mapping.</li>
+      <li data-code="#buffer-choice"><b>When the float buffer is asked for.</b></li>
+      <li data-code="/plan-followups/stage.js#bloom"><b>The bloom passes.</b></li>
+      <li data-code="#rules"><b>Effect from CSS: the rules.</b></li>
+      <li data-code="#fx"><b>Effect from CSS: the read.</b> A registered <code>&lt;custom-ident&gt;</code> becomes a number for the shader.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p><b>Semantic zoom.</b> Six tiles and six stand-ins are children of a 2D canvas. The canvas draws each tile at its place in a 3 by 2 grid, scaled by the zoom. Body text is 14 pixels, so under a zoom of about 0.6 it is
+    below 8.5 pixels on screen. Between 0.5 and 0.72 the tile fades out and its stand-in fades in at the same rectangle. The stand-in holds the first sentence of the tile until "Use the Summarizer API" is pressed,
+    which asks <code>Summarizer</code> for a headline of each tile. Both are elements, so a tap on either one reaches a click handler at any zoom.</p>
+  <p><b>Column pages.</b> The article has <code>columns: 5</code>, a fixed height and no gap, and is 1,250 pixels wide. Its picture is uploaded once as a texture. A page is one fifth of the texture. During a turn the shader maps
+    the top page onto a cylinder that rolls from right to left and shows the back of the paper where it has come over. After each draw <code>updateElementGeometry()</code> places the element so that the shown page lines up with its picture.</p>
+  <p><b>Text rectangles.</b> The top line is a DOM element drawn with <code>drawElementImage()</code>, and the blue boxes are <code>Range.getClientRects()</code> for the chosen characters. The bottom line is the same string drawn with
+    <code>fillText()</code> in the same font, and the orange boxes are <code>TextMetrics.getSelectionRects()</code>, which is in Chrome 160 and behind the experimental features flag before it. The status line gives both lists and the largest difference.</p>
+  <p><b>Float buffer.</b> <code>texElementSubImage2D()</code> gives WebGL an 8-bit picture, so no value above 1.0 arrives. The shader multiplies the badge, the button and the full-white pixels of the strip, and draws into an
+    <code>RGBA16F</code> texture. A bright pass keeps what is above 1.0, four blur passes at a quarter of the size spread it, and the composite adds it back. The canvas's own buffer is asked to be <code>RGBA16F</code> with
+    <code>drawingBufferStorage()</code>, in Display P3, with <code>drawingBufferToneMapping({ mode: 'extended' })</code> where that exists. The page asks for the float buffer at the start only on a screen that matches <code>(dynamic-range: high)</code>.
+    If the stage is empty with the float buffer, choose the 8-bit one: the bloom is the same and nothing passes white.</p>
+  <p><b>Effect from CSS.</b> <code>--fx</code> is registered as a <code>&lt;custom-ident&gt;</code>. Once a frame the page reads it from each card with <code>getComputedStyle()</code> and looks the name up in a table of effect numbers, next to the
+    number and colour uniforms that <code>lib/css-uniforms.js</code> reads. The binding is in this page's own code. <code>lib/shader-fx.js</code> was not changed, because it is shared by other pages.</p>
+
+  <h2>Live checks</h2>
+  <p>These wait for a tap, because two of them use the page's WebGL context and read pixels back from it. The 2D checks run on their own small canvases in the corner of the window. The WebGL checks draw a 40 pixel fixture into the float texture, not the demo.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul id="findings">
+    <li>Measured in Chromium 157 (headless, software rendering) on 2026-11-21. The live checks above give the answers for the browser you are using.</li>
+    <li>A drawn element keeps its click target at any scale in a 2D canvas. A 200 by 100 element drawn at 60 by 30 is clicked inside the small rectangle and not where its full size would be.</li>
+    <li>An element that is not drawn in a paint keeps the click target of its last draw. When the stage changed experiment, the tiles of the first one were still clicked through the text of the third. The page draws each unused element outside the canvas with an alpha of 0, and on the WebGL canvas moves it with <code>updateElementGeometry()</code>.</li>
+    <li>An element with <code>columns: 5</code> and a fixed height is one picture with all five columns, 2,500 by 660 pixels at a scale of 2. No scroll container is needed to get the columns of a text as separate pages.</li>
+    <li>The scroll markers of a multi-column scroller (<code>::column::scroll-marker</code> with <code>scroll-marker-group: after</code>) are not in the picture of the drawn scroller: the picture is the size of the element and no marker pixel is in the canvas. Setting <code>scrollLeft</code> on the drawn scroller changes its picture to the next column.</li>
+    <li><code>TextMetrics.getSelectionRects()</code> is absent without the experimental features flag. With the flag, for 20 pixel serif text, its rectangle and the one from <code>Range.getClientRects()</code> start within 0.01 pixels of each other, differ by 0.03 pixels in width and are both 22 pixels tall. For a selection across Latin and Hebrew text in the demo both give three rectangles of the same widths, and the largest difference at an edge is 0.43 pixels.</li>
+    <li><code>drawingBufferStorage(gl.RGBA16F, …)</code> is accepted on a drawable WebGL canvas, <code>texElementSubImage2D()</code> still uploads into the context, and a white box multiplied by 4 reads back as 4.00 from the float scene texture and from the drawing buffer. <code>drawingBufferToneMapping()</code> exists only with the experimental features flag.</li>
+    <li>The test browser, which composites in software, shows nothing for a WebGL canvas with an <code>RGBA16F</code> drawing buffer: the canvas is empty on screen and the console reports an invalid <code>readPixels</code> format for each frame, although the buffer holds the picture. So the page asks for the float buffer at the start only where <code>(dynamic-range: high)</code> matches, and has a control for both.</li>
+    <li>A registered <code>&lt;custom-ident&gt;</code> reads back from <code>getComputedStyle()</code> as the name. In a 1 second linear transition it read <code>none</code> at 0.25 s and <code>wave</code> at 0.75 s, while a registered number read 0.25 and 0.75.</li>
+    <li>Not verified: whether the float WebGL buffer is shown, and shown brighter than white, on a phone with an HDR screen; and what <code>Summarizer</code> returns. The test browser has no HDR output and reports the model as "downloadable".</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint } from '/shared/support.js';
+  import { cssUniforms } from '/lib/css-uniforms.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage'), flat = $('flat'), glc = $('glc'), status = $('status'), notice = $('notice');
+  const say = (text) => { notice.hidden = false; notice.textContent = text; };
+  const show = (text) => { if (status.textContent !== text) status.textContent = text; };
+  const smooth = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const GL_TABS = ['pages', 'hdr', 'fx'];
+  let tab = 'zoom';
+  const active = () => (GL_TABS.includes(tab) ? glc : flat);
+
+  // The rules for the last experiment are shown in an editable <style> element. A <style> is live wherever it is.
+  $('rules').textContent = $('rules-source').textContent.trim();
+  $('rules-source').remove();
+
+  // ---------------------------------------------------------------- the 2D canvas
+  const ctx = supported ? flat.getContext('2d') : null;
+  if (!supported) stage.classList.add('plain');
+  flat.addEventListener('contextlost', () => say('The 2D canvas lost its context. It is drawn again when the browser gives it back.'));
+  flat.addEventListener('contextrestored', () => { notice.hidden = true; flat.requestPaint(); });
+
+  // Semantic zoom.
+  const tiles = [...flat.querySelectorAll('.tile')], sums = [...flat.querySelectorAll('.sum')];
+  const TW = 260, TH = 170, GAP = 14, WORLD = [3 * TW + 2 * GAP, 2 * TH + GAP];
+  const firstSentence = (el) => el.querySelector('p').textContent.split('. ')[0].replace(/\.?$/, '.');
+  sums.forEach((s, i) => { s.textContent = firstSentence(tiles[i]); });
+  let summarySource = 'the first sentence of each tile';
+  const zoomSlider = $('zoom');
+  const want = { z: +zoomSlider.value, fx: WORLD[0] / 2, fy: WORLD[1] / 2 }, cur = { ...want };
+  let focused = -1;
+  const centre = (i) => [(i % 3) * (TW + GAP) + TW / 2, Math.floor(i / 3) * (TH + GAP) + TH / 2];
+  [...tiles, ...sums].forEach((el, n) => el.addEventListener('click', () => {
+    const i = n % 6;
+    if (focused === i) { focused = -1; want.z = 0.45; [want.fx, want.fy] = [WORLD[0] / 2, WORLD[1] / 2]; }
+    else { focused = i; want.z = 1; [want.fx, want.fy] = centre(i); }
+    zoomSlider.value = want.z; $('zoom-out').textContent = want.z.toFixed(2);
+    flat.requestPaint();
+  }));
+  zoomSlider.addEventListener('input', () => { want.z = +zoomSlider.value; $('zoom-out').textContent = want.z.toFixed(2); flat.requestPaint(); });
+  const zoomSettled = () => Math.abs(cur.z - want.z) < 0.002 && Math.abs(cur.fx - want.fx) < 0.5 && Math.abs(cur.fy - want.fy) < 0.5;
+
+  // An element that this experiment does not show is drawn outside the canvas with an alpha of 0, so that it is not clicked at its old place.
+  const park = (el) => { ctx.globalAlpha = 0; ctx.drawElementImage(el, -4000, -4000, 1, 1); ctx.globalAlpha = 1; };
+  // #region zoom
+  function paintZoom(cw, ch) {
+    for (const k of ['z', 'fx', 'fy']) cur[k] += (want[k] - cur[k]) * 0.2;
+    if (zoomSettled()) Object.assign(cur, want);
+    const z = cur.z;
+    // Body text is 14 px. Under about 0.6 it is too small to read, so the stand-in takes over.
+    const readable = smooth(0.5, 0.72, z);
+    let drawnTiles = 0, drawnSums = 0;
+    tiles.forEach((tile, i) => {
+      const x = cw / 2 + ((i % 3) * (TW + GAP) - cur.fx) * z, y = ch / 2 + (Math.floor(i / 3) * (TH + GAP) - cur.fy) * z, w = TW * z, h = TH * z;
+      // Both are drawn every time, one of them often with an alpha of 0, because a draw is also what moves the place
+      // where the element is clicked. An element that is not drawn keeps the place of its last draw.
+      ctx.globalAlpha = readable < 0.98 ? 1 - readable : 0; ctx.drawElementImage(sums[i], x, y, w, h);
+      ctx.globalAlpha = readable > 0.02 ? readable : 0; ctx.drawElementImage(tile, x, y, w, h);
+      if (x < cw && y < ch && x + w > 0 && y + h > 0) { drawnSums += readable < 0.98; drawnTiles += readable > 0.02; }
+    });
+    park(line);
+    ctx.globalAlpha = 1;
+    show(`Zoom ${z.toFixed(2)}: body text is ${(14 * z).toFixed(1)} px on screen. Drawn: ${drawnTiles} tiles, ${drawnSums} stand-ins.\nStand-in text: ${summarySource}.`);
+  }
+  // #endregion zoom
+
+  // #region summarise
+  $('summarise').addEventListener('click', async () => {
+    if (!('Summarizer' in self)) { summarySource = 'the first sentence of each tile (this browser has no Summarizer)'; flat.requestPaint(); return; }
+    try {
+      summarySource = `the first sentence of each tile (Summarizer is "${await Summarizer.availability()}", asking for it)`; flat.requestPaint();
+      const summarizer = await Summarizer.create({ type: 'headline', format: 'plain-text', length: 'short' });
+      for (const [i, tile] of tiles.entries()) { sums[i].textContent = await summarizer.summarize(tile.textContent); flat.requestPaint(); }
+      summarizer.destroy?.();
+      summarySource = 'headlines from the Summarizer API';
+    } catch (e) { summarySource = `the first sentence of each tile (Summarizer failed: ${e.message})`; }
+    flat.requestPaint();
+  });
+  // #endregion summarise
+
+  // Text rectangles.
+  const line = $('line'), TEXT = line.textContent, FONT = '24px serif';
+  const selA = $('sel-a'), selB = $('sel-b');
+  selA.max = selB.max = TEXT.length;
+  let sel = [3, 22];
+  const setSel = (a, b) => { sel = [Math.min(a, b), Math.max(a, b)]; selA.value = sel[0]; selB.value = sel[1]; $('sel-a-out').textContent = sel[0]; $('sel-b-out').textContent = sel[1]; flat.requestPaint(); };
+  selA.addEventListener('input', () => setSel(+selA.value, +selB.value));
+  selB.addEventListener('input', () => setSel(+selA.value, +selB.value));
+  document.addEventListener('selectionchange', () => {
+    const s = getSelection();
+    if (tab === 'metrics' && s.rangeCount && !s.isCollapsed && s.anchorNode === line.firstChild && s.focusNode === line.firstChild) setSel(s.anchorOffset, s.focusOffset);
+  });
+
+  // #region metrics
+  function paintMetrics() {
+    const X = 14, Y = 44, w = line.offsetWidth, h = line.offsetHeight, [a, b] = sel;
+    const label = (text, y) => { ctx.font = '12px system-ui, sans-serif'; ctx.fillStyle = '#8e96ad'; ctx.fillText(text, X, y); };
+    for (const el of [...tiles, ...sums]) park(el);
+    label('DOM element, Range.getClientRects()', Y - 10);
+    ctx.drawElementImage(line, X, Y, w, h);
+    // The rectangles of a range, measured from the element's own box.
+    const range = document.createRange();
+    range.setStart(line.firstChild, a); range.setEnd(line.firstChild, b);
+    const box = line.getBoundingClientRect();
+    const dom = [...range.getClientRects()].map((r) => ({ x: r.x - box.x, y: r.y - box.y, w: r.width, h: r.height })).filter((r) => r.w > 0);
+    ctx.strokeStyle = '#5aa2ff'; ctx.lineWidth = 1.5;
+    for (const r of dom) ctx.strokeRect(X + r.x, Y + r.y, r.w, r.h);
+
+    // The same string as canvas text in the same font.
+    const Y2 = Y + h + 76;
+    label('fillText(), TextMetrics.getSelectionRects()', Y2 - 38);
+    ctx.font = FONT; ctx.fillStyle = '#e9ecf5'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(TEXT, X, Y2);
+    const metrics = ctx.measureText(TEXT);
+    const list = (rects) => rects.map((r) => `${r.x.toFixed(1)}+${r.w.toFixed(1)}`).join('  ') || 'none';
+    if (!metrics.getSelectionRects) { show(`Characters ${a} to ${b}.\nRange: ${list(dom)}\nTextMetrics.getSelectionRects() is not in this browser. It is in Chrome 160, and behind the experimental features flag before it.`); return; }
+    const canvasRects = [...metrics.getSelectionRects(a, b)].map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height })).filter((r) => r.w > 0);
+    ctx.strokeStyle = '#ffa64d';
+    for (const r of canvasRects) ctx.strokeRect(X + r.x, Y2 + r.y, r.w, r.h);
+    const byX = (p, q) => p.x - q.x, d = [...dom].sort(byX), c = [...canvasRects].sort(byX);
+    const worst = d.length === c.length ? Math.max(0, ...d.map((r, i) => Math.max(Math.abs(r.x - c[i].x), Math.abs(r.x + r.w - c[i].x - c[i].w)))) : NaN;
+    show(`Characters ${a} to ${b}. Start+width of each rectangle, in CSS pixels:\nRange:       ${list(d)}\nTextMetrics: ${list(c)}\n${Number.isNaN(worst) ? `The counts differ: ${d.length} and ${c.length}.` : `Largest difference at an edge: ${worst.toFixed(2)} px.`}`);
+  }
+  // #endregion metrics
+
+  flat.addEventListener('paint', () => {
+    if (!ctx || active() !== flat) return;
+    const cw = flat.clientWidth, ch = flat.clientHeight;
+    ctx.reset();
+    ctx.scale(flat.width / cw, flat.height / ch);
+    if (tab === 'zoom') paintZoom(cw, ch); else paintMetrics();
+  });
+  if (ctx) new ResizeObserver(([entry]) => {
+    const box = entry.devicePixelContentBoxSize?.[0];
+    const w = box ? box.inlineSize : Math.round(flat.clientWidth * devicePixelRatio), h = box ? box.blockSize : Math.round(flat.clientHeight * devicePixelRatio);
+    if (flat.width !== w) flat.width = w;
+    if (flat.height !== h) flat.height = h;
+    flat.requestPaint();
+  }).observe(flat, { box: 'device-pixel-content-box' });
+
+  // ---------------------------------------------------------------- the WebGL canvas
+  const book = $('book'), hdrp = $('hdrp'), probe = $('probe'), cards = [...glc.querySelectorAll('.fx')];
+  const PAGES = 5, PW = 250, PH = 330;
+  let gl = null, bloom = null, ElementGL = null, floatBuffer = null, glStart = null, floatKey = '', bufferLine = '', buffer = {};
+  // One WebGL context for the page, made the first time it is needed.
+  function ensureGL() {
+    glStart ??= (async () => {
+      const lib = await import('/lib/element-gl.js'), mine = await import('./stage.js');
+      if (!lib.supported) throw new Error('this browser has no texElementSubImage2D()');
+      ElementGL = lib.ElementGL; floatBuffer = mine.floatDrawingBuffer;
+      gl = new ElementGL(glc, { fragment: mine.FRAGMENT,
+        onLost: () => say('The WebGL canvas lost its context. It is drawn again when the browser gives it back.'),
+        onRestored: () => { notice.hidden = true; bloom.rebuild(); floatKey = ''; placed.clear(); } });
+      bloom = new mine.Bloom(gl.gl);
+      glc.addEventListener('paint', paintGL);
+      glc.requestPaint();
+      return true;
+    })().catch((e) => { say(`The WebGL experiments were not started: ${e.message}.`); return false; });
+    return glStart;
+  }
+  // Tell the browser where an element was drawn, once for each place. The transform is in CSS pixels.
+  const placed = new Map();
+  function place(el, x, y) {
+    const key = `${x},${y}`;
+    if (placed.get(el) === key) return;
+    placed.set(el, key);
+    glc.updateElementGeometry(el, { canvasTransform: new DOMMatrix().translate(x, y) });
+    el.toggleAttribute('data-placed');            // clears the remembered answer of the hit test
+  }
+  const WHOLE = [0, 0, 1, 1];
+
+  // Column pages.
+  let page = 0, turn = null, bookUploaded = false;
+  const TURN_MS = 750;
+  function turnTo(to) {
+    if (turn || to < 0 || to >= PAGES) return;
+    turn = { from: page, to, start: performance.now() };
+    glc.requestPaint();
+  }
+  $('prev').addEventListener('click', () => turnTo(page - 1));
+  $('next').addEventListener('click', () => turnTo(page + 1));
+
+  // #region pages
+  function paintPages(cw, ch) {
+    // Five pages are one texture. It is uploaded when the element changes, not on every frame of a turn.
+    if (!turn || !bookUploaded) { gl.upload(book); bookUploaded = true; }
+    const x = Math.round((cw - PW) / 2), y = Math.round((ch - PH) / 2), matrix = ElementGL.rect(glc, x, y, PW, PH);
+    const draw = (index, mode, fold = 1) => gl.quad(book, matrix, (g, u) => {
+      g.uniform1f(u('uMode'), mode); g.uniform4f(u('uCrop'), index / PAGES, 0, 1 / PAGES, 1); g.uniform1f(u('uFold'), fold);
+    });
+    if (turn) {
+      const t = Math.min(1, (performance.now() - turn.start) / TURN_MS), eased = t * t * (3 - 2 * t), forward = turn.to > turn.from;
+      // Forward: the old page rolls away over the new one. Back: the earlier page rolls in over the current one.
+      draw(forward ? turn.to : turn.from, 0);
+      draw(forward ? turn.from : turn.to, 1, forward ? 1 - 1.12 * eased : -0.12 + 1.12 * eased);
+      if (t >= 1) { page = turn.to; turn = null; $('page-out').textContent = `${page + 1} of ${PAGES}`; }
+    } else draw(page, 0);
+    // The element is 1,250 px wide. Shift it so that the page on show lines up with its picture.
+    place(book, x - page * PW, y);
+    show(`Page ${page + 1} of ${PAGES}. One texture of ${glc.getElementImageDefaultSize(book).width} by ${glc.getElementImageDefaultSize(book).height} pixels holds all five.\nThe text can be selected and the link on page 2 can be followed.`);
+  }
+  // #endregion pages
+
+  // Float buffer.
+  let headroom = 4, strength = 1, view = 0, hdrBusy = 0;
+  // The float drawing buffer is asked for at the start only where the screen reports that it shows values above 1.0.
+  let wantFloat = matchMedia('(dynamic-range: high)').matches;
+  document.querySelector(`input[name="buffer"][value="${wantFloat ? 'float' : '8'}"]`).checked = true;
+  $('buffers').addEventListener('change', (e) => { wantFloat = e.target.value === 'float'; glc.requestPaint(); });
+  $('headroom').addEventListener('input', (e) => { headroom = +e.target.value; $('headroom-out').textContent = `${headroom.toFixed(1)}×`; glc.requestPaint(); });
+  $('strength').addEventListener('input', (e) => { strength = +e.target.value; $('strength-out').textContent = strength.toFixed(1); glc.requestPaint(); });
+  $('views').addEventListener('change', (e) => { view = +e.target.value; glc.requestPaint(); });
+  $('hdr-button').addEventListener('click', () => { hdrBusy = performance.now(); glc.requestPaint(); });
+  const inside = (el, root) => { let x = 0, y = 0; for (let n = el; n && n !== root; n = n.offsetParent) { x += n.offsetLeft; y += n.offsetTop; } return [x, y, el.offsetWidth, el.offsetHeight]; };
+  const raised = [
+    { el: hdrp.querySelector('.badge'), k: 1, radius: 13, kind: 0 },
+    { el: $('hdr-button'), k: 0.7, radius: 10, kind: 0 },
+    { el: hdrp.querySelector('.strip'), k: 1, radius: 6, kind: 1 },
+  ];
+  const setRaise = (g, u, boxes, opts) => {
+    g.uniform1f(u('uMode'), 2); g.uniform4f(u('uCrop'), ...WHOLE);
+    g.uniform4fv(u('uBox'), new Float32Array(16).fill(0).map((_, i) => boxes[i] ?? 0));
+    g.uniform4fv(u('uOpt'), new Float32Array(16).fill(0).map((_, i) => opts[i] ?? 0));
+    g.uniform1f(u('uCount'), boxes.length / 4);
+  };
+
+  // #region hdr
+  function paintHdr(cw, ch) {
+    bufferLine = `Drawing buffer: ${buffer.storage ? 'RGBA16F' : wantFloat ? '8-bit (RGBA16F was not accepted)' : '8-bit'}, ${buffer.colorSpace}, tone mapping: ${buffer.toneMapping}. Scene texture: ${bloom.float ? 'RGBA16F' : '8-bit'}.`;
+    gl.upload(hdrp);
+    bloom.beginScene(glc.width, glc.height);
+    const x = Math.round((cw - hdrp.offsetWidth) / 2), y = Math.round((ch - hdrp.offsetHeight) / 2);
+    // After a press the button pulses for a second and a half.
+    const since = performance.now() - hdrBusy, pulse = since < 1500 ? 1 + 0.6 * Math.sin(since / 90) * (1 - since / 1500) : 1;
+    const boxes = raised.flatMap((r) => inside(r.el, hdrp));
+    const opts = raised.flatMap((r) => [(1 + (headroom - 1) * r.k) * (r.el.id ? pulse : 1), r.radius, r.kind, 0]);
+    gl.quad(hdrp, ElementGL.rect(glc, x, y, hdrp.offsetWidth, hdrp.offsetHeight), (g, u) => setRaise(g, u, boxes, opts));
+    bloom.finish({ strength, headroom, view });
+    place(hdrp, x, y);
+    show(`${bufferLine}\nThe element arrives as an 8-bit picture. The shader multiplies the badge by ${headroom.toFixed(1)}, the button by ${(1 + (headroom - 1) * 0.7).toFixed(1)}, and the word and the bars in the strip by ${headroom.toFixed(1)}.`);
+  }
+  // #endregion hdr
+
+  // Effect from CSS.
+  const EFFECTS = { none: 0, wave: 1, split: 2, lines: 3 };
+  const bound = cssUniforms('uniform float uAmount; uniform vec4 uTint;');
+  bound.register();
+  try { CSS.registerProperty({ name: '--fx', syntax: '<custom-ident>', inherits: false, initialValue: 'none' }); } catch { /* registered already */ }
+  for (const card of cards) card.querySelector('button').addEventListener('click', (e) => { e.target.textContent = card.classList.toggle('on') ? 'Off' : 'On'; });
+  const fxState = new Map();
+
+  // #region fx
+  // Once a frame: the effect name and the uniforms of each card, from computed style. True when any changed.
+  function readCards() {
+    let changed = false, moving = false;
+    for (const card of cards) {
+      const name = getComputedStyle(card).getPropertyValue('--fx').trim();
+      const read = bound.read(card), before = fxState.get(card);
+      if (!before || before.name !== name || read.changed) changed = true;
+      if (name !== (before?.name)) card.querySelector('i').textContent = name in EFFECTS ? name : `${name} (unknown)`;
+      fxState.set(card, { name, values: read.values });
+      if (name === 'wave' && read.values[0] > 0.001) moving = true;      // the wave moves with time
+    }
+    return changed || moving;
+  }
+  function paintFx(cw, ch) {
+    readCards();
+    const gap = Math.max(6, Math.min(16, (cw - 3 * 112) / 4)), x0 = (cw - 3 * 112 - 2 * gap) / 2, y = Math.round((ch - 150) / 2);
+    cards.forEach((card, i) => {
+      gl.upload(card);
+      const x = Math.round(x0 + i * (112 + gap)), state = fxState.get(card);
+      gl.quad(card, ElementGL.rect(glc, x, y, 112, 150), (g, u) => {
+        g.uniform1f(u('uMode'), 3); g.uniform4f(u('uCrop'), ...WHOLE);
+        g.uniform1f(u('uEffect'), EFFECTS[state.name] ?? 0);
+        bound.apply(g, u, state.values);
+      });
+      place(card, x, y);
+    });
+    show(`--fx of each card: ${cards.map((c) => fxState.get(c).name).join(', ')}. --u-amount: ${cards.map((c) => fxState.get(c).values[0].toFixed(2)).join(', ')}.\nThe page reads these with getComputedStyle() once a frame.`);
+  }
+  // #endregion fx
+
+  let probeJob = null;
+  function paintGL() {
+    if (!gl || gl.lost) return;
+    if (probeJob) { const job = probeJob; probeJob = null; try { job.resolve(runProbe()); } catch (e) { job.reject(e); } }
+    if (active() !== glc) { if (floatKey === '') { floatKey = 'off'; floatBuffer(gl.gl, false); gl.begin(); } return; }   // hidden: leave it 8-bit and clear
+    if (!gl.begin()) return;
+    const cw = glc.clientWidth, ch = glc.clientHeight;
+    // #region buffer-choice
+    // Only the float buffer experiment has a float drawing buffer. It has to be asked for again when the canvas is resized.
+    const key = `${glc.width}x${glc.height} ${tab === 'hdr' && wantFloat}`;
+    if (floatKey !== key) { floatKey = key; buffer = floatBuffer(gl.gl, tab === 'hdr' && wantFloat); gl.begin(); }
+    // #endregion buffer-choice
+    if (tab === 'pages') paintPages(cw, ch); else if (tab === 'hdr') paintHdr(cw, ch); else paintFx(cw, ch);
+    // The children of the other experiments are moved out of the canvas, or they would be clicked where they were last drawn.
+    for (const [name, list] of [['pages', [book]], ['hdr', [hdrp]], ['fx', cards], ['', [probe]]]) if (name !== tab) for (const el of list) place(el, -4000, -4000);
+  }
+
+  // ---------------------------------------------------------------- tabs and frames
+  $('tabs').addEventListener('change', async (e) => {
+    tab = e.target.value;
+    for (const row of document.querySelectorAll('#controls > div')) row.classList.toggle('on', row.dataset.for === tab);
+    const useGL = GL_TABS.includes(tab);
+    if (useGL && !(await ensureGL())) { tab = 'zoom'; document.querySelector('input[name="tab"][value="zoom"]').checked = true; return; }
+    flat.classList.toggle('off', useGL); glc.classList.toggle('off', !useGL);
+    placed.clear();
+    active().requestPaint();
+  });
+  if (supported) {
+    let onScreen = true;
+    new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; }).observe(stage);
+    requestAnimationFrame(function frame() {
+      requestAnimationFrame(frame);
+      if (!onScreen || document.hidden) return;
+      if (tab === 'zoom' ? !zoomSettled() : tab === 'pages' ? !!turn : tab === 'hdr' ? performance.now() - hdrBusy < 1600 : tab === 'fx' ? gl && readCards() : false) active().requestPaint();
+    });
+  }
+
+  // ---------------------------------------------------------------- live checks
+  async function fixture(html, css = '', w = 200, h = 100) {
+    const cv = document.createElement('canvas');
+    cv.setAttribute('content', 'drawable'); cv.setAttribute('layoutsubtree', '');
+    cv.width = w; cv.height = h; cv.style.cssText = `width:${w}px;height:${h}px;flex:none`;
+    const el = document.createElement('div');
+    el.setAttribute('drawable', ''); el.style.cssText = css; el.innerHTML = html;
+    cv.append(el); testStage().append(cv);
+    const x = cv.getContext('2d');
+    await nextPaint(cv);
+    return { cv, el, x };
+  }
+  // Pixels are read from a copy on a plain canvas, never from the drawable canvas.
+  const copyOf = (cv) => { const c = new OffscreenCanvas(cv.width, cv.height).getContext('2d', { willReadFrequently: true }); c.drawImage(cv, 0, 0); return (px, py) => [...c.getImageData(px, py, 1, 1).data]; };
+  const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  const COLS = ['#f00', '#0f0', '#00f', '#ff0', '#f0f'];
+  // The float check draws the 40 px fixture into the scene texture during the next paint of the WebGL canvas.
+  function runProbe() {
+    gl.begin();
+    gl.upload(probe);
+    bloom.beginScene(glc.width, glc.height);
+    gl.quad(probe, ElementGL.rect(glc, 0, 0, 40, 40), (g, u) => setRaise(g, u, [10, 10, 20, 20], [4, 0, 0, 0]));
+    const sx = glc.width / glc.clientWidth, sy = glc.height / glc.clientHeight;
+    const at = [Math.round(20 * sx), Math.round(20 * sy)];
+    const result = { inside: [...bloom.read(...at)], outside: [...bloom.read(Math.round(4 * sx), Math.round(4 * sy))], float: bloom.float };
+    // The same picture through the bloom chain into the canvas's own buffer, made float for this one frame.
+    const got = floatBuffer(gl.gl, true); floatKey = '';
+    gl.begin(); bloom.beginScene(glc.width, glc.height);
+    gl.quad(probe, ElementGL.rect(glc, 0, 0, 40, 40), (g, u) => setRaise(g, u, [10, 10, 20, 20], [4, 0, 0, 0]));
+    bloom.finish({ strength: 0, headroom: 4, view: 0 });
+    Object.assign(result, { buffer: got, canvas: [...bloom.readCanvas(...at)] });
+    return result;
+  }
+
+  const tests = [
+    { name: 'A tile drawn at 0.3 of its size is clicked at the small rectangle', expect: 'pass', why: 'drawElementImage(el, 100, 40, 60, 30) of a 200 by 100 element, then elementFromPoint() inside and outside that rectangle',
+      run: async () => {
+        const f = await fixture('<button id="pf-hit" style="width:200px;height:100px;border:0;background:#2a6cf0"></button>', 'width:200px;height:100px');
+        f.x.drawElementImage(f.el, 100, 40, 60, 30); f.el.toggleAttribute('data-x'); await frame();
+        const r = f.cv.getBoundingClientRect(), at = (x, y) => document.elementFromPoint(r.x + x, r.y + y)?.id || 'not the button';
+        const inside = at(130, 55), outside = at(40, 20);
+        if (inside !== 'pf-hit' || outside === 'pf-hit') throw new Error(`Inside the small rectangle: ${inside}. Outside it: ${outside}.`);
+        return `Inside the small rectangle: the button. At 40, 20, where the full-size element would be: ${outside}.`;
+      } },
+    { name: 'The Summarizer API is present', expect: 'pass', why: 'Summarizer.availability()',
+      run: async () => { if (!('Summarizer' in self)) throw new Error('No Summarizer in this browser.'); return `Summarizer.availability() is "${await Summarizer.availability()}".`; } },
+    { name: 'An element with columns: 5 and a fixed height is one picture with all five columns', expect: 'pass', why: 'Five blocks with break-after: column in a 200 by 40 element, drawn once, pixels read from a copy',
+      run: async () => {
+        const f = await fixture(COLS.map((c) => `<i style="display:block;height:40px;background:${c};break-after:column"></i>`).join(''), 'width:200px;height:40px;columns:5;column-gap:0;column-fill:auto');
+        f.x.drawElementImage(f.el, 0, 0, 200, 40);
+        const px = copyOf(f.cv), got = [20, 60, 100, 140, 180].map((x) => px(x, 20).slice(0, 3).join(','));
+        const expected = ['255,0,0', '0,255,0', '0,0,255', '255,255,0', '255,0,255'];
+        if (got.join(' ') !== expected.join(' ')) throw new Error(`The five sample points read ${got.join(' | ')}.`);
+        return 'Red, green, blue, yellow and magenta at the centres of the five columns.';
+      } },
+    { name: 'Setting scrollLeft on a drawn multi-column scroller changes its picture', expect: 'pass', why: 'A 200 pixel wide scroller with one column in view, scrolled to its second column',
+      run: async () => {
+        const f = await fixture(COLS.map((c) => `<i style="display:block;height:60px;background:${c};break-after:column"></i>`).join(''), 'width:200px;height:60px;columns:1;column-width:200px;column-gap:0;column-fill:auto;overflow-x:auto;scrollbar-width:none');
+        f.x.drawElementImage(f.el, 0, 0, 200, 60); const before = copyOf(f.cv)(100, 30).slice(0, 3).join(',');
+        f.el.scrollLeft = 200; await nextPaint(f.cv);
+        f.x.reset(); f.x.drawElementImage(f.el, 0, 0, 200, 60); const after = copyOf(f.cv)(100, 30).slice(0, 3).join(',');
+        if (before !== '255,0,0' || after !== '0,255,0') throw new Error(`Before the scroll ${before}, after it ${after}. scrollLeft is ${f.el.scrollLeft}.`);
+        return `Red before, green after. scrollLeft is ${f.el.scrollLeft}.`;
+      } },
+    { name: 'The ::column scroll markers of a drawn scroller are in its picture', expect: 'fail', why: 'scroll-marker-group: after, with red ::column::scroll-marker boxes. The canvas is taller than the element, and every pixel of a copy is searched for marker red',
+      run: async () => {
+        const style = document.createElement('style');
+        style.textContent = '.pf-cols{scroll-marker-group:after}.pf-cols::scroll-marker-group{display:flex;gap:4px;height:20px}.pf-cols::column{scroll-snap-align:start}.pf-cols::column::scroll-marker{content:"";width:14px;height:14px;background:rgb(255,0,1)}';
+        document.head.append(style);
+        try {
+          const f = await fixture(['#111', '#222', '#333'].map((c) => `<i style="display:block;height:60px;background:${c};break-after:column"></i>`).join(''), 'width:200px;height:60px;columns:1;column-width:200px;column-gap:0;column-fill:auto;overflow-x:auto;scrollbar-width:none', 200, 100);
+          f.el.className = 'pf-cols'; await nextPaint(f.cv);
+          f.x.drawElementImage(f.el, 0, 0, 200, 60);
+          const size = f.cv.getElementImageDefaultSize(f.el), c = new OffscreenCanvas(200, 100).getContext('2d', { willReadFrequently: true });
+          c.drawImage(f.cv, 0, 0);
+          const d = c.getImageData(0, 0, 200, 100).data; let red = 0;
+          for (let i = 0; i < d.length; i += 4) if (d[i] > 240 && d[i + 1] < 20 && d[i + 2] < 20) red++;
+          const supportsColumn = CSS.supports('selector(::column)');
+          if (!red) throw new Error(`No marker pixel in the canvas. The element's picture is ${size.width} by ${size.height}. ::column is ${supportsColumn ? 'supported' : 'not supported'} here.`);
+          return `${red} marker pixels in the canvas.`;
+        } finally { style.remove(); }
+      } },
+    { name: 'TextMetrics.getSelectionRects() agrees with Range.getClientRects() for Latin text', expect: 'fail', why: 'Characters 6 to 12 of "Hello canvas text" at 20px serif, as an element and as canvas text. Expected to fail where the method does not exist (before Chrome 160 without the experimental features flag)',
+      run: async () => {
+        const f = await fixture('<span style="font:20px serif;white-space:nowrap">Hello canvas text</span>', 'width:200px;height:40px');
+        f.x.drawElementImage(f.el, 0, 0, 200, 40);
+        const span = f.el.firstChild, range = document.createRange();
+        range.setStart(span.firstChild, 6); range.setEnd(span.firstChild, 12);
+        const base = span.getBoundingClientRect(), r = range.getClientRects()[0], dom = [r.x - base.x, r.width];
+        f.x.font = '20px serif';
+        const m = f.x.measureText('Hello canvas text');
+        if (!m.getSelectionRects) throw new Error(`TextMetrics has no getSelectionRects() in this browser. The range rectangle starts at ${dom[0].toFixed(2)} and is ${dom[1].toFixed(2)} wide.`);
+        const q = m.getSelectionRects(6, 12)[0];
+        const off = Math.max(Math.abs(q.x - dom[0]), Math.abs(q.width - dom[1]));
+        if (off > 1) throw new Error(`Range: ${dom[0].toFixed(2)}+${dom[1].toFixed(2)}. TextMetrics: ${q.x.toFixed(2)}+${q.width.toFixed(2)}.`);
+        return `Range: ${dom[0].toFixed(2)}+${dom[1].toFixed(2)}, ${r.height.toFixed(1)} tall. TextMetrics: ${q.x.toFixed(2)}+${q.width.toFixed(2)}, ${q.height.toFixed(1)} tall.`;
+      } },
+    { name: 'WebGL: a shader raises an uploaded element to 4.0 in an RGBA16F texture', expect: 'pass', why: 'A white 40 pixel element drawn through the page\'s shader with a gain of 4 on its middle, read with readPixels() as floats',
+      run: async () => {
+        if (!(await ensureGL())) throw new Error('No WebGL 2 context with texElementSubImage2D() here, so this was not measured.');
+        const got = await new Promise((resolve, reject) => { probeJob = { resolve, reject }; glc.requestPaint(); });
+        const text = `Inside the box ${got.inside[0].toFixed(2)}, beside it ${got.outside[0].toFixed(2)}. Scene texture: ${got.float ? 'RGBA16F' : '8-bit'}.`;
+        if (Math.abs(got.inside[0] - 4) > 0.1 || Math.abs(got.outside[0] - 1) > 0.05) throw new Error(text);
+        return text;
+      } },
+    { name: 'WebGL: the canvas accepts an RGBA16F drawing buffer and it holds 4.0', expect: 'pass', why: 'drawingBufferStorage(gl.RGBA16F, width, height) on the page\'s drawable WebGL canvas, the same fixture through the bloom chain, then readPixels() of the drawing buffer as floats',
+      run: async () => {
+        if (!(await ensureGL())) throw new Error('No WebGL 2 context here, so this was not measured.');
+        const got = await new Promise((resolve, reject) => { probeJob = { resolve, reject }; glc.requestPaint(); });
+        const text = `Colour space ${got.buffer.colorSpace}, tone mapping: ${got.buffer.toneMapping}. The raised box reads ${got.canvas[0].toFixed(2)} from the drawing buffer.`;
+        if (!got.buffer.storage) throw new Error(`The drawing buffer is not RGBA16F. drawingBufferStorage is ${typeof gl.gl.drawingBufferStorage}. ${text}`);
+        if (Math.abs(got.canvas[0] - 4) > 0.1) throw new Error(`RGBA16F was accepted. ${text}`);
+        return `RGBA16F. ${text}`;
+      } },
+    { name: 'In a transition a registered <custom-ident> changes at the halfway point and a number moves throughout', expect: 'pass', why: 'transition: --fx 1s linear, --u-amount 1s linear; read at 0.25 s and at 0.75 s',
+      run: async () => {
+        const el = document.createElement('div');
+        el.style.cssText = 'transition:--fx 1s linear,--u-amount 1s linear;transition-behavior:allow-discrete;--fx:none;--u-amount:0';
+        testStage().append(el); getComputedStyle(el).getPropertyValue('--fx');
+        await frame(); const start = performance.now();
+        el.style.setProperty('--fx', 'wave'); el.style.setProperty('--u-amount', '1');
+        const read = () => ({ t: (performance.now() - start) / 1000, fx: getComputedStyle(el).getPropertyValue('--fx').trim(), n: parseFloat(getComputedStyle(el).getPropertyValue('--u-amount')) });
+        await new Promise((r) => setTimeout(r, 250)); const a = read();
+        await new Promise((r) => setTimeout(r, 500)); const b = read();
+        el.remove();
+        const text = `At ${a.t.toFixed(2)} s: ${a.fx}, ${a.n.toFixed(2)}. At ${b.t.toFixed(2)} s: ${b.fx}, ${b.n.toFixed(2)}.`;
+        if (a.fx !== 'none' || b.fx !== 'wave' || !(a.n > 0.05 && a.n < 0.6) || !(b.n > 0.5 && b.n < 1)) throw new Error(text);
+        return text;
+      } },
+  ];
+  runTests($('tests'), supported ? tests : tests.slice(1, 2));
+</script>
+</body>
+</html>
