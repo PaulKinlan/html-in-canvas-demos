@@ -2,8 +2,8 @@
 // Runs /protected/ in the two installed Chromium builds with real clicks and
 // screenshots, and writes public/protected/recorded.json.
 //
-//   npm run record:protected
-//   npm run record:protected -- --only geolocation,visited   (prints, does not write)
+//   node tools/protected/record.mjs
+//   node tools/protected/record.mjs --only geolocation,visited   (prints, does not write)
 //
 // It serves public/ on ports 8001 and 8002 (two origins), so stop other
 // servers on those ports first.

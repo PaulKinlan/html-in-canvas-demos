@@ -193,6 +193,13 @@ class SurfaceElement extends HTMLElement {
       if (canvas !== this.canvas) return;
       lost = setTimeout(() => canvas === this.canvas && this.fallBackToPlain('canvas context lost'), 1500);
     });
+    // A WebGL canvas fires its own event. A subclass that handles the loss
+    // moves to a new canvas or gets the context restored within the wait.
+    canvas.addEventListener('webglcontextlost', () => {
+      if (canvas !== this.canvas) return;
+      lost = setTimeout(() => canvas === this.canvas && this.ctx?.isContextLost?.() && this.fallBackToPlain('WebGL context lost'), 1500);
+    });
+    canvas.addEventListener('webglcontextrestored', () => clearTimeout(lost));
     canvas.addEventListener('contextrestored', () => {
       clearTimeout(lost);
       if (canvas !== this.canvas) return;
@@ -1486,6 +1493,10 @@ async function open(force) {
   };
   try {
     if (!navigator.gpu) return no('this browser has no WebGPU');
+    if (!force) {
+      const before = lostBefore();
+      if (before) return no(before);
+    }
     const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
     if (!adapter) return no('WebGPU found no graphics adapter');
     const info = adapter.info ?? {};
@@ -1496,6 +1507,7 @@ async function open(force) {
     device.lost.then((e) => {
       gpu.lost = true;
       if (!force) webgpu.reason = `the WebGPU device was lost (${e.message || e.reason})`;
+      if (!force && e.reason !== 'destroyed') rememberLoss(e.message || e.reason || 'no reason given');
       dispatchEvent(new CustomEvent('webgpulost', { detail: e }));
     });
     if (!force) {
@@ -1509,6 +1521,29 @@ async function open(force) {
     return gpu;
   } catch (err) {
     return no(`WebGPU failed to start (${err.message})`);
+  }
+}
+
+// A device that was lost on this phone is likely to be lost again on the next
+// page, and a lost device can take the page's WebGL contexts and large 2D
+// canvases with it. So after a loss the tab uses WebGL for ten minutes.
+// ?webgpu=retry forgets the loss.
+const LOSS_KEY = 'webgpu-lost';
+const LOSS_MS = 10 * 60 * 1000;
+function rememberLoss(message) {
+  try { sessionStorage.setItem(LOSS_KEY, JSON.stringify({ at: Date.now(), message })); } catch {}
+}
+function lostBefore() {
+  try {
+    if (new URLSearchParams(location.search).get('webgpu') === 'retry') sessionStorage.removeItem(LOSS_KEY);
+    const loss = JSON.parse(sessionStorage.getItem(LOSS_KEY) ?? 'null');
+    if (!loss) return '';
+    const age = Date.now() - loss.at;
+    if (age > LOSS_MS) { sessionStorage.removeItem(LOSS_KEY); return ''; }
+    const mins = Math.max(1, Math.round(age / 60000));
+    return `the WebGPU device was lost ${mins} min ago in this tab (${loss.message}); add ?webgpu=retry to the address to use WebGPU again`;
+  } catch {
+    return '';
   }
 }
 
@@ -1533,13 +1568,22 @@ async function selfTest({ device, format }) {
   return '';
 }
 
+// Asked once. The probe's context is given back at once: Chrome on Android
+// keeps 8 WebGL contexts per tab, and a probe left to the garbage collector
+// counts as one of them.
+let hasWebGL2 = null;
 /** True when a WebGL 2 context can be made. */
 function webgl2() {
+  if (hasWebGL2 !== null) return hasWebGL2;
   try {
-    return !!document.createElement('canvas').getContext('webgl2');
+    // This canvas is never in a page and has no children, so losing its context is safe.
+    const gl = document.createElement('canvas').getContext('webgl2');
+    hasWebGL2 = !!gl;
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
   } catch {
-    return false;
+    hasWebGL2 = false;
   }
+  return hasWebGL2;
 }
 
 /**
