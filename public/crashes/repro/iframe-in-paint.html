@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Repro: Inserting or removing an iframe inside a paint handler crashes the tab</title>
+<!-- A reduced reproduction for a browser bug report. One file, no libraries and none of the site's scripts.
+     HTML-in-canvas must be on: chrome://flags/#canvas-draw-element, or a Chrome with the origin trial. Listed at /crashes/. -->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 16px; max-width: 680px; }
+  h1 { font-size: 19px; line-height: 1.3; }
+  button { font: inherit; min-height: 44px; padding: 6px 14px; margin: 4px 6px 4px 0; }
+  #log { font: 12.5px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #8886; border-radius: 8px; padding: 8px; min-height: 6em; }
+  canvas { display: block; border: 1px solid #8886; margin: 8px 0; max-width: 100%; }
+  .card { box-sizing: border-box; width: 240px; padding: 10px; border-radius: 8px; background: #fff7e6; color: #2a2116; }
+</style>
+<h1>Inserting or removing an iframe inside a paint handler crashes the tab</h1>
+<p>A drawable canvas with a <code>paint</code> listener. Button A appends an iframe to the canvas inside the listener. Button B removes an iframe that is a child of the canvas inside the listener. Button C appends one from a <code>setTimeout(0)</code> started in the listener.</p>
+<p><b>Expected:</b> the iframe is inserted or removed.<br><b>Seen:</b> headless Chromium 157, this page, 2026-11-21: B (remove) crashes the tab. A (insert) and C do not crash here. In fuller pages an insert or a move inside paint crashed with the same CHECK (trap int3).</p>
+<p><button id="a">A: insert in paint</button><button id="b">B: remove in paint</button><button id="c">C: insert after a timer</button> <a href="/crashes/#iframe-in-paint">The entry on /crashes/</a></p>
+<div id="stage"></div>
+<pre id="log"></pre>
+<script>
+  // The log is also kept in localStorage, so that it can be read after the tab has died.
+  const KEY = 'repro-iframe-in-paint';
+  const t0 = performance.now();
+  const logEl = document.getElementById('log'), stage = document.getElementById('stage');
+  const log = (text) => { const line = `${Math.round(performance.now() - t0)} ms  ${text}`; logEl.textContent += line + '\n'; try { localStorage.setItem(KEY, logEl.textContent); } catch {} };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try { const before = localStorage.getItem(KEY); if (before && /RUNNING/.test(before.trim().split('\n').pop())) logEl.textContent = '--- the log of the run before this page load. Its last line says RUNNING, so the page ended during the run: ---\n' + before + '--- end ---\n'; localStorage.removeItem(KEY); } catch {}
+  const drawable = (html, w = 300, h = 110, options) => {
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable');
+    canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    stage.append(canvas);
+    return canvas;
+  };
+  const paintOf = (canvas) => new Promise((resolve) => { canvas.addEventListener('paint', resolve, { once: true }); canvas.requestPaint(); });
+  const watch = (canvas, name) => { for (const type of ['contextlost', 'contextrestored', 'webglcontextlost', 'webglcontextrestored']) canvas.addEventListener(type, () => log(`${type} on ${name}`)); };
+  log(navigator.userAgent);
+  if (!('requestPaint' in HTMLCanvasElement.prototype)) log('HTML-in-canvas is not available in this browser, so this page cannot show anything.');
+
+  const frame = () => { const f = document.createElement('iframe'); f.srcdoc = '<body style="margin:0;background:gold">frame'; f.style.cssText = 'width:120px;height:60px;border:0'; f.setAttribute('drawable', ''); return f; };
+  const run = async (mode) => {
+    log(`RUNNING ${mode}`);
+    const canvas = drawable(`<div class="card" drawable><b>An element</b> drawn by the canvas <button type="button">A button</button></div>`);
+    const ctx = canvas.getContext('2d');
+    let existing = null;
+    if (mode === 'remove') { existing = frame(); canvas.append(existing); await sleep(500); }
+    canvas.addEventListener('paint', () => {
+      const el = canvas.firstElementChild;
+      ctx.drawElementImage(el, 10, 10, el.offsetWidth, el.offsetHeight);
+      if (mode === 'insert') { log('appending an iframe inside paint'); canvas.append(frame()); }
+      if (mode === 'remove') { log('removing an iframe inside paint'); existing.remove(); }
+      if (mode === 'timer') setTimeout(() => { log('appending an iframe after setTimeout(0)'); canvas.append(frame()); }, 0);
+    }, { once: true });
+    canvas.requestPaint();
+    await sleep(2000);
+    log('done: no crash');
+  };
+  document.getElementById('a').onclick = () => run('insert');
+  document.getElementById('b').onclick = () => run('remove');
+  document.getElementById('c').onclick = () => run('timer');
+</script>
+</html>

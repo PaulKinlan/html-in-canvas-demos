@@ -6,7 +6,9 @@
 //              lost, the tab lives), 'blank' (a canvas shows nothing, no event)
 //   how        'measured'  a script or a page produced it, in the browser named
 //              'reported'  seen on the owner's phone, with what was sent back
-//   isolated   true when a page does only this and shows it
+//   isolated   true when a page does only this and shows it in the browser named
+//   standalone [path, what that page did when it was last run]: one file with
+//              no libraries and none of the site's scripts, for a bug report
 //   related    false when the call has nothing to do with HTML-in-canvas
 //   types      report types in /api/reports that count towards this entry,
 //              with an optional `q` that the message or body must contain
@@ -15,6 +17,7 @@
 export const CASES = [
   {
     id: 'frequent-read-drawable',
+    standalone: ['/crashes/repro/frequent-read-drawable.html', 'Not run on the phone yet. Headless Chromium 157: no loss, as expected there.'],
     kind: 'loss',
     title: 'A drawable 2D canvas made with willReadFrequently loses every 2D context on the page, repeatedly',
     browser: 'Chrome 159 on Android 10 (Mozilla/5.0 (Linux; Android 10; K) … Chrome/159.0.0.0 Mobile). Not in headless Chromium 157 with software rendering.',
@@ -34,6 +37,7 @@ export const CASES = [
   },
   {
     id: 'float-readback',
+    standalone: ['/crashes/repro/float-readback.html', 'Not run on the phone yet. Headless Chromium 157: no loss.'],
     kind: 'loss',
     title: 'getImageData() with pixelFormat "rgba-float16" on a float16 2D canvas loses every float16 2D context on the page',
     browser: 'Chrome 159 on Android. Not in headless Chromium 157.',
@@ -53,6 +57,7 @@ export const CASES = [
   },
   {
     id: 'view-transition-drawable-child',
+    standalone: ['/crashes/repro/view-transition-drawable-child.html', 'Headless Chromium 157, 2026-11-21: button A crashes the renderer, button B does not.'],
     kind: 'crash',
     title: 'element.startViewTransition() on a drawable child of a drawable canvas crashes the renderer',
     browser: 'Headless Chromium 157.',
@@ -68,14 +73,15 @@ export const CASES = [
   },
   {
     id: 'iframe-in-paint',
+    standalone: ['/crashes/repro/iframe-in-paint.html', 'Headless Chromium 157, 2026-11-21: button B (remove inside paint) crashes the tab. A (insert) and C (after a timer) do not crash in this page.'],
     kind: 'crash',
     title: 'Inserting, moving or removing an iframe inside a paint handler, or a microtask of one, crashes the tab',
     browser: 'Headless Chromium 157.',
     how: 'measured',
     date: '2026-11-20',
-    isolated: false,
+    isolated: true,
     steps: ['A drawable canvas with a paint listener.', 'Inside the listener, or in a promise callback that resolves inside it: append an iframe, move one, or remove an iframe that is a child of the canvas.'],
-    seen: 'The tab crashes with the same CHECK every time (trap int3, same address). Leaving the event with setTimeout(0) or a MessageChannel task first avoids it.',
+    seen: 'The tab crashes with the same CHECK every time (trap int3, same address). In the standalone page, removing an iframe child of the canvas inside paint crashes; inserting one there does not, though an insert and a move crashed inside /capture/. Leaving the event with setTimeout(0) or a MessageChannel task first avoids it.',
     notKnown: 'The text of the CHECK: headless output gives only the trap.',
     repro: [['/capture/', 'the library avoids it; the finding is in its table'], ['/iframe-tiles/', 'removing a fixture that holds an iframe inside paint']],
     now: 'Libraries leave the paint event before they touch an iframe. The check runner waits for a timer before it removes a fixture.',
@@ -83,6 +89,7 @@ export const CASES = [
   },
   {
     id: 'adopt-painted-canvas',
+    standalone: ['/crashes/repro/adopt-painted-canvas.html', 'Headless Chromium 157, 2026-11-21: button A crashes the tab, button B does not.'],
     kind: 'crash',
     title: 'adoptNode() of a drawable canvas that has painted, into a same-origin iframe, crashes the tab',
     browser: 'Headless Chromium 157.',
@@ -98,21 +105,23 @@ export const CASES = [
   },
   {
     id: 'opacity-in-drawn-iframe',
+    standalone: ['/crashes/repro/opacity-in-drawn-iframe.html', 'Headless Chromium 157, 2026-11-21: button A (opacity .02) crashes the tab, button B (visibility hidden) does not.'],
     kind: 'crash',
     title: 'An opacity effect around a drawable canvas, inside an iframe that is itself drawn into a canvas, crashes the tab',
     browser: 'Headless Chromium 157.',
     how: 'measured',
     date: '2026-11-20',
-    isolated: false,
+    isolated: true,
     steps: ['Page A draws a same-origin iframe into a canvas with drawElementImage().', 'The framed page has a drawable canvas inside a box with opacity below 1 (opacity: .02, or opacity: 0 to hold a first paint).'],
     seen: '/board/ crashed within 300 ms of opening once a tile\'s page put its fixtures in such a box. visibility: hidden does not crash.',
-    notKnown: 'A reduced page with only this.',
+    notKnown: 'Chrome on Android: not tried.',
     repro: [['/board/', 'with a page tile whose fixtures sit in a box with opacity']],
     now: 'Fixtures and held first paints use visibility, not opacity.',
     types: [],
   },
   {
     id: 'lose-context-drawable',
+    standalone: ['/crashes/repro/lose-context-drawable.html', 'Headless Chromium 157, 2026-11-21: no crash with any of the three buttons. The crash needs something the fuller pages have.'],
     kind: 'crash',
     // gfx-allow: lose-context the text of a description, not a call
     title: 'WEBGL_lose_context.loseContext() on a drawable WebGL canvas that holds an element texture crashes the tab',
@@ -145,6 +154,7 @@ export const CASES = [
   },
   {
     id: 'ninth-webgl-context',
+    standalone: ['/crashes/repro/ninth-webgl-context.html', 'Headless Chromium 157 (desktop limit 16): context 1 is lost when context 17 is made.'],
     kind: 'loss',
     title: 'A ninth WebGL context in a tab takes the oldest one away',
     browser: 'Chrome on Android (limit 8 per tab, frames included; 16 on desktop).',
@@ -190,6 +200,7 @@ export const CASES = [
   },
   {
     id: 'h264-software-encoder',
+    standalone: ['/crashes/repro/h264-software-encoder.html', 'Headless Chromium 157, 2026-11-21: 30 chunks, no crash in this page.'],
     kind: 'crash',
     related: false,
     title: 'The H.264 software encoder in WebCodecs crashed the tab',
@@ -206,13 +217,14 @@ export const CASES = [
   },
   {
     id: 'speech-available',
+    standalone: ['/crashes/repro/speech-available.html', 'Headless Chromium 157, 2026-11-21: the tab crashes on the call.'],
     kind: 'crash',
     related: false,
     title: 'SpeechRecognition.available({ langs: ["en-US"], processLocally: true }) crashes the tab',
     browser: 'Headless Chromium 157. Not tried in a headed browser.',
     how: 'measured',
     date: '2026-11-21',
-    isolated: false,
+    isolated: true,
     steps: ['Call SpeechRecognition.available({ langs: ["en-US"], processLocally: true }) on any page.'],
     seen: 'The tab crashes. Not related to HTML-in-canvas.',
     notKnown: 'A headed browser, and Chrome on Android.',
@@ -239,7 +251,8 @@ export function reportText(c, counts = null, site = 'https://html-in-canvas.page
     `What happens: ${c.seen}`,
   ];
   if (c.notKnown) lines.push('', `Not known: ${c.notKnown}`);
-  if (c.repro.length) lines.push('', 'Reproduce:', ...c.repro.map(([path, what]) => `- ${site}${path} (${what})`));
+  if (c.standalone) lines.push('', `Standalone reproduction (one file, no libraries): ${site}${c.standalone[0]}`, `When last run: ${c.standalone[1]}`);
+  if (c.repro.length) lines.push('', 'Also seen on:', ...c.repro.map(([path, what]) => `- ${site}${path} (${what})`));
   if (counts?.n) lines.push('', `Reports from real devices in the last 30 days that match: ${counts.n}, the last ${new Date(counts.last).toISOString()}.`);
   lines.push('', `What the project does instead: ${c.now}`);
   return lines.join('\n');

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Repro: A drawable 2D canvas made with willReadFrequently loses every 2D context on the page</title>
+<!-- A reduced reproduction for a browser bug report. One file, no libraries and none of the site's scripts.
+     HTML-in-canvas must be on: chrome://flags/#canvas-draw-element, or a Chrome with the origin trial. Listed at /crashes/. -->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 16px; max-width: 680px; }
+  h1 { font-size: 19px; line-height: 1.3; }
+  button { font: inherit; min-height: 44px; padding: 6px 14px; margin: 4px 6px 4px 0; }
+  #log { font: 12.5px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #8886; border-radius: 8px; padding: 8px; min-height: 6em; }
+  canvas { display: block; border: 1px solid #8886; margin: 8px 0; max-width: 100%; }
+  .card { box-sizing: border-box; width: 240px; padding: 10px; border-radius: 8px; background: #fff7e6; color: #2a2116; }
+</style>
+<h1>A drawable 2D canvas made with willReadFrequently loses every 2D context on the page</h1>
+<p>A drawable canvas gets a 2D context with <code>willReadFrequently: true</code>. In one <code>paint</code> event the page calls <code>drawElementImage()</code> once and <code>getImageData()</code> for one pixel, and then does nothing more. A second, plain 2D canvas with nothing to do with the first is on the page to show what else is lost. Button B is the same without the option.</p>
+<p><b>Expected:</b> no <code>contextlost</code> event.<br><b>Seen:</b> Chrome 159 on Android 10, with A: <code>contextlost</code> on both canvases about 9 ms after the readback, then again about every 525 ms. Headless Chromium 157 with software rendering: no loss.</p>
+<p><button id="a">A: with willReadFrequently</button><button id="b">B: without it</button> <a href="/crashes/#frequent-read-drawable">The entry on /crashes/</a></p>
+<div id="stage"></div>
+<pre id="log"></pre>
+<script>
+  // The log is also kept in localStorage, so that it can be read after the tab has died.
+  const KEY = 'repro-frequent-read-drawable';
+  const t0 = performance.now();
+  const logEl = document.getElementById('log'), stage = document.getElementById('stage');
+  const log = (text) => { const line = `${Math.round(performance.now() - t0)} ms  ${text}`; logEl.textContent += line + '\n'; try { localStorage.setItem(KEY, logEl.textContent); } catch {} };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try { const before = localStorage.getItem(KEY); if (before && /RUNNING/.test(before.trim().split('\n').pop())) logEl.textContent = '--- the log of the run before this page load. Its last line says RUNNING, so the page ended during the run: ---\n' + before + '--- end ---\n'; localStorage.removeItem(KEY); } catch {}
+  const drawable = (html, w = 300, h = 110, options) => {
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable');
+    canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    stage.append(canvas);
+    return canvas;
+  };
+  const paintOf = (canvas) => new Promise((resolve) => { canvas.addEventListener('paint', resolve, { once: true }); canvas.requestPaint(); });
+  const watch = (canvas, name) => { for (const type of ['contextlost', 'contextrestored', 'webglcontextlost', 'webglcontextrestored']) canvas.addEventListener(type, () => log(`${type} on ${name}`)); };
+  log(navigator.userAgent);
+  if (!('requestPaint' in HTMLCanvasElement.prototype)) log('HTML-in-canvas is not available in this browser, so this page cannot show anything.');
+
+  const other = document.createElement('canvas'); other.width = 120; other.height = 48; stage.append(other);
+  const octx = other.getContext('2d'); octx.fillStyle = 'seagreen'; octx.fillRect(0, 0, 120, 48);
+  watch(other, 'the plain canvas');
+  const run = async (frequent) => {
+    log(`RUNNING ${frequent ? 'A: willReadFrequently: true' : 'B: no option'}`);
+    const canvas = drawable(`<div class="card" drawable><b>An element</b> drawn by the canvas <button type="button">A button</button></div>`);
+    const ctx = canvas.getContext('2d', frequent ? { willReadFrequently: true } : undefined);
+    watch(canvas, 'the drawable canvas');
+    await paintOf(canvas);
+    const el = canvas.firstElementChild;
+    ctx.drawElementImage(el, 10, 10, el.offsetWidth, el.offsetHeight);
+    log('drawElementImage() done');
+    log(`getImageData() read ${[...ctx.getImageData(30, 30, 1, 1).data]}`);
+    await sleep(5000);
+    log('done: 5 s after the readback, no further call was made');
+  };
+  document.getElementById('a').onclick = () => run(true);
+  document.getElementById('b').onclick = () => run(false);
+</script>
+</html>
