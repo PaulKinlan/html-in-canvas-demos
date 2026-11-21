@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>A cassette deck drawn from the controls of an audio element</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .stage { max-width: 440px; position: relative; padding: 0; overflow: hidden; }
+  /* The five rows of the deck: meters 26, cassette 110, timeline 32, counter 50, keys 72. */
+  #deck { display: block; width: 100%; height: 290px; background: #23262e; touch-action: manipulation; }
+  #blank[hidden] { display: none; }
+  #blank { margin: 0 0 8px; padding: 10px 14px; border-radius: 8px; font-size: 14px; background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  #say { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; white-space: pre-line; }
+
+  /* #region css */
+  /* One <audio controls> as large as the whole deck. Its controls are elements in a shadow tree the
+     page cannot reach, but each has a pseudo-element name, and the panel that holds them can be a grid. */
+  .tape { display: block; width: 100%; height: 290px; background: transparent; color-scheme: light; }
+  .tape::-webkit-media-controls-enclosure { max-height: none; height: 100%; border-radius: 0; background: transparent; }
+  .tape::-webkit-media-controls-panel {
+    display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: 136px 32px 50px 72px;
+    height: 100%; padding: 0; background: transparent; justify-items: center; align-items: center;
+  }
+  .tape::-webkit-media-controls-timeline { grid-row: 2; grid-column: 1 / -1; justify-self: stretch; width: auto; min-width: 0; margin: 0 14px; padding: 0; filter: invert(1); }
+  /* The counter: the two time displays, in the colours of a fluorescent display. */
+  .tape::-webkit-media-controls-current-time-display { grid-row: 3; grid-column: 1 / 3; color: #7dffb0; font: 700 28px ui-monospace, Menlo, Consolas, monospace; letter-spacing: 2px; }
+  .tape::-webkit-media-controls-time-remaining-display { grid-row: 3; grid-column: 3; color: #3fae74; font: 600 15px ui-monospace, Menlo, Consolas, monospace; }
+  /* Two of the four keys are parts of the audio element. */
+  .tape::-webkit-media-controls-play-button { grid-row: 4; grid-column: 2; width: 100%; height: 100%; min-width: 0; margin: 0; background-color: transparent; background-size: 36px; }
+  .tape::-webkit-media-controls-volume-control-container { grid-row: 4; grid-column: 3; }
+  .tape::-webkit-media-controls-volume-slider { display: none; }
+  /* Used for one paint by a live check: the play button filled with one flat colour, so its box can be found in the picture. */
+  .tape.probe::-webkit-media-controls-play-button { background: #ff00ff !important; }
+  /* The other two keys are ordinary buttons, each its own drawable child of the canvas. */
+  .key { position: absolute; left: 0; top: 0; width: 25%; height: 72px; border: 0; background: transparent; color: #1d1c1a; font: 700 13px system-ui, sans-serif; letter-spacing: .08em; cursor: pointer; }
+  /* #endregion css */
+  .plain { position: relative; background: #23262e; border-radius: 10px; }
+  .plain .key { position: static; color: #fff; width: 50%; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A cassette deck drawn from the controls of an <code>&lt;audio&gt;</code> element</h1>
+  <p class="lede">
+    The play key, the mute key, the counter and the tape position slider below are the native controls of one <code>&lt;audio controls&gt;</code>
+    element, laid out by CSS and drawn piece by piece by a canvas. The canvas adds the cassette, whose reels turn with <code>currentTime</code>.
+    Press the play key, drag the slider, and use Rewind and Forward.
+  </p>
+
+  <div class="stage">
+    <p id="blank" hidden></p>
+    <!-- #region markup -->
+    <canvas id="deck" content="drawable" layoutsubtree aria-label="A cassette deck">
+      <audio id="tape" class="tape" controls controlslist="nodownload noplaybackrate" drawable preload="metadata"></audio>
+      <button type="button" class="key" id="rewind" drawable>REWIND</button>
+      <button type="button" class="key" id="forward" drawable>FORWARD</button>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+  <p id="say" role="status">The tape has not been played yet.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>native controls in a grid, drawn in pieces</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> An <code>&lt;audio controls&gt;</code> element and two buttons, each a <code>drawable</code> child of the canvas.</li>
+      <li data-code="#css"><b>Lay out the native controls.</b> <code>::-webkit-media-controls-panel</code> accepts <code>display: grid</code>, and each named part accepts a grid position, a size, a font and a colour.</li>
+      <li data-code="#pieces"><b>Draw the element in pieces.</b> The nine-argument <code>drawElementImage()</code> copies one row or one cell of the element. The counter gets a glow, a pressed key is drawn 4 px lower, and the play glyph is drawn again, large, on the cassette label.</li>
+      <li data-code="#hits"><b>Put the hit-test region back.</b> Every partial draw moves it. A last full-size draw inside an empty clip restores it.</li>
+      <li data-code="#reels"><b>The cassette.</b> Drawn with canvas paths from <code>audio.currentTime</code> and <code>audio.duration</code>.</li>
+      <li data-code="#meters"><b>The level meters.</b> An <code>AnalyserNode</code> on <code>audio.captureStream()</code>, which does not change what the element plays.</li>
+      <li data-code="#keys"><b>Rewind and Forward.</b> Two lines each.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The audio element is as large as the deck: 290 px tall and as wide as the canvas. A rule on <code>::-webkit-media-controls-panel</code> makes the panel a grid of four columns and four rows. The timeline is given the second row, the two time displays the third, and the play button and the mute button two cells of the fourth.</li>
+    <li>The canvas first draws the deck and the cassette with paths. Then it copies rows and cells out of the audio element with the nine-argument <code>drawElementImage(element, sx, sy, sw, sh, dx, dy, dw, dh)</code>. Each copy can have its own shadow, offset or scale.</li>
+    <li>The play button's glyph is the browser's. The canvas copies the centre of that cell onto the cassette label at twice the size, so the label shows a triangle while the tape is stopped and two bars while it plays, with no state code.</li>
+    <li>The pieces are drawn at the places the element's layout has them, so a tap on a drawn key is a tap on the native control. The last draw call restores the hit-test region to that layout.</li>
+    <li>The reels do not use a clock. The angle and the amount of tape on each reel are functions of <code>currentTime</code>, eased over a few frames, so dragging the slider winds the tape.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small deck in a corner of the window. The deck above is not touched. Checks that play the tape do so muted.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 headless, 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: the native controls can be laid out as a grid.</strong> <code>display: grid</code> on <code>::-webkit-media-controls-panel</code> and <code>grid-row</code> and <code>grid-column</code> on the named parts place the play button, the timeline, both time displays and the volume container. The first check finds the play button in the picture and compares its box with the grid cell.</li>
+    <li><strong>Works: pieces of one element drawn with different effects.</strong> A source rectangle selects a row or a cell. Shadow, offset and scale apply to each copy.</li>
+    <li><strong>Works: taps reach the native parts.</strong> A real touch on the drawn play key started playback, and a touch on the drawn timeline moved <code>currentTime</code> (tested with touch input from the test driver, which a live check cannot produce).</li>
+    <li><strong>Found: the element drawn last is on top for hit tests.</strong> The audio element's region covers the whole deck. When its restoring draw came after the Rewind and Forward buttons were drawn, taps on those keys went to the audio element. Drawing the two buttons after it fixed that.</li>
+    <li><strong>Limit: one hit-test region per element.</strong> A piece drawn far from its layout position cannot be tapped there. The region can only be the whole element under one transform, which is why the pieces stay near their layout places.</li>
+    <li><strong>Limit: internal parts.</strong> The overflow button has only the internal name <code>::-internal-media-controls-overflow-button</code>, which a page's CSS cannot use, so it cannot be given a grid cell. <code>controlslist="nodownload noplaybackrate"</code> empties its menu and the browser then leaves the button out.</li>
+    <li><strong>Works: <code>captureStream()</code> for the meters.</strong> The analyser reads the element's sound without taking over its output, so a suspended <code>AudioContext</code> costs the meters and not the sound.</li>
+    <li><strong>Not verified:</strong> the touch layout of the audio controls in Chrome 159 on Android (part sizes and which parts exist may differ, which the first check reports), sound output, and <code>audio.captureStream()</code> on Android.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { fit, blobUrl, quietStage, hitAt, sleep, until, release } from '/lib/stage-2d.js';
+  import { banner, runTests, supported, nextPaint } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const TAPE = '/cassette/tape.webm';
+  // The rows of the deck, in CSS pixels from the top. The CSS grid on the audio element uses the same numbers.
+  const ROWS = { meters: [0, 26], cassette: [26, 110], timeline: [136, 32], counter: [168, 50], keys: [218, 72] };
+  const HEIGHT = 290;
+  const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+
+  /**
+   * Draw a deck in `canvas` from `audio` (an <audio controls class="tape">) and two key buttons.
+   * Returns { state, levels(low, high) }.
+   */
+  function deck(canvas, audio, rewind, forward, { restoreHits = true } = {}) {
+    const ctx = canvas.getContext('2d');
+    const state = { shown: 0, levels: [0, 0], paints: 0, pressed: null };
+
+    // #region reels
+    /** The cassette: shell, label, window, two reels. `time` and `length` are seconds of tape. */
+    function cassette(x, y, w, h, time, length) {
+      const part = length ? Math.min(1, time / length) : 0;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = '#15171c';
+      ctx.beginPath(); ctx.roundRect(0, 0, w, h, 8); ctx.fill();
+      ctx.fillStyle = '#f2e8d0';
+      ctx.beginPath(); ctx.roundRect(8, 6, w - 16, h - 14, 5); ctx.fill();
+      ctx.fillStyle = '#d2491f';
+      ctx.fillRect(8, 14, w - 16, 8);
+      // The window.
+      const wx = w * 0.2, ww = w * 0.6, wy = 30, wh = h - 44;
+      ctx.fillStyle = '#2b2118';
+      ctx.beginPath(); ctx.roundRect(wx, wy, ww, wh, 10); ctx.fill();
+      ctx.save();
+      ctx.clip();
+      const cy = wy + wh / 2, rMin = 9, rMax = Math.min(wh * 0.72, ww * 0.3);
+      // The same amount of tape is on the two reels together, so the areas add up.
+      const radius = (share) => Math.sqrt(rMin * rMin + share * (rMax * rMax - rMin * rMin));
+      [[wx + ww * 0.22, 1 - part, -1], [wx + ww * 0.78, part, -1]].forEach(([cx, share, dir]) => {
+        const r = radius(share);
+        ctx.fillStyle = '#5a4030';
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#3d2a1e';
+        ctx.lineWidth = 1;
+        for (let ring = rMin + 3; ring < r; ring += 4) { ctx.beginPath(); ctx.arc(cx, cy, ring, 0, Math.PI * 2); ctx.stroke(); }
+        // The hub turns faster when its reel holds less tape, as on a real deck.
+        const angle = dir * time * 2.4 * (rMax / Math.max(r, rMin + 2));
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(angle);
+        ctx.fillStyle = '#f2f2f2';
+        ctx.beginPath(); ctx.arc(0, 0, rMin, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#2b2118';
+        for (let i = 0; i < 6; i++) { ctx.rotate(Math.PI / 3); ctx.fillRect(4, -1.3, 5, 2.6); }
+        ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      });
+      ctx.restore();
+      ctx.restore();
+      return { labelX: x + w * 0.1, labelY: y + h / 2 + 4 };
+    }
+    // #endregion reels
+
+    function meters(W) {
+      const [y, h] = ROWS.meters;
+      const n = 14, gap = 3, left = 54, cell = (W - left - 14 - gap * (n - 1)) / n;
+      ctx.font = '700 9px system-ui, sans-serif';
+      ctx.textBaseline = 'middle';
+      ['LOW', 'HIGH'].forEach((name, row) => {
+        const cy = y + 8 + row * 10;
+        ctx.fillStyle = '#8b919e';
+        ctx.fillText(name, 14, cy);
+        for (let i = 0; i < n; i++) {
+          const on = state.levels[row] * n > i;
+          ctx.fillStyle = on ? (i > n - 4 ? '#ff5a4d' : i > n - 7 ? '#ffd166' : '#7dffb0') : '#343842';
+          ctx.fillRect(left + i * (cell + gap), cy - 3, cell, 6);
+        }
+      });
+    }
+
+    function keyCap(x, y, w, h, down) {
+      ctx.save();
+      ctx.translate(0, down ? 4 : 0);
+      ctx.fillStyle = '#0d0e11';
+      ctx.beginPath(); ctx.roundRect(x + 4, y + 6, w - 8, h - 10, 7); ctx.fill();
+      const g = ctx.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, down ? '#b9bcc4' : '#f4f5f7');
+      g.addColorStop(1, down ? '#9a9da6' : '#c9ccd3');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.roundRect(x + 5, y + 6, w - 10, h - (down ? 14 : 16), 6); ctx.fill();
+      ctx.restore();
+    }
+
+    canvas.addEventListener('paint', () => {
+      state.paints++;
+      const k = canvas.width / canvas.clientWidth;
+      const W = canvas.clientWidth, col = W / 4;
+      const playing = !audio.paused && !audio.ended;
+      ctx.reset();
+      ctx.scale(k, k);
+
+      // The deck itself: canvas paths only.
+      const body = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+      body.addColorStop(0, '#2c3039');
+      body.addColorStop(1, '#1b1d23');
+      ctx.fillStyle = body;
+      ctx.fillRect(0, 0, W, HEIGHT);
+      meters(W);
+      const label = cassette(14, ROWS.cassette[0] + 2, W - 28, ROWS.cassette[1] - 6, state.shown, audio.duration || 0);
+      ctx.fillStyle = '#0a1410';
+      ctx.beginPath(); ctx.roundRect(10, ROWS.counter[0] + 4, W - 20, ROWS.counter[1] - 8, 6); ctx.fill();
+      const keys = ROWS.keys;
+      const down = [state.pressed === rewind, playing, audio.muted, state.pressed === forward];
+      for (let i = 0; i < 4; i++) keyCap(i * col, keys[0], col, keys[1], down[i]);
+
+      // #region pieces
+      /** Copy one rectangle of the audio element to the canvas. The source is in the element's own CSS pixels. */
+      const piece = (sx, sy, sw, sh, dx = sx, dy = sy, dw = sw, dh = sh) => ctx.drawElementImage(audio, sx, sy, sw, sh, dx, dy, dw, dh);
+      // The timeline row, as laid out.
+      piece(0, ROWS.timeline[0], W, ROWS.timeline[1]);
+      // The counter row, with a glow.
+      ctx.save();
+      ctx.shadowColor = '#7dffb0';
+      ctx.shadowBlur = 9;
+      piece(0, ROWS.counter[0], W, ROWS.counter[1]);
+      ctx.restore();
+      // The play key and the mute key: 4 px lower while they are down.
+      piece(col, keys[0], col, keys[1], col, keys[0] + (down[1] ? 4 : 0));
+      piece(col * 2, keys[0], col, keys[1], col * 2, keys[0] + (down[2] ? 4 : 0));
+      // The play button's glyph again, twice as large, on the cassette label. The browser swaps it between play and pause.
+      const glyph = 30, big = glyph * 2;
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      piece(col * 1.5 - glyph / 2, keys[0] + keys[1] / 2 - glyph / 2, glyph, glyph, label.labelX - big / 2 + 4, label.labelY - big / 2, big, big);
+      ctx.restore();
+      // #endregion pieces
+
+      // #region hits
+      // Each partial draw above moved the audio element's hit-test region. This draws nothing and
+      // sets the region back to the element's full box, so taps land on the native parts.
+      if (restoreHits) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, 0, 0);
+        ctx.clip();
+        ctx.drawElementImage(audio, 0, 0, W, HEIGHT);
+        ctx.restore();
+      }
+      // #endregion hits
+
+      // The two keys that are ordinary buttons, drawn after the audio element so that they are on top of its region.
+      ctx.drawElementImage(rewind, 0, keys[0] + (down[0] ? 4 : 0), col, keys[1]);
+      ctx.drawElementImage(forward, col * 3, keys[0] + (down[3] ? 4 : 0), col, keys[1]);
+    });
+
+    // Ease the shown tape position towards currentTime, so a seek winds the reels over a few frames.
+    let raf = 0;
+    const frame = () => {
+      raf = 0;
+      const gap = audio.currentTime - state.shown;
+      state.shown = Math.abs(gap) < 0.02 ? audio.currentTime : state.shown + gap * 0.25;
+      canvas.requestPaint();
+      if (!audio.paused || Math.abs(gap) >= 0.02 || state.levels[0] + state.levels[1] > 0.01) raf = requestAnimationFrame(frame);
+    };
+    const wake = () => { if (!raf) raf = requestAnimationFrame(frame); };
+    for (const type of ['play', 'pause', 'seeking', 'seeked', 'timeupdate', 'volumechange', 'loadedmetadata', 'ended']) audio.addEventListener(type, wake);
+    for (const key of [rewind, forward]) {
+      key.addEventListener('pointerdown', () => { state.pressed = key; wake(); });
+      for (const type of ['pointerup', 'pointercancel', 'pointerleave']) key.addEventListener(type, () => { state.pressed = null; wake(); });
+    }
+    return { state, wake };
+  }
+
+  // #region meters
+  /** Two levels (low and high frequencies, 0 to 1) from the sound of a media element, read once per call. */
+  function listenTo(media) {
+    const context = new AudioContext();
+    const capture = media.captureStream ?? media.mozCaptureStream;
+    // captureStream() hands over a copy of the sound. The element keeps playing through its own output.
+    const source = context.createMediaStreamSource(capture.call(media));
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.7;
+    source.connect(analyser);
+    const bins = new Uint8Array(analyser.frequencyBinCount);
+    const mean = (from, to) => { let sum = 0; for (let i = from; i < to; i++) sum += bins[i]; return sum / (to - from) / 255; };
+    return {
+      context,
+      read() { analyser.getByteFrequencyData(bins); return [Math.min(1, mean(0, 6) * 1.3), Math.min(1, mean(6, 40) * 7)]; },
+      close() { source.disconnect(); context.close().catch(() => {}); },
+    };
+  }
+  // #endregion meters
+
+  const canvas = $('deck'), audio = $('tape');
+  let view = null, ears = null;
+  const say = (text) => ($('say').textContent = text);
+  function report() {
+    say(`${audio.paused ? 'stopped' : 'playing'} at ${fmt(audio.currentTime)} of ${fmt(audio.duration || 0)}${audio.muted ? ', muted' : ''}` +
+      `\nmeters: ${ears ? `AudioContext ${ears.context.state}` : 'start with the first play'}` + (view ? `, ${view.state.paints} paints` : ''));
+  }
+
+  // #region keys
+  $('rewind').onclick = () => { audio.currentTime = 0; };
+  $('forward').onclick = () => { audio.currentTime = Math.min((audio.duration || 0) - 0.1, audio.currentTime + 5); };
+  // #endregion keys
+
+  if (supported) {
+    fit(canvas);
+    view = deck(canvas, audio, $('rewind'), $('forward'));
+    canvas.addEventListener('contextlost', () => showPlain('The canvas lost its drawing context. The audio element is shown as plain HTML with the same CSS.'));
+  } else {
+    showPlain('This browser does not have HTML-in-canvas. The audio element is shown as plain HTML with the same CSS grid, without the cassette.');
+  }
+  function showPlain(why) {
+    const box = document.createElement('div');
+    box.className = 'plain';
+    box.append(audio, $('rewind'), $('forward'));
+    canvas.replaceWith(box);
+    $('blank').hidden = false;
+    $('blank').textContent = why;
+  }
+
+  blobUrl(TAPE).then((url) => { audio.src = url; }, () => { audio.src = TAPE; });
+  audio.addEventListener('error', () => say(`The tape did not load: ${audio.error?.message || 'unknown error'}`));
+  audio.addEventListener('play', () => {
+    // The first play follows a tap on the native play key, so an AudioContext may start.
+    if (!ears && view) {
+      try { ears = listenTo(audio); } catch (err) { say(`No meters: ${err.message}`); }
+    }
+    ears?.context.resume().catch(() => {});
+  });
+  for (const type of ['play', 'pause', 'seeked', 'timeupdate', 'volumechange', 'loadedmetadata']) audio.addEventListener(type, report);
+  // Read the meters on each paint while the tape plays. Nothing is read from the canvas.
+  if (view) canvas.addEventListener('paint', () => {
+    const now = ears && !audio.paused && ears.context.state === 'running' ? ears.read() : [0, 0];
+    view.state.levels = view.state.levels.map((old, i) => (now[i] > old ? now[i] : old * 0.86));
+  });
+  addEventListener('pagehide', () => { audio.pause(); ears?.close(); });
+
+  // ---- live checks: every one on its own fixture ----
+  const made = [];
+  async function fixture({ restoreHits = true } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = `width:320px;height:${HEIGHT}px;flex:none;background:#23262e`;
+    c.width = 320; c.height = HEIGHT;
+    c.innerHTML = '<audio class="tape" controls controlslist="nodownload noplaybackrate" drawable muted preload="auto"></audio><button type="button" class="key" drawable>REWIND</button><button type="button" class="key" drawable>FORWARD</button>';
+    const a = c.querySelector('audio'), [rw, ff] = c.querySelectorAll('button');
+    quietStage().append(c);
+    made.push(a);
+    const view = deck(c, a, rw, ff, { restoreHits });
+    a.src = await blobUrl(TAPE);
+    await until(() => a.readyState >= 2 && a.duration > 0, 8000, a.error ? `the tape did not load: ${a.error.message}` : 'the tape did not load');
+    await nextPaint(c);
+    await nextPaint(c);
+    return { c, a, rw, ff, view };
+  }
+  /** Bounding box and count of the pixels of a 320 px fixture that pass `test`, in a region. Reads a copy. */
+  function find(f, x, y, w, h, test) {
+    const copy = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
+    copy.drawImage(f.c, x, y, w, h, 0, 0, w, h);
+    const d = copy.getImageData(0, 0, w, h).data;
+    let n = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let i = 0; i < d.length; i += 4) {
+      if (!test(d[i], d[i + 1], d[i + 2], d[i + 3])) continue;
+      const px = (i / 4) % w, py = Math.floor(i / 4 / w);
+      n++; x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
+    }
+    return { n, x: x + x0, y: y + y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+  }
+  const picture = (f, x, y, w, h) => { const copy = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true }); copy.drawImage(f.c, x, y, w, h, 0, 0, w, h); return copy.getImageData(0, 0, w, h).data; };
+  const differ = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 60) n++; return n; };
+  const magenta = (r, g, b, a) => a > 200 && r > 200 && g < 80 && b > 200;
+  const settle = async (f, ms = 500) => { await sleep(ms); await nextPaint(f.c); await nextPaint(f.c); };
+  const each = (tests) => tests.map((t) => ({ timeout: 20000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { for (const a of made.splice(0)) release(a); } } }));
+
+  runTests($('results'), each([
+    {
+      name: 'The CSS grid puts the native play button in the cell the deck draws as a key',
+      why: 'A class fills the play button with magenta for one paint. Its box in the picture is compared with the second cell of the keys row (x 80 to 160, y 218 to 290 in a 320 px deck).',
+      run: async () => {
+        const f = await fixture();
+        f.a.classList.add('probe');
+        await nextPaint(f.c); await nextPaint(f.c);
+        const box = find(f, 0, 0, 320, HEIGHT, magenta);
+        f.a.classList.remove('probe');
+        if (!box.n) throw new Error('no magenta pixels: the rule on ::-webkit-media-controls-play-button did not reach the picture');
+        const ok = box.x >= 78 && box.x + box.w <= 162 && box.y >= 216 && box.y + box.h <= 292 && box.w > 40 && box.h > 40;
+        if (!ok) throw new Error(`the play button is at x ${box.x} to ${box.x + box.w}, y ${box.y} to ${box.y + box.h}`);
+        return `the play button covers x ${box.x} to ${box.x + box.w}, y ${box.y} to ${box.y + box.h}: ${box.w}×${box.h} px inside the 80×72 cell`;
+      },
+    },
+    {
+      name: 'The drawn keys and the timeline answer hit tests as the audio element',
+      why: 'elementFromPoint() at the play key, the mute key, the timeline and the Rewind key, with the restoring draw and without it.',
+      run: async () => {
+        const ask = async (restoreHits) => {
+          const f = await fixture({ restoreHits });
+          const box = f.c.getBoundingClientRect();
+          const at = (x, y) => { const el = hitAt(box.left + x, box.top + y); return el === f.a ? 'audio' : el === f.rw ? 'rewind' : el === f.c ? 'canvas' : el ? el.localName : 'nothing'; };
+          const out = [at(120, 254), at(200, 254), at(160, 152), at(40, 254)];
+          f.c.remove();
+          return out;
+        };
+        const kept = await ask(true), lost = await ask(false);
+        if (kept.join() !== 'audio,audio,audio,rewind') throw new Error(`with the restoring draw: play ${kept[0]}, mute ${kept[1]}, timeline ${kept[2]}, Rewind ${kept[3]}`);
+        return `play key, mute key and timeline answer <audio>, Rewind answers its button. Without the restoring draw: play ${lost[0]}, mute ${lost[1]}, timeline ${lost[2]}`;
+      },
+    },
+    {
+      name: 'The glyph on the cassette label changes when the tape plays',
+      why: 'The label copy is read while paused, then after play() on the muted fixture. The browser swaps the play glyph for the pause glyph.',
+      run: async () => {
+        const f = await fixture();
+        const before = picture(f, 20, 60, 70, 76);
+        await f.a.play();
+        await settle(f);
+        const during = picture(f, 20, 60, 70, 76);
+        f.a.pause();
+        await settle(f);
+        const after = picture(f, 20, 60, 70, 76);
+        const changed = differ(before, during), back = differ(before, after);
+        if (changed < 60) throw new Error(`only ${changed} pixels of the label changed on play`);
+        if (back > changed / 3) throw new Error(`${back} pixels still differ after pause (${changed} changed on play)`);
+        return `${changed} label pixels changed on play, ${back} differ after pause`;
+      },
+    },
+    {
+      name: 'The counter and the reels follow currentTime',
+      why: 'currentTime is set to 6 s and then 18 s of the 24 s tape. The counter row and the left reel are read each time.',
+      run: async () => {
+        const f = await fixture();
+        const tape = (r, g, b) => Math.abs(r - 0x5a) < 14 && Math.abs(g - 0x40) < 14 && Math.abs(b - 0x30) < 14;
+        const shots = [];
+        for (const t of [6, 18]) {
+          f.a.currentTime = t;
+          await until(() => !f.a.seeking && Math.abs(f.view.state.shown - t) < 0.03, 5000, `the shown position stopped at ${f.view.state.shown.toFixed(2)}`);
+          await settle(f, 150);
+          shots.push({ counter: picture(f, 0, 168, 160, 50), left: find(f, 60, 56, 100, 70, tape).n });
+        }
+        const digits = differ(shots[0].counter, shots[1].counter);
+        if (digits < 20) throw new Error(`only ${digits} pixels of the counter changed between 0:06 and 0:18`);
+        if (shots[1].left > shots[0].left * 0.7) throw new Error(`tape pixels on the left reel: ${shots[0].left} at 6 s, ${shots[1].left} at 18 s`);
+        return `${digits} counter pixels changed; tape on the left reel: ${shots[0].left} px at 6 s, ${shots[1].left} px at 18 s`;
+      },
+    },
+    {
+      name: 'Rewind and Forward are buttons drawn as keys',
+      why: 'The element elementFromPoint() returns at the Forward key is clicked twice, then the one at the Rewind key once.',
+      run: async () => {
+        const f = await fixture();
+        f.ff.onclick = () => { f.a.currentTime = Math.min(f.a.duration - 0.1, f.a.currentTime + 5); };
+        f.rw.onclick = () => { f.a.currentTime = 0; };
+        const box = f.c.getBoundingClientRect();
+        const forward = hitAt(box.left + 280, box.top + 254);
+        if (forward !== f.ff) throw new Error(`the Forward key answered ${forward ? `<${forward.localName}>` : 'nothing'}`);
+        forward.click(); forward.click();
+        await until(() => !f.a.seeking, 3000);
+        const there = f.a.currentTime;
+        hitAt(box.left + 40, box.top + 254).click();
+        await until(() => !f.a.seeking, 3000);
+        if (Math.abs(there - 10) > 0.2 || f.a.currentTime > 0.2) throw new Error(`after two Forward clicks: ${there.toFixed(2)} s; after Rewind: ${f.a.currentTime.toFixed(2)} s`);
+        return `two Forward clicks moved the tape to ${there.toFixed(1)} s, Rewind to ${f.a.currentTime.toFixed(1)} s`;
+      },
+    },
+    {
+      name: 'An AnalyserNode on captureStream() reads levels while the element plays',
+      why: 'The muted fixture plays for 0.8 s with an analyser on audio.captureStream(). Needs a running AudioContext, so it needs the tap that started these checks.',
+      run: async () => {
+        const f = await fixture();
+        await f.a.play();
+        const ears = listenTo(f.a);
+        try {
+          await ears.context.resume().catch(() => {});
+          if (ears.context.state !== 'running') throw new Error(`the AudioContext is "${ears.context.state}": it needs a tap on this page first`);
+          let top = [0, 0];
+          for (let i = 0; i < 16; i++) { await sleep(50); const now = ears.read(); top = top.map((v, k) => Math.max(v, now[k])); }
+          if (top[0] + top[1] < 0.05) throw new Error(`levels stayed at ${top.map((v) => v.toFixed(2)).join(' and ')}`);
+          return `highest levels in 0.8 s: low ${top[0].toFixed(2)}, high ${top[1].toFixed(2)}; the element is still at ${f.a.currentTime.toFixed(1)} s and playing: ${!f.a.paused}`;
+        } finally {
+          ears.close();
+        }
+      },
+    },
+  ]));
+</script>
+</body>
+</html>
