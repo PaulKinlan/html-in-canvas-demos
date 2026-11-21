@@ -72,6 +72,8 @@
       '/a11y/': { question: 'Which accessibility features work for DOM drawn in a canvas, and which techniques on this site break them?', first: ['/start/'], api: ['accessibility tree', 'focus', 'forced-colors'] },
       '/capture/': { question: 'Can any element be exported as a PNG, a video or a printed page by wrapping it in a canvas for one frame?', first: ['/start/'], api: ['drawElementImage()', 'moveBefore()', 'VideoEncoder'] },
       '/perf/': { question: 'How many elements can a canvas draw per frame on your device, compared with plain DOM and with a worker?', first: ['/start/', '/offscreen/'], api: ['requestPaint()', 'captureElementImage()'] },
+      '/chrome-apis/': { question: 'Which features from Chrome 130 to 160 can be combined with a canvas that draws live DOM, and which demos should be built from them?', result: '359 of 678 features have an idea, 44 are measured, and 28 demos are planned.', first: ['/chrome-apis/probes.html'] },
+      '/chrome-apis/probes.html': { question: 'Do recent CSS and DOM features take effect on an element that a canvas draws?', result: 'Shapes, carets, highlights, scroll markers and scroll-driven animations do. Popovers are not in the picture, links are drawn as unvisited, and permission elements report that they are distorted.', first: ['/start/'], api: ['drawElementImage()', 'requestPaint()', 'getImageData()'] },
     },
   };
   window.LEARN = LEARN;
