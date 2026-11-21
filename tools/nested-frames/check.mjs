@@ -61,6 +61,18 @@ expect('what raised the scene\'s last paint', await txt('widgetOut'), '#padCanva
   report(num(await txt('widgetOut'), /scene (\d+)/) === a, 'scene paints in 0.7 s at rest', num(await txt('widgetOut'), /scene (\d+)/) - a, '0');
 }
 
+expect('the route the page chose', await txt('widgetOut'), 'Route: nested (');
+await tap('#widgetRoute');
+await p.waitForTimeout(600);
+await tap('#padCard button[data-step="1"]');
+expect('a tap on + with the cards drawn by the scene itself', await txt('padCount'), '3');
+expect('the route after the button', await txt('widgetOut'), 'Route: flat, chosen with the button');
+await shot('widget-flat');
+await tap('#widgetRoute');
+await p.waitForTimeout(600);
+await tap('#padCard button[data-step="1"]');
+expect('a tap on + back on the inner canvases', await txt('padCount'), '4');
+
 // Email on a drawn phone.
 await show('mail');
 // A point of the iframe's document, given in the iframe's own CSS pixels, as a point of the window.
