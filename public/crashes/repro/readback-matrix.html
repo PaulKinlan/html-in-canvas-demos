@@ -21,7 +21,7 @@
 </style>
 <h1>Which read of a canvas that drew an element loses the 2D contexts</h1>
 <p>Each row is one case. "Run every case" loads this page once for each, runs it for three seconds and moves on. A plain 2D canvas that the case never touches is on the page too. A case is "lost" if either canvas gets a <code>contextlost</code> event. If the tab dies during a case, open this page again: it records that and continues with the next case.</p>
-<p><button id="all">Run every case</button><button id="copy">Copy the results</button><button id="clear">Clear</button> <a href="/crashes/#frequent-read-drawable">The entry on /crashes/</a></p>
+<p><button id="all">Run every case</button><button id="new">Run the seven repeated-read cases</button><button id="copy">Copy the results</button><button id="clear">Clear</button> <a href="/crashes/#frequent-read-drawable">The entry on /crashes/</a></p>
 <p id="now"></p>
 <div id="stage"></div>
 <table><thead><tr><th>Result</th><th>Case</th><th>Detail</th></tr></thead><tbody id="rows"></tbody></table>
@@ -43,6 +43,22 @@
   const px = (ctx, x = 30, y = 30) => [...ctx.getImageData(x, y, 1, 1).data].join(',');
   const copyOf = (c, options) => { const k = document.createElement('canvas'); k.width = 64; k.height = 64; const kc = k.getContext('2d', options); kc.drawImage(c.canvas, 0, 0, 64, 64, 0, 0, 64, 64); return kc; };
 
+  // Paint the element on every frame for `ms`, and call `tick` every 300 ms.
+  const loopDraw = async (c, ms, tick) => {
+    let paints = 0, ticks = 0, next = performance.now() + 300;
+    const label = c.el.querySelector('b');
+    c.canvas.onpaint = () => { paints++; c.ctx.clearRect(0, 0, 300, 110); c.ctx.drawElementImage(c.el, 10, 10, c.el.offsetWidth, c.el.offsetHeight); };
+    const end = performance.now() + ms;
+    while (performance.now() < end) {
+      label.textContent = 'Frame ' + paints;
+      c.canvas.requestPaint();
+      await new Promise(requestAnimationFrame);
+      if (tick && performance.now() >= next) { next += 300; ticks++; tick(); }
+    }
+    c.canvas.onpaint = null;
+    return `${paints} paints, ${ticks} reads`;
+  };
+
   const CASES = [
     ['draw-only', 'drawElementImage(), no read', async () => { const c = make(); await drawEl(c); return 'drawn'; }],
     ['fill-read', 'A drawable canvas, fillRect() only, getImageData()', async () => { const c = make(); fill(c); return 'read ' + px(c.ctx); }],
@@ -55,6 +71,13 @@
     ['draw-copy-frequent-read', 'drawElementImage(), drawImage() into a willReadFrequently canvas, getImageData() on the copy', async () => { const c = make(); await drawEl(c); return 'copy read ' + px(copyOf(c, { willReadFrequently: true }), 30, 30); }],
     ['draw-dataurl', 'drawElementImage(), then canvas.toDataURL()', async () => { const c = make(); await drawEl(c); return `toDataURL gave ${c.canvas.toDataURL().length} characters`; }],
     ['draw-bitmap', 'drawElementImage(), then createImageBitmap(canvas)', async () => { const c = make(); await drawEl(c); const b = await createImageBitmap(c.canvas); const out = `bitmap ${b.width} x ${b.height}`; b.close(); return out; }],
+    ['draw-read-twice', 'drawElementImage(), getImageData(), 300 ms, getImageData() again, nothing after', async () => { const c = make(); await drawEl(c); const a = px(c.ctx); await sleep(300); return `read ${a} and ${px(c.ctx)}`; }],
+    ['draw-read-twice-draw', 'drawElementImage(), two getImageData() calls 300 ms apart, then a second drawElementImage()', async () => { const c = make(); await drawEl(c); px(c.ctx); await sleep(300); px(c.ctx); await sleep(300); await drawEl(c); return 'read twice, then drawn again'; }],
+    ['fill-read-twice-draw', 'fillRect(), two getImageData() calls 300 ms apart, then the first drawElementImage()', async () => { const c = make(); fill(c); px(c.ctx); await sleep(300); px(c.ctx); await sleep(300); await drawEl(c); return 'read twice, then drawn'; }],
+    ['plain-read-twice-fill', 'A canvas that is not drawable: fillRect(), two getImageData() calls, fillRect() again', async () => { const c = make(undefined, false); fill(c); px(c.ctx); await sleep(300); px(c.ctx); await sleep(300); fill(c); return 'read twice, then filled'; }],
+    ['loop-read', 'drawElementImage() on every frame for 3.6 s, getImageData() on the same canvas every 300 ms', async () => { const c = make(); return loopDraw(c, 3600, () => px(c.ctx)); }],
+    ['loop-copy-read', 'drawElementImage() on every frame for 3.6 s, drawImage() into a willReadFrequently canvas and getImageData() on the copy every 300 ms', async () => { const c = make(); const k = document.createElement('canvas'); k.width = 64; k.height = 64; const kc = k.getContext('2d', { willReadFrequently: true }); return loopDraw(c, 3600, () => { kc.clearRect(0, 0, 64, 64); kc.drawImage(c.canvas, 0, 0, 64, 64, 0, 0, 64, 64); px(kc); }); }],
+    ['loop-dataurl', 'drawElementImage() on every frame for 3.6 s, canvas.toDataURL() every 300 ms', async () => { const c = make(); return loopDraw(c, 3600, () => c.canvas.toDataURL()); }],
     ['draw-snapshot', 'drawElementImage(), then captureElementImage(), kept open', async () => { const c = make(); await drawEl(c); window.kept = c.canvas.captureElementImage(c.el); return 'snapshot taken'; }],
   ];
 
@@ -80,7 +103,11 @@
     }));
   }
   const go = (search) => { location.search = search; };
-  const nextAfter = (id) => { const i = CASES.findIndex((c) => c[0] === id); return CASES[i + 1]?.[0]; };
+  // chain=1 runs every case in order; chain=2 runs only the repeated-read cases.
+  const REPEATED = ['draw-read-twice', 'draw-read-twice-draw', 'fill-read-twice-draw', 'plain-read-twice-fill', 'loop-read', 'loop-copy-read', 'loop-dataurl'];
+  const chainMode = params.get('chain');
+  const order = () => (chainMode === '2' ? REPEATED : CASES.map((c) => c[0]));
+  const nextAfter = (id) => { const list = order(); return list[list.indexOf(id) + 1]; };
 
   async function runCase(id, chain) {
     const [, name, fn] = CASES.find((c) => c[0] === id);
@@ -88,14 +115,14 @@
     if (results[id]?.state === 'running' && params.get('started') === String(results[id].at)) {
       results[id] = { state: 'running', detail: 'The page ended during this case (a dead tab, or a reload).', at: results[id].at };
       save(results); report(`${id}: tab died`);
-      if (chain && nextAfter(id)) return go(`?case=${nextAfter(id)}&chain=1`);
+      if (chain && nextAfter(id)) return go(`?case=${nextAfter(id)}&chain=${chainMode}`);
       return show();
     }
     const at = Date.now();
     results[id] = { state: 'running', at };
     save(results);
     // The address now says that this case has started, so that a reload by the browser is recognised.
-    history.replaceState(null, '', `?case=${id}${chain ? '&chain=1' : ''}&started=${at}`);
+    history.replaceState(null, '', `?case=${id}${chain ? '&chain=' + chainMode : ''}&started=${at}`);
     document.getElementById('now').textContent = `Running ${id}: ${name}`;
     show();
     const losses = [], t0 = performance.now();
@@ -111,13 +138,14 @@
     detail = `${detail} (call at ${start} ms)` + (losses.length ? `. ${losses.length} contextlost: ${losses.slice(0, 6).join('; ')}` : '');
     results[id] = { state, detail, at };
     save(results); report(`${id}: ${state}`, { detail });
-    if (chain && nextAfter(id)) return go(`?case=${nextAfter(id)}&chain=1`);
+    if (chain && nextAfter(id)) return go(`?case=${nextAfter(id)}&chain=${chainMode}`);
     history.replaceState(null, '', location.pathname);
     document.getElementById('now').textContent = chain ? 'Every case has run.' : `${id}: ${state}`;
     show();
   }
 
   document.getElementById('all').onclick = () => { save({}); go(`?case=${CASES[0][0]}&chain=1`); };
+  document.getElementById('new').onclick = () => { const all = load(); for (const id of REPEATED) delete all[id]; save(all); go(`?case=${REPEATED[0]}&chain=2`); };
   document.getElementById('clear').onclick = () => { save({}); location.href = location.pathname; };
   document.getElementById('copy').onclick = async () => {
     const text = CASES.map(([id, name]) => { const r = results[id]; return `${id} (${name}): ${!r ? 'not run' : r.state === 'running' ? 'TAB DIED' : r.state}${r?.detail ? '. ' + r.detail : ''}`; }).join('\n') + '\n' + navigator.userAgent;
