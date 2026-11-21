@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A tooltip, a modal and toasts beside the top layer</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .idea output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button { min-height: 40px; font: inherit; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* #region plain-css */
+  /* The controls as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: flex; flex-wrap: wrap; gap: 10px; align-content: start; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .plain-note { margin: 0; flex-basis: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+  /* #endregion plain-css */
+
+  /* #region tooltip-css */
+  #tipText { box-sizing: border-box; width: 340px; margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); font: 16px/1.75 system-ui, sans-serif; }
+  #tipText h3 { margin: 0 0 4px; font-size: 18px; }
+  #tipText p { margin: 0; }
+  #tipText [data-tip], #tipText [title] { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; outline: none; border-radius: 3px; }
+  #tipText [data-tip]:focus-visible { background: #ffd64066; }
+  #tip { box-sizing: border-box; width: max-content; max-width: 250px; margin: 0; padding: 8px 12px; border-radius: 8px; background: #1d2330; color: #fff; font: 14px/1.4 system-ui, sans-serif; pointer-events: none; }
+  .plain-controls #tip { display: none; }
+  /* #endregion tooltip-css */
+
+  /* #region modal-css */
+  #mailScene { box-sizing: border-box; width: 340px; margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); font: 15px/1.3 system-ui, sans-serif; }
+  #mailScene h3 { margin: 0 0 6px; font-size: 18px; display: flex; justify-content: space-between; align-items: center; }
+  #mailScene h3 span { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--accent); color: #fff; }
+  #mailScene ul { list-style: none; margin: 0 0 10px; padding: 0; }
+  #mailScene li label { display: flex; gap: 10px; align-items: center; min-height: 42px; border-top: 1px solid var(--line); }
+  #mailScene li input { width: 20px; height: 20px; margin: 0; flex: none; }
+  #mailScene li b { display: block; }
+  #mailScene li small { color: var(--muted); }
+  #mailScene button { min-height: 40px; font: inherit; }
+  #mailDialog { width: min(300px, 86vw); padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--fg); font: 15px/1.4 system-ui, sans-serif; }
+  #mailDialog h3 { margin: 0 0 6px; font-size: 18px; }
+  #mailDialog p { margin: 0 0 14px; color: var(--muted); }
+  #mailDialog form { display: flex; gap: 8px; justify-content: flex-end; }
+  #mailDialog button { min-height: 40px; min-width: 84px; font: inherit; }
+  /* The canvas darkens its own scene. The page outside the canvas gets only a light backdrop. */
+  #mailDialog::backdrop { background: rgb(0 0 0 / 0.12); }
+  /* #endregion modal-css */
+
+  /* #region toasts-css */
+  #toastApp { box-sizing: border-box; width: 340px; margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); font: 15px/1.4 system-ui, sans-serif; }
+  #toastForm { display: flex; gap: 8px; }
+  #toastForm input { flex: 1; min-width: 0; height: 42px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: 16px system-ui, sans-serif; }
+  #toastForm button { min-height: 42px; min-width: 72px; font: inherit; }
+  #toastNotes { margin: 8px 0 0; padding: 0 0 0 20px; min-height: 96px; color: var(--muted); }
+  /* A non-modal dialog is position: absolute by default, which would put it outside the canvas's layout. */
+  dialog.toast { position: static; box-sizing: border-box; width: 250px; margin: 0; padding: 8px 8px 8px 14px; border: 0; border-radius: 10px; background: #1d2330; color: #fff; font: 14px/1.3 system-ui, sans-serif; display: flex; align-items: center; gap: 6px; }
+  dialog.toast span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  dialog.toast button { min-height: 36px; min-width: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: #ffffff22; color: #fff; font: 600 14px system-ui, sans-serif; }
+  .plain-controls dialog.toast { margin: 4px 0; }
+  /* #endregion toasts-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A tooltip, a modal and toasts beside the top layer</h1>
+  <p class="lede">
+    Three ideas from the <a href="/elements/">element catalogue</a>. A native tooltip, a modal dialog and a popover are painted by the page
+    in the top layer, upright and outside any canvas, so a canvas cannot draw them. Each demo takes one of them and does the part a canvas
+    can do: it draws its own tooltip from the <code>title</code> text, it draws the scene behind a modal dialog moving away, and it draws
+    toasts that are dialogs kept out of the top layer.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#tooltip">Tooltip</a><a href="#modal">Modal</a><a href="#toasts">Toasts</a>
+  </nav>
+
+  <section class="idea" id="tooltip">
+    <h2>Tooltip drawn by the canvas</h2>
+    <p>The underlined terms have a <code>title</code>. Point at one with a mouse, tap it, or press Tab to reach it. The canvas draws the term larger and marked, and draws the tooltip beside it. The card is drawn tilted, so the place of each term comes from where the canvas drew it.</p>
+    <canvas id="tipCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 290px">
+      <!-- #region tooltip-html -->
+      <article id="tipText" drawable>
+        <h3>Shipping forecast</h3>
+        <p>Wind <abbr title="South-west, the direction the wind blows from">SW</abbr> 5 to 7, <span title="The wind direction is changing clockwise">veering</span> <abbr title="North-west">NW</abbr> later. Sea state <span title="Wave height 2.5 to 4 metres">rough</span>. Visibility <span title="More than 5 nautical miles">good</span>, pressure 1004 <abbr title="Hectopascals, equal to millibars">hPa</abbr> and <a href="/start/" title="A link with a title. It still goes to the start page">falling</a>.</p>
+      </article>
+      <div id="tip" drawable role="tooltip"></div>
+      <!-- #endregion tooltip-html -->
+    </canvas>
+    <output class="line" id="tipOut">No tooltip. Point at, tap or tab to an underlined term.</output>
+    <p class="found">The browser's own tooltip for a <code>title</code> is painted outside the canvas, appears only for a mouse and cannot be styled. The tooltip here is a <code>role="tooltip"</code> element that the canvas draws, and it also opens by touch and by keyboard.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#tooltip-html"><b>Terms with a <code>title</code>, and one <code>drawable</code> tooltip element.</b></li>
+      <li data-code="/top-layer/tooltip.js#tooltip-read"><b>Take the titles and choose the active term from pointer, tap and focus.</b></li>
+      <li data-code="/top-layer/tooltip.js#tooltip"><b>Draw the term larger at its drawn place, then the tooltip.</b></li>
+      <li data-code="#tooltip-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="modal">
+    <h2>Modal that leaves the scene</h2>
+    <p>Tick some messages and press Delete selected. The confirmation is a <code>&lt;dialog&gt;</code> opened with <code>showModal()</code>, painted by the page. Behind it the canvas draws the inbox smaller, darker, blurred and grey. Cancel, Escape or a tap outside the dialog brings it back.</p>
+    <canvas id="modalCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 300px">
+      <!-- #region modal-html -->
+      <div id="mailScene" drawable>
+        <h3>Inbox <span>4 new</span></h3>
+        <ul>
+          <li><label><input type="checkbox" checked><span><b>Harbour office</b><small>Berth 12 is free from Friday</small></span></label></li>
+          <li><label><input type="checkbox" checked><span><b>Sail loft</b><small>Your jib is ready to collect</small></span></label></li>
+          <li><label><input type="checkbox"><span><b>Race committee</b><small>Course cards for Saturday</small></span></label></li>
+          <li><label><input type="checkbox"><span><b>Chandlery</b><small>Order 5521 has shipped</small></span></label></li>
+        </ul>
+        <button type="button" id="mailDelete">Delete selected</button>
+      </div>
+      <!-- #endregion modal-html -->
+    </canvas>
+    <!-- #region modal-dialog -->
+    <dialog id="mailDialog" closedby="any" aria-labelledby="mailDialogTitle">
+      <h3 id="mailDialogTitle">Delete messages?</h3>
+      <p>This cannot be undone.</p>
+      <form method="dialog"><button value="cancel">Cancel</button><button value="delete">Delete</button></form>
+    </dialog>
+    <!-- #endregion modal-dialog -->
+    <output class="line" id="modalOut"></output>
+    <p class="found">The dialog keeps what the browser gives a modal: focus is held inside it, the rest of the page is inert, and Escape closes it. The canvas only reads <code>dialog.open</code>.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#modal-html"><b>The scene is a <code>drawable</code> child of the canvas.</b></li>
+      <li data-code="#modal-dialog"><b>The dialog is outside the canvas.</b></li>
+      <li data-code="/top-layer/modal.js#modal"><b>Draw the scene from <code>dialog.open</code>.</b></li>
+      <li data-code="#modal-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="toasts">
+    <h2>Toast stack in the scene</h2>
+    <p>Press Save a few times. Each toast is a non-modal <code>&lt;dialog open&gt;</code> that the canvas draws sliding in and stacking. Undo and the cross on a toast are real buttons.</p>
+    <canvas id="toastCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 330px">
+      <div id="toastApp" drawable>
+        <form id="toastForm"><input name="note" aria-label="Note" placeholder="A note" autocomplete="off" enterkeyhint="done"><button>Save</button></form>
+        <ol id="toastNotes"></ol>
+      </div>
+    </canvas>
+    <output class="line" id="toastOut"></output>
+    <p class="found">A dialog opened with the <code>open</code> attribute or <code>show()</code> stays in normal layout, so it can be a <code>drawable</code> child and the canvas can animate it. Opened with <code>showModal()</code>, or as a popover, it would be in the top layer and the canvas could not draw it.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/top-layer/toasts.js#toasts"><b>Add each toast as a <code>drawable</code> dialog and draw the stack.</b></li>
+      <li data-code="#toasts-css"><b>Styles. A toast is <code>position: static</code>.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>An element's picture holds what the element paints in normal flow. The top layer is a separate list that the browser paints over the whole page: modal dialogs, popovers, and the picker of a customisable select. A native <code>title</code> tooltip is drawn by the browser's own interface, outside the page. None of these can be passed to <code>drawElementImage()</code>. The three demos work beside that limit in three ways:</p>
+  <ul>
+    <li><b>Replace it.</b> The tooltip is an ordinary element with <code>role="tooltip"</code>, drawn by the canvas where the term was drawn. <code>getClientRects()</code> of an inline element returns its drawn boxes, also when the draw was rotated.</li>
+    <li><b>Draw the other half.</b> The modal dialog stays in the top layer. The canvas draws what is behind it.</li>
+    <li><b>Keep it out of the top layer.</b> A dialog with the <code>open</code> attribute is not in the top layer. It needs <code>position: static</code> to be laid out inside the canvas.</li>
+  </ul>
+  <p>A fourth idea from the same list, a menu that opens flat from buttons drawn in perspective, is already built as <a href="/popovers/">/popovers/</a>: there the popover stays in the top layer and CSS anchor positioning keeps it on the drawn button.</p>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="/top-layer/kit.js#mount"><b>The paint loop and the draw helpers shared by the three demos.</b></li>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/top-layer/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/top-layer/kit.js#plain"><b>The elements are then shown as plain HTML.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window, and none of them touches the demos above. No check opens a modal dialog, because that moves focus.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21, with a mouse, a keyboard and emulated touch. Not yet run on a phone.</p>
+  <ul class="findings">
+    <li><b>A canvas can draw its own tooltip at the drawn place of a term.</b> <code>getClientRects()</code> of an inline element inside a rotated draw returned a box whose middle was 0.1 px from where the rotation puts it. The box is the bounding box of the rotated text: 42.4 by 29.5 px for a 39 by 19 px span.</li>
+    <li><b>The drawn tooltip opens by mouse, by tap and by keyboard focus.</b> <code>pointerover</code>, <code>click</code> and <code>focusin</code> reach the terms where they are drawn. The page moves each <code>title</code> to <code>data-tip</code>, so the browser's own tooltip does not appear as well, and points the term at the tooltip element with <code>aria-describedby</code>.</li>
+    <li><b>An open popover is not in the picture of the element that holds it.</b> None of 50 sampled pixels of the drawn box had the popover's colour. The same holds for a modal dialog (measured on <a href="/elements/">/elements/</a>).</li>
+    <li><b>While a dialog is modal, the scene in the canvas is still drawn and cannot be hit.</b> <code>elementFromPoint()</code> at the drawn scene returned the dialog. With <code>closedby="any"</code> a tap on the drawn scene closed the dialog. After it closed, a checkbox in the scene took a tap again.</li>
+    <li><b>The canvas can stand in for <code>::backdrop</code> for its own scene.</b> It draws the scene at 84% size through <code>blur()</code>, <code>saturate()</code> and <code>brightness()</code> filters from <code>dialog.open</code>, and the <code>toggle</code> and <code>close</code> events of the dialog ask for the paint. A filter on a draw does not change where the element is found.</li>
+    <li><b>A <code>&lt;dialog open&gt;</code> is drawn as a <code>drawable</code> child if it is <code>position: static</code>.</b> Its buttons are found where it is drawn, also while it slides. A dialog added while the page runs is drawn from the next paint.</li>
+    <li><b>Not verified:</b> everything on a phone. In particular a long press on a term (Android may show its own menu), the on-screen keyboard over the toast form, and where Android centres the modal dialog while the keyboard is open. A screen reader on the tooltip and on the toasts was not tried.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  // A demo's script is loaded and started the first time its section comes near the screen.
+  const started = new Set();
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting || started.has(e.target.id)) continue;
+      started.add(e.target.id);
+      watch.unobserve(e.target);
+      import(`./${e.target.id}.js`).then((m) => m.default()).catch((err) => console.error(e.target.id, err));
+    }
+  }, { rootMargin: '100px 0px' });
+  if (supported) document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const need = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+  // A fixture canvas on the test stage. paint(ctx, canvas) runs on every paint event.
+  async function rig(html, paint, w = 240, h = 140) {
+    need();
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, ctx, paints: 0, error: null };
+    canvas.addEventListener('paint', () => { state.paints++; ctx.reset(); try { paint(ctx, canvas); state.error = null; } catch (e) { state.error = e; } });
+    state.frame = async () => { const n = state.paints; canvas.requestPaint(); for (let i = 0; i < 80 && state.paints === n; i++) await sleep(25); await sleep(40); };
+    for (let i = 0; i < 12; i++) { await state.frame(); if (state.paints && !state.error) break; }
+    await sleep(120);
+    return state;
+  }
+  // Pixels are read from a small copy made with drawImage(), never from the drawable canvas itself.
+  const copy = document.createElement('canvas');
+  const read = (state, x, y) => {
+    copy.width = 1; copy.height = 1;
+    const c2 = copy.getContext('2d');
+    c2.drawImage(state.canvas, x, y, 1, 1, 0, 0, 1, 1);
+    return c2.getImageData(0, 0, 1, 1).data;
+  };
+  const draw = (ctx, el, x = 0, y = 0) => ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
+  const q = (state, sel) => state.canvas.querySelector(sel);
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'getClientRects() of an inline element gives its place in a rotated draw',
+      why: 'The tooltip is put beside the term where the canvas drew it. A paragraph is drawn rotated by 0.3 radians about the point 40,30 of the canvas. The box of a span in it must be near the place that the rotation gives for the middle of the span.',
+      run: async () => {
+        const s = await rig('<p drawable style="width:180px;margin:0;font:16px/24px monospace">aaaa bbbb <span>cccc</span> dddd</p>', (ctx, c) => { ctx.translate(40, 30); ctx.rotate(0.3); draw(ctx, c.querySelector('p')); });
+        if (s.error) throw s.error;
+        const span = q(s, 'span'), cb = s.canvas.getBoundingClientRect(), r = span.getClientRects()[0];
+        // The middle of the span in the paragraph's own coordinates, then rotated and moved as the draw was.
+        const lx = span.offsetLeft + span.offsetWidth / 2, ly = span.offsetTop + span.offsetHeight / 2;
+        const wantX = 40 + lx * Math.cos(0.3) - ly * Math.sin(0.3), wantY = 30 + lx * Math.sin(0.3) + ly * Math.cos(0.3);
+        const gotX = r.left + r.width / 2 - cb.left, gotY = r.top + r.height / 2 - cb.top, off = Math.hypot(gotX - wantX, gotY - wantY);
+        if (off > 3) throw new Error(`the box is ${off.toFixed(1)} px from the drawn place (${gotX.toFixed(1)},${gotY.toFixed(1)} against ${wantX.toFixed(1)},${wantY.toFixed(1)})`);
+        return `The middle of the span's box is ${off.toFixed(1)} px from where the rotation puts it. The box is ${r.width.toFixed(1)} by ${r.height.toFixed(1)} px for a ${span.offsetWidth} by ${span.offsetHeight} px span.`;
+      },
+    },
+    {
+      name: 'A dialog with the open attribute is drawn as a drawable child, and its button is found where it is drawn',
+      why: 'The toasts depend on this. A dialog with open and position: static is drawn at 30,40. A pixel inside it must have its background colour, and elementFromPoint() at its button must return the button.',
+      run: async () => {
+        const s = await rig('<dialog open drawable style="position:static;box-sizing:border-box;width:180px;height:50px;margin:0;padding:8px;border:0;background:#1d2330;color:#fff"><button type="button" style="width:60px;height:34px;margin:0">Undo</button></dialog>', (ctx, c) => draw(ctx, c.querySelector('dialog'), 30, 40));
+        if (s.error) throw s.error;
+        const px = read(s, 200, 80), button = q(s, 'button'), b = button.getBoundingClientRect();
+        if (!(px[3] > 200 && px[0] < 60 && px[2] > 30)) throw new Error(`pixel inside the dialog is ${[...px]}`);
+        const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        if (hit !== button) throw new Error(`elementFromPoint returned ${hit?.localName ?? 'nothing'}`);
+        return `Pixel ${px[0]},${px[1]},${px[2]} inside the dialog. elementFromPoint() returns the button at its drawn place.`;
+      },
+    },
+    {
+      name: 'An open popover inside a drawable element is not in that element\'s picture',
+      why: 'A popover is painted in the top layer. A red popover="manual" div inside a drawable box is shown with showPopover(), which does not move focus. The picture of the box, drawn into the canvas, must hold no red pixel where the box is.',
+      run: async () => {
+        const s = await rig('<div drawable style="width:200px;height:100px;background:#246"><div popover="manual" style="inset:auto;margin:0;width:120px;height:60px;border:0;padding:0;background:#f00"></div></div>', (ctx, c) => draw(ctx, c.querySelector('div'), 20, 20));
+        if (s.error) throw s.error;
+        const pop = q(s, '[popover]');
+        pop.showPopover();
+        await s.frame(); await s.frame();
+        const open = pop.matches(':popover-open');
+        let red = 0;
+        for (let y = 30; y < 110; y += 16) for (let x = 30; x < 210; x += 18) { const p = read(s, x, y); if (p[0] > 200 && p[1] < 60) red++; }
+        pop.hidePopover();
+        if (!open) throw new Error('the popover did not open');
+        if (red) throw new Error(`${red} of 50 sampled pixels of the canvas are red`);
+        return 'The popover is open and none of 50 sampled pixels of the drawn box is red. The page paints the popover, not the canvas.';
+      },
+    },
+    {
+      name: 'A filter on a draw does not change where the element is found',
+      why: 'The scene behind the modal is drawn smaller through blur, saturate and brightness filters. With the dialog closed the same draw must leave its button usable. A box is drawn at 0.8 scale through the three filters, and elementFromPoint() at the scaled place of its button must return the button.',
+      run: async () => {
+        const s = await rig('<div drawable style="width:200px;height:100px;background:#fff"><button type="button" style="position:absolute;left:100px;top:50px;width:80px;height:36px;margin:0">Go</button></div>', (ctx, c) => { ctx.translate(20, 20); ctx.scale(0.8, 0.8); ctx.filter = 'blur(2px) saturate(0.3) brightness(0.6)'; draw(ctx, c.querySelector('div')); });
+        if (s.error) throw s.error;
+        const cb = s.canvas.getBoundingClientRect();
+        const hit = document.elementFromPoint(cb.left + 20 + 140 * 0.8, cb.top + 20 + 68 * 0.8);
+        const px = read(s, 60, 40);
+        if (hit !== q(s, 'button')) throw new Error(`elementFromPoint returned ${hit?.localName ?? 'nothing'}`);
+        if (!(px[0] > 110 && px[0] < 200)) throw new Error(`a white pixel through brightness(0.6) is ${[...px]}`);
+        return `The button is found at its scaled place. A white pixel of the box is drawn as ${px[0]},${px[1]},${px[2]}.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
