@@ -68,6 +68,7 @@ One row per main result. "Section" is the section of this file with the detail.
 | `globalAlpha`, `filter`, `globalCompositeOperation`, transforms and clips apply. | measured | C157 | `/time-scrubber/` | Transitions and motion |
 | The picture is the element's border box. A box shadow, outline, overflowing child or pseudo-element outside the box is cut off. | measured | C157 | `/capture/`, `/portal/` | Capture; UI primitives |
 | A nested element with its own `drawable` attribute is left out of its `drawable` parent's picture in the video test, and included in the motion test. The two results disagree. | measured | C157 | `/video/`, `/time-scrubber/` | Video and sound; Transitions and motion |
+| A `drawable` descendant can be passed to `drawElementImage()` by itself. It is then left out of its drawable ancestor's picture (a third test, agreeing with the video test). | measured | C157 | `/translate-lens/` | Language models, voice and input |
 | About 7 µs of script per call. More than about 100 clipped draws a frame is slow (85 draws 2 ms, 136 draws 140 ms). 1,000 draws of text each at its own angle take about 1.5 s. | measured, software rendering | C157 | `/perf/`, `/lens/`, `/particles/` | Performance; UI primitives; Transitions and motion |
 | Pixels of drawn DOM can be read back (`getImageData`, `createImageBitmap`, `toDataURL`). The canvas is not tainted. | measured | C157 | `/offscreen/` | ElementImage and OffscreenCanvas |
 
@@ -91,6 +92,7 @@ One row per main result. "Section" is the section of this file with the detail.
 | Untrusted (synthetic) events do not focus, place a caret, drag a range or open a `<select>`. | measured | C157 | `/xr/` | 3D and spatial |
 | A drawable canvas in the top layer takes its content out of the page's scroll chain. | measured | C157 | `/portal/` | UI primitives, Touch, top layer and live checks |
 | In C157 the browser tracks where an element is drawn for anchor positioning, `interestfor`, `highlightsFromPoint()` and `OpaqueRange` rects. In C153 they use the layout box. | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
+| `getBoundingClientRect()` on a canvas child reports the box it was last drawn in, after the draw transform. Layout has to be measured with `offsetTop` and `offsetLeft`. | measured | C157 | `/translate-lens/`, `/agent-view/` | Language models, voice and input |
 
 ### ElementImage, workers and OffscreenCanvas
 
@@ -152,6 +154,7 @@ One row per main result. "Section" is the section of this file with the detail.
 | Permission elements (`<geolocation>` and others) are drawn and report themselves invalid (`intersection_occluded_or_distorted`). | measured | C157 | `/elements/`, `/chrome-apis/probes.html` | PR #48; PR #50 |
 | A `float16` `display-p3` 2D canvas keeps values above 1.0 from a drawn element (4.0 read back as 1.82). | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
 | Recent CSS is applied in the picture: `corner-shape`, `border-shape`, `clip-path: shape()`, gap decorations, `text-fit`, `caret-shape`, `::scroll-marker`, `::scroll-button()`. | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
+| A custom highlight (`CSS.highlights`) on a text node is in the element's texture, and a shader bends it with the text. | measured | C157 | `/voice/` | Language models, voice and input |
 | Native media controls, `::cue` captions and rules on `::-webkit-media-controls-*` are drawn. | measured | C157 | `/video/`, `/player-parts/` | Video and sound |
 
 ### Slots and shadow DOM
@@ -280,6 +283,8 @@ Crashes and behaviour that looks wrong, each with where to reproduce it. All wer
 | 17 | A click on a new canvas at the spot where the pointer already rested does not focus the element under it until the pointer moves. | `/elements/` recording (PR #48) | Seen with Playwright input. |
 | 18 | Reported from Chrome 159 on Android: an animated transparent WebGL canvas with drawable children becomes a solid white block. | `/particles/` with `engine="webgl"` | Not reproduced in software rendering. Cause unconfirmed. |
 | 19 | Reported from Chrome 159 on Android: canvases on new pages lose their context on first load and show a white box with a broken-picture icon. | `/selection/` and other pages built on 2026-11-21 | Cause not identified. May be a resource limit and not a bug. |
+| 20 | Tab crash: `SpeechRecognition.available({ langs: ['en-US'], processLocally: true })`. | Any page, headless Chromium 157 (`/voice/` asks only after a tap) | Not related to HTML-in-canvas. Not tried in a headed browser. |
+| 21 | `Translator.availability({ sourceLanguage: 'en', targetLanguage: 'fr' })` never settles. | `/translate-lens/`, headless Chromium 157 | The page gives up after 3 s. |
 
 ## API changes that would help
 
@@ -376,7 +381,7 @@ The main results. Each is backed by the tables in the sections below.
 - [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
 - [Native UI toolkits (/native-ui/)](#native-ui-toolkits-native-ui)
-- [Language models, voice and input (/translate-lens/, /agent-view/)](#language-models-voice-and-input-translate-lens-agent-view)
+- [Language models, voice and input (/translate-lens/, /agent-view/, /voice/)](#language-models-voice-and-input-translate-lens-agent-view-voice)
 
 ## Slots
 
@@ -1243,7 +1248,7 @@ Tested in headless Chromium 157 at 1x, 1.5x and a phone profile. `<kit-slot>` an
 Lines in the element, old code against new: registry 11 to 5, slots 15 to 6, label 15 to 1, closing snapshots 22 to 21, paint handlers 13 to 6. `moveBefore()` adds lines because the old path stays as the fallback. The page counts these from the running source.
 
 Not confirmed on a phone: which of the six features Chrome 159 on Android reports, and whether the three small canvases on the page keep their contexts there.
-## Language models, voice and input (`/translate-lens/`, `/agent-view/`)
+## Language models, voice and input (`/translate-lens/`, `/agent-view/`, `/voice/`)
 
 Measured in headless Chromium 157 on 2026-11-21. The built-in AI interfaces had no model there, so the rows that need one are marked.
 
@@ -1263,5 +1268,10 @@ Measured in headless Chromium 157 on 2026-11-21. The built-in AI interfaces had 
 | A tool call shown by a shader through four CSS custom properties | works | The lean and the marker position are registered properties with CSS transitions. The tool resolves after the animation. |
 | Hit testing on the form while it leans in perspective | works | Four controls found at their drawn centres, within 0.4 px of the effect's matrix. |
 | A form control named `length` | cannot be reached by name | `form.elements.length` is the number of controls. |
+| Words matched against the accessible names of the buttons that are not hidden, then `click()` | works | `/voice/`. No command list: the names come from the DOM, and change when the other set of switches is shown. |
+| A press from script starting the shader's ring | works | `click()` fires no pointer event, so the page calls the surface's `poke(x, y)`. |
+| A custom highlight on a transcript word, in the texture | drawn | 575 pixels of the highlight colour in the read-back picture. |
+| `SpeechRecognition.available({ processLocally: true })` | crashes the tab | Headless Chromium 157. `/voice/` asks only after a tap, and its check refuses in an automated browser. |
+| `SpeechRecognition`, `phrases`, `SpeechRecognitionPhrase`, `install()` | present | Headless Chromium 157. `SpeechRecognitionResult` is not a global there, so `speechStartTime` cannot be detected. |
 
-Not verified: every path that calls a model (`Translator`, `Rewriter`, `Summarizer`, the Prompt API planner and image prompt), WebMCP with a real agent, WebGPU on screen, and touch dragging of the lens on a real phone.
+Not verified: every path that calls a model (`Translator`, `Rewriter`, `Summarizer`, the Prompt API planner and image prompt), WebMCP with a real agent, speech recognition of any kind (no microphone), whether `phrases` changes what is recognised, result timestamps, WebGPU on screen, and touch dragging of the lens on a real phone.

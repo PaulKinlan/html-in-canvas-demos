@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speak a label to press what the canvas draws</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .voice-stage { position: relative; border-radius: 14px; padding: 18px 12px; background: #0b0e17; display: grid; place-items: center; min-height: 372px; }
+  .voice-stage > :is(section, fx-surface) { width: min(380px, 100%); }
+  /* #region styles */
+  #deck {
+    --fx-amount: 0;    /* sound level: the page raises it when words arrive */
+    --fx-progress: 0;  /* 1 while listening */
+    transition: --fx-amount 0.45s ease-out;
+  }
+  /* The newest word, and the words that pressed a control. Highlights are
+     painted into the element's picture, so the canvas draws them. */
+  ::highlight(voice-heard) { color: #ffc94a; text-decoration: underline; }
+  ::highlight(voice-spoken) { background: #6fe0ff; color: #06202a; }
+  /* #endregion styles */
+  .deck { position: relative; box-sizing: border-box; width: 100%; padding: 14px; border-radius: 16px; background: linear-gradient(160deg, #1b2440, #121829); color: #e9edf7; font: 15px/1.35 system-ui, sans-serif; display: grid; gap: 10px; }
+  .deck [hidden] { display: none; }
+  .deck h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0; color: #aab4d0; }
+  .deck .tabs { display: flex; gap: 6px; }
+  .deck button { font: 600 15px system-ui, sans-serif; color: #e9edf7; background: #242d4a; border: 1px solid #36406280; border-radius: 12px; padding: 0; min-height: 54px; cursor: pointer; }
+  .deck .tabs button { flex: 1; min-height: 40px; border-radius: 999px; }
+  .deck .tabs button[aria-pressed=true] { background: #e9edf7; color: #121829; }
+  .deck .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .deck .grid button::before { content: ''; display: block; width: 10px; height: 10px; margin: 0 auto 6px; border-radius: 50%; background: #48527a; }
+  .deck .grid button[aria-pressed=true] { background: linear-gradient(180deg, #ffb02e, #ff6a3d); color: #1c0f05; border-color: transparent; box-shadow: 0 0 18px #ff8a3d99; }
+  .deck .grid button[aria-pressed=true]::before { background: #fff; box-shadow: 0 0 10px #fff; }
+  .deck .said { margin: 0; min-height: 2.7em; padding: 8px 10px; border-radius: 10px; background: #0b0f1c; font: 15px/1.35 var(--mono); color: #c9d2ea; overflow-wrap: anywhere; }
+  .say { margin: 12px 0 0; gap: 8px; }
+  .say input[type=text] { flex: 1 1 200px; min-width: 0; font: inherit; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  .say button { padding: 9px 14px; font-weight: 600; }
+  #mic[aria-pressed=true] { background: var(--accent); color: #fff; border-color: transparent; }
+  #state { min-height: 7.2em; margin: 10px 0 0; }
+  .api { display: inline-block; margin: 0 6px 2px 0; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); font: 12px var(--mono); }
+  .api.yes { border-color: var(--ok); color: var(--ok); }
+  .api.part { border-color: var(--warn); color: var(--warn); }
+  .stage-note { position: absolute; inset: auto 8px 8px 8px; margin: 0; padding: 8px 10px; border-radius: 8px; background: #2a1512; color: #ffd9d2; font-size: 14px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Speak a label to press what the canvas draws</h1>
+  <p class="lede">
+    A panel of switches drawn through a shader. Press "Listen" and say a name on the panel, such as "lamp" or "studio", or type the words in
+    the box. The control is clicked, a ring spreads from it through the panel, and the transcript at the bottom highlights each word.
+  </p>
+
+  <div class="voice-stage" id="stage">
+    <!-- #region markup -->
+    <section id="deck" class="deck" fx="voice" aria-label="Switches">
+      <h2>Say the name of a control</h2>
+      <div class="tabs" role="group" aria-label="Room">
+        <button type="button" data-room="kitchen" aria-pressed="true">Kitchen</button>
+        <button type="button" data-room="studio" aria-pressed="false">Studio</button>
+      </div>
+      <div class="grid" data-set="kitchen">
+        <button type="button" aria-pressed="false">Lamp</button>
+        <button type="button" aria-pressed="false">Fan</button>
+        <button type="button" aria-pressed="false">Kettle</button>
+        <button type="button" aria-pressed="false">Radio</button>
+        <button type="button" aria-pressed="false">Oven</button>
+        <button type="button" aria-pressed="false">Blinds</button>
+      </div>
+      <div class="grid" data-set="studio" hidden>
+        <button type="button" aria-pressed="false">Camera</button>
+        <button type="button" aria-pressed="false">Monitor</button>
+        <button type="button" aria-pressed="false">Speakers</button>
+        <button type="button" aria-pressed="false">Desk lamp</button>
+        <button type="button" aria-pressed="false">Heater</button>
+        <button type="button" aria-pressed="false">Recorder</button>
+      </div>
+      <p class="said" data-transcript aria-live="off">&nbsp;</p>
+    </section>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="row say">
+    <button type="button" id="mic" aria-pressed="false">Listen</button>
+    <input type="text" id="typed" aria-label="Words to say" value="lamp and kettle then studio camera" enterkeyhint="send">
+    <button type="button" id="send">Say it</button>
+    <button type="button" id="replay">Replay the timing</button>
+  </div>
+  <div id="route"></div>
+  <p class="note" id="state" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>speech recognition biased to the controls on the panel</small></summary>
+    <ol>
+      <li data-code="#markup"><b>A panel of buttons with one attribute.</b> <code>fx="voice"</code> draws it through the shader. The second set of switches is <code>hidden</code>.</li>
+      <li data-code="/voice/speech.js#labels"><b>The names of the controls that are drawn now.</b></li>
+      <li data-code="/voice/speech.js#listen"><b>Start recognition with those names as phrases.</b> On-device when <code>SpeechRecognition.available()</code> says so. Phrases are rebuilt after a press, because the press may show other controls.</li>
+      <li data-code="/voice/speech.js#match"><b>Match words to names and click.</b> <code>poke()</code> starts the ring where the control is.</li>
+      <li data-code="/voice/speech.js#transcript"><b>The transcript and its highlights.</b> One text node and two <code>Highlight</code> objects.</li>
+      <li data-code="#styles"><b>The CSS: two properties for the shader, two highlight styles.</b></li>
+      <li data-code="/voice/effect.js#effect"><b>The shader.</b> Waves scaled by the sound level, a ring from each press, a band of light while listening. GLSL and WGSL.</li>
+      <li data-code="#page"><b>The page script.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    The panel is one drawable element, uploaded to a texture on every <code>paint</code> and drawn by a fragment shader
+    (<a href="/lib/shader-fx.js"><code>fx</code></a>: WebGPU when it works, else WebGL). The names of the buttons that are not hidden are read
+    from the DOM and given to <code>SpeechRecognition</code> as <code>phrases</code>, which makes the recogniser favour them. Words that come back
+    are compared with the same names, and a match calls <code>click()</code> on the button. Switching room hides one set of buttons and shows
+    the other, so the phrase list and the names that can be pressed change with what is drawn.
+  </p>
+  <p>
+    Words reach the panel through one function. The microphone, the text box and the live checks all call it, so the panel, the ring and the
+    transcript work in a browser with no speech recognition. The line under the demo says which parts of the Web Speech API this browser has.
+  </p>
+
+  <h2>Live checks</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li><strong>The accessible names in the DOM are enough to drive a canvas UI by voice.</strong> The page does not keep a list of commands. It reads the names of the buttons that are drawn, and <code>click()</code> does not depend on where the shader puts the pixels.</li>
+    <li><strong>Custom highlights are in the element's picture.</strong> The live check compares the panel's texture with and without a highlight on one word of the transcript, and the pixels differ. The shader bends the highlighted word with the rest.</li>
+    <li><strong>A press from script can start the same ring as a pointer.</strong> <code>click()</code> fires no pointer event, so the page calls the surface's <code>poke(x, y)</code> with the control's layout position.</li>
+    <li><strong>Speech recognition could not be run in the test browser.</strong> Headless Chromium 157 has <code>SpeechRecognition</code>, <code>phrases</code>, <code>available()</code> and <code>install()</code>, and no microphone. Recognition, on-device processing and the effect of the phrase list are not verified.</li>
+    <li><strong><code>SpeechRecognition.available({ langs: ['en-US'], processLocally: true })</code> crashes the tab in headless Chromium 157.</strong> The page therefore asks only after a tap on "Listen" or on the live checks button, and the check refuses to ask in an automated browser. Whether Chrome on a phone has the same crash is not known.</li>
+    <li><strong><code>SpeechRecognitionResult</code> is not a global in Chromium 157</strong>, so the timestamp check cannot see <code>speechStartTime</code> there.</li>
+    <li><strong>Timestamps are per result, not per word</strong> (from the feature's description; not run). <code>speechStartTime</code> and <code>speechEndTime</code> (Chrome 159) are on <code>SpeechRecognitionResult</code>. The page spreads the words of a final result evenly between the two times. Before a result is final, each word has the time it arrived. "Replay the timing" plays the highlights back with those times.</li>
+    <li><strong>Not verified:</strong> everything that needs a microphone, on-device recognition on Android, whether <code>phrases</code> changes what is recognised, and WebGPU on screen.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/shader-fx.js';
+  import '/voice/effect.js';
+  import { pictureDifference } from '/lib/gpu-util.js';
+  import { banner, runTests, supported, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import { routeSwitch } from '/shared/route-switch.js';
+  import { Recognition, speechState, voicePanel, listen, nameOf } from '/voice/speech.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const deck = $('deck');
+  const surfaceOf = (el) => el.closest('fx-surface');
+
+  // #region page
+  // The panel's own behaviour: switches toggle, room buttons swap the set shown.
+  function wire(el) {
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.room) {
+        for (const tab of el.querySelectorAll('[data-room]')) tab.setAttribute('aria-pressed', String(tab === b));
+        for (const set of el.querySelectorAll('[data-set]')) set.hidden = set.dataset.set !== b.dataset.room;
+      } else b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
+    });
+  }
+  wire(deck);
+
+  let last = '';
+  const panel = voicePanel(deck, {
+    onpress: (el, { source }) => { last = `"${nameOf(el)}" pressed by ${source}.`; state(); },
+  });
+
+  // Words arriving raise the sound level for a moment; a CSS transition lets it fall.
+  let session = null, fall = 0;
+  function level(v) {
+    deck.style.setProperty('--fx-amount', v);
+    clearTimeout(fall);
+    fall = setTimeout(() => deck.style.setProperty('--fx-amount', session ? 0.12 : 0), 160);
+  }
+
+  // The typed box: the same words, one every 300 ms.
+  let saying = false;
+  async function say(sentence) {
+    if (saying) return;
+    saying = true;
+    for (const word of sentence.split(/\s+/).filter(Boolean)) {
+      level(0.9);
+      panel.feed([word], { source: 'the text box' });
+      await sleep(300);
+    }
+    saying = false;
+  }
+  $('send').onclick = () => say($('typed').value);
+  $('typed').addEventListener('keydown', (e) => { if (e.key === 'Enter') say($('typed').value); });
+  $('replay').onclick = () => panel.replay();
+
+  let speech = { api: !!Recognition, onDevice: 'not checked yet', phrases: false, timestamps: false }, note = '';
+  $('mic').onclick = async () => {
+    if (session) { session.stop(); return; }
+    note = '';
+    try {
+      session = await listen(panel, {
+        onstate(s) {
+          if (s.state) speech = s.state;
+          if (s.listening === true) { $('mic').setAttribute('aria-pressed', 'true'); $('mic').textContent = 'Stop listening'; deck.style.setProperty('--fx-progress', 1); level(0.12); note = s.local ? `Listening on this device. Phrases given to the recogniser: ${s.phrases.join(', ') || 'none (not supported)'}.` : 'Listening. On-device recognition is not available, so the browser may send the audio to its recognition service. No phrases are set in that mode.'; }
+          if (s.listening === false) { session = null; $('mic').setAttribute('aria-pressed', 'false'); $('mic').textContent = 'Listen'; deck.style.setProperty('--fx-progress', 0); level(0); }
+          if (s.error) note = `Speech recognition reported "${s.error}".`;
+          if (s.note) note = s.note;
+          if (s.timed) note = `Last final result: speech from ${s.timed.start.toFixed(2)} s to ${s.timed.end.toFixed(2)} s, ${s.timed.words} words.`;
+          if (s.heard) level(1);
+          state();
+        },
+      });
+    } catch (err) {
+      session = null;
+      note = `Listening could not start: ${err.message}.`;
+    }
+    state();
+  };
+  // #endregion page
+
+  function state() {
+    const chip = (ok, text) => `<span class="api ${ok}">${text}</span>`;
+    $('state').innerHTML =
+      chip(speech.api ? 'yes' : '', `SpeechRecognition: ${speech.api ? 'present' : 'missing'}`) +
+      chip(speech.onDevice === 'available' ? 'yes' : /download/.test(speech.onDevice) ? 'part' : '', `on-device: ${speech.onDevice}`) +
+      chip(speech.phrases ? 'yes' : '', `phrases: ${speech.phrases ? 'present' : 'missing'}`) +
+      chip(speech.timestamps ? 'yes' : '', `result timestamps: ${speech.timestamps ? 'present' : 'missing'}`) + '<br>' +
+      (speech.api ? '' : 'This browser has no speech recognition. Use the text box: it sends the same words to the panel. ') +
+      (/download/.test(speech.onDevice) ? '<button type="button" id="install">Install on-device recognition</button> ' : '') +
+      `${note} ${last}`;
+    if (!speech.api) $('mic').disabled = true;
+  }
+  $('state').addEventListener('click', async (e) => {
+    if (e.target.id !== 'install') return;
+    note = 'Installing the on-device recognition model.';
+    state();
+    try {
+      const ok = await Recognition.install({ langs: ['en-US'], processLocally: true });
+      note = ok ? 'The on-device model is installed.' : 'The browser did not install the on-device model.';
+    } catch (err) { note = `Install failed: ${err.message}.`; }
+    speech = await speechState('en-US', { ask: true });
+    state();
+  });
+  state();
+  speechState().then((s) => { speech = s; state(); });
+
+  routeSwitch($('route'), { targets: () => [deck], attr: 'fx-backend', values: { webgpu: 'webgpu', webgl: 'gl' }, active: (el) => surfaceOf(el)?.backend, note: (el) => surfaceOf(el)?.gpuNote });
+  addEventListener('surfacefallback', (e) => {
+    if (!$('stage').contains(e.target)) return;
+    const p = document.createElement('p');
+    p.className = 'stage-note';
+    p.textContent = `The canvas stopped drawing (${e.detail?.reason || 'its graphics context was lost'}). The panel below is plain HTML and still answers to speech and typing.`;
+    $('stage').append(p);
+  });
+
+  // -------------------------------------------------------------------------
+  // Live checks, each on its own copy of the panel on the test stage.
+
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  async function fixture(attrs = { fx: 'voice', 'fx-backend': 'gl' }) {
+    const holder = document.createElement('div');
+    holder.style.cssText = 'flex:none;width:320px';
+    const el = deck.cloneNode(true);
+    el.removeAttribute('id');
+    el.removeAttribute('fx');
+    el.style.cssText = 'transition:none;--fx-amount:0;--fx-progress:0';
+    for (const b of el.querySelectorAll('.grid button')) b.setAttribute('aria-pressed', 'false');
+    el.querySelector('[data-set=kitchen]').hidden = false;
+    el.querySelector('[data-set=studio]').hidden = true;
+    el.querySelector('[data-transcript]').textContent = ' ';
+    holder.append(el);
+    testStage().append(holder);
+    wire(el);
+    const p = voicePanel(el);
+    let s = null;
+    if (supported && attrs) {
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      for (let i = 0; i < 80; i++) { s = el.closest('fx-surface'); if (s?.ready && s.frames > 1) break; await sleep(25); }
+      if (!s?.ready) throw new Error('the fixture was never drawn');
+    }
+    return { el, p, s };
+  }
+  const on = (el) => [...el.querySelectorAll('.grid button[aria-pressed=true]')].map(nameOf).join(', ') || 'none';
+  const changed = (a, b, rows) => {
+    let n = 0;
+    const [from, to] = rows ? [Math.floor(a.height * rows[0]), Math.floor(a.height * rows[1])] : [0, a.height];
+    for (let y = from; y < to; y += 2) for (let x = 0; x < a.width; x += 2) { const i = (y * a.width + x) * 4; if (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2]) > 40) n++; }
+    return n;
+  };
+
+  runTests($('results'), [
+    {
+      name: 'This browser has speech recognition that can run on the device',
+      why: 'SpeechRecognition, its phrases attribute and SpeechRecognition.available({ processLocally: true }) for en-US. The check fails unless on-device recognition is available now.',
+      timeout: 8000,
+      run: async () => {
+        // The call crashes the tab in headless Chromium 157, so an automated browser does not make it.
+        if (navigator.webdriver) throw new Error('not asked: SpeechRecognition.available({ processLocally: true }) crashes the tab in headless Chromium 157, and this browser is automated');
+        const s = (speech = await speechState('en-US', { ask: true }));
+        state();
+        const line = `SpeechRecognition ${s.api ? 'present' : 'missing'}; available() says "${s.onDevice}"; phrases ${s.phrases ? 'present' : 'missing'}`;
+        if (s.onDevice !== 'available') throw new Error(line);
+        return line;
+      },
+    },
+    {
+      name: 'Recognition results carry timestamps',
+      why: 'speechStartTime must be on SpeechRecognitionResult (Chrome 159).',
+      run: async () => {
+        const s = await speechState();
+        if (!s.timestamps) throw new Error(`speechStartTime is not on SpeechRecognitionResult.prototype (${navigator.userAgent.match(/Chrome\/\d+/)?.[0] ?? 'unknown browser'})`);
+        return 'speechStartTime and speechEndTime are present';
+      },
+    },
+    {
+      name: 'Words press the controls that are drawn, and only those',
+      why: 'A copy of the panel is fed "turn the lamp on and the kettle", then "camera", then "studio camera" and "desk lamp". "camera" is in the hidden set the first time and must do nothing.',
+      run: async () => {
+        const { el, p } = await fixture();
+        const first = p.labels().join(', ');
+        p.feed('turn the lamp on and the kettle'.split(' '));
+        const a = on(el);
+        if (a !== 'Lamp, Kettle') throw new Error(`after the first sentence these are on: ${a}`);
+        const none = p.feed(['camera']);
+        if (none.length) throw new Error('"camera" pressed a control that is hidden');
+        p.feed('studio camera'.split(' '));
+        p.feed('desk lamp'.split(' '));
+        const second = p.labels().join(', ');
+        const b = on(el);
+        if (b !== 'Lamp, Kettle, Camera, Desk lamp') throw new Error(`at the end these are on: ${b} (the kitchen lamp must not be toggled by "desk lamp")`);
+        if (first === second) throw new Error('the list of names did not change with the room');
+        return `names before: ${first}. Names after "studio": ${second}. On at the end: ${b}`;
+      },
+    },
+    {
+      name: 'A press from words sends a ring through the picture',
+      why: 'The copy is read back before and 250 ms after "fan". Pixels away from the button must have changed.',
+      timeout: 10000,
+      run: async () => {
+        need();
+        const { p, s } = await fixture();
+        await sleep(80);
+        const a = await s.readback();
+        p.feed(['oven']);
+        await sleep(60);
+        const still = await s.readback();
+        p.feed(['oven']); // toggle back: the same picture except for the ring and the transcript
+        await sleep(250);
+        const b = await s.readback();
+        const n = changed(a, b, [0, 0.72]);
+        if (n < 150) throw new Error(`only ${n} sampled pixels above the transcript changed`);
+        return `${n} sampled pixels above the transcript differ while the ring passes (${changed(a, still, [0, 0.72])} straight after the first press)`;
+      },
+    },
+    {
+      name: 'The word highlight is in the canvas picture',
+      why: 'The copy is read back after "radio radio" (the button is back where it started). The transcript rows must hold the highlight colour, which is in no other part of the panel.',
+      timeout: 10000,
+      run: async () => {
+        need();
+        if (!globalThis.Highlight) throw new Error('the CSS Custom Highlight API is missing');
+        const { p, s } = await fixture();
+        p.feed(['radio', 'radio']);
+        await sleep(2300); // let the rings die away
+        const img = await s.readback();
+        let cyan = 0;
+        for (let i = 0; i < img.data.length; i += 4) if (img.data[i] < 150 && img.data[i + 1] > 190 && img.data[i + 2] > 220) cyan++;
+        if (cyan < 80) throw new Error(`${cyan} pixels of the highlight colour were found in the texture`);
+        return `${cyan} pixels of the highlight colour are in the picture the shader draws`;
+      },
+    },
+    {
+      name: 'The effect on WebGPU: the same picture as WebGL',
+      why: 'The effect is written in GLSL and WGSL. One copy is drawn both ways at rest (the WebGPU one into a texture) and compared. Needs a WebGPU adapter.',
+      timeout: 15000,
+      run: async () => {
+        need();
+        const gl = await fixture({ fx: 'voice', 'fx-backend': 'direct' });
+        const gpu = await fixture({ fx: 'voice', 'fx-backend': 'webgpu', 'fx-offscreen': '' });
+        for (let i = 0; i < 40 && gpu.s.backend !== 'webgpu' && !gpu.s.gpuNote; i++) await sleep(50);
+        if (gpu.s.backend !== 'webgpu') throw new Error(`WebGPU is not in use: ${gpu.s.gpuNote || 'it did not start'}`);
+        await sleep(80);
+        const d = pictureDifference(await gl.s.readback(), await gpu.s.readback());
+        if (d.ink < 0.1) throw new Error('WebGPU drew nothing');
+        if (d.mean > 1.5) throw new Error(`mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+        return `mean difference per channel ${d.mean.toFixed(2)} of 255`;
+      },
+    },
+    stillDrawn(() => [{
+      name: 'the panel',
+      ink: async () => { const s = surfaceOf(deck); return s?.ready ? inkFraction(await s.readback()) : null; },
+      note: 'not in a canvas',
+    }]),
+  ]);
+</script>
+</body>
+</html>

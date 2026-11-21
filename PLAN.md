@@ -62,6 +62,7 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 | Element catalogue | `/elements/`, `ELEMENTS.md` | `tools/elements/` | #48 (open) | Built, waiting to merge. 121 ideas, none built. |
 | Text selection | `/selection/`, `/caret/` | `selection-fx.js` | #49, #52 | Built. Demo 9 (carets and highlights) landed in #52 as `/caret/`. Touch selection is not verified. |
 | Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `docs/chrome-apis-plan.md` | `tools/chrome-apis/` | #50 (open) | Plan written, 27 probes recorded. Building the 28 demos started on 2026-11-21. |
+| AI and input (plan demos 12 to 16) | `/translate-lens/`, `/agent-view/`, `/voice/` | `text-twin.js` | #61 | Demos 12, 13 and 14 built. 15 (`nav-shader`) and 16 (`focus-nav`) are next. No model, WebMCP or microphone in the test browser, so each page runs on a labelled fallback there. |
 | Lost canvases on new pages | new pages | shared fix | none yet | In progress in its own thread. See "Site-wide work that is open". |
 
 ## Open pull requests
@@ -94,9 +95,9 @@ Source: `tools/chrome-apis/demos.json` and `docs/chrome-apis-plan.md` (PR #50). 
 | 9 | `caret-fx` | Carets, highlights and editing drawn through shaders | next | Build text selection effects |
 | 10 | `caps-in-canvas` | What a canvas may not see or wrap: permission elements, `:visited`, system colours, spelling markers, autofill previews, cross-origin iframes | next | Audit accessibility, capture and performance |
 | 11 | `sensor-parallax` | Tilt the phone to light a live card | next | Build visual effect demos from plan |
-| 12 | `translate-lens` | A lens that translates, simplifies or summarises what is under it | then | Build AI and input demos from plan |
-| 13 | `agent-view` | An agent operating a canvas UI through WebMCP tools, drawn as it happens | then | Build AI and input demos from plan |
-| 14 | `voice-ui` | Speak a label to press what the canvas draws | then | Build AI and input demos from plan |
+| 12 | `translate-lens` | A lens that translates, simplifies or summarises what is under it | then | Build AI and input demos from plan. Built: `/translate-lens/` |
+| 13 | `agent-view` | An agent operating a canvas UI through WebMCP tools, drawn as it happens | then | Build AI and input demos from plan. Built: `/agent-view/` |
+| 14 | `voice-ui` | Speak a label to press what the canvas draws | then | Build AI and input demos from plan. Built: `/voice/` |
 | 15 | `nav-shader` | Page navigations drawn by a shader that starts at the clicked link (Navigation API) | then | Build AI and input demos from plan |
 | 16 | `focus-nav` | Controller, keyboard (`focusgroup`) and haptic navigation of drawn UI | then | Build AI and input demos from plan |
 | 17 | `perf-latency` | Latency from DOM change to canvas pixels, and a device tier | then | Audit accessibility, capture and performance |
@@ -280,6 +281,9 @@ Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-2
 |---|---|---|
 | WebGPU | Every on-screen WebGPU path except `/shader-css/`; its speed against WebGL; three `WebGPURenderer` | Open each shader page and read the "Drawn with" line and the two WebGPU check rows. `/three-form/?renderer=webgpu`. |
 | Lens | Frame times on a real GPU; whether Chrome on Android keeps the sub-rectangle canvas-to-texture copy on the GPU | "Measure on this device" on `/lens/`. |
+| Built-in AI | `Translator`, `Rewriter`, `Summarizer` filling the lens copy; the Prompt API planning tool calls and describing a picture | `/translate-lens/` and `/agent-view/`: the line under each demo lists what the browser reports; press "Use ... on this device" and run the live checks. |
+| WebMCP | Whether Chrome 159 has `registerTool()` or `provideContext()`, and an agent calling the tools | `/agent-view/` with the WebMCP flag on: the first chip under the demo and the first live check. |
+| Speech | Recognition, on-device processing, the effect of `phrases`, result timestamps, and whether `SpeechRecognition.available()` crashes outside headless | `/voice/`: press "Listen", say "lamp", and read the line under the demo. |
 | Performance | The real performance wall and frame rates | `/perf/?run=full` on real hardware. |
 | Particles | Whether the 2D default fixed the white block on Android; its cause | `/particles/` on the phone, then `engine="webgl"`. |
 | Lost contexts | Which cause the phone hit on `/embed/` and `/selection/`; whether a 2D drawable canvas fires `contextlost` on Android | Phone, with the page's messages. |

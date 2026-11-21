@@ -93,6 +93,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/component-kit/` | One drawable custom element written with a scoped registry, manual slot assignment, Reference Target, `using`, Observable and `moveBefore()`, and again without them, with the lines each feature removes |
 | `/translate-lens/` | A lens that shows a translated, simplified or summarised copy of the article under it, lined up block by block (`Translator`, `Rewriter`, `Summarizer`, or recorded text when there is no model); cards swapped for summaries when zoomed out |
 | `/agent-view/` | A form drawn through a shader that offers WebMCP tools; each tool call is shown by a marker and a turn of the panel; the Prompt API plans calls from a sentence and describes a picture of the canvas |
+| `/voice/` | A panel of switches drawn through a shader, pressed by saying a name on it: the names of the controls drawn now are the `SpeechRecognition` phrases, a ring spreads from the pressed control, and the transcript highlights each word; a text box sends the same words when there is no microphone |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
