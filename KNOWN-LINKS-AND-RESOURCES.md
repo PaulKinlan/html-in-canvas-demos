@@ -42,7 +42,7 @@ Related files: [FINDINGS.md](FINDINGS.md), [PLAN.md](PLAN.md), [ARCHITECTURE.md]
 | Native frameworks survey | https://github.com/PaulKinlan/html-in-canvas-demos/blob/main/docs/native-frameworks.md |
 | `<slot-view>` protocol | `public/slot-view/PROTOCOL.md` in this repository |
 
-Every page is at `https://html-in-canvas.page/<name>/`. The list of pages is in `public/shared/demos.js` and in the table in [ARCHITECTURE.md](ARCHITECTURE.md).
+Every page is at `https://html-in-canvas.page/<name>/`. `npm run pages` prints the list of pages. It is built from the `page.json` file in each page's folder.
 
 ## The HTML-in-canvas API
 

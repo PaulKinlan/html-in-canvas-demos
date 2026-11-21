@@ -107,44 +107,27 @@ function fixturePictures(stage) {
   return pics;
 }
 
-// Pages whose checks still drive the visible demo: they scroll the page, move
-// focus or flicker while they run (measured by `npm run check:jank`). On these
-// pages the checks wait for a tap instead of starting on load, so opening the
-// page never moves it. To take a page off this list, make its checks run on
-// their own fixtures, then confirm with
+// A page whose checks still drive the visible demo (they scroll the page, move
+// focus or flicker while they run, as measured by `npm run check:jank`) says so
+// in its own <head>:
+//   <meta name="checks" content="tap">
+// Its checks then wait for a tap instead of starting on load, so opening the
+// page never moves it. To remove the line, make the checks run on their own
+// fixtures, then confirm with
 //   npm run check:jank -- --checks /your-page/
-// and delete its line. Keep one page per line so branches merge cleanly.
 // (/transitions/, /time-scrubber/ and /particles/ have their own rule: their
 // checks start when the reader scrolls to them, see shared/on-screen.js.)
-export const CHECKS_WAIT_FOR_TAP = [
-  '/cross-origin/',
-  '/remote/',
-  '/portal/',
-  '/lens/',
-  '/shader-css/',
-  '/slot-effects/',
-  '/physical/',
-  '/video/',
-  '/overlay/',
-  '/audio/',
-  '/player-parts/',
-  '/player-fx/',
-  '/native-ui/',
-  '/select/',
-  '/component-kit/',
-  '/datalist/',
-  '/inputs/',
-  '/selection/',
-  '/caret/',
-];
+export function checksWaitForTap(doc = document) {
+  return doc.querySelector('meta[name="checks"]')?.content === 'tap';
+}
 
-/** Should this page's checks start by themselves? ?autochecks=1 and ?autochecks=0 override the list. */
+/** Should this page's checks start by themselves? ?autochecks=1 and ?autochecks=0 override the page's own setting. */
 export function checksAutoRun() {
   const mode = new URLSearchParams(location.search).get('autochecks');
   if (mode === '1') return true;
   if (mode === '0') return false;
   if (window.top !== window) return true; // framed by the audit: nobody is reading this page
-  return !CHECKS_WAIT_FOR_TAP.includes(location.pathname.replace(/index\.html$/, ''));
+  return !checksWaitForTap();
 }
 
 function waitForTap(tbody, rows) {
@@ -376,7 +359,7 @@ export function pixel(ctx, x, y) {
   return Array.from(ctx.getImageData(x, y, 1, 1).data).join(',');
 }
 
-// The top menu is /shared/nav.js (list of demos: /shared/demos.js). Pages
+// The top menu is /shared/nav.js (list of demos: /shared/pages.js, built from the page.json files). Pages
 // should include it with a script tag; this keeps older pages that call nav()
 // working by loading it for them.
 export function nav() {
