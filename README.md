@@ -85,6 +85,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/three-form/` | A live form on a laptop screen, a billboard and a curved wall in three.js (WebGL or `?renderer=webgpu`), via `lib/html3d.js` |
 | `/board/` | An infinite zoomable board whose tiles are live notes and iframes |
 | `/xr/` | WebXR panels made of HTML, with controller rays, an on-panel keyboard and a built-in headset emulator (`?emulate=1`) |
+| `/xr-room/` | WebXR panels that use the room: fingertip presses from hand tracking, snapping to detected walls and tables, anchors, depth occlusion and an XR quad layer. Runs in a simulated room and in the emulator; a device is needed for the rest |
 | `/slot-view/` | `<slot-view src name>`: a live piece of another site with no iframe box, consent on the providing side, input forwarded ([protocol](public/slot-view/PROTOCOL.md)) |
 | `/pip/` | `pipElement(el)`: picture-in-picture for any element, moved for real, as a live picture, or as a video |
 | `/video/` | A `<video controls>` with captions as a canvas child under a shader. What is drawn (frames, controls, `::cue`), and what is left out (cross-origin, encrypted) |
@@ -133,6 +134,10 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 ## Worker
 
 `src/index.js` routes `/api/*`; everything else is static. `src/cross-context.js` serves `/api/x/room/<id>` (WebSocket relay rooms in a Durable Object), `/api/x/ice` and `/api/x/vision` (Workers AI). Bindings are in `wrangler.jsonc`. Optional secrets `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` (a Cloudflare Realtime TURN key) add TURN servers for networks where WebRTC can't connect directly; without them the demos fall back to relayed frames.
+
+## Plan for new platform features
+
+`/chrome-apis/` is a plan, not a demo: every feature that chromestatus.com lists for Chrome 130 to 160, an idea for combining it with a drawable canvas, and a ranked list of demos to build. `npm run build:plan` generates the page data and `docs/chrome-apis-plan.md` from `tools/chrome-apis/ideas.json` and `demos.json` (add `-- --fetch` to download the feature lists again). When a planned demo is built, add `"built": "/its-page/"` to its entry in `demos.json` and run `npm run build:plan`. `npm run record:probes` runs `/chrome-apis/probes.html` in Chromium and records the results that the plan cites.
 
 ## Pages must hold still
 

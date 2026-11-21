@@ -375,12 +375,13 @@ The main results. Each is backed by the tables in the sections below.
 - [Video and sound (/video/, /overlay/, /audio/, /player-parts/, /player-fx/)](#video-and-sound-video-overlay-audio-player-parts-player-fx)
 - [Customisable select (/select/, lib/select-picker.js)](#customisable-select-select-libselect-pickerjs)
 - [Datalist and other inputs (/datalist/, /inputs/)](#datalist-and-other-inputs-datalist-inputs)
-- [3D and spatial (/three-form/, /board/, /xr/)](#3d-and-spatial-three-form-board-xr)
+- [3D and spatial (/three-form/, /board/, /xr/, /xr-room/)](#3d-and-spatial-three-form-board-xr)
 - [Every HTML element (/elements/)](#every-html-element-elements)
 - [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
 - [Native UI toolkits (/native-ui/)](#native-ui-toolkits-native-ui)
 - [Devices: fold, peripherals, app window (/fold/, /hardware-out/, /window-chrome/)](#devices-fold-peripherals-app-window-fold-hardware-out-window-chrome)
+- [Recent platform features on drawn elements (/chrome-apis/)](#recent-platform-features-on-drawn-elements-chrome-apis)
 
 ## Slots
 
@@ -926,6 +927,22 @@ Measured in headless Chromium 157 with software rendering, three.js r187 (vendor
 
 Not tested here: a real headset or Android AR session. Whether `paint` keeps firing while the page is hidden behind an immersive session is the open question; `/xr/` counts paint events in session, shows the result on a panel inside the headset, and falls back to uploading from the last paint record if they stop.
 
+### Panels in a real room (`/xr-room/`, `lib/xr-room.js`)
+
+Demo 24 of the Chrome APIs plan. Measured on 2026-11-21 in headless Chromium 157 in two ways: a simulated room on the page (a pointer-driven fingertip, a wall and a table standing in for detected planes, a column standing in for a real object) and the IWER headset emulator (`?emulate=1`). Neither is a device.
+
+| Experiment | Result | Detail |
+| --- | --- | --- |
+| A fingertip position as a pointer | works, simulated and emulated | `FingerPointer` takes one world position per frame. Within 20 cm in front of a panel it moves the pointer, at 8 mm it presses, past 2.5 cm it releases and clicks. Buttons, a range input and a scrolling list respond. In the emulator the position comes from three's `getHand(i).joints['index-finger-tip']`, the same path a tracked hand uses. |
+| A press that starts on plain content scrolls | works | After 8 px of travel the nearest scroller is scrolled and the release is not a click. |
+| Snap a panel to a plane | works with simulated planes | `snapToPlane()` takes the `XRPlane` shape (pose matrix, polygon in x and z, orientation). Input needs no change after the move because it is mapped through the mesh's UVs. No real `detectedPlanes` set has been read. |
+| Anchor a placed panel | works in the emulator | `frame.createAnchor()` succeeds in IWER and the pose is re-read every frame. A real anchor moving as the map is refined has not been seen. |
+| Depth occlusion | simulated only | three.js draws a GPU depth texture into the depth buffer when the session provides one. The emulator grants `depth-sensing` as `gpu-optimized` but supplies no texture. On the page, the column writes depth or does not. A session that only offers `cpu-optimized` depth gets no occlusion from this page. |
+| Occlusion and input | by design | Depth hides pixels only. A ray or fingertip still reaches a panel behind a real object, because the page has no depth values to test against. |
+| The status panel as an `XRQuadLayer`, filled with `texElementSubImage2D()` | not verified | `ElementQuadLayer` tries a direct upload into the layer's texture and falls back to a framebuffer blit from the panel's own texture. The emulator does not grant `layers`. The "layer" row on the page says which path ran. |
+
+To settle on a device: whether hand joints, planes and depth are granted on Android Chrome and on a headset, whether `paint` keeps firing in AR, and whether `texElementSubImage2D()` accepts a layer's colour texture. The page's "What a session reports" table records each after a session ends.
+
 ## Pages that hold still (`npm run check:jank`, `tools/jank/`)
 
 On a phone every demo jumped, flashed or scrolled itself while loading. Measured on 2026-11-20 with Chromium 157 driven over the DevTools Protocol as a phone (412 px wide, real device scale factor 2.625, touch, CPU slowed 4x), touching nothing from navigation until the page's live checks finished plus three seconds: layout-shift entries with their sources, every scroll and focus the page did by itself with the line of code that did it, canvas backing-store writes, long tasks, a trace for layout counts, and every compositor frame from a screencast compared with the ones before it.
@@ -1228,6 +1245,49 @@ Measured in headless Chromium 157 (Linux, software renderer) on 2026-11-21. The 
 | WebGPU on screen, and shader speed on a phone | not verified | The software adapter cannot present a WebGPU canvas. |
 
 How `<selection-fx>` uses this: one `::selection` rule hides the browser's highlight inside the element, `selectionchange` triggers a measurement of one Range per text node, and the rectangles go to a 2D effect directly or to a shader as a mask texture (red: selected, green: selected in the last 1.2 s, blue: selected and blurred by 10 px). The element's geometry stays at its layout position, so the caret and hit testing do not follow what an effect draws.
+
+## Recent platform features on drawn elements (`/chrome-apis/`)
+
+`/chrome-apis/` lists the 678 features that chromestatus.com records for Chrome 130 to 160 with an idea for 359 of them and a ranked plan of 28 demos; the same content is `docs/chrome-apis-plan.md`. `/chrome-apis/probes.html` holds 27 probes, each of which draws one small element with one feature on and reads the result back. `npm run record:probes` runs them with real mouse and keyboard input in the two Chromium builds installed beside Playwright: the 157 headless shell and the 153 full browser with the `canvas-draw-element` flag.
+
+| Experiment | Result | Why |
+|---|---|---|
+| `corner-shape`, `border-shape`, `clip-path: shape()`, gap decorations, `text-fit` on a drawn element | works | All are applied in the element picture; outlines arrive as alpha. |
+| `::scroll-marker` and `::scroll-button()` of a scroller inside a canvas | works | The pseudo-elements are in the picture, and a real click on a drawn marker scrolled the list. |
+| `scroll-state(stuck)` query, and a scroll-driven animation, inside a drawn element | works | Both restyle the element and raise `paint` with no `requestPaint()`. |
+| `streamAppendHTML()` into a drawn element | works (157) | One `paint` event per chunk. The method is missing in 153. |
+| CSS `random()` | stable (157) | The same value on two paints, so a per-element seed does not flicker. Missing in 153. |
+| An element outside the canvas anchored to a canvas child | follows the drawn position in 157 | Drawn at 100,50, the anchored element moved by 100,50. In 153 it stays at the layout box. |
+| `interestfor` on a drawn button | opens on hover in 157 | Hover at the drawn position opened the hint. Failed in 153. |
+| `highlightsFromPoint()` and `OpaqueRange` rects on an element drawn away from its box | use the drawn position in 157 | In 153 both use the layout box. |
+| `command` and `commandfor` on a drawn button | works | A click opened a popover that lives outside the canvas. |
+| A popover that is a descendant of a drawn element | not in the picture | It is shown in the top layer at its own position and hit tested there. |
+| `focusgroup` arrow keys between drawn buttons | works | |
+| `caret-shape: block` with `caret-animation: manual` | works | 215 caret pixels in the picture against 24 for a bar. |
+| `interactivity: inert` on a drawn element | works | Still drawn; `elementFromPoint()` skips it. |
+| Element Timing for text and an image inside a canvas | reported | Entries carry `renderTime` and `presentationTime`. |
+| Display P3 and values above 1.0 in a `float16` canvas | kept | `color(display-p3 1 0 0)` read back as 1, 0, 0; `color(srgb-linear 4 4 4)` read back as 1.82. |
+| `:visited` colour in a picture that script can read | drawn as unvisited | Measured in 153 with a profile that keeps history: 921 visited-colour pixels on screen, 0 in the canvas. |
+| `<geolocation>`, `<usermedia>`, `<camera>`, `<microphone>` as canvas children | drawn, not valid | `<geolocation>` reports `isValid` false, reason `intersection_occluded_or_distorted`. |
+
+Things that bit:
+
+- The two installed builds are different versions. The headless shell is 157 and behaves as if experimental web platform features were on; the full browser is 153 and needs the flag. Four results differ between them, and all four are about where the browser thinks a drawn element is. Chrome 159 on a phone has not been compared with either.
+- The headless shell keeps no history, so `:visited` never matches there. The probe reports that it could not tell, and the 153 run is the one that counts.
+- A fixture that sits below a 200 px `overflow: hidden` box is clipped out of screenshots. The comparison link for the `:visited` probe was invisible until the box was made taller.
+
+## Streamed HTML (`/stream/`, `lib/element-gl.js`)
+
+Measured in Chromium 157 (headless shell). Not yet run on the test phone.
+
+| Question | Result | Notes |
+|---|---|---|
+| `streamAppendHTML()` into a drawable canvas child | works | The writer accepts chunks that split a tag. Where the method is missing the page streams through `document.write()` on a second document whose container is moved into the page. |
+| Paint event per chunk | yes | One `paint` event for each chunk that changed the picture, with no call to `requestPaint()`. |
+| Which blocks are new | from a MutationObserver | `changedElements` names the drawable element, not the blocks inside it. The page records the time each block was added or last changed and passes up to 16 rectangles to the shader. |
+| Effect on new blocks only | works | One fragment shader pass over the element's texture. Older blocks are drawn unchanged. |
+| Selection, links and buttons during the effect | work | The quad covers the element's layout box, so `updateElementGeometry()` with an identity matrix is enough. Without that call a WebGL canvas has no hit box for the child and `elementFromPoint()` returns the canvas. |
+| Lost WebGL context | handled | The element is moved out of the canvas and shown as plain HTML with a message. It goes back when the context returns. |
 
 ## Newer DOM features in a drawable custom element (`/component-kit/`)
 
