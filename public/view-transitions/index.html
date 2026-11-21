@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>View Transitions API with HTML-in-canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  /* #region css-board */
+  .board { display: grid; gap: 10px; height: 300px; grid-template: "cv t1" 1fr "cv t2" 1fr "cv t3" 1fr / 2fr 1fr; }
+  .board[data-layout=b] { grid-template: "t1 t2 t3" 70px "cv cv cv" 1fr / 1fr 1fr 1fr; }
+  #cv { grid-area: cv; width: 100%; height: 100%; min-width: 0; min-height: 0; border-radius: 12px; }
+  .t1 { grid-area: t1; view-transition-name: tile-1; }
+  .t2 { grid-area: t2; view-transition-name: tile-2; }
+  .t3 { grid-area: t3; view-transition-name: tile-3; }
+  /* The select under the board decides which element carries a name. */
+  .board[data-name=canvas] #cv { view-transition-name: the-canvas; }
+  .board[data-name=child] #card { view-transition-name: the-card; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: var(--vt-ms, 500ms); }
+  /* #endregion css-board */
+  .board { contain: layout; }
+  .tile { border-radius: 12px; display: grid; place-items: center; font: 600 14px system-ui; color: #fff; min-width: 0; }
+  .t1 { background: #3a86ff; } .t2 { background: #8338ec; } .t3 { background: #fb5607; }
+  #card { box-sizing: border-box; width: 200px; padding: 12px 14px; border-radius: 14px; background: #fff; color: #111; font: 14px/1.4 system-ui; display: grid; gap: 8px; }
+  #card input { font: inherit; width: 100%; box-sizing: border-box; padding: 5px 7px; }
+  #card button { font: inherit; }
+  .clock { font: 600 13px var(--mono); }
+
+  /* #region css-shader */
+  .board2 { display: grid; gap: 10px; grid-template: "lt side" 200px / 3fr 1fr; contain: layout; }
+  .board2[data-layout=b] { grid-template: "side lt" 200px / 1fr 3fr; }
+  #lt { grid-area: lt; height: 200px; min-width: 0; view-transition-name: shader-box; }
+  .side { grid-area: side; view-transition-name: shader-side; }
+  /* The canvas draws the change itself: drop the old snapshot and do not fade the new one in. */
+  ::view-transition-old(shader-box) { display: none; }
+  ::view-transition-new(shader-box) { animation: none; }
+  /* #endregion css-shader */
+  .state { box-sizing: border-box; height: 100%; padding: 16px 18px; border-radius: 12px; font: 15px/1.4 system-ui; display: grid; gap: 8px; align-content: center; }
+  .state h3 { margin: 0; font-size: 20px; }
+  .state p { margin: 0; }
+  .sa { background: #fff3d6; color: #2b2118; }
+  .sb { background: #10242b; color: #e6f4f1; }
+  .state input { font: inherit; padding: 5px 7px; max-width: 100%; box-sizing: border-box; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 12px 0; }
+  .controls label { font-size: 14px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  .said { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; }
+  .shots { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+  .shots figure { margin: 0; max-width: 100%; }
+  .shots img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  .shots figcaption { font-size: 13px; color: var(--muted); max-width: 368px; margin-top: 4px; }
+
+  #rigbox { position: sticky; top: 8px; z-index: 5; display: inline-block; max-width: 100%; box-sizing: border-box; margin: 12px 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 30px 16px 16px; }
+  #rigbox.done { position: relative; top: auto; }
+  #rigbox .cap { font: 12px var(--mono); color: var(--muted); position: absolute; left: 10px; top: 8px; }
+  @media (max-width: 420px) { #rigbox { padding-left: 3px; padding-right: 3px; } }
+  #rigwrap { width: 320px; max-width: 100%; contain: layout; }
+  #rigcv { width: 320px; max-width: 100%; height: 90px; display: block; }
+  #rigkid { width: 120px; height: 40px; background: rgb(255, 204, 0); color: #000; font: 14px system-ui; }
+  #riglt { width: 320px; max-width: 100%; height: 80px; margin-top: 6px; }
+  .rs { height: 100%; font: 14px system-ui; color: #000; }
+  pre code { white-space: pre; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>View Transitions API with HTML-in-canvas</h1>
+  <p class="lede">
+    Four experiments with <code>document.startViewTransition()</code>, <code>view-transition-name</code>, <code>element.startViewTransition()</code>
+    and cross-document transitions, each with a <code>&lt;canvas layoutsubtree&gt;</code> in the page.
+    The <a href="/transitions/">live transitions page</a> does not use this API. This page does.
+  </p>
+
+  <h2>1. A canvas that draws HTML, inside a view transition</h2>
+  <p>
+    The green area is a canvas. The white card is a child element of the canvas, drawn with <code>drawElementImage()</code> at a slight angle.
+    "Swap layout" changes the grid inside a view transition. Choose which element has a <code>view-transition-name</code> and where the transition starts.
+  </p>
+  <!-- #region markup-board -->
+  <div class="board" id="board" data-layout="a" data-name="canvas">
+    <canvas id="cv" content="drawable" layoutsubtree aria-label="Canvas with a card">
+      <div id="card" drawable>
+        <strong>Card in a canvas</strong>
+        <span class="clock" data-clock></span>
+        <input type="text" value="Type here" aria-label="Text in the card">
+        <button id="count" type="button">Pressed 0 times</button>
+      </div>
+    </canvas>
+    <div class="tile t1">1</div>
+    <div class="tile t2">2</div>
+    <div class="tile t3">3</div>
+  </div>
+  <!-- #endregion markup-board -->
+  <div class="controls">
+    <button id="swap" type="button">Swap layout</button>
+    <label>view-transition-name on
+      <select id="name">
+        <option value="canvas">the canvas</option>
+        <option value="child">the card inside the canvas</option>
+        <option value="none">neither</option>
+      </select>
+    </label>
+    <label>Start on
+      <select id="scope">
+        <option value="document">document</option>
+        <option value="board">the grid element</option>
+        <option value="canvas">the canvas element</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="slow"> 3 seconds</label>
+  </div>
+  <div class="said" id="said1" role="status"></div>
+  <details class="show-code">
+    <summary>Show the code <small>a canvas with HTML children in a view transition</small></summary>
+    <ol>
+      <li data-code="#markup-board"><b>The markup.</b> The card is a child of the canvas, so the page does not paint it. The canvas does.</li>
+      <li data-code="#css-board"><b>The names.</b> The canvas is a replaced element, so it can carry a <code>view-transition-name</code> like an image can.</li>
+      <li data-code="#draw-board"><b>Draw the card.</b> 2D <code>drawElementImage()</code> also sets where clicks on the card land.</li>
+      <li data-code="#swap-board"><b>Start the transition.</b> <code>startViewTransition()</code> exists on <code>document</code> and, in Chromium 157, on every element.</li>
+    </ol>
+  </details>
+  <ul class="findings">
+    <li><strong>Name on the canvas: works.</strong> The old snapshot contains the card as the canvas drew it. The new snapshot is live: the clock in the card keeps counting while the canvas moves and changes size. The canvas gets <code>paint</code> events during the transition.</li>
+    <li><strong>Name on the card: the group moves, the picture is empty.</strong> Chromium makes <code>::view-transition-group(the-card)</code> and animates it between the two places <code>drawElementImage()</code> put the card, but both snapshots are blank. The card only shows inside the canvas cross-fade.</li>
+    <li><strong>Started on the grid element: works</strong>, the same as on the document, and the rest of the page stays interactive.</li>
+    <li><strong>Started on the canvas element: the canvas is blank for the length of the transition.</strong> The promise resolves and the pseudo-elements exist, but nothing is drawn where the canvas is.</li>
+    <li><strong>Started on a child of the canvas: the tab crashes.</strong> This is on <a href="/view-transitions/crash.html">its own page</a> so that it cannot take this one down.</li>
+  </ul>
+  <div class="shots">
+    <figure><img src="/view-transitions/shots/name-canvas.png" width="368" height="154" alt="Half way: the canvas cross-fades and the card shows in both places" loading="lazy"><figcaption>Name on the canvas, half way through. Headless Chromium 157.</figcaption></figure>
+    <figure><img src="/view-transitions/shots/name-child.png" width="368" height="154" alt="Half way with only the card's own group shown: nothing is drawn" loading="lazy"><figcaption>Name on the card, half way, with every other group hidden. The card's group draws nothing.</figcaption></figure>
+    <figure><img src="/view-transitions/shots/scope-canvas.png" width="368" height="154" alt="A transition started on the canvas element: the canvas area is empty" loading="lazy"><figcaption>Started on the canvas element, half way. The canvas area is empty.</figcaption></figure>
+  </div>
+
+  <h2>2. A shader in place of the cross-fade</h2>
+  <p>
+    The box below is a <a href="/transitions/"><code>&lt;live-transition&gt;</code></a> element with a <code>view-transition-name</code>.
+    The view transition moves the box. The old snapshot is hidden and the new one is not faded, so what shows is the live canvas, and the canvas runs a shader from the first state to the second.
+  </p>
+  <!-- #region markup-shader -->
+  <div class="board2" id="board2" data-layout="a">
+    <live-transition id="lt" bleed="0">
+      <section class="state sa"><h3>First state</h3><p>Moved by the view transition.</p><input type="text" value="Still an input" aria-label="Text in the first state"></section>
+      <section class="state sb"><h3>Second state</h3><p>Drawn by a shader.</p><span class="clock" data-clock></span></section>
+    </live-transition>
+    <div class="tile t2 side">side</div>
+  </div>
+  <!-- #endregion markup-shader -->
+  <div class="controls">
+    <button id="go2" type="button">Swap layout and state</button>
+    <label>Shader
+      <select id="fx"><option>burn</option><option>shatter</option><option>fold</option><option>fade</option></select>
+    </label>
+    <label><input type="checkbox" id="slow2"> 3 seconds</label>
+  </div>
+  <div class="said" id="said2" role="status"></div>
+  <details class="show-code">
+    <summary>Show the code <small>the view transition moves the box, the canvas draws the change</small></summary>
+    <ol>
+      <li data-code="#markup-shader"><b>The markup.</b></li>
+      <li data-code="#css-shader"><b>Turn off the cross-fade for this name.</b> The new snapshot of a view transition is live, so a canvas that keeps drawing shows through it.</li>
+      <li data-code="#swap-shader"><b>Prepare the shader first, then start both.</b> Rendering is paused while the update callback runs, so anything that waits for a <code>paint</code> event has to happen before <code>startViewTransition()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>3. Between two documents</h2>
+  <p>
+    Two pages opt in with <code>@view-transition { navigation: auto }</code>. Each has a canvas with the same <code>view-transition-name</code>.
+    The second link also passes the old page's canvas pixels to the new page, which burns from them to its own content.
+  </p>
+  <p>
+    <a href="/view-transitions/a.html">Open the two pages, cross-fade</a><br>
+    <a href="/view-transitions/a.html?shader">Open the two pages, shader between documents</a>
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These run when this section is on screen, on the fixtures in the box below. Two of them start a transition on the whole document for a moment. Nothing visible changes in it.</p>
+  <div id="rigbox">
+    <div class="cap">test rig</div>
+    <div id="rigwrap">
+      <canvas id="rigcv" content="drawable" layoutsubtree width="320" height="90"><div id="rigkid" drawable>child</div></canvas>
+    </div>
+    <live-transition id="riglt" bleed="0">
+      <div class="rs" style="background: rgb(255, 204, 0)">A</div>
+      <div class="rs" style="background: rgb(0, 204, 255)">B</div>
+    </live-transition>
+  </div>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>A drawable canvas takes part in a view transition as one picture.</strong> Its snapshot is the canvas bitmap, HTML children included. The new snapshot is live, so the canvas can keep animating under <code>::view-transition-new()</code>.</li>
+    <li><strong>A canvas child cannot be its own transition element.</strong> It gets a group with the right box and no picture. To move one element on its own, give it its own canvas and name that canvas.</li>
+    <li><strong>The old and new snapshots cannot be read from script.</strong> There is no call that hands <code>::view-transition-old()</code> to a canvas or a shader. A shader transition has to keep both states itself (two live elements, or an <code>ElementImage</code> taken before the change) and switch the cross-fade off.</li>
+    <li><strong>Work that waits for a <code>paint</code> event must be done before <code>startViewTransition()</code>.</strong> The canvas gets no <code>paint</code> event while the update callback is pending.</li>
+    <li><strong>Element-scoped transitions and drawable canvases do not mix yet.</strong> On an ancestor of the canvas they work. On the canvas they blank it. On a child of the canvas they crash the renderer in Chromium 157.</li>
+    <li><strong>Between documents</strong>, a named canvas cross-fades like any other element. An <code>ElementImage</code> cannot follow the navigation, so a shader between two documents needs pixels: the old page stores a picture of its canvas, and the new page draws from that picture to its live content.</li>
+  </ul>
+  <h3>Not tried yet</h3>
+  <ul class="findings">
+    <li>Use <code>::view-transition-group()</code> of a canvas child as a timing source: it has the right box at every moment, so the canvas could read it each frame and draw the child there itself.</li>
+    <li>Navigation API <code>navigate</code> with <code>intercept()</code> and a shader transition for a single-page app's route changes.</li>
+    <li><code>view-transition-class</code> and nested groups (<code>view-transition-group: contain</code>) with one canvas per list item.</li>
+    <li>A page-wide shader: put the whole page in one canvas, so that a transition between any two states is drawn by the canvas and the View Transitions API is only used for timing.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests } from '/shared/support.js';
+  import { onScreen } from '/shared/on-screen.js';
+  import '/lib/live-transition.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const frames = (n = 2) => new Promise((r) => { const f = () => (n-- ? requestAnimationFrame(f) : r()); f(); });
+  const must = (cond, msg) => { if (!cond) throw new Error(msg); };
+
+  // Clocks, to show which pictures are live.
+  const t0 = performance.now();
+  setInterval(() => { for (const c of document.querySelectorAll('[data-clock]')) c.textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' s'; }, 100);
+  let presses = 0;
+  $('count').onclick = () => { $('count').textContent = `Pressed ${++presses} ${presses === 1 ? 'time' : 'times'}`; };
+
+  // ------------------------------------------------------------ 1. the board
+  const board = $('board'), cv = $('cv'), card = $('card');
+  if (supported) {
+    // #region draw-board
+    const ctx = cv.getContext('2d');
+    cv.addEventListener('paint', () => {
+      const dpr = cv.width / cv.clientWidth || 1;
+      const w = cv.clientWidth, h = cv.clientHeight;
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = '#2ec4b6';
+      ctx.fillRect(0, 0, w, h);
+      const cw = card.offsetWidth, ch = card.offsetHeight;
+      const fit = Math.min(1, (w - 16) / cw, (h - 16) / ch);
+      ctx.translate(w / 2, h / 2);
+      ctx.rotate(-0.05);
+      ctx.scale(fit, fit);
+      ctx.shadowColor = '#0006'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 6;
+      ctx.drawElementImage(card, -cw / 2, -ch / 2, cw, ch);
+    });
+    new ResizeObserver(() => {
+      const dpr = devicePixelRatio * (cv.currentCSSZoom || 1);
+      cv.width = Math.max(1, Math.round(cv.clientWidth * dpr));
+      cv.height = Math.max(1, Math.round(cv.clientHeight * dpr));
+      cv.requestPaint();
+    }).observe(cv);
+    // #endregion draw-board
+  } else {
+    // No API: the card is shown as ordinary fallback content would not be, so move it out of the canvas.
+    cv.replaceWith(Object.assign(document.createElement('div'), { id: 'cv', style: 'display:grid;place-items:center;background:#2ec4b6' }));
+    $('cv').append(card);
+  }
+
+  $('name').onchange = () => { board.dataset.name = $('name').value; };
+  $('slow').onchange = $('slow2').onchange = (e) => {
+    $('slow').checked = $('slow2').checked = e.target.checked;
+    document.documentElement.style.setProperty('--vt-ms', e.target.checked ? '3000ms' : '500ms');
+  };
+
+  // #region swap-board
+  $('swap').onclick = async () => {
+    const target = { document, board, canvas: $('cv') }[$('scope').value];
+    const update = () => { board.dataset.layout = board.dataset.layout === 'a' ? 'b' : 'a'; };
+    if (!target.startViewTransition) { update(); $('said1').textContent = 'startViewTransition() is not available on that here. The layout changed without a transition.'; return; }
+    const vt = target.startViewTransition(update);
+    try {
+      await vt.ready;
+      $('said1').textContent = 'Transition running.';
+      await vt.finished;
+      $('said1').textContent = 'Transition finished.';
+    } catch (err) {
+      $('said1').textContent = `Transition did not run: ${err.message}`;
+    }
+  };
+  // #endregion swap-board
+
+  // ------------------------------------------------------------ 2. shader in place of the cross-fade
+  const lt = $('lt'), board2 = $('board2');
+  // #region swap-shader
+  $('go2').onclick = async () => {
+    const duration = $('slow2').checked ? 3000 : 900;
+    const next = lt.current === 0 ? 1 : 0;
+    const move = () => { board2.dataset.layout = board2.dataset.layout === 'a' ? 'b' : 'a'; };
+    $('go2').disabled = true;
+    try {
+      // begin() uploads both states and holds the shader at progress 0. It waits for paint events.
+      await lt.begin(next, { effect: $('fx').value, duration, force: true });
+      if (document.startViewTransition) {
+        document.documentElement.style.setProperty('--vt-ms', duration + 'ms');
+        const vt = document.startViewTransition(move);
+        await vt.ready.catch(() => {});
+      } else move();
+      await lt.play();
+      $('said2').textContent = `Showing state ${lt.current + 1}.`;
+    } catch (err) {
+      $('said2').textContent = `Failed: ${err.message}`;
+    } finally {
+      document.documentElement.style.setProperty('--vt-ms', $('slow').checked ? '3000ms' : '500ms');
+      $('go2').disabled = false;
+    }
+  };
+  // #endregion swap-shader
+
+  // ------------------------------------------------------------ live checks
+  const rigcv = $('rigcv'), rigkid = $('rigkid'), rigwrap = $('rigwrap'), riglt = $('riglt');
+  let rigPaints = 0, rigX = 10;
+  if (supported) {
+    const rctx = rigcv.getContext('2d');
+    rigcv.addEventListener('paint', () => {
+      rigPaints++;
+      rctx.reset();
+      rctx.fillStyle = 'rgb(0, 204, 255)';
+      rctx.fillRect(0, 0, 320, 90);
+      rctx.drawElementImage(rigkid, rigX, 20, 120, 40);
+    });
+    rigcv.requestPaint();
+  }
+  const vtAnims = (root) => (root === document ? document.getAnimations() : root.getAnimations({ subtree: true }))
+    .filter((a) => a.effect?.pseudoElement?.startsWith('::view-transition'));
+  const pseudoNames = (root) => [...new Set(vtAnims(root).map((a) => a.effect.pseudoElement))];
+  // Run a transition, look at it once it is ready, then end it at once so the page is not held.
+  async function during(target, update, look) {
+    const vt = target.startViewTransition(update);
+    try {
+      await vt.ready;
+      return await look(vt);
+    } finally {
+      vt.skipTransition();
+      await vt.finished.catch(() => {});
+    }
+  }
+
+  const tests = [
+    {
+      name: 'document.startViewTransition() makes a group for a named layoutsubtree canvas',
+      why: 'The canvas is a replaced element with a view-transition-name. Its group should have the size of the canvas.',
+      async run() {
+        rigcv.style.viewTransitionName = 'rig-canvas';
+        try {
+          return await during(document, () => {}, async () => {
+            const names = pseudoNames(document);
+            must(names.includes('::view-transition-group(rig-canvas)'), `no group for the canvas: ${names.join(' ') || 'no pseudo-elements'}`);
+            const s = getComputedStyle(document.documentElement, '::view-transition-group(rig-canvas)');
+            must(Math.abs(parseFloat(s.width) - rigcv.clientWidth) < 1, `group is ${s.width} wide, canvas is ${rigcv.clientWidth}px`);
+            return `group is ${s.width} by ${s.height}`;
+          });
+        } finally { rigcv.style.viewTransitionName = ''; }
+      },
+    },
+    {
+      name: 'The canvas gets paint events while a view transition is running',
+      why: 'The new snapshot is live, so a canvas that keeps drawing keeps showing.',
+      async run() {
+        rigcv.style.viewTransitionName = 'rig-canvas';
+        try {
+          return await during(document, () => {}, async () => {
+            const before = rigPaints;
+            for (let i = 0; i < 3; i++) { rigcv.requestPaint(); await frames(1); }
+            await frames(1);
+            must(rigPaints - before >= 2, `${rigPaints - before} paint events for 3 requests`);
+            return `${rigPaints - before} paint events for 3 requests`;
+          });
+        } finally { rigcv.style.viewTransitionName = ''; }
+      },
+    },
+    {
+      name: 'A canvas child with view-transition-name gets a group where drawElementImage() put it',
+      why: 'The group follows the hit-test box that the draw call set. Whether the group has a picture cannot be read from script: see the screenshot above (it does not).',
+      async run() {
+        rigkid.style.viewTransitionName = 'rig-kid';
+        try {
+          return await during(document, () => { rigX = 150; rigcv.requestPaint(); }, async () => {
+            const names = pseudoNames(document);
+            must(names.includes('::view-transition-group(rig-kid)'), `no group for the child: ${names.join(' ') || 'no pseudo-elements'}`);
+            for (const a of vtAnims(document)) a.pause();
+            await frames(2);
+            for (const a of vtAnims(document)) { a.pause(); a.currentTime = a.effect.getComputedTiming().endTime; }
+            const s = getComputedStyle(document.documentElement, '::view-transition-group(rig-kid)');
+            const m = new DOMMatrix(s.transform), box = rigkid.getBoundingClientRect(), left = rigcv.getBoundingClientRect().x;
+            must(Math.abs(box.x - left - 150) < 1.5, `the child's box is ${(box.x - left).toFixed(1)}px into the canvas, drawn at 150`);
+            must(Math.abs(m.e - box.x) < 1.5, `group ends at x=${m.e.toFixed(1)}, the child is at x=${box.x.toFixed(1)}`);
+            must(Math.abs(parseFloat(s.width) - 120) < 1, `group is ${s.width} wide, child is 120px`);
+            return `group ends ${(m.e - left).toFixed(1)}px into the canvas, ${s.width} wide, the same as the child's box`;
+          });
+        } finally { rigkid.style.viewTransitionName = ''; rigX = 10; rigcv.requestPaint(); }
+      },
+    },
+    {
+      name: 'element.startViewTransition() on an ancestor of the canvas runs',
+      why: 'Scoped view transitions. The canvas is inside the scope and is captured with it.',
+      async run() {
+        must(typeof rigwrap.startViewTransition === 'function', 'element.startViewTransition is not a function here');
+        return await during(rigwrap, () => { rigX = 150; rigcv.requestPaint(); }, async () => {
+          const names = pseudoNames(rigwrap);
+          must(names.length > 0, 'no view-transition pseudo-elements under the scope');
+          return names.filter((n) => n.includes('group(')).join(' ');
+        }).finally(() => { rigX = 10; rigcv.requestPaint(); });
+      },
+    },
+    {
+      name: 'A <live-transition> shader plays while the document view transition is running',
+      why: 'Experiment 2: the view transition moves the box and the canvas draws the change.',
+      timeout: 8000,
+      async run() {
+        must(riglt.supported, 'live-transition has no canvas here');
+        riglt.style.viewTransitionName = 'rig-lt';
+        try {
+          await riglt.begin(1, { effect: 'fade', duration: 300, force: true });
+          const seen = [];
+          await during(document, () => {}, async () => {
+            const done = riglt.play();
+            for (let i = 0; i < 6; i++) { await frames(1); seen.push(riglt.progress); }
+            await done;
+          });
+          must(seen.some((p) => p > 0 && p < 1), `progress did not advance during the transition: ${seen.map((p) => p.toFixed(2)).join(' ')}`);
+          must(riglt.current === 1, `ended on state ${riglt.current}`);
+          return `shader progress during the transition: ${seen.map((p) => p.toFixed(2)).join(' ')}`;
+        } finally { riglt.style.viewTransitionName = ''; await riglt.show(0, { effect: 'fade', duration: 1, force: true }).catch(() => {}); }
+      },
+    },
+    {
+      name: 'Read the old snapshot of a view transition into a canvas',
+      expect: 'fail',
+      why: 'There is no API for this. A shader needs its own copy of the old state.',
+      async run() {
+        const have = ['ViewTransition' in window && 'oldSnapshot' in ViewTransition.prototype, 'ViewTransition' in window && 'captureOld' in ViewTransition.prototype].some(Boolean);
+        must(have, 'ViewTransition has ready, finished, updateCallbackDone, skipTransition() and types. None of them gives pixels.');
+        return 'found one';
+      },
+    },
+  ];
+
+  if (supported && document.startViewTransition) {
+    await customElements.whenDefined('live-transition');
+    const gate = onScreen($('rigbox'));
+    gate.reserve($('tests'), tests);
+    await gate.seen;
+    await frames(6);
+    await runTests($('tests'), gate.gate(tests));
+    gate.stop();
+  } else {
+    $('tests').innerHTML = `<tr><td class="note">${supported ? 'This browser has no document.startViewTransition().' : 'The checks need the HTML-in-canvas API.'} The buttons above still change the layout.</td></tr>`;
+  }
+  $('rigbox').classList.add('done');
+</script>
+</body>
+</html>

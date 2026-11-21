@@ -60,6 +60,7 @@
 
       // --- motion ---
       '/transitions/': { question: 'Can two states both accept input while a shader blends between them, and which one does a click reach?', first: ['/shader-css/'], api: ['texElementSubImage2D()', 'updateElementGeometry()'] },
+      '/view-transitions/': { question: 'Does a canvas that draws HTML work with the View Transitions API, and can a shader replace the cross-fade?', result: 'A named canvas transitions as one live picture. A canvas child gets a group with no picture. Scoped transitions on the canvas or its children fail.', first: ['/transitions/'], api: ['document.startViewTransition()', 'view-transition-name', '@view-transition', 'drawElementImage()'] },
       '/time-scrubber/': { question: 'Can a page keep past frames of an element and return to an earlier one, form values included?', first: ['/offscreen/'], api: ['ElementImage', 'changedElements', 'createImageBitmap()'] },
       '/particles/': { question: 'Can each glyph of a paragraph be drawn separately while the paragraph stays selectable, searchable and editable?', first: ['/shader-css/'], api: ['Range.getClientRects()', 'texElementSubImage2D()', 'WebGL instancing'] },
 

@@ -54,6 +54,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/capture/` | Any element or a whole page to PNG (up to print quality), video (MediaRecorder or frame-exact WebCodecs) or print with one call |
 | `/perf/` | Performance wall: how many live elements before frames drop; DOM vs 2D canvas vs worker |
 | `/transitions/` | `<live-transition>`: shatter, fold, burn, morph or your own fragment shader between two states that both stay live and clickable |
+| `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |

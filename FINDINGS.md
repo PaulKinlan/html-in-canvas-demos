@@ -265,6 +265,25 @@ Not verified here, because the cloud browser cannot show a WebGPU canvas: every 
 | CSS zoom on the motion elements | works | The canvases are sized by `devicePixelRatio × currentCSSZoom` and re-measured through a `device-pixel-content-box` ResizeObserver, and pointer positions are divided by the zoom. `canvasTransform` stays in unzoomed layout px whatever the backing store size (probed at 1× and 2× backing, zoom 1 and 1.5). |
 
 Not tested here: whether Chrome's find-in-page highlight is painted into an element's picture (needs a person at a real browser), and frame rates on a real GPU (these numbers are from software rendering).
+
+### View Transitions API (`/view-transitions/`)
+
+Tested in headless Chromium 157 with `document.startViewTransition()`, `element.startViewTransition()` and `@view-transition { navigation: auto }`.
+
+| Question | Result | Detail |
+| --- | --- | --- |
+| A `<canvas layoutsubtree>` with a `view-transition-name` in a document transition | works | The old snapshot is the canvas bitmap, HTML children included. The new snapshot is live: the canvas keeps getting `paint` events and a clock inside it keeps counting while the group moves and resizes. |
+| `view-transition-name` on a child of the canvas | group only, no picture | `::view-transition-group(name)` exists and animates between the boxes that `drawElementImage()` (or `updateElementGeometry()`) gave the child. Both snapshots are empty. To move one element on its own, give it its own canvas and name the canvas. |
+| A shader in place of the cross-fade | works | `::view-transition-old(name) { display: none }` and `::view-transition-new(name) { animation: none }` leave the live canvas showing. The view transition moves the box and `<live-transition>` draws the change. `begin()` must finish before `startViewTransition()`: no `paint` event arrives while the update callback is pending. |
+| Read `::view-transition-old()` into a canvas or texture | not possible | `ViewTransition` has no call that returns pixels. A shader transition keeps its own copy of the old state. |
+| `element.startViewTransition()` on an ancestor of the canvas | works | Same result as on the document. The rest of the page stays interactive. |
+| `element.startViewTransition()` on the canvas itself | canvas is blank during the transition | `ready` resolves and the pseudo-elements exist. Nothing is drawn in the canvas box until the transition ends. |
+| `element.startViewTransition()` on a child of `<canvas content="drawable">` | renderer crash | Crashes with or without `layoutsubtree` and with or without a draw. A canvas without `content="drawable"` rejects with "Unsupported layout or style". Reproduction: `/view-transitions/crash.html`. |
+| Cross-document transition with a named canvas on both pages | works | The canvas cross-fades and morphs like an image. `pagereveal` can fire before a module script runs, so listen for it in a classic script. |
+| A shader between two documents | works with pixels | An `ElementImage` cannot follow a navigation. The old page stores a WebP of its canvas in `sessionStorage` before navigating. The new page inserts it as the first state of a `<live-transition>` and burns to the real content. The old snapshot stays visible underneath until the canvas has drawn. When the two boxes have different shapes the stored picture is stretched. |
+
+Not tried yet: reading a child's `::view-transition-group()` box each frame as a timing source for a draw in the canvas; Navigation API `intercept()` with a shader for single-page route changes; `view-transition-class` and nested groups with one canvas per list item; one page-wide canvas that draws every transition itself.
+
 ## Cross-context: tear-off, remote, embed, support
 
 Verified in headless Chromium 157 on 2026-11-20, with two local Workers as two origins. Pages: `/tear-off/`, `/remote/`, `/embed/`, `/support/`. Not yet run in a real browser, on a real phone, or in Safari and Firefox (the viewer pages are written not to need the API).
