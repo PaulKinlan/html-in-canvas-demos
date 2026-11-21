@@ -25,3 +25,5 @@ Measured in headless Chromium 157 on 2026-11-21. The built-in AI interfaces had 
 | `SpeechRecognition`, `phrases`, `SpeechRecognitionPhrase`, `install()` | present | Headless Chromium 157. `SpeechRecognitionResult` is not a global there, so `speechStartTime` cannot be detected. |
 
 Not verified: every path that calls a model (`Translator`, `Rewriter`, `Summarizer`, the Prompt API planner and image prompt), WebMCP with a real agent, speech recognition of any kind (no microphone), whether `phrases` changes what is recognised, result timestamps, WebGPU on screen, and touch dragging of the lens on a real phone.
+
+The recorded Welsh, Cornish, Breton and Manx text on `/translate-lens/` was written by a language model and has not been checked by a speaker. Whether `Translator` has any of the four on a device is not verified.

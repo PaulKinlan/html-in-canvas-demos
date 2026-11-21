@@ -14,3 +14,9 @@ Measured in headless Chromium 157 on 2026-11-21. A four-view site is the childre
 | The ink shader in WGSL | not verified | No WebGPU adapter. The page compares the WebGPU and WebGL pictures on a device that has one. |
 
 Not verified: WebGPU on screen, the phone's Back gesture and its preview animation, cross-document navigations, and what a screen reader announces when the view changes.
+
+What would verify it, on the test phone: tick "Slow", tap a card, tap inside both views while the shader runs, then go Back. Run the live checks for the WebGPU comparison.
+
+## Things that bit
+
+- The live checks that navigate run in a hidden same-origin iframe. Its navigations are in the tab's joint history, so its `history.back()` undid a navigation the reader had made in the top page while the checks ran on load. The page's checks now wait for a tap.

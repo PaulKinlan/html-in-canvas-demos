@@ -17,3 +17,10 @@ Measured in headless Chromium 157 on 2026-11-21. Key presses were real key event
 | Removing the `focusgroup` attribute | logs a console error | "focusgroup requires a recognized behavior token". `focusgroup="none"` turns it off without the error. |
 
 Not verified: a real controller and its vibration, the gamepad event origin trial, vibration on the phone, a screen reader on each move, and WebGPU on screen.
+
+What would verify it, on the test phone: use the direction pad and the A button and feel for the vibration, then connect a controller and read the line under the demo.
+
+## Things that bit
+
+- A live check cannot send trusted key events, so `focusgroup` and `reading-flow` were measured with real keys from a test script. The page logs what each arrow key and Tab did, so the same can be read on a device.
+- Removing the `focusgroup` attribute logs "focusgroup requires a recognized behavior token". The page sets `focusgroup="none"` instead.
