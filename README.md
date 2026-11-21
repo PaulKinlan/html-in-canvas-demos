@@ -6,6 +6,17 @@ Live: https://html-in-canvas-demos.kinlan-test.workers.dev (second origin for th
 
 Needs Chrome 148+ (desktop or Android) with `chrome://flags/#canvas-draw-element` set to Enabled, or the `html-in-canvas` origin trial. Without it the site is plain HTML. The demos are tested in Chromium 157 and in Chrome 159 on Android.
 
+## Project documents
+
+| File | What it holds |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Start here if you are a coding agent or a new contributor: which file to read for what, and the rules for every change. |
+| [PLAN.md](PLAN.md) | Goals, strands of work and their status, every open idea and planned demo, and what still needs real hardware. |
+| [FINDINGS.md](FINDINGS.md) | Every measured result, indexed by API area with the browser and page for each, Chromium bugs worth filing and API requests. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Repository layout, the Worker and its routes, shared modules, the check harness, scripts, local testing, deploy and previews, how to add a page. |
+| [DESIGN.md](DESIGN.md) | The visual style as built (colours, type, spacing, components), section order, phone rules and writing rules. |
+| [KNOWN-LINKS-AND-RESOURCES.md](KNOWN-LINKS-AND-RESOURCES.md) | The explainer, Chrome documentation, every external source cited here, and the live and preview URLs. |
+
 ## Learn the API
 
 [`/start/`](https://html-in-canvas-demos.kinlan-test.workers.dev/start/) is a tutorial: how to enable the API, a 60-line page that draws one element ([`public/start/hello.html`](public/start/hello.html)), common errors with their fixes, and a glossary.
@@ -72,6 +83,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/webgpu-features/` | Texture swizzle, immediates, float blending, `primitive_index` and dual-source blending on element textures, each with a fallback, plus a compatibility mode tier |
 | `/board/` | An infinite zoomable board whose tiles are live notes and iframes |
 | `/xr/` | WebXR panels made of HTML, with controller rays, an on-panel keyboard and a built-in headset emulator (`?emulate=1`) |
+| `/xr-room/` | WebXR panels that use the room: fingertip presses from hand tracking, snapping to detected walls and tables, anchors, depth occlusion and an XR quad layer. Runs in a simulated room and in the emulator; a device is needed for the rest |
 | `/slot-view/` | `<slot-view src name>`: a live piece of another site with no iframe box, consent on the providing side, input forwarded ([protocol](public/slot-view/PROTOCOL.md)) |
 | `/pip/` | `pipElement(el)`: picture-in-picture for any element, moved for real, as a live picture, or as a video |
 | `/video/` | A `<video controls>` with captions as a canvas child under a shader. What is drawn (frames, controls, `::cue`), and what is left out (cross-origin, encrypted) |
