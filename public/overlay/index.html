@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTML overlays on video: record, export, send</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .bar label { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .bar select, .bar button, .bar input[type=text] { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; }
+  .bar input[type=text] { width: 11em; }
+  .bar button[disabled] { opacity: .5; }
+  .stage { max-width: 640px; position: relative; }
+  #programme { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #111; touch-action: manipulation; }
+  #blank[hidden] { display: none; }
+  #blank { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; background: #222; border-radius: 10px; }
+  /* #region css */
+  /* The scene is always 640 by 360 layout pixels, the size of the canvas buffer, whatever size the canvas is shown at. */
+  #scene { position: relative; width: 640px; height: 360px; overflow: hidden; background: #000; color: #fff; font: 15px/1.3 system-ui, sans-serif; }
+  #scene video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #scene .live { position: absolute; left: 14px; top: 12px; display: flex; gap: 8px; align-items: center; padding: 3px 9px; border-radius: 5px; background: #c8102e; font: 700 13px system-ui; letter-spacing: .06em; }
+  #scene .live output { font: 600 13px ui-monospace, monospace; letter-spacing: 0; }
+  #scene .third { position: absolute; left: 0; bottom: 64px; padding: 8px 18px 8px 14px; background: linear-gradient(90deg, #0b3d91, #1565c0); border-radius: 0 8px 8px 0;
+    transform: translateX(-105%); transition: transform .5s cubic-bezier(.2, .8, .2, 1); }
+  #scene .third.on { transform: none; }
+  #scene .third b { display: block; font-size: 20px; }
+  #scene .poll { position: absolute; right: 12px; top: 40px; width: 210px; margin: 0; padding: 8px 10px 10px; border-radius: 8px; background: rgb(0 0 0 / .65); }
+  #scene .poll p { margin: 0 0 6px; font-weight: 600; }
+  #scene .poll button { display: block; width: 100%; min-height: 56px; margin-top: 8px; padding: 4px 10px; font-size: 18px; border: 0; border-radius: 6px; color: #fff; font-family: inherit; text-align: left;
+    background: linear-gradient(90deg, #2e7d32 var(--share, 50%), #37474f var(--share, 50%)); }
+  #scene .ticker { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background: #111; overflow: hidden; white-space: nowrap; font: 15px/34px system-ui; }
+  #scene .ticker span { display: inline-block; padding-left: 640px; animation: ticker 14s linear infinite; }
+  @keyframes ticker { to { transform: translateX(-100%); } }
+  /* #endregion css */
+  #log { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; margin: 8px 0; white-space: pre-line; }
+  #result { margin: 8px 0 0; max-width: 640px; }
+  #result video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; }
+  #result figcaption { font-size: 13px; color: var(--muted); margin: 6px 0; min-height: 1.5em; }
+  figure { margin: 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>HTML overlays on video: record, export, send</h1>
+  <p class="lede">
+    The picture below is one canvas. It draws a <code>&lt;div&gt;</code> that holds a video, a caption bar, a poll and a CSS-animated ticker.
+    Vote in the poll and change the name. Then record it with the video's sound, export it frame by frame, or send it over WebRTC as a camera
+    would be sent. The result plays under the buttons.
+  </p>
+
+  <div class="stage">
+    <!-- #region markup -->
+    <canvas id="programme" content="drawable" layoutsubtree width="640" height="360" aria-label="Video with HTML overlays">
+      <div id="scene" drawable>
+        <video id="src" muted playsinline loop preload="auto"></video>
+        <div class="live">LIVE <output id="clock">0:00.00</output></div>
+        <div class="third on" id="third"><b id="name">Ada Lovelace</b><span>Guest, programme notes</span></div>
+        <form class="poll" id="poll">
+          <p>Which is drawn by the video?</p>
+          <button type="button" data-option="0">Fractal <span>1</span></button>
+          <button type="button" data-option="1">Stripes <span>1</span></button>
+        </form>
+        <div class="ticker"><span>This ticker is a CSS animation on a &lt;span&gt;. The caption bar is a CSS transition. The poll is a &lt;form&gt; with two buttons. Everything in this picture except the video frame is HTML.</span></div>
+      </div>
+    </canvas>
+    <!-- #endregion markup -->
+    <p id="blank" hidden></p>
+  </div>
+
+  <div class="bar">
+    <label>Name <input type="text" id="who" value="Ada Lovelace" maxlength="28" autocomplete="off"></label>
+    <label><input type="checkbox" id="showThird" checked> Caption bar</label>
+    <label>Source <select id="source"><option value="clip">Clip</option><option value="camera">Camera</option></select></label>
+  </div>
+  <div class="bar">
+    <button type="button" id="record">Record 5 s with sound</button>
+    <button type="button" id="export">Export 3 s frame by frame</button>
+    <button type="button" id="send">Send as a camera</button>
+  </div>
+  <p id="log" role="status">Nothing recorded yet.</p>
+  <figure id="result" hidden>
+    <figcaption id="resultNote"></figcaption>
+    <video id="out" controls playsinline></video>
+  </figure>
+
+  <details class="show-code">
+    <summary>Show the code <small>video and HTML in one canvas, three ways out</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> The video and the overlays are children of one <code>drawable</code> element in the canvas.</li>
+      <li data-code="#css"><b>The CSS.</b> Ordinary positioning, a transition and an animation.</li>
+      <li data-code="#paint"><b>The paint handler.</b> One <code>drawElementImage()</code> call, with the destination size given. It runs for each video frame and each DOM change.</li>
+      <li data-code="/lib/video-export.js#record"><b>Record.</b> <code>canvas.captureStream()</code> gives the picture and <code>video.captureStream()</code> gives the sound. <code>MediaRecorder</code> writes both.</li>
+      <li data-code="/lib/video-export.js#export"><b>Export frame by frame.</b> Seek the video, set each animation's <code>currentTime</code>, wait for one <code>paint</code>, wrap the canvas in a <code>VideoFrame</code> and encode it. The sound track is decoded, cut and encoded as Opus.</li>
+      <li data-code="/lib/video-export.js#loopback"><b>Send.</b> The canvas stream is added to an <code>RTCPeerConnection</code> like a camera track.</li>
+      <li data-code="#buttons"><b>The three buttons on this page.</b></li>
+      <li data-code="/lib/video-export.js"><b>The whole library file.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The canvas is a 2D canvas with a fixed 640 by 360 buffer. Every recording has that size on every screen.</li>
+    <li>The scene is real DOM. The poll buttons take clicks inside the canvas, and the result is in the next frame of the stream.</li>
+    <li>Recording and sending use the canvas in real time. Export does not: it moves the video and the animations one frame at a time, so a slow device produces the same file as a fast one.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small canvas in a corner of the window. The picture above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software video decoding. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: recording with sound.</strong> <code>video.captureStream()</code> gives an audio track while the element is muted, and <code>MediaRecorder</code> accepts it next to the canvas track. The file has the video frame, the HTML over it and the sound.</li>
+    <li><strong>Works: frame-exact export.</strong> After <code>seeked</code>, one <code>requestPaint()</code> gives a canvas with exactly the frame asked for. The frame numbers read back from an exported file were the ones asked for, and an element moved by a CSS animation was at the position for each frame's time. The cost here was about 20 to 35 ms per frame at 640 by 360.</li>
+    <li><strong>Works: sound in the export.</strong> <code>decodeAudioData()</code> on an <code>OfflineAudioContext</code> needs no user gesture. The slice is encoded with <code>AudioEncoder</code> (Opus) and written as a second WebM track by <code>/lib/webm-mux.js</code>.</li>
+    <li><strong>Works: the canvas as a camera.</strong> The stream passes through <code>RTCPeerConnection</code> and the far side receives the overlays. A camera in <code>srcObject</code> can be the video under them.</li>
+    <li><strong>Needed: give <code>drawElementImage()</code> a size.</strong> With only a position, the element is drawn at the size that shows it at its CSS size on screen. In a 640 px buffer shown 354 px wide, a 640 px scene is drawn 1157 buffer pixels wide and most of it is cut off. <code>drawElementImage(scene, 0, 0, canvas.width, canvas.height)</code> fills the buffer at any shown size, and it scales the hit-test region too, so the poll buttons take taps where they are drawn with no call to <code>updateElementGeometry()</code>.</li>
+    <li><strong>Limit: real time needs the tab.</strong> <code>paint</code> stops in a hidden tab, so a live recording or stream freezes there. The frame-by-frame export stops too and continues when the tab is shown again.</li>
+    <li><strong>Limit: the export seeks a file.</strong> A camera or another live stream cannot be seeked, so only the live recording works for it.</li>
+    <li><strong>Not verified here:</strong> seek accuracy with a hardware decoder, <code>AudioEncoder</code> on Android, and how long a real phone takes per frame. The second and third live checks answer the first two on your device.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { recordCanvas, exportFrames, decodeSound, loopback, painted } from '/lib/video-export.js';
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const CLIP = '/media/clip.webm', FPS = 30, W = 640, H = 360;
+  const canvas = $('programme'), scene = $('scene'), video = $('src');
+  const log = (text) => ($('log').textContent = text);
+
+  // #region paint
+  /** Draw `scene` into `canvas` on every paint, and keep its hit-test region on the picture. */
+  function compose(canvas, scene) {
+    const ctx = canvas.getContext('2d');
+    canvas.addEventListener('paint', () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // With a size, the scene fills the 640 by 360 buffer however large the canvas is shown, and its
+      // hit-test region is scaled the same way. With only a position, the element is drawn at the size
+      // that shows it at its CSS size on screen, which overflows a buffer shown smaller than 640 px.
+      ctx.drawElementImage(scene, 0, 0, canvas.width, canvas.height);
+    });
+    new ResizeObserver(() => canvas.requestPaint()).observe(canvas);
+    canvas.requestPaint();
+    return ctx;
+  }
+  // #endregion paint
+
+  const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
+  const setClock = (t) => ($('clock').value = fmt(t));
+  let clipUrl = CLIP, camera = null;
+
+  if (supported) {
+    compose(canvas, scene);
+    // A blob URL can always be seeked, whatever the server does with Range requests.
+    fetch(CLIP).then((r) => r.blob()).then((b) => { clipUrl = URL.createObjectURL(b); if (!camera) { video.src = clipUrl; video.play().catch(() => {}); } }).catch(() => { video.src = CLIP; video.play().catch(() => {}); });
+    if ('requestVideoFrameCallback' in video) {
+      const each = (now, meta) => { if (!exporting) setClock(meta.mediaTime); video.requestVideoFrameCallback(each); };
+      video.requestVideoFrameCallback(each);
+    }
+  } else {
+    $('blank').hidden = false;
+    $('blank').textContent = 'This picture is drawn with HTML-in-canvas, which this browser does not have. Nothing can be shown or recorded here.';
+    for (const b of document.querySelectorAll('.bar button')) b.disabled = true;
+  }
+
+  // The scene's own controls.
+  const votes = [1, 1];
+  function showVotes() {
+    const total = votes[0] + votes[1];
+    for (const b of $('poll').querySelectorAll('button')) {
+      const i = +b.dataset.option;
+      b.querySelector('span').textContent = votes[i];
+      b.style.setProperty('--share', `${Math.round((votes[i] / total) * 100)}%`);
+    }
+  }
+  $('poll').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { votes[+b.dataset.option]++; showVotes(); } });
+  showVotes();
+  $('who').oninput = () => ($('name').textContent = $('who').value || ' ');
+  $('showThird').onchange = () => $('third').classList.toggle('on', $('showThird').checked);
+  $('source').onchange = async () => {
+    try {
+      if ($('source').value === 'camera') {
+        camera = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360, facingMode: 'user' }, audio: false });
+        video.removeAttribute('src');
+        video.srcObject = camera;
+      } else {
+        for (const t of camera?.getTracks() ?? []) t.stop();
+        camera = null;
+        video.srcObject = null;
+        video.src = clipUrl;
+      }
+      await video.play();
+      $('export').disabled = !!camera;
+      log(camera ? 'The camera is the video now. Export is off: a live stream cannot be seeked.' : 'The clip is the video.');
+    } catch (err) {
+      $('source').value = 'clip';
+      log(`Could not use the camera: ${err.message}`);
+    }
+  };
+
+  // #region buttons
+  let exporting = false, sending = null, sound = null;
+  const busy = (on) => { for (const id of ['record', 'export', 'send']) $(id).disabled = on || (id === 'export' && !!camera); };
+  function show(blobOrStream, note) {
+    const out = $('out');
+    $('result').hidden = false;
+    $('resultNote').replaceChildren(note);
+    if (out.src.startsWith('blob:')) URL.revokeObjectURL(out.src);
+    out.srcObject = null;
+    out.removeAttribute('src');
+    if (blobOrStream instanceof Blob) {
+      out.src = URL.createObjectURL(blobOrStream);
+      const a = Object.assign(document.createElement('a'), { href: out.src, download: 'overlay.webm', textContent: 'Download the file' });
+      $('resultNote').append(' ', a, '.');
+    } else {
+      out.srcObject = blobOrStream;
+      out.muted = true;
+    }
+    out.play().catch(() => {});
+  }
+
+  $('record').onclick = async () => {
+    busy(true);
+    try {
+      log('Recording 5 seconds. Vote or change the name: it goes into the file.');
+      const blob = await recordCanvas(canvas, { ms: 5000, audioFrom: camera ? null : video });
+      log(`Recorded ${(blob.size / 1024).toFixed(0)} kB of ${blob.mimeType}, ${blob.sound ? 'with the sound of the video' : 'without sound'}.`);
+      show(blob, 'The recording.');
+    } catch (err) {
+      log(`Recording failed: ${err.message}`);
+    }
+    busy(false);
+  };
+
+  $('export').onclick = async () => {
+    busy(true);
+    exporting = true;
+    try {
+      log('Decoding the sound track…');
+      sound ??= await decodeSound(CLIP).catch(() => null);
+      const from = Math.min(Math.floor(video.currentTime * FPS) / FPS, video.duration - 3);
+      let wrong = 0;
+      const result = await exportFrames(canvas, {
+        video, root: scene, from, seconds: 3, fps: FPS, audio: sound,
+        onframe: (i, t) => { setClock(t); if (i % 10 === 0) log(`Exporting frame ${i + 1} of 90…`); },
+        // The clip carries its frame number in its top right corner. Read it from the canvas to check each frame.
+        ondrawn: (i, t) => { if (readFrameNumber(canvas.getContext('2d'), W / 2, 8, 20) !== Math.round(t * FPS)) wrong++; },
+      });
+      log(`Exported ${result.frames} frames as ${result.codec} in ${(result.msPerFrame * result.frames / 1000).toFixed(1)} s (${result.msPerFrame.toFixed(0)} ms per frame), ${(result.blob.size / 1024).toFixed(0)} kB, ${result.sound ? 'with sound' : 'without sound'}.\n` +
+        (wrong ? `${wrong} of ${result.frames} frames did not hold the video frame that was asked for.` : `Every frame held the video frame that was asked for (read from the stripes in its corner).`));
+      show(result.blob, `The export: ${result.frames} frames at exactly ${FPS} per second.`);
+    } catch (err) {
+      log(`Export failed: ${err.message}`);
+    }
+    exporting = false;
+    busy(false);
+  };
+
+  $('send').onclick = async () => {
+    if (sending) {
+      sending.stop();
+      return;
+    }
+    try {
+      const stream = canvas.captureStream(FPS);
+      const link = await loopback(stream);
+      show(link.stream, 'What the other end of the connection receives.');
+      $('send').textContent = 'Stop sending';
+      const timer = setInterval(async () => {
+        canvas.requestPaint();
+        const s = await link.stats();
+        if (s) log(`Received over WebRTC: ${s.width}×${s.height}, ${s.fps} frames a second, ${s.kbps} kbit/s.`);
+      }, 1000);
+      sending = { stop: () => { clearInterval(timer); link.close(); stream.getTracks().forEach((t) => t.stop()); sending = null; $('send').textContent = 'Send as a camera'; log('Stopped sending.'); } };
+    } catch (err) {
+      log(`Could not send: ${err.message}`);
+    }
+  };
+  // #endregion buttons
+
+  /** The frame number in the clip's corner: 16 stripes, lowest bit first. */
+  function readFrameNumber(ctx, x0, y, stripe) {
+    const d = ctx.getImageData(x0, y, stripe * 16, 1).data;
+    let n = 0;
+    for (let i = 0; i < 16; i++) if (d[(i * stripe + (stripe >> 1)) * 4] > 128) n |= 1 << i;
+    return n;
+  }
+
+  // ---- live checks: every one on its own fixture ----
+  const media = [];
+  // The fixture box lies over the bottom left of the window while checks run. It lets taps through, except for the moment a check asks what is at a point.
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const hitAt = (x, y) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { s.style.pointerEvents = 'none'; } };
+  /** A 320 by 180 canvas with the clip, a magenta label and a box moved by a CSS animation. */
+  function fixture({ shown = 320 } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = 320; c.height = 180;
+    c.style.cssText = `width:${shown}px;height:${(shown * 180) / 320}px;flex:none`;
+    c.innerHTML = `<div drawable style="position:relative;width:320px;height:180px;overflow:hidden;background:#fff">
+      <video src="${clipUrl}" muted playsinline loop preload="auto" style="display:block;width:320px;height:180px"></video>
+      <div style="position:absolute;left:8px;top:140px;width:60px;height:30px;background:#ff00ff"></div>
+      <div class="mover" style="position:absolute;left:0;top:60px;width:20px;height:20px;background:#00ffff;animation:check-move 1s linear infinite"></div>
+      <button type="button" style="position:absolute;left:240px;top:120px;width:70px;height:50px">Vote</button>
+    </div>`;
+    quietStage().append(c);
+    const f = { c, el: c.firstElementChild, video: c.querySelector('video'), button: c.querySelector('button'), ctx: compose(c, c.firstElementChild) };
+    media.push(f.video);
+    return f;
+  }
+  const style = document.createElement('style');
+  style.textContent = '@keyframes check-move { from { transform: translateX(0); } to { transform: translateX(300px); } }';
+  document.head.append(style);
+  async function presented(video, ms = 6000) {
+    video.play().catch(() => {});
+    const ok = await Promise.race([new Promise((r) => video.requestVideoFrameCallback?.(() => r(true)) ?? video.addEventListener('timeupdate', () => r(true), { once: true })), sleep(ms).then(() => false)]);
+    if (!ok) throw new Error(video.error ? `the video did not play: ${video.error.message}` : 'the video presented no frame');
+  }
+  /** Play a file in a detached <video> and hand back a 2D context that can draw its frames. */
+  async function open(blob) {
+    const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, preload: 'auto', src: URL.createObjectURL(blob) });
+    media.push(v);
+    await new Promise((resolve, reject) => { v.onloadeddata = resolve; v.onerror = () => reject(new Error(`the file does not play: ${v.error?.message}`)); });
+    const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    ctx.canvas.width = v.videoWidth; ctx.canvas.height = v.videoHeight;
+    const at = async (t) => {
+      if (Math.abs(v.currentTime - t) > 1e-4) { const seeked = new Promise((r) => v.addEventListener('seeked', r, { once: true })); v.currentTime = t; await seeked; }
+      ctx.drawImage(v, 0, 0);
+      return ctx;
+    };
+    return { v, ctx, at };
+  }
+  const isMagenta = (d) => d[0] > 180 && d[1] < 90 && d[2] > 180;
+  function release() {
+    for (const v of media.splice(0)) { try { v.pause(); v.srcObject = null; if (v.src.startsWith('blob:') && v.src !== clipUrl) URL.revokeObjectURL(v.src); v.removeAttribute('src'); v.load(); } catch {} }
+  }
+  const each = (tests) => tests.map((t) => ({ timeout: 20000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { release(); } } }));
+  let exported = null;
+
+  runTests($('results'), each([
+    {
+      name: 'MediaRecorder records the canvas with the video\'s sound',
+      why: 'canvas.captureStream() plus the audio track of video.captureStream(), recorded for 1.5 s and played back.',
+      run: async () => {
+        const f = fixture();
+        await presented(f.video);
+        const blob = await recordCanvas(f.c, { ms: 1500, audioFrom: f.video });
+        const file = await open(blob);
+        await file.v.play();
+        await sleep(500);
+        const ctx = await file.at(file.v.currentTime);
+        const label = isMagenta(ctx.getImageData(30, 155, 1, 1).data);
+        const centre = ctx.getImageData(160, 90, 1, 1).data;
+        const heard = file.v.webkitAudioDecodedByteCount;
+        if (!label) throw new Error('the HTML label is not in the recorded picture');
+        if (centre[0] > 245 && centre[1] > 245 && centre[2] > 245) throw new Error('the video frame is not in the recorded picture');
+        if (!blob.sound) throw new Error('video.captureStream() gave no audio track');
+        if (heard === 0) throw new Error('the file has no decodable sound');
+        return `${(blob.size / 1024).toFixed(0)} kB, ${file.v.videoWidth}×${file.v.videoHeight}; the label and the video frame are in the picture${heard ? `; ${heard} bytes of sound decoded` : '; it has an audio track'}`;
+      },
+    },
+    {
+      name: 'Frame-by-frame export holds exactly the frames asked for',
+      why: 'Exports 12 frames starting at frame 60, then reads the frame number out of three of them.',
+      run: async () => {
+        const f = fixture();
+        await presented(f.video);
+        const sound = await decodeSound(CLIP).catch(() => null);
+        const result = (exported = await exportFrames(f.c, { video: f.video, root: f.el, from: 2, seconds: 0.4, fps: FPS, audio: sound }));
+        const file = await open(result.blob);
+        const got = [];
+        for (const i of [0, 5, 11]) {
+          const ctx = await file.at((i + 0.5) / FPS);
+          got.push([60 + i, readFrameNumber(ctx, 160, 4, 10)]);
+        }
+        if (result.frames !== 12) throw new Error(`${result.frames} frames were written, 12 were asked for`);
+        const wrong = got.filter(([a, b]) => a !== b);
+        if (wrong.length) throw new Error(`asked for and found: ${got.map((p) => p.join('→')).join(', ')}`);
+        return `${result.frames} frames of ${result.codec}, ${result.msPerFrame.toFixed(0)} ms each; frames ${got.map(([a]) => a).join(', ')} read back from the file`;
+      },
+    },
+    {
+      name: 'The export steps CSS animations with the video',
+      why: 'A box moves 300 px a second. In exported frame n it must be at n × 10 px, not where real time put it.',
+      run: async () => {
+        if (!exported) throw new Error('the export in the check above did not finish');
+        const file = await open(exported.blob);
+        const xs = [];
+        for (const i of [0, 3, 9]) {
+          const ctx = await file.at((i + 0.5) / FPS);
+          const d = ctx.getImageData(0, 70, 320, 1).data;
+          let first = -1;
+          for (let x = 0; x < 320 && first < 0; x++) if (d[x * 4] < 90 && d[x * 4 + 1] > 170 && d[x * 4 + 2] > 170) first = x;
+          xs.push(first);
+        }
+        const steps = [xs[1] - xs[0], xs[2] - xs[1]];
+        if (xs.includes(-1) || Math.abs(steps[0] - 30) > 3 || Math.abs(steps[1] - 60) > 3) throw new Error(`the box is at x = ${xs.join(', ')} in frames 0, 3 and 9; it should move 30 px then 60 px`);
+        return `the box is at x = ${xs.join(', ')} in frames 0, 3 and 9: 10 px per frame`;
+      },
+    },
+    {
+      name: 'The export has the sound track',
+      why: 'The clip\'s audio is decoded with an OfflineAudioContext, cut to the same 0.4 s and encoded as Opus with AudioEncoder.',
+      run: async () => {
+        if (!exported) throw new Error('the export in the check above did not finish');
+        if (typeof AudioEncoder === 'undefined') throw new Error('no AudioEncoder here');
+        if (!exported.sound) throw new Error('no sound was encoded');
+        const file = await open(exported.blob);
+        await file.v.play();
+        await sleep(450);
+        const heard = file.v.webkitAudioDecodedByteCount;
+        if (heard === 0) throw new Error('the file plays but no sound was decoded from it');
+        return `${exported.blob.type}${heard ? `; ${heard} bytes of sound decoded on playback` : ''}`;
+      },
+    },
+    {
+      name: 'The canvas stream arrives over WebRTC with the HTML in it',
+      why: 'Two RTCPeerConnections in this page. The received video is checked for the magenta label.',
+      run: async () => {
+        const f = fixture();
+        await presented(f.video);
+        const link = await loopback(f.c.captureStream(FPS));
+        const far = Object.assign(document.createElement('video'), { muted: true, playsInline: true, srcObject: link.stream });
+        media.push(far);
+        far.play().catch(() => {});
+        try {
+          let ok = false, stats = null;
+          const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+          for (let tries = 0; tries < 60 && !ok; tries++) {
+            f.c.requestPaint();
+            await sleep(150);
+            if (!far.videoWidth) continue;
+            ctx.canvas.width = far.videoWidth; ctx.canvas.height = far.videoHeight;
+            ctx.drawImage(far, 0, 0);
+            ok = isMagenta(ctx.getImageData(Math.round(far.videoWidth * 30 / 320), Math.round(far.videoHeight * 155 / 180), 1, 1).data);
+            stats = await link.stats();
+          }
+          if (!ok) throw new Error(far.videoWidth ? 'video arrived but the label is not in it' : 'no video arrived');
+          return `received ${far.videoWidth}×${far.videoHeight} with the label in it${stats?.fps ? `, ${stats.fps} frames a second` : ''}`;
+        } finally {
+          link.close();
+        }
+      },
+    },
+    {
+      name: 'A button in a canvas shown at half size is hit where it is drawn',
+      why: 'The buffer is 320 px wide and the canvas is shown 160 px wide. drawElementImage() is given the buffer size and nothing else is done.',
+      run: async () => {
+        const f = fixture({ shown: 160 });
+        await painted(f.c);
+        await sleep(100);
+        const box = f.c.getBoundingClientRect();
+        const hit = hitAt(box.left + 275 / 2, box.top + 145 / 2);
+        const r = f.button.getBoundingClientRect();
+        if (hit !== f.button) throw new Error(`elementFromPoint() at the drawn button returned ${hit ? `<${hit.localName}>` : 'nothing'}; the button's box is ${r.width.toFixed(0)}×${r.height.toFixed(0)}`);
+        return `the button's box is ${r.width.toFixed(0)}×${r.height.toFixed(0)} px, half its layout size, and elementFromPoint() finds it`;
+      },
+    },
+  ]));
+</script>
+</body>
+</html>
