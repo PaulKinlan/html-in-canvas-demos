@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receiver for the composed stream</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #000; color: #ccc; font: 15px system-ui, sans-serif; }
+  video { display: block; width: 100%; height: calc(100% - 44px); object-fit: contain; background: #000; }
+  p { margin: 0; padding: 10px 14px; height: 24px; overflow: hidden; }
+</style>
+</head>
+<body>
+<video id="screen" muted autoplay playsinline></video>
+<p id="status">Waiting for the page that sends the stream. Keep /media-state/ open in another tab.</p>
+<script type="module">
+  // The receiving half of the cast demo on /media-state/. It runs in two places: as the page a
+  // Presentation API screen opens, and as an ordinary tab that talks over a BroadcastChannel.
+  const screen = document.getElementById('screen'), status = document.getElementById('status');
+  const say = (text) => { status.textContent = text; };
+  // #region receive
+  async function receive(post, listen) {
+    const pc = new RTCPeerConnection();
+    pc.addEventListener('track', (e) => { screen.srcObject = e.streams[0] ?? new MediaStream([e.track]); screen.play().catch(() => {}); });
+    pc.addEventListener('connectionstatechange', () => say(`Connection ${pc.connectionState}.`));
+    screen.addEventListener('resize', () => { say(`Showing the stream at ${screen.videoWidth} by ${screen.videoHeight}.`); post({ type: 'frame', width: screen.videoWidth, height: screen.videoHeight }); });
+    listen(async (msg) => {
+      if (msg.type !== 'offer') return;
+      await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+      await pc.setLocalDescription(await pc.createAnswer());
+      if (pc.iceGatheringState !== 'complete') await new Promise((done) => { pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') done(); }); setTimeout(done, 2000); });
+      post({ type: 'answer', sdp: pc.localDescription.sdp });
+    });
+    post({ type: 'ready' });
+  }
+  const receiver = navigator.presentation?.receiver;
+  if (receiver) {
+    // Opened by PresentationRequest.start() on a second screen.
+    const list = await receiver.connectionList;
+    const add = (connection) => receive((m) => connection.send(JSON.stringify(m)), (fn) => connection.addEventListener('message', (e) => fn(JSON.parse(e.data))));
+    list.connections.forEach(add);
+    list.addEventListener('connectionavailable', (e) => add(e.connection));
+    say('Opened as a presentation. Waiting for the connection.');
+  } else {
+    // Opened as a tab.
+    const id = Math.random().toString(36).slice(2), channel = new BroadcastChannel('media-state-cast');
+    receive((m) => channel.postMessage({ ...m, id }), (fn) => channel.addEventListener('message', (e) => { if (e.data.to === id) fn(e.data); }));
+  }
+  // #endregion receive
+</script>
+</body>
+</html>
