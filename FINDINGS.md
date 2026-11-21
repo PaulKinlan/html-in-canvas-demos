@@ -740,6 +740,17 @@ Paul asked for effects where the controls and the picture work on each other, fo
 
 Not built: a WebGPU version of the shader. Not found by the colour method: parts with internal names only (menu button, the row of buttons). Not verified: `texImage2D(video)` with a hardware decoder on Android, the boxes in the touch layout, the frame rate on a phone.
 
+### Media state, lazy loading, the iframe policy, output latency (demo 19 of the Chrome APIs plan)
+
+Added to `/player-parts/`, `/video/` and `/audio/`.
+
+| Experiment | Result | Notes |
+| --- | --- | --- |
+| HTML controls in a canvas whose labels come from `:has(#lv:paused)`, `:has(#lv:muted)`, `:has(#lv:buffering)` | work, no state code | `/player-parts/` part 3. The style change raises `paint` with no `requestPaint()`. Chromium 157 needs the experimental features flag for the selectors, and the page falls back to attributes set from media events. chromestatus lists the selectors for Chrome 158. |
+| `<video loading="lazy">` as a canvas child | loads and is drawn | The browser has `video.loading`. A canvas in the window counts as near the viewport for its child. |
+| Video in an iframe with `media-playback-while-not-visible 'none'`, iframe a canvas child | keeps playing | The frame counts as rendered. `getImageData()` after a forced repaint of that fixture crashed the tab. It did not crash in smaller cases, so the cause is not known and the check reads only the clock. |
+| Visualiser delayed by `AudioContext.playbackStats.averageLatency`, else `outputLatency` | built | `/audio/`. The test browser reports 0 ms and has no sound card, so the alignment is not verified. A checkbox turns the delay off. |
+
 ### Not verified
 
 - Hardware-decoded video on Android. Frames from a hardware decoder may take a different path into the element's picture. The first four live checks on `/video/` answer this on the device.
