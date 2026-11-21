@@ -124,7 +124,9 @@
     <li><strong>Third try, the fallback: 2D with a bitmap atlas.</strong> Draw the block into the 2D canvas, copy it with <code>createImageBitmap</code>, clear, and draw each glyph with <code>drawImage</code> from the copy, all inside one <code>paint</code> handler so the intermediate picture never reaches the screen. Rotation is cheap again because the pieces are pixels. At rest the block is one <code>drawElementImage</code>, sharp as ever.</li>
     <li><strong>A canvas that fails should get out of the way.</strong> If the context is lost the element lifts its children out of the canvas and shows them as plain HTML until the context returns. A live test reads the canvas back and fails if it is blank or mostly solid.</li>
     <li><strong>The selection is part of the picture.</strong> Selected glyphs carry their highlight when they fly. <code>selectionchange</code> plus <code>Range.isPointInRange</code> tells the element which particles are selected, so a selection or a <code>window.find()</code> match can drive the motion.</li>
-    <li><strong>Interaction stays where the text rests.</strong> The element's hit box is pinned to the home position with <code>updateElementGeometry</code>, so selecting, clicking the link and placing the caret work there even mid-explosion. A glyph in mid-air cannot be clicked: one element has one hit box.</li>
+    <li><strong>Interaction stays where the text rests.</strong> The element's hit box is pinned to the home position with <code>updateElementGeometry</code>, so selecting, clicking the link and placing the caret work there even mid-explosion. </li>
+    <li><strong>A letter in the air can be pointed at, one pointer at a time.</strong> One element has one hit box, so the box follows the pointer: the letter under it is found from the particle list, and the whole block is placed with <code>updateElementGeometry</code> so that letter's home sits exactly under the pointer, turn included. Hover, the caret and clicks then reach the link or paragraph the letter belongs to. A tap has no pointer move before it, so its click is aimed again and re-sent. Letters that have left the canvas margin are not drawn and cannot be hit.</li>
+    <li><strong>The browser remembers what was at a point.</strong> After <code>updateElementGeometry</code> moves a box, <code>elementFromPoint</code> (and a click) at a point it has already been asked about still gives the old answer until something in the DOM changes. Toggling one attribute when the box moves clears it.</li>
     <li><strong>One drawable span per letter does get a hit box per letter,</strong> and inline spans nearly keep the shaping, but it puts an element around every character and each one is a separate draw.</li>
     <li><strong>Unknown from here:</strong> whether the browser's own find-in-page highlight is painted into the element's picture. <code>window.find()</code> works and selects the match; the yellow find bar highlight needs a person at a real browser.</li>
   </ul>
@@ -518,21 +520,86 @@
       },
     },
     {
-      name: 'Click a letter while it is in the air',
-      expect: 'fail',
-      why: 'One element, one hit box. The box stays at home; the pixels do not.',
+      name: 'Point at a letter while it is in the air and you are pointing at its element',
+      why: 'One element has one hit box, so the box follows the pointer: the block is placed so the home of the letter under the pointer sits exactly under it. Here the pointer goes to the flying "l" of the link, then to a flying letter that is not in the link.',
       async run() {
         await rig.whenSettled();
-        rig.explode({ x: 150, y: 14, power: 2, hold: 5000 });
-        await sleep(400);
+        rig.explode({ x: 150, y: 14, power: 0.45, hold: 5000 });   // a small push, so the letters stay on screen
+        await sleep(900);
         const r = rig.getBoundingClientRect();
-        const p = rig.particles.find((q) => q.text === 'l');   // first letter of the link
-        const fx = r.x + p.x + p.dx + p.w / 2, fy = r.y + p.y + p.dy + p.h / 2;
-        const hit = document.elementFromPoint(fx, fy);
-        const moved = Math.hypot(p.dx, p.dy);
+        // Letters overlap in the air and the top one wins, so aim at a letter that is on top at its own centre.
+        const at = async (letters) => {
+          for (const ch of letters) {
+            const p = rig.particles.find((q) => q.text === ch);
+            const fx = r.x + p.x + p.dx + p.w / 2, fy = r.y + p.y + p.dy + p.h / 2;
+            if (rig.particleAt(fx - r.x, fy - r.y)?.text !== ch) continue;
+            if (fx < r.x - 34 || fy < r.y - 34 || fx > r.right + 34 || fy > r.bottom + 34) continue;   // past the canvas margin a letter is not drawn at all
+            const before = document.elementFromPoint(fx, fy);
+            dispatchEvent(new PointerEvent('pointermove', { clientX: fx, clientY: fy, bubbles: true, pointerType: 'mouse' }));
+            const hit = document.elementFromPoint(fx, fy);
+            await frames(3);                                       // the letter drifts on; the box must keep up
+            const later = document.elementFromPoint(fx, fy);
+            return { ch, hit, before, later, moved: Math.hypot(p.dx, p.dy), pos: `${(fx - r.x).toFixed(0)},${(fy - r.y).toFixed(0)} rot ${p.rotate.toFixed(2)} box ${r.width.toFixed(0)}x${r.height.toFixed(0)}` };
+          }
+          throw new Error(`none of "${letters}" was on top at its own centre and inside the canvas`);
+        };
+        const name = (el) => (el ? '<' + el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + '>' : 'nothing');
+        const link = await at('link');
+        const word = await at('word');                            // not in the link
+        dispatchEvent(new PointerEvent('pointermove', { clientX: 0, clientY: 0, bubbles: true, pointerType: 'mouse' }));
         rig.assemble();
-        must(hit?.id === 'rig-a', `the "l" of the link is ${moved.toFixed(0)}px from home; the element under it there is ${hit ? '<' + hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + '>' : 'nothing (off screen)'}`);
-        return 'hit the link in flight';
+        must(link.moved > 8 && word.moved > 8, `letters only moved ${link.moved.toFixed(0)} and ${word.moved.toFixed(0)}px`);
+        must(link.hit?.id === 'rig-a' && link.later?.id === 'rig-a', `the "${link.ch}" is ${link.moved.toFixed(0)}px from home; under the pointer there is ${name(link.hit)}, then ${name(link.later)} [${link.pos}]`);
+        must(word.hit?.id === 'rig-p', `the "${word.ch}" is ${word.moved.toFixed(0)}px from home; under the pointer there is ${name(word.hit)}`);
+        return `"${link.ch}" of the link, ${link.moved.toFixed(0)}px from home: ${name(link.before)} before the pointer arrived, ${name(link.hit)} once it did; "${word.ch}" of "word", ${word.moved.toFixed(0)}px away, hits ${name(word.hit)}`;
+      },
+    },
+    {
+      name: 'Move a hit box with updateElementGeometry and ask again what is at the same point',
+      expect: 'fail',
+      why: 'The browser remembers what it found at a point. Moving a box this way does not clear that memory; changing the DOM does. The element above works around it with a one-attribute change each time its box moves.',
+      async run() {
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+        const dpr = devicePixelRatio;
+        c.width = 300 * dpr; c.height = 80 * dpr; c.style.cssText = 'width:300px;height:80px;background:#fff';
+        c.innerHTML = '<button drawable id="hc" tabindex="-1" style="width:60px;height:30px">box</button>';
+        spans.append(c);
+        const ctx = c.getContext('2d'), btn = c.firstElementChild;
+        await paintOf(c);
+        ctx.scale(dpr, dpr); ctx.drawElementImage(btn, 0, 0, 60, 30);
+        await frames(2);
+        const r = c.getBoundingClientRect(), x = r.x + 230, y = r.y + 35;
+        const name = (el) => (el ? '<' + el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + '>' : 'nothing');
+        const before = document.elementFromPoint(x, y);
+        c.updateElementGeometry(btn, { canvasTransform: new DOMMatrix().translate(200, 20) });
+        const after = document.elementFromPoint(x, y);
+        const fresh = document.elementFromPoint(x + 1, y);          // a point not asked about before
+        c.toggleAttribute('data-moved');
+        const nudged = document.elementFromPoint(x, y);
+        c.remove();
+        must(fresh === btn && nudged === btn, `the box did not move at all: ${name(fresh)}, ${name(nudged)}`);
+        must(after === btn, `asked at the same point: ${name(before)} before the move and still ${name(after)} after it; one pixel along ${name(fresh)}; after a DOM change ${name(nudged)}`);
+        return 'the answer was fresh';
+      },
+    },
+    {
+      name: 'Zoom the rig to 150% and its canvas is redrawn with a pixel for every screen pixel',
+      why: 'CSS zoom stands in for browser zoom and large-text settings. A canvas that keeps its old bitmap is stretched and the text in it goes soft.',
+      async run() {
+        await rig.whenSettled();
+        const box = document.getElementById('rigbox'), c = rig.canvas;
+        const ratio = () => c.width / (c.getBoundingClientRect().width * devicePixelRatio);
+        const w0 = c.width;
+        box.style.zoom = '1.5';
+        await sleep(250); await frames(4);
+        const w1 = c.width, r1 = ratio();
+        box.style.zoom = '';
+        await sleep(250); await frames(4);
+        const w2 = c.width;
+        must(r1 > 0.95, `at 150% the canvas has ${w1} backing px for ${Math.round(w1 / r1)} screen px`);
+        must(Math.abs(w2 - w0) <= 2, `canvas did not return to its size: ${w0} then ${w2}`);
+        return `${w0}px wide at 100%, ${w1}px at 150%, ${w2}px back at 100%`;
       },
     },
     {

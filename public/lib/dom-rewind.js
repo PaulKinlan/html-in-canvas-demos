@@ -131,6 +131,7 @@ export class DomRewind extends HTMLElement {
     this.#mo.observe(this, { childList: true });
     this.#ro = new ResizeObserver(() => this.#resize());
     this.#ro.observe(this);
+    try { this.#ro.observe(this.#canvas, { box: 'device-pixel-content-box' }); } catch { /* older browsers: zoom is picked up on the next resize */ }
     this.#canvas.addEventListener('paint', (e) => this.#paint(e));
     // A lost context leaves an empty box where the children were. Show them as plain HTML until it is back.
     this.#canvas.addEventListener('contextlost', (e) => { e.preventDefault(); this.showPlain('the canvas context was lost'); });
@@ -262,7 +263,8 @@ export class DomRewind extends HTMLElement {
   }
 
   #resize() {
-    const dpr = devicePixelRatio || 1;
+    // Backing pixels per layout pixel: the screen's ratio times any CSS zoom, so zoomed cards stay sharp.
+    const dpr = (devicePixelRatio || 1) * (this.currentCSSZoom || 1);
     const w = Math.max(1, Math.round(this.clientWidth * dpr)), h = Math.max(1, Math.round(this.clientHeight * dpr));
     if (w === this.#canvas.width && h === this.#canvas.height && dpr === this.#dpr) return;
     // Snapshots survive a canvas resize, so the history is kept.

@@ -124,6 +124,14 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/shader-css/',
   '/slot-effects/',
   '/physical/',
+  '/video/',
+  '/overlay/',
+  '/audio/',
+  '/player-parts/',
+  '/native-ui/',
+  '/select/',
+  '/datalist/',
+  '/inputs/',
 ];
 
 /** Should this page's checks start by themselves? ?autochecks=1 and ?autochecks=0 override the list. */

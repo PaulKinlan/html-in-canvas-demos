@@ -23,6 +23,7 @@ window.DEMO_GROUPS = [
   ['slots', 'Experiments: slots'],
   ['primitives', 'Experiments: UI primitives'],
   ['motion', 'Experiments: transitions and motion'],
+  ['media', 'Experiments: video and sound'],
   ['3d', 'Experiments: 3D and shaders'],
   ['audit', 'Measurements: accessibility, capture and performance'],
   ['start', 'Learn the API'],
@@ -55,16 +56,27 @@ window.DEMOS = [
   { group: 'primitives', href: '/shader-css/', title: 'Shader CSS', blurb: 'Add <code>fx="ripple"</code> to any element to run it through a fragment shader. CSS custom properties are the uniforms, so transitions animate it.', tags: ['texElementSubImage2D', 'WebGL', 'WebGPU', '@property'] },
   { group: 'primitives', href: '/slot-effects/', title: 'Named effects and shader slots', blurb: '<code>&lt;canvas-slot effect="tilt"&gt;</code>: no render loop. Each slot is a texture drawn through a named or hand-written fragment shader, driven by CSS custom properties.', tags: ['custom element', 'WebGL', 'WebGPU', '@property'] },
   { group: 'primitives', href: '/physical/', title: 'Physical UI', blurb: 'Working forms on jelly, cloth and paper. Drag them about: clicks still land on what you see, because hit testing follows the mesh.', tags: ['WebGL', 'Verlet', 'hit testing'] },
+  { group: 'primitives', href: '/select/', title: 'Customisable select', blurb: 'A <code>&lt;select&gt;</code> with <code>appearance: base-select</code> whose options are drawn by a canvas inside the picker: a wheel, a fisheye list, a radial menu, a 3D carousel, a hand of cards, a colour grid and a helix. Also a canvas in the button, a canvas inside each option, and a select drawn in a canvas.', tags: ['appearance: base-select', 'drawElementImage', 'WebGL', 'WebGPU'] },
+  { group: 'primitives', href: '/datalist/', title: 'Datalist drawn by a canvas', blurb: 'The suggestions of <code>&lt;input list&gt;</code> drawn one <code>&lt;option&gt;</code> at a time by a canvas in a popover, as a list or as pills that rearrange while you type. Also the options of a range input\'s datalist drawn as tick labels.', tags: ['datalist', 'drawElementImage', 'popover', 'anchor positioning'] },
+  { group: 'primitives', href: '/inputs/', title: 'Date, time and colour pickers', blurb: 'A clock for <code>&lt;input type="time"&gt;</code>, a calendar for <code>type="date"</code> and swatches for <code>type="color"</code>, each made of real buttons that a canvas moves and fades. Also every built-in form control drawn rotated in a canvas.', tags: ['input type=date', 'input type=time', 'drawElementImage', 'popover'] },
 
   // --- motion ---
   { group: 'motion', href: '/transitions/', title: 'Live view transitions', blurb: 'Shatter, fold, burn or morph between two states that are both live DOM. Stop half way and press a button riding a shard.', tags: ['texElementSubImage2D', 'updateElementGeometry'] },
+  { group: 'motion', href: '/view-transitions/', title: 'View Transitions API with HTML-in-canvas', blurb: 'A canvas that draws HTML inside <code>startViewTransition()</code>: which element can carry a name, a shader in place of the cross-fade, and a transition between two documents.', tags: ['startViewTransition', 'view-transition-name', '@view-transition'] },
   { group: 'motion', href: '/time-scrubber/', title: 'Time scrubber', blurb: 'A ring buffer of DOM frames. Scrub the interface back in time, leave motion trails, and restore a past moment, form values included.', tags: ['ElementImage', 'changedElements'] },
   { group: 'motion', href: '/particles/', title: 'Typography as particles', blurb: 'Text explodes into glyph particles and reassembles while staying selectable, searchable, linked and editable. No spans.', tags: ['Range rects', 'WebGL instancing'] },
+
+  // --- media ---
+  { group: 'media', href: '/video/', title: 'A <video> element inside a canvas', blurb: 'A playing video with its native controls and captions, drawn through a fragment shader. The controls still work. Cross-origin and encrypted video are left out of the picture.', tags: ['<video>', '::cue', 'requestVideoFrameCallback', 'EME'] },
+  { group: 'media', href: '/overlay/', title: 'HTML overlays on video', blurb: 'A caption bar, a poll and a ticker in HTML over a video, in one canvas. Record it with sound, export it frame by frame with WebCodecs, or send it over WebRTC as a camera.', tags: ['MediaRecorder', 'WebCodecs', 'captureStream', 'WebRTC'] },
+  { group: 'media', href: '/audio/', title: 'Sound driving DOM', blurb: 'An <code>AnalyserNode</code> writes four band levels to CSS custom properties. A shader that draws a working audio player card reads them as uniforms.', tags: ['Web Audio', '<audio>', '@property', 'WebGPU'] },
+  { group: 'media', href: '/player-parts/', title: 'Parts of the native media player', blurb: 'The controls of <code>&lt;video&gt;</code> are a closed shadow tree. Restyle them with pseudo-elements, let <code>:paused</code> and <code>:seeking</code> drive a shader through CSS, and draw the controls as a layer apart from the picture.', tags: ['::-webkit-media-controls', ':paused', ':has()', 'drawImage(video)'] },
 
   // --- 3d ---
   { group: '3d', href: '/three-form/', title: 'A form in a three.js scene', blurb: 'A laptop screen, a far-away billboard and a curved wall, each showing a live HTML document you can type in, tab through and select. WebGL or WebGPU.', tags: ['three.js', 'texElementSubImage2D', 'updateElementGeometry'] },
   { group: '3d', href: '/board/', title: 'Infinite board of live pages', blurb: 'A zoomable, pannable canvas where every tile is a working document: notes, a spreadsheet, a sketch pad and whole pages in iframes, sharp at any zoom.', tags: ['drawElementImage', 'iframe', 'pinch zoom'] },
   { group: '3d', href: '/xr/', title: 'WebXR panels', blurb: 'Ordinary HTML as floating panels in a headset, driven by controller rays, with an on-panel keyboard. Runs as a desktop preview and with a built-in headset emulator too.', tags: ['WebXR', 'three.js', 'synthetic input'] },
+  { group: '3d', href: '/native-ui/', title: 'DOM elements in egui and Qt Quick', blurb: 'Two native UI toolkits compiled to WebAssembly, each with real <code>&lt;input&gt;</code> and <code>&lt;select&gt;</code> elements laid out and drawn by the toolkit. Plus notes on Flutter, Compose and others.', tags: ['WebAssembly', 'texElementSubImage2D', 'updateElementGeometry'] },
 
   // --- audit ---
   { group: 'audit', href: '/a11y/', title: 'Accessibility audit', blurb: 'Is DOM in a canvas still DOM? Probes of focus, selection, find, zoom and forced colours, a table of how each pattern on this site holds up, the same audit run over every demo, and a short list to try with a screen reader.', tags: ['accessibility tree', 'focus', 'forced-colors'] },
