@@ -868,3 +868,18 @@ Measured in Chromium 157 (headless shell) with synthetic touch, wheel, mouse and
 | Touch swipe and wheel over a card | scroll the list | The cards have `pointer-events: none` and the scroller is under them. |
 
 The layout that works: the snap stops are plain list items; each card is a `drawable` descendant of its stop, positioned against the deck so that it neither scrolls nor is clipped; the canvas computes each card's place from `scrollLeft`.
+
+## Declarative partial updates and `moveBefore()` (`/patch/`)
+
+Measured in Chromium 157 (headless shell). Not yet run on the test phone.
+
+| Question | Result | Notes |
+|---|---|---|
+| `<template for="name">` and `<?start name?>` … `<?end?>` ranges in a canvas child | work | In the document's own parse, in `document.write()`, and through the `stream…HTMLUnsafe()` methods. A streamed template patches a range that was in the document before the stream started. |
+| Which methods apply a patch | only the streaming `Unsafe` ones | `streamAppendHTML()` and `appendHTML()` sanitise: processing instructions and patch templates are dropped. `appendHTMLUnsafe()` and `insertAdjacentHTML()` insert the template element and leave it unapplied. `innerHTML` applies a patch to a range in the same string only. |
+| Content while the template is open | streams into the range | The range shows the part of the template that has arrived. |
+| After the template closes | the `start` and `end` instructions are removed | A `<?marker?>` is consumed too. A repeatable patch writes new instructions inside its own content. |
+| Paint events | one per chunk | No `requestPaint()`. `changedElements` names the nearest drawable element around the range, so with one drawable tile per range only that tile is uploaded. |
+| A new `drawable` element inside a patch | drawn at the next paint | It has a picture when the `paint` event that follows its insertion runs. |
+| `moveBefore()` on a drawable tile | state kept | Focus and selection of an input inside it, and the time of a CSS animation, are kept. The texture uploaded before the move is still the tile's picture. `insertBefore()` drops the focus and restarts the animation. |
+| `moveBefore()` to a child of another canvas | works | Focus is kept and the second canvas gets `paint` events. |
