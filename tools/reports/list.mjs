@@ -16,6 +16,7 @@
 //                                                   csp-violation, over-budget, timed-readback,
 //                                                   snapshots-open, trial
 //   npm run reports -- --q getImageData             text in the message or the body
+//   npm run reports -- --real                       leave out headless test browsers
 //   npm run reports -- --list                       every report with its body, newest first (--limit 50)
 //   npm run reports -- --json                       the raw answer
 //   npm run reports -- --from http://localhost:8787 another deployment (`npm run dev`)
@@ -36,6 +37,7 @@ if (origin === 'production') origin = 'https://html-in-canvas.page';
 else if (origin && origin !== 'preview' && !origin.startsWith('http')) origin = `*${origin.toLowerCase().replace(/^claude[-/]/, '').replace(/[^a-z0-9]+/g, '-')}*`;
 if (origin) query.set('origin', origin);
 for (const key of ['page', 'type', 'since', 'q', 'visit', 'source']) if (opt(key)) query.set(key, opt(key));
+if (has('real')) query.set('real', '1');
 if (list) query.set('limit', opt('limit', '50'));
 const url = `${from}/api/reports${list ? '' : '/summary'}?${query}`;
 

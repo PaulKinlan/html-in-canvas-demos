@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Screen capture with HTML annotation tools in one canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .row { font-size: 14px; margin: 10px 0; gap: 8px; }
+  .row label { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; min-height: 40px; }
+  .row select, .row button { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; }
+  .row button[disabled] { opacity: .5; }
+  .row button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .board { max-width: 640px; position: relative; }
+  #board { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #111; touch-action: none; isolation: isolate; cursor: crosshair; }
+  #blank[hidden] { display: none; }
+  #blank { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; background: #222; border-radius: 10px; }
+  /* #region css */
+  /* Two drawable children of the canvas, each 640 by 360 layout pixels whatever size the canvas is shown at. */
+  .tele-pic, .tele-layer { position: absolute; left: 0; top: 0; width: 640px; height: 360px; overflow: hidden; }
+  .tele-pic { background: #000; }
+  .tele-pic video { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .tele-layer { font: 18px/1.25 system-ui, sans-serif; color: #fff; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .tele-layer svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+  /* A stroke is an SVG path. Its glow is two drop shadows in a colour read from the video under it. */
+  .tele-layer path { stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 3px var(--glow, rgb(0 0 0 / .7))) drop-shadow(0 0 9px var(--glow, rgb(0 0 0 / .7))); }
+  /* Fade mode: a CSS animation. The canvas repaints for each step with no script. */
+  .tele-layer path.fade { animation: tele-fade var(--fade, 4s) linear forwards; }
+  @keyframes tele-fade { 0%, 55% { opacity: 1; } 100% { opacity: 0; } }
+  .tele-layer .item { position: absolute; box-sizing: border-box; }
+  .tele-layer .note { width: 210px; background: #fff8c9; color: #1d1c1a; border-radius: 6px; box-shadow: 0 4px 14px rgb(0 0 0 / .55); }
+  .tele-layer .note .grip { display: block; height: 34px; border-radius: 6px 6px 0 0; cursor: grab; background: #e8c93a radial-gradient(circle, rgb(0 0 0 / .45) 1.5px, transparent 2px) center / 10px 10px; }
+  .tele-layer .note textarea { display: block; box-sizing: border-box; width: 100%; border: 0; margin: 0; padding: 6px 8px; background: transparent; color: inherit; font: inherit; resize: none; user-select: text; -webkit-user-select: text; }
+  .tele-layer .step { width: 46px; height: 46px; margin: -23px 0 0 -23px; border: 3px solid #fff; border-radius: 50%; background: #d2491f; color: #fff; font: 700 22px/40px system-ui, sans-serif; text-align: center; box-shadow: 0 2px 8px rgb(0 0 0 / .6); cursor: grab; }
+  .tele-layer .spot { border: 2px dashed rgb(255 255 255 / .85); border-radius: 50%; cursor: grab; }
+  .tele-layer .lens { border: 3px solid #fff; border-radius: 50%; cursor: grab; box-shadow: 0 0 0 2px #000, 0 6px 18px rgb(0 0 0 / .6), inset 0 0 18px rgb(255 255 255 / .35); }
+  .tele-layer .redact { border: 2px dashed #fff; outline: 1px solid #000; cursor: grab; }
+  .tele-layer .lens span, .tele-layer .redact span { position: absolute; padding: 1px 5px; border-radius: 4px; background: #000; color: #fff; font: 600 12px/1.3 ui-monospace, monospace; }
+  .tele-layer .lens span { left: 50%; bottom: -10px; transform: translateX(-50%); }
+  .tele-layer .redact span { left: 4px; top: 4px; }
+  /* #endregion css */
+  .opts { margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 14px; }
+  .opts summary { min-height: 40px; padding: 0 12px; display: flex; align-items: center; cursor: pointer; }
+  .opts > div { padding: 0 12px 4px; }
+  .log { font: 13px/1.5 var(--mono); color: var(--muted); height: 6em; overflow: auto; margin: 8px 0; white-space: pre-line; overflow-wrap: anywhere; }
+  #log { height: 4.5em; }
+  #result { margin: 8px 0 0; max-width: 640px; }
+  #result video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; }
+  #result figcaption { font-size: 13px; color: var(--muted); margin: 6px 0; min-height: 1.5em; }
+  figure { margin: 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Screen capture with HTML annotation tools in one canvas</h1>
+  <p class="lede">
+    The picture is one 2D canvas with two <code>drawable</code> children: a <code>&lt;div&gt;</code> that holds a <code>&lt;video&gt;</code>, and a layer of annotations made of DOM.
+    Draw on it with a finger, a pen or a mouse. The magnifier, the spotlight and the redact box change the video pixels under them.
+    The video can be the test clip, the screen or the camera, and the canvas goes out as one stream.
+  </p>
+
+  <div class="board">
+    <!-- #region markup -->
+    <canvas id="board" content="drawable" layoutsubtree width="640" height="360" aria-label="Video with annotations">
+      <div id="picture" class="tele-pic" drawable>
+        <video id="src" muted playsinline loop preload="auto"></video>
+      </div>
+      <div id="layer" class="tele-layer" drawable></div>
+    </canvas>
+    <!-- #endregion markup -->
+    <p id="blank" hidden></p>
+  </div>
+
+  <div class="row" id="tools" role="toolbar" aria-label="Annotation tools">
+    <button type="button" data-tool="pen" aria-pressed="true">Pen</button>
+    <button type="button" data-tool="arrow" aria-pressed="false">Arrow</button>
+    <button type="button" data-tool="note" aria-pressed="false">Note</button>
+    <button type="button" data-tool="step" aria-pressed="false">Step</button>
+    <button type="button" data-tool="spot" aria-pressed="false">Spotlight</button>
+    <button type="button" data-tool="lens" aria-pressed="false">Magnifier</button>
+    <button type="button" data-tool="redact" aria-pressed="false">Redact</button>
+    <button type="button" data-tool="move" aria-pressed="false">Move</button>
+    <button type="button" data-tool="erase" aria-pressed="false">Erase</button>
+  </div>
+  <div class="row">
+    <label>Ink <select id="ink"><option value="#ffe14d">Yellow</option><option value="#ff4d4d">Red</option><option value="#4de1ff">Cyan</option><option value="#ffffff">White</option></select></label>
+    <label><input type="checkbox" id="fade" checked> Strokes fade after 4 s</label>
+    <label>Redact with <select id="redactStyle"><option value="pixels">Pixels</option><option value="blur">Blur</option><option value="black">Black</option></select></label>
+    <button type="button" id="undo">Undo</button>
+    <button type="button" id="clear">Clear</button>
+  </div>
+  <div class="row" id="sources" role="group" aria-label="Video source">
+    <button type="button" data-source="clip" aria-pressed="true">Clip</button>
+    <button type="button" data-source="screen" aria-pressed="false">Screen</button>
+    <button type="button" data-source="self" aria-pressed="false">This tab</button>
+    <button type="button" data-source="camera" aria-pressed="false">Camera</button>
+  </div>
+  <details class="opts">
+    <summary>Capture options for the Screen button, and controls for a running capture</summary>
+    <div>
+      <div class="row">
+        <label><code>displaySurface</code> <select id="surface"><option value="">not set</option><option value="browser">browser (a tab)</option><option value="window">window</option><option value="monitor">monitor</option></select></label>
+        <label><input type="checkbox" id="preferTab"> <code>preferCurrentTab</code></label>
+        <label><code>selfBrowserSurface</code> <select id="selfSurface"><option value="">not set</option><option value="include">include</option><option value="exclude">exclude</option></select></label>
+        <label><code>setFocusBehavior()</code> <select id="focusBehavior"><option value="">not called</option><option value="focus-capturing-application">focus-capturing-application</option><option value="focus-captured-surface">focus-captured-surface</option><option value="no-focus-change">no-focus-change</option></select></label>
+      </div>
+      <div class="row">
+        <button type="button" id="crop">Crop to the canvas</button>
+        <button type="button" id="restrict">Restrict to the canvas</button>
+        <button type="button" id="uncrop">Remove both</button>
+        <button type="button" id="wheel">Forward the wheel</button>
+        <button type="button" id="zoomIn">Zoom in</button>
+        <button type="button" id="zoomOut">Zoom out</button>
+        <button type="button" id="measure">Measure the picture</button>
+      </div>
+    </div>
+  </details>
+  <p class="log" id="capLog" role="status">The clip is the video. Screen and This tab call getDisplayMedia(). Each call and its result is written here.</p>
+  <div class="row">
+    <button type="button" id="send">Send as one stream</button>
+    <button type="button" id="record">Record 5 s</button>
+  </div>
+  <p class="log" id="log" role="status">Nothing sent or recorded yet. A live source cannot use the frame-by-frame export of /overlay/: a screen or a camera cannot be seeked.</p>
+  <figure id="result" hidden>
+    <figcaption id="resultNote"></figcaption>
+    <video id="out" controls playsinline muted></video>
+  </figure>
+
+  <details class="show-code">
+    <summary>Show the code <small>a video, DOM annotations that change it, one stream out</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Two <code>drawable</code> children: one holds the video, one holds the annotations.</li>
+      <li data-code="#css"><b>The CSS.</b> The glow, the fade animation and the annotation boxes.</li>
+      <li data-code="/telestrator/telestrator.js#paint"><b>The paint handler.</b> The frame with <code>drawElementImage()</code>, then the spotlight, the magnifier and the redaction with <code>drawImage(video, sx, sy, …)</code> and <code>ctx.filter</code>, then the layer with a second <code>drawElementImage()</code>.</li>
+      <li data-code="/telestrator/telestrator.js#stroke"><b>A stroke.</b> One SVG <code>&lt;path&gt;</code>. If <code>PointerEvent.pressure</code> varies, the path is a ribbon whose width follows it.</li>
+      <li data-code="/telestrator/telestrator.js#colour"><b>The glow colour.</b> The mean colour of the video under the stroke's points.</li>
+      <li data-code="/telestrator/telestrator.js#annotations"><b>The annotations.</b> Each one is an element with its place in <code>el.geo</code>.</li>
+      <li data-code="#pointer"><b>Pointer events.</b> One set of handlers on the canvas for touch, pen and mouse.</li>
+      <li data-code="#capture"><b>The screen as the video.</b> <code>getDisplayMedia()</code> with its options, then <code>cropTo()</code>, <code>restrictTo()</code> and the <code>CaptureController</code> calls.</li>
+      <li data-code="#output"><b>Out as one stream.</b> <code>canvas.captureStream()</code> into a peer connection, or into <code>MediaRecorder</code>.</li>
+      <li data-code="/telestrator/telestrator.js"><b>The whole module.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The canvas buffer is 640 by 360 on every screen. Both children are laid out at that size and drawn with <code>drawElementImage(el, 0, 0, canvas.width, canvas.height)</code>, which scales their hit boxes with their pictures.</li>
+    <li>Every annotation is an element in the layer: an SVG <code>&lt;path&gt;</code> for a stroke or an arrow, a <code>&lt;div&gt;</code> with a <code>&lt;textarea&gt;</code> for a note, a <code>&lt;div&gt;</code> for a step marker, a spotlight, a magnifier and a redact box.</li>
+    <li>The paint handler reads the boxes of the spotlight, magnifier and redact elements. Between the two <code>drawElementImage()</code> calls it draws regions of the same <code>&lt;video&gt;</code> again with <code>drawImage()</code>: grey and dark outside a spotlight, 2.2 times larger inside a magnifier, 14 px cells, a blur or black inside a redact box.</li>
+    <li>The handler has no render loop. The video raises <code>paint</code> for each frame, and a DOM change or a CSS animation in the layer raises it too.</li>
+    <li>A screen capture is a <code>MediaStream</code> in the video's <code>srcObject</code>. Nothing else on the page changes when the source changes.</li>
+    <li>The outgoing stream is <code>canvas.captureStream(30)</code>. The redaction is made in the canvas, so no reader of the stream gets the pixels under the box.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own canvas in a corner of the window. Its "screen" is the <code>captureStream()</code> of a second canvas, so no check asks for a permission. The picture above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured on 2026-11-21. The canvas, the tools and the stream: Chromium 157 headless with software rendering. A real capture of a tab: Chromium 153 with a window, because the headless build cannot start one. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: a display capture as the video.</strong> A <code>getDisplayMedia()</code> stream in <code>srcObject</code> is drawn by <code>drawElementImage()</code> and by <code>drawImage(video)</code> like any other video. The canvas is not tainted: <code>getImageData()</code> and <code>captureStream()</code> work on it.</li>
+    <li><strong>Works: annotations as DOM.</strong> A stroke is an SVG <code>&lt;path&gt;</code>, and a note is a <code>&lt;textarea&gt;</code> that takes a tap, a caret and typing inside the canvas. Two <code>drawable</code> children drawn with a size each keep their own hit boxes, so the layer takes the pointer events and nothing else is needed.</li>
+    <li><strong>Works: annotations that change the video.</strong> The paint handler draws regions of the video between the two element draws. The magnifier is drawn from the video's own pixels, not from the 640 px canvas. The redaction is in the canvas pixels, so it is in the recording and in the WebRTC stream.</li>
+    <li><strong>Needed: redact inside the magnifier too.</strong> The magnifier reads the video, not the canvas. The paint handler therefore redacts a second time inside each lens. The fourth live check counts 0 pixels of a redacted mark under a lens.</li>
+    <li><strong>Works: fading with no script.</strong> A CSS opacity animation on a path raised 28 <code>paint</code> events in the 450 ms in which the opacity changed, and none while the keyframes held it at 1.</li>
+    <li><strong>Works: pressure.</strong> Touch points sent with a rising force gave a path that is a ribbon of varying width. Points that all carry one pressure give a plain stroked line.</li>
+    <li><strong>Works: capturing the tab that holds the canvas.</strong> With <code>preferCurrentTab</code> the video shows the page with the canvas in it, and the picture repeats inside itself. No crash.</li>
+    <li><strong>Limit: a capture cropped to the canvas is a closed loop.</strong> After <code>track.cropTo()</code> or <code>track.restrictTo()</code> with the canvas as the target, the video holds only the canvas, which draws only the video. The picture from before the crop stayed, and each annotation was drawn over its own copy on every frame. Crop to another element, not to the canvas.</li>
+    <li><strong>Limit: <code>cropTo()</code> and <code>restrictTo()</code> are for this tab only.</strong> On a capture of another tab both threw <code>NotAllowedError: Invalid target</code>. On a monitor capture the track is a plain <code>MediaStreamTrack</code> with neither method.</li>
+    <li><strong>Limit: scroll and zoom of the captured tab need a tab and a permission.</strong> <code>forwardWheel()</code> and <code>increaseZoomLevel()</code> threw <code>NotSupportedError</code> on a monitor capture. On a tab capture both stayed pending in the automated browser, which is what an unanswered permission prompt does.</li>
+    <li><strong>Limit: Chrome on Android.</strong> This page reads <code>navigator.mediaDevices.getDisplayMedia</code> and turns the Screen and This tab buttons off when it is missing. The clip and the camera use the same canvas and tools.</li>
+    <li><strong>Limit: the canvas has to be on screen.</strong> A recording made while the canvas was scrolled out of the window was 0 kB.</li>
+    <li><strong>Not verified here:</strong> a real stylus, touch on a phone, the picker and sharing bar of a real desktop Chrome, <code>setFocusBehavior()</code> with a visible window switch, and the frame rate of a 4K capture. The first live check lists what your browser has, and the log under the source buttons writes what each call did.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { compose, Annotations, videoColour, ZOOM } from '/telestrator/telestrator.js';
+  import { recordCanvas, loopback, painted } from '/lib/video-export.js';
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const CLIP = '/media/clip.webm', FPS = 30, W = 640, H = 360;
+  const canvas = $('board'), picture = $('picture'), layer = $('layer'), video = $('src');
+  const say = (id, text, add = false) => { const el = $(id); el.textContent = add ? `${el.textContent}\n${text}` : text; el.scrollTop = el.scrollHeight; };
+  const log = (text) => say('log', text);
+  const cap = (text, add = true) => say('capLog', text, add);
+  const why = (err) => `${err.name}: ${err.message}`;
+
+  const notes = new Annotations(layer, { w: W, h: H, video });
+  let clipUrl = CLIP, live = null;
+
+  if (supported) {
+    compose(canvas, { picture, layer, video, notes });
+    // A blob URL can always be seeked and looped, whatever the server does with Range requests.
+    fetch(CLIP).then((r) => r.blob()).then((b) => { clipUrl = URL.createObjectURL(b); }).catch(() => {}).then(() => { if (!live) { video.src = clipUrl; video.play().catch(() => {}); } });
+    video.addEventListener('error', () => cap(`The video failed: ${video.error?.message || 'no message'}.`));
+    // Something to look at before the first stroke: one of each tool that changes the video.
+    notes.redact(30, 250, 150, 70);
+    notes.lens(250, 110, 60);
+    notes.step(470, 250);
+    notes.note(410, 60, 'Type here');
+    const first = notes.arrow({ x: 400, y: 300 }, { x: 310, y: 180 }, { color: '#ffe14d' });
+    video.addEventListener('loadeddata', () => notes.glow(first), { once: true });
+    // The clip stops when the canvas is off screen. A live capture is left running.
+    new IntersectionObserver(([e]) => { if (live) return; if (e.isIntersecting) video.play().catch(() => {}); else video.pause(); }).observe(canvas);
+  } else {
+    $('blank').hidden = false;
+    $('blank').textContent = 'This picture is drawn with HTML-in-canvas, which this browser does not have. Nothing can be drawn, sent or recorded here.';
+    for (const b of document.querySelectorAll('main .row button')) b.disabled = true;
+  }
+
+  // ---- tools ----
+  let tool = 'pen';
+  $('tools').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-tool]');
+    if (!b) return;
+    tool = b.dataset.tool;
+    for (const other of $('tools').children) other.setAttribute('aria-pressed', other === b);
+  });
+  $('undo').onclick = () => notes.undo();
+  $('clear').onclick = () => notes.clear();
+  $('redactStyle').onchange = () => { notes.redactStyle = $('redactStyle').value; canvas.requestPaint(); };
+
+  // #region pointer
+  /** A pointer position in the 640 by 360 scene, with its pressure. A mouse and most fingers report 0.5. */
+  function point(e) {
+    const r = canvas.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height, p: e.pressure || 0.5 };
+  }
+  function erase(p, target) {
+    const el = target?.closest?.('.item') ?? notes.strokeNear(p.x, p.y);
+    if (el) notes.remove(el);
+  }
+  let drag = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || drag) return;
+    // The targets are the drawn elements themselves: a note, a marker, a <textarea>.
+    const item = e.target.closest?.('.item');
+    if (e.target.localName === 'textarea' && tool !== 'move' && tool !== 'erase') return; // typing and caret placement stay native
+    const p = point(e), color = $('ink').value;
+    if (tool === 'pen') drag = { kind: 'pen', el: notes.pen([p], { color }) };
+    else if (tool === 'arrow') drag = { kind: 'arrow', el: notes.arrow({ ...p }, { ...p }, { color }) };
+    else if (tool === 'erase') { erase(p, e.target); drag = { kind: 'erase' }; }
+    else if (item) drag = { kind: 'move', el: item, last: p };
+    else if (tool === 'move') return;
+    else if (tool === 'redact') drag = { kind: 'size', el: notes.redact(p.x, p.y, 0, 0), from: p };
+    else if (tool === 'note') drag = { kind: 'move', el: notes.note(p.x - 105, p.y - 17), last: p, fresh: true };
+    else drag = { kind: 'move', el: notes[tool](p.x, p.y), last: p };
+    if (drag.kind === 'pen') notes.glow(drag.el);
+    drag.id = e.pointerId;
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const p = point(e), g = drag.el?.geo;
+    if (drag.kind === 'pen') {
+      // getCoalescedEvents() gives the points between two frames, each with its own pressure.
+      for (const c of e.getCoalescedEvents?.().length ? e.getCoalescedEvents() : [e]) {
+        const q = point(c), last = g.points.at(-1);
+        if (Math.hypot(q.x - last.x, q.y - last.y) >= 1.5) g.points.push(q);
+      }
+      notes.place(drag.el);
+    } else if (drag.kind === 'arrow') { g.b = p; notes.place(drag.el); }
+    else if (drag.kind === 'erase') erase(p, document.elementFromPoint(e.clientX, e.clientY));
+    else if (drag.kind === 'size') {
+      Object.assign(g, { x: Math.min(p.x, drag.from.x), y: Math.min(p.y, drag.from.y), w: Math.abs(p.x - drag.from.x), h: Math.abs(p.y - drag.from.y) });
+      notes.place(drag.el);
+    } else { notes.move(drag.el, p.x - drag.last.x, p.y - drag.last.y); drag.last = p; drag.moved = true; }
+  });
+  function release(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    const { kind, el, moved } = drag, g = el?.geo;
+    drag = null;
+    if (kind === 'pen' || (kind === 'arrow' && Math.hypot(g.b.x - g.a.x, g.b.y - g.a.y) > 6)) {
+      notes.glow(el);
+      if ($('fade').checked) notes.fade(el);
+    } else if (kind === 'arrow') notes.remove(el);
+    else if (kind === 'size' && (g.w < 16 || g.h < 16)) { Object.assign(g, { x: g.x - 70, y: g.y - 28, w: 140, h: 56 }); notes.place(el); }
+    else if (kind === 'move' && el.dataset.kind === 'note' && !moved && tool === 'note') el.querySelector('textarea').focus({ preventScroll: true });
+  }
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+  // #endregion pointer
+
+  // ---- sources ----
+  const hasDisplay = !!navigator.mediaDevices?.getDisplayMedia;
+  if (!hasDisplay) {
+    for (const b of $('sources').querySelectorAll('[data-source=screen], [data-source=self]')) b.disabled = true;
+    cap('This browser has no navigator.mediaDevices.getDisplayMedia(), so Screen and This tab are off. Chrome on Android is one such browser. The clip and the camera work.', false);
+  }
+  const mark = (name) => { for (const b of $('sources').children) b.setAttribute('aria-pressed', b.dataset.source === name); };
+  function stopLive() {
+    for (const t of live?.stream.getTracks() ?? []) t.stop();
+    live = null;
+  }
+  async function useClip() {
+    stopLive();
+    video.srcObject = null;
+    video.src = clipUrl;
+    mark('clip');
+    await video.play().catch(() => {});
+  }
+  async function useStream(stream, name, controller = null) {
+    stopLive();
+    live = { stream, name, controller, track: stream.getVideoTracks()[0] };
+    video.removeAttribute('src');
+    video.srcObject = stream;
+    mark(name);
+    live.track.addEventListener('ended', () => { if (live?.stream === stream) { cap('The capture ended. The clip is the video again.'); useClip(); } });
+    await video.play().catch(() => {});
+  }
+
+  // #region capture
+  /** Ask for a display capture with the options chosen on the page, and say what each option did. */
+  async function startScreen({ self = false } = {}) {
+    const options = { video: { frameRate: FPS }, audio: false };
+    if (self) Object.assign(options, { preferCurrentTab: true, selfBrowserSurface: 'include' });
+    else {
+      if ($('surface').value) options.video.displaySurface = $('surface').value;
+      if ($('preferTab').checked) options.preferCurrentTab = true;
+      if ($('selfSurface').value) options.selfBrowserSurface = $('selfSurface').value;
+    }
+    const controller = 'CaptureController' in window ? new CaptureController() : null;
+    cap(`getDisplayMedia(${JSON.stringify({ ...options, controller: controller ? '[CaptureController]' : undefined })})`, false);
+    if (controller) {
+      options.controller = controller;
+      const focus = $('focusBehavior').value;
+      if (focus) try { controller.setFocusBehavior(focus); cap(`setFocusBehavior('${focus}') was accepted before the call.`); } catch (err) { cap(`setFocusBehavior('${focus}') threw ${why(err)}`); }
+    }
+    const stream = await navigator.mediaDevices.getDisplayMedia(options);
+    await useStream(stream, self ? 'self' : 'screen', controller);
+    const track = live.track, s = track.getSettings();
+    cap(`Resolved: ${track.constructor.name} "${track.label}", displaySurface ${s.displaySurface ?? 'not reported'}, ${s.width}×${s.height} at ${Math.round(s.frameRate ?? 0)} frames a second, cursor ${s.cursor ?? 'not reported'}.`);
+    if (s.displaySurface === 'browser') cap('A tab is captured. Open the options to crop or restrict the track, forward the wheel or zoom the tab.');
+  }
+
+  /** Region Capture and Element Capture. Both need a track that captures this tab. */
+  async function limit(Target, method) {
+    if (!live?.track) return cap('No capture is running.');
+    if (!(Target in window)) return cap(`This browser has no ${Target}.`);
+    if (!live.track[method]) return cap(`The track is a ${live.track.constructor.name} and has no ${method}().`);
+    try {
+      const target = await window[Target].fromElement(canvas);
+      const t0 = performance.now();
+      await live.track[method](target);
+      await sleep(500);
+      cap(`${Target}.fromElement(canvas) then track.${method}() resolved in ${(performance.now() - t0 - 500).toFixed(0)} ms. The video is now ${video.videoWidth}×${video.videoHeight}.`);
+    } catch (err) { cap(`track.${method}() threw ${why(err)}`); }
+  }
+  $('crop').onclick = () => limit('CropTarget', 'cropTo');
+  $('restrict').onclick = () => limit('RestrictionTarget', 'restrictTo');
+  $('uncrop').onclick = async () => {
+    if (!live?.track) return cap('No capture is running.');
+    for (const method of ['cropTo', 'restrictTo']) {
+      if (!live.track[method]) { cap(`The track has no ${method}().`); continue; }
+      try { await live.track[method](null); cap(`track.${method}(null) resolved.`); } catch (err) { cap(`track.${method}(null) threw ${why(err)}`); }
+    }
+  };
+  /** Captured surface control: scroll and zoom the captured tab from this page. */
+  /** These calls can wait on a permission prompt for as long as the prompt is open. */
+  const settle = (promise, name) => {
+    let done = false;
+    const mark = () => { done = true; };
+    promise.then(mark, mark);
+    return Promise.race([promise, sleep(8000).then(() => { if (!done) cap(`${name} has not settled after 8 s. The browser may be showing a permission prompt.`); })]);
+  };
+  $('wheel').onclick = async () => {
+    const c = live?.controller;
+    if (!c?.forwardWheel) return cap(c ? 'CaptureController has no forwardWheel() here.' : 'No capture with a CaptureController is running.');
+    try { cap('controller.forwardWheel(canvas) called.'); await settle(c.forwardWheel(canvas).then(() => cap('controller.forwardWheel(canvas) resolved. A wheel over the canvas now scrolls the captured tab.')), 'forwardWheel()'); } catch (err) { cap(`controller.forwardWheel(canvas) threw ${why(err)}`); }
+  };
+  async function zoom(step) {
+    const c = live?.controller;
+    if (!c) return cap('No capture with a CaptureController is running.');
+    const name = step > 0 ? 'increaseZoomLevel' : 'decreaseZoomLevel';
+    try {
+      let call;
+      if (c[name]) call = c[name]();
+      else if (c.setZoomLevel) { const levels = c.getSupportedZoomLevels(), at = levels.indexOf(c.getZoomLevel()); call = c.setZoomLevel(levels[Math.max(0, Math.min(levels.length - 1, at + step))]); }
+      else return cap('CaptureController has no zoom methods here.');
+      cap(`controller.${c[name] ? name : 'setZoomLevel'}() called.`);
+      await settle(call.then(() => cap(`Zoom of the captured tab is now ${c.zoomLevel ?? c.getZoomLevel?.()} %.`)), 'The zoom call');
+    } catch (err) { cap(`${c[name] ? name : 'setZoomLevel'}() threw ${why(err)}`); }
+  }
+  $('zoomIn').onclick = () => zoom(1);
+  $('zoomOut').onclick = () => zoom(-1);
+  // #endregion capture
+
+  /** Compare the canvas with the place in the capture where this tab shows the canvas. */
+  function measure() {
+    if (!live) return cap('No capture is running.');
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw) return cap('The video has no frame yet.');
+    const tiny = (source, ...rect) => { const c = document.createElement('canvas').getContext('2d', { willReadFrequently: true }); c.canvas.width = 32; c.canvas.height = 18; c.drawImage(source, ...rect, 0, 0, 32, 18); return c.getImageData(0, 0, 32, 18).data; };
+    const r = canvas.getBoundingClientRect(), whole = Math.abs(vw / vh - 16 / 9) < 0.02 && Math.abs(vw / vh - innerWidth / innerHeight) > 0.02;
+    try {
+      const a = tiny(canvas, 0, 0, W, H);
+      // If the track is cropped or restricted to the canvas the whole frame is the canvas. If not, the canvas is at its place in the viewport.
+      const b = whole ? tiny(video, 0, 0, vw, vh) : tiny(video, (r.left * vw) / innerWidth, (r.top * vh) / innerHeight, (r.width * vw) / innerWidth, (r.height * vh) / innerHeight);
+      let sum = 0, lit = 0;
+      for (let i = 0; i < a.length; i += 4) { sum += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]); if (a[i] + a[i + 1] + a[i + 2] > 24) lit++; }
+      cap(`The video is ${vw}×${vh}. ${lit} of 576 sampled canvas pixels are not black. ${whole ? 'The whole frame' : 'The place of the canvas in the frame'} differs from the canvas by a mean of ${(sum / (a.length / 4) / 3).toFixed(1)} of 255 per channel.`);
+    } catch (err) { cap(`Reading the picture threw ${why(err)}`); }
+  }
+  $('measure').onclick = measure;
+
+  $('sources').addEventListener('click', async (e) => {
+    const name = e.target.closest('button[data-source]')?.dataset.source;
+    if (!name) return;
+    try {
+      if (name === 'clip') { await useClip(); cap('The clip is the video.', false); }
+      else if (name === 'camera') {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360, facingMode: 'environment' }, audio: false });
+        await useStream(stream, 'camera');
+        const s = live.track.getSettings();
+        cap(`The camera is the video: "${live.track.label}", ${s.width}×${s.height}.`, false);
+      } else {
+        await startScreen({ self: name === 'self' });
+        if (name === 'self') {
+          await sleep(1500);
+          if (live?.track.getSettings().displaySurface === 'browser') cap('This tab is captured, so the video shows the page that holds the canvas, with the canvas in it.');
+          else cap('The browser gave a surface that is not this tab, so this is not a capture of the canvas by itself.');
+          measure();
+        }
+      }
+    } catch (err) {
+      cap(`${name === 'camera' ? 'getUserMedia()' : 'getDisplayMedia()'} threw ${why(err)}`);
+      if (!live) mark('clip');
+    }
+  });
+
+  // #region output
+  let sending = null;
+  function show(blobOrStream, note) {
+    const out = $('out');
+    $('result').hidden = false;
+    $('resultNote').replaceChildren(note);
+    if (out.src.startsWith('blob:')) URL.revokeObjectURL(out.src);
+    out.srcObject = null;
+    out.removeAttribute('src');
+    if (blobOrStream instanceof Blob) {
+      out.src = URL.createObjectURL(blobOrStream);
+      $('resultNote').append(' ', Object.assign(document.createElement('a'), { href: out.src, download: 'telestrator.webm', textContent: 'Download the file' }), '.');
+    } else out.srcObject = blobOrStream;
+    out.play().catch(() => {});
+  }
+  $('send').onclick = async () => {
+    if (sending) return sending.stop();
+    try {
+      // One video track that holds the frame, the effects and the annotations.
+      const stream = canvas.captureStream(FPS);
+      const link = await loopback(stream);
+      show(link.stream, 'What the other end of the connection receives.');
+      $('send').textContent = 'Stop sending';
+      const timer = setInterval(async () => {
+        canvas.requestPaint(); // captureStream() sends a frame only when the canvas changes
+        const s = await link.stats();
+        if (s) log(`Received over WebRTC: ${s.width}×${s.height}, ${s.fps} frames a second, ${s.kbps} kbit/s, ${s.frames} frames decoded.`);
+      }, 1000);
+      sending = { stop: () => { clearInterval(timer); link.close(); stream.getTracks().forEach((t) => t.stop()); sending = null; $('send').textContent = 'Send as one stream'; log('Stopped sending.'); } };
+    } catch (err) { log(`Could not send: ${why(err)}`); }
+  };
+  $('record').onclick = async () => {
+    $('record').disabled = true;
+    try {
+      log('Recording 5 seconds. Draw now: the strokes go into the file.');
+      const blob = await recordCanvas(canvas, { ms: 5000, audioFrom: live ? null : video });
+      log(blob.size < 2000 ? 'Nothing was recorded. The canvas has to be in the window while it records: the clip pauses and the canvas is not painted when it is scrolled away.'
+        : `Recorded ${(blob.size / 1024).toFixed(0)} kB of ${blob.mimeType}, ${blob.sound ? 'with the sound of the clip' : 'without sound'}.`);
+      if (!sending) show(blob, 'The recording.');
+    } catch (err) { log(`Recording failed: ${why(err)}`); }
+    $('record').disabled = false;
+  };
+  // #endregion output
+  addEventListener('pagehide', () => { stopLive(); sending?.stop(); });
+
+  // ---- live checks: every one on its own fixture ----
+  const cleanup = [];
+  // The fixture box lies over the bottom left of the window while checks run. It lets taps through, except for the moment a check asks what is at a point.
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const hitAt = (x, y) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { s.style.pointerEvents = 'none'; } };
+  /**
+   * A stand-in for a display capture: the captureStream() of a 320 by 180 canvas.
+   * Left half green, right half blue, a white panel with a 4 px red mark at 238,68.
+   */
+  function fakeScreen() {
+    const g = document.createElement('canvas').getContext('2d');
+    g.canvas.width = 320; g.canvas.height = 180;
+    let n = 0;
+    const draw = () => {
+      g.fillStyle = '#00c800'; g.fillRect(0, 0, 160, 180);
+      g.fillStyle = '#0000c8'; g.fillRect(160, 0, 160, 180);
+      g.fillStyle = '#fff'; g.fillRect(200, 40, 80, 60);
+      g.fillStyle = '#f00'; g.fillRect(238, 68, 4, 4);
+      g.fillStyle = n++ % 2 ? '#101010' : '#181818'; g.fillRect(0, 172, 8, 8); // a change, so that a frame is sent
+    };
+    draw();
+    const timer = setInterval(draw, 50), stream = g.canvas.captureStream(FPS);
+    cleanup.push(() => { clearInterval(timer); stream.getTracks().forEach((t) => t.stop()); });
+    return stream;
+  }
+  /** A 320 by 180 canvas with the two drawable children of the page, composed by the same module. */
+  function fixture({ shown = 320, source = 'screen', videoStyle = 'width:320px;height:180px' } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = 320; c.height = 180;
+    c.style.cssText = `width:${shown}px;height:${(shown * 180) / 320}px;flex:none`;
+    c.innerHTML = `<div drawable class="tele-pic" style="width:320px;height:180px;background:#204080"><video muted playsinline style="position:absolute;${videoStyle}"></video></div>
+      <div drawable class="tele-layer" style="width:320px;height:180px"></div>`;
+    quietStage().append(c);
+    const video = c.querySelector('video'), layer = c.lastElementChild;
+    const notes = new Annotations(layer, { w: 320, h: 180, video });
+    const f = { c, video, layer, notes, picture: c.firstElementChild };
+    f.ctx = compose(c, { picture: f.picture, layer, video, notes });
+    if (source === 'screen') video.srcObject = fakeScreen();
+    if (source === 'own') { const own = c.captureStream(FPS); cleanup.push(() => own.getTracks().forEach((t) => t.stop())); video.srcObject = own; }
+    cleanup.push(() => { video.pause(); video.srcObject = null; });
+    return f;
+  }
+  async function presented(video, ms = 6000) {
+    video.play().catch(() => {});
+    const ok = await Promise.race([new Promise((r) => video.requestVideoFrameCallback?.(() => r(true)) ?? video.addEventListener('timeupdate', () => r(true), { once: true })), sleep(ms).then(() => false)]);
+    if (!ok) throw new Error(video.error ? `the video did not play: ${video.error.message}` : 'the video presented no frame');
+    await sleep(120);
+  }
+  /** A detached <video> that plays a file or a stream, and a function that reads one pixel of its current frame. */
+  async function reader(source) {
+    const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, preload: 'auto' });
+    if (source instanceof Blob) v.src = URL.createObjectURL(source); else v.srcObject = source;
+    cleanup.push(() => { v.pause(); v.srcObject = null; if (v.src) { URL.revokeObjectURL(v.src); v.removeAttribute('src'); v.load(); } });
+    const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    v.play().catch(() => {});
+    for (let i = 0; i < 80 && !(v.videoWidth && v.readyState >= 2); i++) await sleep(75);
+    if (!v.videoWidth) throw new Error(v.error ? `the file does not play: ${v.error.message}` : 'no picture arrived');
+    /** The pixel at fixture coordinates x, y (the fixture is 320 by 180). */
+    const at = (x, y) => {
+      if (ctx.canvas.width !== v.videoWidth) { ctx.canvas.width = v.videoWidth; ctx.canvas.height = v.videoHeight; }
+      ctx.drawImage(v, 0, 0);
+      return [...ctx.getImageData(Math.round((x * v.videoWidth) / 320), Math.round((y * v.videoHeight) / 180), 1, 1).data.subarray(0, 3)];
+    };
+    return { v, at };
+  }
+  const px = (f, x, y) => [...f.ctx.getImageData(x, y, 1, 1).data.subarray(0, 3)];
+  const isMagenta = (d) => d[0] > 170 && d[1] < 100 && d[2] > 170;
+  const isRed = (d) => d[0] > 170 && d[1] < 90 && d[2] < 90;
+  const isGreen = (d) => d[1] > 140 && d[0] < 90 && d[2] < 90;
+  const reds = (f, x, y, w, h) => { const d = f.ctx.getImageData(x, y, w, h).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (isRed([d[i], d[i + 1], d[i + 2]])) n++; return n; };
+  const each = (tests) => tests.map((t) => ({ timeout: 20000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { for (const fn of cleanup.splice(0).reverse()) { try { fn(); } catch {} } } } }));
+  const has = (ok) => (ok ? 'yes' : 'no');
+
+  runTests($('results'), each([
+    {
+      name: 'Screen capture calls this browser has',
+      why: 'Reads which capture interfaces and methods exist. Nothing is captured and no permission is asked for.',
+      run: async () => {
+        if (!navigator.mediaDevices) throw new Error('no navigator.mediaDevices: the page is not in a secure context');
+        const C = window.CaptureController?.prototype, T = window.BrowserCaptureMediaStreamTrack?.prototype;
+        const constraints = navigator.mediaDevices.getSupportedConstraints?.() ?? {};
+        return [
+          `getDisplayMedia ${has(navigator.mediaDevices.getDisplayMedia)}`,
+          `displaySurface constraint ${has(constraints.displaySurface)}`,
+          `CaptureController ${has(C)}`,
+          `setFocusBehavior ${has(C?.setFocusBehavior)}`,
+          `forwardWheel ${has(C?.forwardWheel)}`,
+          `zoom ${C?.increaseZoomLevel ? 'increaseZoomLevel' : C?.setZoomLevel ? 'setZoomLevel' : 'no'}`,
+          `CropTarget ${has(window.CropTarget)}`,
+          `cropTo ${has(T?.cropTo)}`,
+          `RestrictionTarget ${has(window.RestrictionTarget)}`,
+          `restrictTo ${has(T?.restrictTo)}`,
+          'preferCurrentTab and selfBrowserSurface cannot be detected without a call',
+        ].join('; ');
+      },
+    },
+    {
+      name: 'A pen stroke made of DOM is in the canvas picture and in the recorded file',
+      why: 'The stroke is one SVG <path> over a stand-in screen capture. MediaRecorder records the canvas for 1.2 s and the file is played back.',
+      run: async () => {
+        const f = fixture();
+        await presented(f.video);
+        const path = f.notes.pen([{ x: 20, y: 120, p: 0.5 }, { x: 140, y: 120, p: 0.5 }], { color: '#ff00ff', width: 8 });
+        const colour = f.notes.glow(path);
+        await painted(f.c);
+        const inCanvas = px(f, 80, 120), beside = px(f, 80, 129), far = px(f, 80, 60);
+        if (!isMagenta(inCanvas)) throw new Error(`the canvas has ${inCanvas} where the stroke is`);
+        if (!colour || Math.abs(colour.hue - 120) > 8) throw new Error(`the colour read from the video under the stroke is ${colour ? colour.rgb : 'missing'}, the video is 0,200,0 there`);
+        const blob = await recordCanvas(f.c, { ms: 1200 });
+        const file = await reader(blob);
+        await sleep(400);
+        const inFile = file.at(80, 120), videoInFile = file.at(80, 60);
+        if (!isMagenta(inFile)) throw new Error(`the file has ${inFile} where the stroke is`);
+        if (!isGreen(videoInFile)) throw new Error(`the file has ${videoInFile} where the video is green`);
+        return `<${path.localName}> in ${path.ownerSVGElement.localName}; canvas ${inCanvas} on the stroke; glow from the video colour ${colour.rgb} gives ${beside} 5 px beside it against ${far} away from it; file of ${(blob.size / 1024).toFixed(0)} kB has ${inFile} on the stroke and ${videoInFile} on the video`;
+      },
+    },
+    {
+      name: 'A redact box hides the video pixels under it in the outgoing stream',
+      why: 'The source has a 4 px red mark on white. The pixel is read from canvas.captureStream() with no box, then with a box in each of the three styles.',
+      run: async () => {
+        const f = fixture();
+        await presented(f.video);
+        const out = f.c.captureStream(FPS);
+        cleanup.push(() => out.getTracks().forEach((t) => t.stop()));
+        const far = await reader(out);
+        const read = async () => { for (let i = 0; i < 4; i++) { await painted(f.c); await sleep(60); } return far.at(240, 70); };
+        const open = await read();
+        if (!isRed(open)) throw new Error(`with no box the stream has ${open} at the mark, so the check cannot tell`);
+        const box = f.notes.redact(214, 34, 56, 46), got = {}; // the mark is in the lower half, clear of the box's label
+        for (const style of ['pixels', 'blur', 'black']) {
+          f.notes.redactStyle = style;
+          got[style] = await read();
+          if (isRed(got[style]) || got[style][0] - got[style][1] > 90) throw new Error(`with a ${style} box the stream still has ${got[style]} at the mark`);
+        }
+        f.notes.remove(box);
+        const again = await read();
+        return `at the mark the stream has ${open} with no box, ${got.pixels} with pixels, ${got.blur} with blur, ${got.black} with black, and ${again} after the box is removed`;
+      },
+    },
+    {
+      name: 'A magnifier enlarges the video under it and does not show what a redact box hides',
+      why: 'Counts red pixels of the 4 px mark in the canvas: with no annotation, under a magnifier, and under a magnifier with a redact box over the mark.',
+      run: async () => {
+        const f = fixture();
+        await presented(f.video);
+        await painted(f.c);
+        const plain = reds(f, 200, 30, 80, 80);
+        f.notes.lens(240, 70, 38);
+        await painted(f.c);
+        const large = reds(f, 200, 30, 80, 80);
+        f.notes.redact(230, 60, 20, 20);
+        await painted(f.c);
+        const hidden = reds(f, 200, 30, 80, 80);
+        if (plain < 9) throw new Error(`only ${plain} red pixels with no annotation`);
+        if (large < plain * 3) throw new Error(`${large} red pixels under the magnifier, ${plain} without it`);
+        if (hidden) throw new Error(`${hidden} red pixels are still drawn in the magnifier with the mark redacted`);
+        return `${plain} red pixels plain, ${large} under the ${ZOOM}× magnifier (${(large / plain).toFixed(1)} times the area), ${hidden} with a redact box over the mark`;
+      },
+    },
+    {
+      name: 'A text note keeps its value, is drawn, and is hit where it is drawn at half size',
+      why: 'The buffer is 320 px wide and the canvas is shown 160 px wide. The value is set by script, then the note is moved 60 px. Typing by hand was tested on the visible demo.',
+      run: async () => {
+        const f = fixture({ shown: 160, source: 'none' });
+        const note = f.notes.note(40, 30), field = note.querySelector('textarea');
+        field.setAttribute('inputmode', 'none');
+        await painted(f.c);
+        const ink = (x, y) => { const d = f.ctx.getImageData(x, y, 150, 40).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] < 300) n++; return n; };
+        const before = ink(45, 66);
+        field.value = 'Step 42 here';
+        await painted(f.c);
+        await sleep(80);
+        const after = ink(45, 66);
+        const box = f.c.getBoundingClientRect();
+        const first = hitAt(box.left + 100 / 2, box.top + 80 / 2);
+        f.notes.move(note, 60, 40);
+        await painted(f.c);
+        await sleep(80);
+        const second = hitAt(box.left + 160 / 2, box.top + 120 / 2), old = hitAt(box.left + 50 / 2, box.top + 70 / 2);
+        const r = field.getBoundingClientRect();
+        if (after <= before + 20) throw new Error(`the typed text is not in the picture: ${before} dark pixels before, ${after} after`);
+        if (first !== field) throw new Error(`elementFromPoint() at the drawn note returned ${first ? `<${first.localName}>` : 'nothing'}`);
+        if (second !== field || old === field) throw new Error('the hit box did not follow the note when it moved');
+        if (field.value !== 'Step 42 here') throw new Error('the value changed');
+        return `value "${field.value}" kept; ${after - before} more dark pixels in the note; the <textarea> box is ${r.width.toFixed(0)}×${r.height.toFixed(0)} px on screen, half its layout size; elementFromPoint() finds it before and after the move`;
+      },
+    },
+    {
+      name: 'The stream arrives over WebRTC with the video and the annotation in it',
+      why: 'canvas.captureStream() through two RTCPeerConnections in this page. The received picture is read at the stroke and at the video.',
+      run: async () => {
+        const f = fixture();
+        await presented(f.video);
+        f.notes.pen([{ x: 20, y: 120, p: 0.5 }, { x: 140, y: 120, p: 0.5 }], { color: '#ff00ff', width: 10 });
+        const stream = f.c.captureStream(FPS);
+        cleanup.push(() => stream.getTracks().forEach((t) => t.stop()));
+        const link = await loopback(stream);
+        cleanup.push(() => link.close());
+        const far = await reader(link.stream);
+        let stroke = null, green = null, stats = null;
+        for (let tries = 0; tries < 60; tries++) {
+          f.c.requestPaint();
+          await sleep(150);
+          stroke = far.at(80, 120); green = far.at(80, 50);
+          stats = await link.stats();
+          if (isMagenta(stroke) && isGreen(green)) return `received ${far.v.videoWidth}×${far.v.videoHeight}${stats?.fps ? ` at ${stats.fps} frames a second` : ''}; ${stroke} on the stroke, ${green} on the video`;
+        }
+        throw new Error(`the received picture has ${stroke} on the stroke and ${green} on the video`);
+      },
+    },
+    {
+      name: 'A fading stroke raises paint with no requestPaint()',
+      why: 'No video in this fixture. Paint events are counted for 600 ms with a still stroke, then through a 1 s CSS fade animation.',
+      run: async () => {
+        const f = fixture({ source: 'none' });
+        const path = f.notes.pen([{ x: 20, y: 120, p: 0.5 }, { x: 140, y: 120, p: 0.5 }], { color: '#ff00ff', width: 8 });
+        await painted(f.c);
+        await sleep(150);
+        let n = 0;
+        f.c.addEventListener('paint', () => n++);
+        await sleep(600);
+        const still = n, start = px(f, 80, 120);
+        n = 0;
+        f.notes.fade(path, 1);
+        await sleep(550); // the keyframes hold opacity at 1 for the first 55%
+        const held = n;
+        await sleep(250);
+        const mid = px(f, 80, 120);
+        await sleep(450);
+        const moving = n - held, end = px(f, 80, 120);
+        if (moving < 5) throw new Error(`${moving} paint events in the 450 ms in which the opacity changes (${still} with a still stroke)`);
+        if (isMagenta(end) || path.isConnected) throw new Error(`the stroke is still there after the animation: ${end}`);
+        return `${still} paint events in 600 ms with a still stroke, ${held} in the 550 ms the animation holds opacity at 1, ${moving} in the 450 ms in which it changes; the pixel on the stroke went ${start} → ${mid} → ${end}, and the <path> was removed on animationend`;
+      },
+    },
+    {
+      name: 'A <video> that plays the capture of its own canvas draws the picture inside itself',
+      why: 'The stand-in for capturing your own tab: the fixture\'s video plays the fixture canvas\'s captureStream() at half size. A stroke is drawn, then removed.',
+      run: async () => {
+        const f = fixture({ source: 'own', videoStyle: 'left:80px;top:45px;width:160px;height:90px' });
+        const path = f.notes.pen([{ x: 20, y: 20, p: 0.5 }, { x: 300, y: 20, p: 0.5 }], { color: '#ff00ff', width: 12 });
+        f.video.play().catch(() => {});
+        for (let i = 0; i < 20; i++) { await painted(f.c); await sleep(70); }
+        // Level n of the nesting shows scene row 20 at y = 90 + (20 - 90) / 2^n.
+        const levels = [0, 1, 2, 3].map((n) => isMagenta(px(f, 160, Math.round(90 + (20 - 90) / 2 ** n))));
+        f.notes.remove(path);
+        const t0 = performance.now();
+        let gone = [-1, -1, -1];
+        for (let i = 0; i < 40 && gone.includes(-1); i++) {
+          await painted(f.c);
+          await sleep(50);
+          [0, 1, 2].forEach((n) => { if (gone[n] < 0 && !isMagenta(px(f, 160, Math.round(90 + (20 - 90) / 2 ** n)))) gone[n] = Math.round(performance.now() - t0); });
+        }
+        if (!levels[0]) throw new Error('the stroke is not in the canvas');
+        if (!levels[1]) throw new Error('the video did not show the canvas with the stroke');
+        return `the stroke is drawn at nesting levels ${levels.map((ok, n) => (ok ? n : null)).filter((n) => n !== null).join(', ')}; after its <path> is removed it leaves level 0 after ${gone[0]} ms, level 1 after ${gone[1]} ms and level 2 after ${gone[2]} ms; no crash`;
+      },
+    },
+  ]));
+</script>
+</body>
+</html>

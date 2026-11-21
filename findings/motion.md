@@ -85,7 +85,7 @@ Measured in headless Chromium 157 (C157) on 2026-11-21, by the page's live check
 
 ### Not verified
 
-- Why the 2D canvas of experiment 2 lost its context on the phone, and whether the changes above stop it. If it happens again the status line under the experiment, or the note over the canvas, holds a line that starts "Contexts made:". That line says which contexts were lost and when.
+- Whether the phone now keeps its canvases on `/scoped-transitions/`. The loss was traced on the project owner's phone (2026-11-21, see `findings/canvas-loss.md`) to a drawable 2D canvas made with `willReadFrequently: true`: once it is drawn into and read, every 2D context on the page is lost. The check rig on this page had one. It is now made without that option and its pixel is read from a `drawImage()` copy on a second, ordinary canvas. The same change was made to the check rigs of `/time-scrubber/` and `/particles/`. Headless Chromium 157 never showed the loss, so only the phone can confirm it.
 - Whether a 2D drawable canvas on Android fires `contextlost` and `contextrestored` at all. If it does not, neither the guard nor `watch2d()` can act.
 - Frame rate on a phone, and the WebGL experiment on a real GPU. Open `/scoped-transitions/` on the device and press Shuffle with "Run everything at 3 seconds" on.
 - WebGPU. Experiment 1 uses WebGL only. A WGSL version through `shared/backend.js` would verify it.

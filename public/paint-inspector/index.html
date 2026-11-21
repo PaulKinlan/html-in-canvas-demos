@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paint event inspector</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; max-width: 560px; }
+  .bar label { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; }
+  .bar button { font: inherit; min-height: 40px; }
+  #scene { display: block; position: relative; width: 100%; max-width: 560px; height: 660px; border-radius: 16px; background: #10131f; touch-action: pan-y; overflow-anchor: none; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; max-width: 560px; white-space: pre-line; }
+  .plain-scene { max-width: 560px; padding: 12px; border-radius: 16px; background: #10131f; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .plain-scene .item { position: static; width: auto; }
+
+  /* #region items */
+  /* Every item is a child of the canvas with the drawable attribute. The canvas draws each in a cell of a grid. */
+  .item { position: absolute; left: 0; top: 0; box-sizing: border-box; width: calc(50% - 18px); height: 60px; margin: 0; padding: 6px 10px; border-radius: 10px;
+    background: #f6f4ef; color: #1d1c1a; font: 14px/1.3 system-ui, sans-serif; display: grid; align-content: center; overflow: hidden; }
+  input.item { font-size: 16px; border: 2px solid #a19c93; }
+  video.item { padding: 0; background: #000; object-fit: cover; }
+  marquee.item { display: block; line-height: 48px; }
+  #progress progress { width: 100%; height: 16px; }
+  button.item { border: 1px solid #a19c93; font-weight: 600; }
+  button.item:hover { background: #e6dfd0; }
+  button.item:active { background: #1d1c1a; color: #fff; }
+  #clock { font: 600 20px var(--mono); }
+  .dot { width: 22px; height: 22px; border-radius: 50%; background: #d2491f; }
+  @keyframes colour { to { background-color: #2f6bff; } }
+  @keyframes slide { to { transform: translateX(60px); } }
+  @keyframes fade { to { opacity: 0.15; } }
+  #colour { animation: colour 1.2s linear infinite alternate; }
+  #slide { animation: slide 1.2s linear infinite alternate; }   /* on the drawable element itself */
+  #fade { animation: fade 1.2s linear infinite alternate; }     /* on the drawable element itself */
+  #inner .dot { animation: slide 1.2s linear infinite alternate; } /* on a descendant */
+  .stopped .item, .stopped .item * { animation-play-state: paused !important; }
+  /* #endregion items */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Paint event inspector</h1>
+  <p class="lede">
+    One canvas draws eleven elements. Each time the canvas gets a <code>paint</code> event, the elements named in
+    <code>event.changedElements</code> flash. The label on each element is its count and its rate over the last second, and the strip
+    under it is its last four seconds. Type in the field, press the button, and start the video to see which changes raise an event.
+  </p>
+
+  <!-- #region markup -->
+  <canvas id="scene" content="drawable" layoutsubtree>
+    <input class="item" id="field" drawable type="text" value="Type here" autocomplete="off" aria-label="Text field" data-label="input: caret and typing">
+    <div class="item" id="clock" drawable data-label="text set once a second">00:00:00</div>
+    <div class="item" id="colour" drawable data-label="background animation">background-color</div>
+    <div class="item" id="inner" drawable data-label="transform on a descendant"><div class="dot"></div></div>
+    <div class="item" id="slide" drawable data-label="transform on the element">transform</div>
+    <div class="item" id="fade" drawable data-label="opacity on the element">opacity</div>
+    <video class="item" id="video" drawable muted loop playsinline preload="none" aria-label="Test clip" data-label="video: tap to play"></video>
+    <marquee class="item" id="marquee" drawable scrollamount="3" data-label="marquee">a marquee element scrolls its text</marquee>
+    <div class="item" id="progress" drawable data-label="progress, no value"><progress aria-label="Indeterminate progress"></progress></div>
+    <button class="item" id="press" drawable type="button" data-label="button: hover, press, focus">Press me</button>
+    <div class="item" id="still" drawable data-label="nothing changes">Static text</div>
+  </canvas>
+  <!-- #endregion markup -->
+
+  <div class="bar">
+    <button type="button" id="play">Play the video</button>
+    <button type="button" id="reset">Reset the counts</button>
+    <label><input type="checkbox" id="run" checked> Run the animations</label>
+    <label><input type="checkbox" id="flash" checked> Flash</label>
+  </div>
+
+  <p id="status" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>count changedElements, draw a flash and a strip per element</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Eleven drawable children of one canvas.</li>
+      <li data-code="#items"><b>The animations, in CSS.</b> Two of them are on the drawable element itself and one is on a descendant.</li>
+      <li data-code="/lib/devtools/paint-inspector.js#count"><b>Counting.</b> One listener for <code>paint</code> on the canvas.</li>
+      <li data-code="#frame"><b>One frame.</b> Draw every element, then its flash, count and strip.</li>
+      <li data-code="/lib/devtools/paint-inspector.js#draw-inspector"><b>Drawing the flash, the strip and the count.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The inspector is one <code>paint</code> listener on the canvas. For every element in <code>event.changedElements</code> it adds one to a count and stores the time.</li>
+    <li>The canvas is redrawn on every animation frame while it is on screen, because the strips move. Each frame draws all eleven elements with <code>drawElementImage()</code> and then the overlay. Drawing does not raise a paint event.</li>
+    <li>The colour is the rate over the last second: grey for none, green for up to 3, amber for up to 20, red above that.</li>
+    <li>"transform on the element" and "opacity on the element" animate the drawable element itself. The picture of an element is its own box before its transform and opacity are applied, so the animation is not in the picture: the two tiles do not move or fade here, and no event names them.</li>
+    <li>The video loads when you press "Play the video" or tap it, so that the page does not take a video decoder on load.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds a small canvas of its own in a corner of the window and counts events for about half a second. The picture above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157, headless with software rendering, on 2026-11-21. The rates are from a 60 Hz frame clock. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Every frame:</strong> a <code>background-color</code> animation, a <code>&lt;marquee&gt;</code>, and a transform animation on a descendant of the drawable element (120 events in 2 s each). The event for the descendant names its drawable ancestor.</li>
+    <li><strong>Per video frame:</strong> a playing 30 fps clip was named 59 times in 2 s.</li>
+    <li><strong>8 times a second:</strong> a <code>&lt;progress&gt;</code> with no value. <strong>2 times a second:</strong> the caret of a focused text field.</li>
+    <li><strong>Never after the first picture:</strong> a transform or opacity animation on the drawable element itself, and an element that does not change. Each is named once, when its first picture is ready.</li>
+    <li><strong>A listener added late misses that first mention.</strong> With the listener added 300 ms after the element was put in the canvas, the event raised by <code>requestPaint()</code> listed no elements. A page cannot use <code>changedElements</code> alone to decide what to draw first.</li>
+    <li><strong>Paint events do not wait for a draw.</strong> With a listener that draws nothing, the events kept arriving at the same rate.</li>
+    <li><strong>Cost to keep in mind:</strong> one animated element raises a paint event on every frame for the whole canvas. A page that uploads textures in its paint handler should upload only the elements in <code>changedElements</code>.</li>
+    <li><strong>Not verified here:</strong> the rates on a phone, where the frame clock can be 90 or 120 Hz and video is decoded by hardware. Open this page on the phone and read the labels. Hover does not exist on a touch screen, so the button is named only when pressed or focused.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { paintInspector, drawPaintInfo } from '/lib/devtools/paint-inspector.js';
+  import { fitCanvas, cssScale } from '/lib/devtools/stage.js';
+  import { rig, sleep } from '/lib/devtools/check-rig.js';
+  import { banner, runTests, supported } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('scene'), status = $('status'), video = $('video');
+  const items = [...canvas.querySelectorAll('.item')];
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  const CLIP = '/media/clip.webm';
+
+  // The clock: one text change a second.
+  const pad = (n) => String(n).padStart(2, '0');
+  const tick = () => { const d = new Date(); $('clock').textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+  tick();
+  setInterval(() => { if ($('run').checked) tick(); }, 1000);
+
+  async function toggleVideo() {
+    try {
+      if (!video.src) video.src = CLIP;
+      if (video.paused) await video.play(); else video.pause();
+    } catch (err) { status.textContent = `The video did not play: ${err.message}`; }
+    $('play').textContent = video.paused ? 'Play the video' : 'Pause the video';
+  }
+  $('play').onclick = toggleVideo;
+  video.addEventListener('click', toggleVideo);
+
+  function applyRun() {
+    const on = $('run').checked;
+    (canvas.isConnected ? canvas : document.querySelector('.plain-scene')).classList.toggle('stopped', !on);
+    if (on) $('marquee').start(); else $('marquee').stop();
+  }
+  if (reduced.matches) $('run').checked = false;
+  $('run').addEventListener('change', applyRun);
+
+  if (!supported) {
+    const plain = document.createElement('div');
+    plain.className = 'plain-scene';
+    plain.append(...items);
+    canvas.replaceWith(plain);
+    applyRun();
+    status.textContent = 'HTML-in-canvas is not available, so the elements are plain HTML and there are no paint events to count.';
+  } else {
+    const ctx = canvas.getContext('2d');
+    const inspector = paintInspector(canvas);
+    let visible = true, raf = 0, lost = false, lastReport = 0;
+    const wake = () => { if (visible && !lost) raf ||= requestAnimationFrame(frame); };
+
+    fitCanvas(canvas, wake);
+    new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; wake(); }).observe(canvas);
+    canvas.addEventListener('paint', wake);
+    canvas.addEventListener('contextlost', () => { lost = true; status.textContent = 'The canvas lost its graphics context. The picture comes back if the browser restores it.'; });
+    canvas.addEventListener('contextrestored', () => { lost = false; wake(); });
+    $('reset').onclick = () => inspector.reset();
+    applyRun();
+
+    // #region frame
+    function frame(now) {
+      raf = 0;
+      const k = cssScale(canvas), W = canvas.clientWidth;
+      const columnWidth = (W - 36) / 2, rowHeight = 106;
+      try {
+        ctx.reset();
+        ctx.scale(k, k);
+        items.forEach((el, i) => {
+          const rect = { x: 12 + (i % 2) * (columnWidth + 12), y: 18 + Math.floor(i / 2) * rowHeight, width: el.offsetWidth, height: el.offsetHeight };
+          // Every element is drawn on every frame. changedElements says which pictures are new, not which to draw.
+          ctx.drawElementImage(el, rect.x, rect.y, rect.width, rect.height);
+          drawPaintInfo(ctx, inspector, el, rect, { now, label: el.dataset.label, flash: $('flash').checked });
+        });
+      } catch (err) {
+        // "No cached paint record": an element has not painted yet. Ask, and draw on the paint event.
+        if (/paint record/i.test(err.message)) canvas.requestPaint();
+        else throw err;
+      }
+      if (now - lastReport > 250) { lastReport = now; report(now); }
+      wake(); // the strips move, so the canvas is drawn on every frame while it is on screen
+    }
+    // #endregion frame
+
+    function report(now) {
+      const named = items.filter((el) => inspector.of(el).count > 0).length;
+      const text = `paint events: ${inspector.totals.events} in all, ${inspector.rate(null, now)} in the last second.\n${named} of ${items.length} elements have been named. Events that named no element: ${inspector.totals.empty}.`;
+      if (status.textContent !== text) status.textContent = text;
+      window.__paintInspector = { events: inspector.totals.events, counts: Object.fromEntries(items.map((el) => [el.id, inspector.of(el).count])), rates: Object.fromEntries(items.map((el) => [el.id, inspector.rate(el, now)])) };
+    }
+
+    canvas.requestPaint();
+    wake();
+  }
+
+  // ---- live checks: every one on its own small canvas ----
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const ABS = 'position:absolute;left:0;top:0;margin:0;';
+  const KEYS = '<style>@keyframes pi-bg { to { background-color: #00f } } @keyframes pi-move { to { transform: translateX(30px) } } @keyframes pi-fade { to { opacity: .2 } }</style>';
+  const BOX = `${ABS}width:60px;height:30px;background:#f00;`;
+  /**
+   * Put `html` in a fixture canvas, draw its children on each paint event (unless draw is false),
+   * wait `settle` ms, then count the events that name each child for `ms` milliseconds.
+   */
+  async function count(html, { ms = 500, settle = 200, draw = true, during = null, late = 0 } = {}) {
+    const { c, g, kids } = rig(KEYS + html);
+    if (late) await sleep(late); // the elements paint for the first time before anything listens
+    const els = kids.filter((el) => el.localName !== 'style');
+    const counts = new Map(els.map((el) => [el, 0]));
+    let events = 0, first = null;
+    const inspector = paintInspector(c);
+    c.addEventListener('paint', (e) => {
+      first ??= [...(e.changedElements ?? [])].map((el) => el.id || el.localName);
+      if (!draw) return;
+      g.reset();
+      els.forEach((el, i) => g.drawElementImage(el, 10, 10 + i * 40, el.offsetWidth, el.offsetHeight));
+    });
+    c.requestPaint();
+    await sleep(settle);
+    inspector.reset();
+    const t0 = performance.now();
+    await during?.(els);
+    await sleep(ms);
+    const took = performance.now() - t0;
+    for (const el of els) counts.set(el, inspector.of(el).count);
+    events = inspector.totals.events;
+    inspector.stop();
+    return { els, counts: els.map((el) => counts.get(el)), events, first, perSecond: (n) => Math.round((n * 1000) / took) };
+  }
+
+  runTests($('results'), [
+    {
+      name: 'A background animation is named on every frame',
+      why: 'A block with a background-color animation is counted for half a second. At least 10 events must name it.',
+      run: async () => {
+        need();
+        const r = await count(`<div id="a" style="${BOX}animation:pi-bg 1s linear infinite alternate"></div>`);
+        if (r.counts[0] < 10) throw new Error(`${r.counts[0]} events named it`);
+        return `${r.counts[0]} events in half a second, about ${r.perSecond(r.counts[0])} a second`;
+      },
+    },
+    {
+      name: 'A transform animation on the drawable element itself is never named',
+      why: 'The same block with a transform animation. The picture of an element does not include its own transform, so no event should name it.',
+      run: async () => {
+        need();
+        const r = await count(`<div id="a" style="${BOX}animation:pi-move 1s linear infinite alternate"></div>`);
+        if (r.counts[0] !== 0) throw new Error(`${r.counts[0]} events named it`);
+        return `0 events named it. ${r.events} paint events arrived in all`;
+      },
+    },
+    {
+      name: 'An opacity animation on the drawable element itself is never named',
+      why: 'The same block with an opacity animation.',
+      run: async () => {
+        need();
+        const r = await count(`<div id="a" style="${BOX}animation:pi-fade 1s linear infinite alternate"></div>`);
+        if (r.counts[0] !== 0) throw new Error(`${r.counts[0]} events named it`);
+        return `0 events named it. ${r.events} paint events arrived in all`;
+      },
+    },
+    {
+      name: 'A transform animation on a descendant names the drawable ancestor',
+      why: 'The animated block is inside a drawable wrapper. changedElements must hold the wrapper.',
+      run: async () => {
+        need();
+        const r = await count(`<div id="wrap" style="${ABS}width:120px;height:30px"><div style="width:30px;height:30px;background:#f00;animation:pi-move 1s linear infinite alternate"></div></div>`);
+        if (r.counts[0] < 10) throw new Error(`${r.counts[0]} events named the wrapper`);
+        return `the wrapper was named ${r.counts[0]} times in half a second`;
+      },
+    },
+    {
+      name: 'A text change names that element and not its neighbour',
+      why: 'Two blocks. The text of the first is set once. One event must name it and none the second.',
+      run: async () => {
+        need();
+        const r = await count(`<div id="a" style="${BOX}">one</div><div id="b" style="${BOX}">two</div>`, { ms: 300, during: ([a]) => { a.textContent = 'changed'; } });
+        if (r.counts[0] !== 1 || r.counts[1] !== 0) throw new Error(`first ${r.counts[0]}, second ${r.counts[1]}`);
+        return `first block: ${r.counts[0]} event. Second block: ${r.counts[1]}`;
+      },
+    },
+    {
+      name: 'An element that does not change is named when its first picture is ready, and not again',
+      why: 'One static block, with the paint listener added at once. The elements listed in the first event are recorded, and the block must get no event in the half second after.',
+      run: async () => {
+        need();
+        const r = await count(`<div id="still" style="${BOX}">still</div>`, { settle: 250 });
+        if (r.counts[0] !== 0) throw new Error(`${r.counts[0]} events named it after the first`);
+        return `the first paint event listed: ${r.first?.length ? r.first.join(', ') : 'no elements'}. Events after it that named the block: 0`;
+      },
+    },
+    {
+      name: 'A listener added late is not told about an element that painted before it',
+      why: 'The same static block, with the listener added 300 ms after the block was put in the canvas, followed by requestPaint(). This row records what the first event lists. It passes if an event arrives.',
+      run: async () => {
+        need();
+        const r = await count(`<div id="still" style="${BOX}">still</div>`, { settle: 250, late: 300 });
+        if (!r.first) throw new Error('requestPaint() raised no paint event');
+        return `the first paint event listed: ${r.first.length ? r.first.join(', ') : 'no elements'}. Events after it that named the block: ${r.counts[0]}`;
+      },
+    },
+    {
+      name: 'Paint events keep arriving when the listener draws nothing',
+      why: 'The background animation again, with a paint listener that never calls drawElementImage().',
+      run: async () => {
+        need();
+        const r = await count(`<div id="a" style="${BOX}animation:pi-bg 1s linear infinite alternate"></div>`, { draw: false });
+        if (r.counts[0] < 10) throw new Error(`${r.counts[0]} events`);
+        return `${r.counts[0]} events in half a second with nothing drawn`;
+      },
+    },
+    {
+      name: 'A marquee is named on every frame',
+      why: 'A <marquee> element is counted for half a second.',
+      run: async () => {
+        need();
+        const r = await count(`<marquee id="m" style="${ABS}width:120px;height:20px">text that scrolls</marquee>`);
+        if (r.counts[0] < 10) throw new Error(`${r.counts[0]} events named it`);
+        return `${r.counts[0]} events, about ${r.perSecond(r.counts[0])} a second`;
+      },
+    },
+    {
+      name: 'A progress element with no value is named a few times a second',
+      why: 'An indeterminate <progress> is counted for one second.',
+      run: async () => {
+        need();
+        const r = await count(`<progress id="p" style="${ABS}width:120px;height:16px"></progress>`, { ms: 1000 });
+        if (r.counts[0] < 2) throw new Error(`${r.counts[0]} events named it`);
+        return `${r.counts[0]} events in one second`;
+      },
+    },
+    {
+      name: 'A playing video is named once for each frame it shows',
+      why: 'The 30 fps test clip plays muted in a fixture for one second. The count is compared with the frames the video reports.',
+      timeout: 8000,
+      run: async () => {
+        need();
+        let shown = 0, video;
+        const r = await count(`<video id="v" muted playsinline loop width="160" height="90" style="${ABS}" src="${CLIP}"></video>`, {
+          ms: 1000, settle: 100,
+          during: async ([v]) => { video = v; await v.play(); shown = v.getVideoPlaybackQuality?.().totalVideoFrames ?? 0; },
+        });
+        const frames = (video.getVideoPlaybackQuality?.().totalVideoFrames ?? 0) - shown;
+        video.pause(); video.removeAttribute('src'); video.load(); // give the decoder back
+        if (r.counts[0] < 5) throw new Error(`${r.counts[0]} events named the video`);
+        return `${r.counts[0]} events in about a second. The video reports ${frames} frames in that time`;
+      },
+    },
+    {
+      name: 'The caret of a focused text field names the field about twice a second',
+      why: 'A text field is focused in a hidden copy of this page and counted for 1.6 seconds.',
+      apart: true,
+      timeout: 8000,
+      run: async () => {
+        need();
+        const r = await count(`<input id="f" inputmode="none" value="text" style="${ABS}width:120px">`, { ms: 1600, settle: 400, during: ([f]) => { f.focus({ preventScroll: true }); } });
+        document.activeElement?.blur?.();
+        if (r.counts[0] < 2 || r.counts[0] > 12) throw new Error(`${r.counts[0]} events named the field`);
+        return `${r.counts[0]} events in 1.6 seconds, including the one for the focus ring`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

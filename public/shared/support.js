@@ -92,12 +92,18 @@ function fixturePictures(stage) {
     try {
       const ctx = c.getContext('2d');
       if (!ctx || !c.width || !c.height) continue;
-      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      // Never read a drawable canvas itself: copy it into a plain canvas kept in ordinary memory and read that.
+      // On Chrome 159 for Android a drawable canvas that is kept in memory and read lost every canvas on the page.
+      const copy = document.createElement('canvas');
+      copy.width = c.width; copy.height = c.height;
+      const cc = copy.getContext('2d', { willReadFrequently: true });
+      cc.drawImage(c, 0, 0);
+      const d = cc.getImageData(0, 0, copy.width, copy.height).data;
       let any = false;
       for (let i = 3; i < d.length; i += 16) if (d[i]) { any = true; break; }
       if (!any) continue;
       const img = new Image();
-      img.src = c.toDataURL();
+      img.src = copy.toDataURL();
       img.alt = 'What this test drew';
       img.className = 'fixture-shot';
       img.style.width = (c.clientWidth || c.width) + 'px';

@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>A video as a WebGPU external texture under HTML cards</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .gv-stage { position: relative; max-width: 640px; }
+  .gv-stage canvas { display: block; position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #111; touch-action: manipulation; }
+  @media (max-width: 520px) { .gv-stage canvas { aspect-ratio: 4 / 3; } }
+  #blank[hidden] { display: none; }
+  #blank { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; background: #222; border-radius: 10px; }
+  /* #region css */
+  /* The cards have no background of their own. Their texture is clear except for text and controls, and the shader draws the glass. */
+  #view .glass { position: absolute; left: 0; top: 0; box-sizing: border-box; margin: 0; padding: 8px; border-radius: 12px; color: #fff; font: 15px/1.25 system-ui, sans-serif; text-shadow: 0 1px 3px rgb(0 0 0 / .7); }
+  #view #score { display: flex; gap: 10px; align-items: center; }
+  #view #score output { display: inline-block; min-width: 2.2em; font: 700 17px ui-monospace, monospace; text-align: right; }
+  #view #headline { margin: 0 0 6px; font: 800 clamp(20px, 6.2vw, 34px)/1.05 system-ui, sans-serif; white-space: nowrap; overflow: hidden; }
+  #view .line { display: flex; gap: 8px; }
+  #view input { flex: 1; min-width: 0; min-height: 40px; padding: 4px 10px; font: 16px system-ui, sans-serif; color: #fff; background: rgb(255 255 255 / .16); border: 1px solid rgb(255 255 255 / .55); border-radius: 8px; }
+  #view button { min-height: 40px; padding: 4px 12px; font: 600 15px system-ui, sans-serif; color: #fff; background: rgb(255 255 255 / .22); border: 1px solid rgb(255 255 255 / .6); border-radius: 8px; white-space: nowrap; }
+  /* The video is a child of the canvas and not of a drawn element. It is never painted. The shader gets its frames. */
+  #view video { position: absolute; left: 0; top: 0; width: 16px; height: 9px; pointer-events: none; }
+  /* #endregion css */
+  .row label { display: inline-flex; gap: 6px; align-items: center; }
+  .row select, .row button { font: inherit; min-height: 40px; }
+  #route { flex: 1 1 100%; }
+  #detail { min-height: 3em; margin: 4px 0 0; }
+  #measureNote { min-height: 3em; }
+  #timings td:first-child { white-space: normal; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A video as a WebGPU external texture under HTML cards</h1>
+  <p class="lede">
+    The two cards below are HTML. The video frame behind them is a separate texture, and one shader pass draws all three: the cards are glass that bends and blurs the frame.
+    Type in the field, press the buttons, change the effect and tap the picture. "Measure on this device" times each way of getting the frame and the cards to the GPU.
+  </p>
+
+  <div class="gv-stage" id="stage">
+    <!-- #region markup -->
+    <canvas id="view" content="drawable" layoutsubtree width="640" height="360" aria-label="Video with two HTML cards drawn as glass">
+      <video id="clip" muted playsinline loop preload="auto"></video>
+      <div class="glass" id="score" drawable>
+        <span>Frame <output id="frameNo">0</output></span>
+        <button type="button" id="plus">Taps 0</button>
+      </div>
+      <div class="glass" id="caption" drawable>
+        <p id="headline">HTML over video</p>
+        <div class="line">
+          <input type="text" id="words" value="HTML over video" maxlength="22" autocomplete="off" aria-label="Caption text">
+          <button type="button" id="next">Next effect</button>
+        </div>
+      </div>
+    </canvas>
+    <!-- #endregion markup -->
+    <p id="blank" hidden></p>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <label>Effect <select id="effect">
+      <option value="0">Glass</option>
+      <option value="1">Video inside the text</option>
+      <option value="2">Ripple from the tapped point</option>
+    </select></label>
+    <button type="button" id="playPause">Pause</button>
+    <div id="route"></div>
+  </div>
+  <p class="note" id="detail" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>one pass over a video texture and two element textures, on three routes</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Two <code>drawable</code> cards and a <code>&lt;video&gt;</code> that is a child of the canvas but not of a drawn element.</li>
+      <li data-code="#css"><b>The CSS.</b> The cards have no background. The shader draws it.</li>
+      <li data-code="/gpu-video/compose.js#gpu-video"><b>The frame on WebGPU.</b> <code>importExternalTexture()</code> first, then <code>copyExternalImageToTexture()</code>.</li>
+      <li data-code="#gpu-route"><b>The WebGPU route.</b> Upload each card with <code>drawElementImageToTexture()</code>, import the frame, draw.</li>
+      <li data-code="/gpu-video/compose.js#gpu-frame"><b>The render pass.</b> The bind group is made again for each frame, because an external texture cannot be kept.</li>
+      <li data-code="/gpu-video/compose.js#wgsl"><b>The WGSL shader.</b> <code>texture_external</code> and two <code>texture_2d</code> in one fragment shader.</li>
+      <li data-code="#layout"><b>Where the cards go.</b> The page computes each card's position. CSS <code>left</code> and <code>top</code> do not move a canvas child.</li>
+      <li data-code="/gpu-video/compose.js#place"><b>Hit testing.</b> <code>updateElementGeometry()</code> with a translation to where the shader draws the card.</li>
+      <li data-code="#gl-route"><b>The WebGL 2 route.</b></li>
+      <li data-code="/gpu-video/compose.js#gl-frame"><b>The WebGL uploads.</b> <code>texImage2D(video)</code> and <code>texElementSubImage2D()</code>.</li>
+      <li data-code="/gpu-video/compose.js#glsl"><b>The GLSL shader.</b></li>
+      <li data-code="/gpu-video/compose.js#draw2d"><b>The 2D route.</b> <code>drawImage(video)</code>, <code>drawElementImage()</code>, filters and compositing.</li>
+      <li data-code="/gpu-video/measure.js#measure-gpu"><b>The measurement on WebGPU.</b></li>
+    </ol>
+  </details>
+
+  <h2>Measure on this device</h2>
+  <p class="note">Each route draws the same small picture 40 times, one draw per video frame, into a texture that is not shown. The picture above pauses while this runs. It takes about 20 seconds.</p>
+  <div class="row"><button type="button" id="measure">Measure on this device</button></div>
+  <p class="note" id="measureNote" role="status">Not measured yet.</p>
+  <table class="results" id="timings" hidden><thead><tr><th>Route</th><th>What is uploaded each frame</th><th>Time per frame</th></tr></thead><tbody></tbody></table>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The canvas has three children. Two are <code>drawable</code> cards. The third is the <code>&lt;video&gt;</code>, which has no <code>drawable</code> ancestor, so it is never part of an element's picture.</li>
+    <li>On WebGPU, <code>device.importExternalTexture({ source: video })</code> gives the current frame as a <code>GPUExternalTexture</code> with no copy. <code>queue.drawElementImageToTexture()</code> puts each card in an <code>rgba8unorm</code> texture. One fragment shader samples the frame with <code>textureSampleBaseClampToEdge()</code> and the cards with <code>textureSampleLevel()</code>.</li>
+    <li>If the import fails, the frame is copied with <code>queue.copyExternalImageToTexture()</code> and the same shader is compiled with <code>texture_2d&lt;f32&gt;</code> for the video.</li>
+    <li>On WebGL 2 the frame comes from <code>texImage2D(video)</code> and the cards from <code>texElementSubImage2D()</code>. On a 2D canvas the page uses <code>drawImage(video)</code>, <code>drawElementImage()</code>, <code>ctx.filter</code> and compositing modes. The 2D route has no ripple.</li>
+    <li>The page tries WebGPU, then WebGL 2, then 2D. The line under the picture names the route in use and gives the reason when it is not WebGPU.</li>
+    <li>A shader draw does not place an element for hit testing. CSS <code>left</code> and <code>top</code> do not move a canvas child either. The page keeps each card's position, gives it to the shader as a rectangle, and gives it to <code>updateElementGeometry()</code> as a translation. It then toggles an attribute on the card.</li>
+    <li>The measurement compares this arrangement with the one <a href="/video/">/video/</a> and <a href="/overlay/">/overlay/</a> use, where the video is a child of the drawn element and one upload carries the frame and the HTML together.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small canvas in a corner of the window. The WebGPU checks draw into a texture and read it back, so they also run on a software adapter. The picture above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 headless with a software WebGPU adapter (SwiftShader) and software video decoding, 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: the pass itself.</strong> One WebGPU render pass samples a video texture and two element textures. The frame number in the composed picture and the colours of the cards were read back from the target texture.</li>
+    <li><strong>Fails here: <code>importExternalTexture()</code>.</strong> With the software adapter it throws "Failed to import texture from video" for a <code>&lt;video&gt;</code> and for a <code>VideoFrame</code>. <code>copyExternalImageToTexture(video)</code> also throws in Chromium 157 with this adapter. <code>createImageBitmap(video)</code> followed by <code>copyExternalImageToTexture(bitmap)</code> works, and the checks fall back to it. So the <code>texture_external</code> shader variant compiled here but did not draw. The first, third and eighth checks answer this on a device with a real GPU.</li>
+    <li><strong>Works: the video inside the element.</strong> An element that contains a playing <code>&lt;video&gt;</code> uploads with <code>drawElementImageToTexture()</code> and its texture holds a frame.</li>
+    <li><strong>Works: the same picture on WebGL 2.</strong> The GLSL and WGSL shaders were compared on a paused frame for all three effects. The differences are in the fifth check.</li>
+    <li><strong>Needed: a translation in <code>canvasTransform</code>.</strong> A canvas child with <code>left: 200px; top: 100px</code> has its box at the canvas origin, and percentages in <code>left</code>, <code>right</code> and <code>bottom</code> gave a box 0 px wide. With an identity matrix the card is hit tested at the origin. <code>new DOMMatrix().translate(200, 100)</code>, in CSS pixels, puts the hit box where the shader draws the card.</li>
+    <li><strong>Needed: multiply by alpha in the shader.</strong> In these textures a box with <code>rgb(200 100 50 / .5)</code> is stored as 199, 100, 50 with alpha 0.5, on WebGPU and on WebGL 2. Adding the texture's colour to the frame without multiplying it turned every translucent control white.</li>
+    <li><strong>Refused: an element as an external texture.</strong> <code>importExternalTexture({ source: element })</code> throws a <code>TypeError</code>. An element reaches WebGPU only through the copy in <code>drawElementImageToTexture()</code>.</li>
+    <li><strong>Not verified here:</strong> WebGPU on screen, <code>importExternalTexture()</code> with a hardware decoder, whether the external texture expires, and every timing on a real GPU. The "Measure on this device" button and the live checks report these on the device that opens the page.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  import { webgpu, webgl2 } from '/shared/backend.js';
+  import { routeSwitch } from '/shared/route-switch.js';
+  import { GPUCanvas, GPUElementTexture, gpuMethod, watchFrame, pictureDifference } from '/lib/gpu-util.js';
+  import { EFFECTS, uniforms, rectOf, moveTo, place, gpuComposer, gpuVideoSource, glComposer, draw2d, readTexture, frameNumber } from './compose.js';
+  import { measure, buildFixture, inPaint, nextFrame, releaseVideo } from './measure.js';
+  banner();
+
+  // A drawable canvas is never read with getImageData(): on Chrome 159 for Android a drawable 2D canvas made with
+  // willReadFrequently lost every 2D context on the page. Pixels are read from a drawImage() copy in a plain canvas.
+  let readCopy = null;
+  function copyOf(source) {
+    readCopy ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    if (readCopy.canvas.width !== source.width || readCopy.canvas.height !== source.height) { readCopy.canvas.width = source.width; readCopy.canvas.height = source.height; }
+    readCopy.clearRect(0, 0, source.width, source.height);
+    readCopy.drawImage(source, 0, 0);
+    return readCopy;
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const CLIP = '/media/clip.webm', FPS = 30;
+  const video = $('clip'), cards = [$('caption'), $('score')];
+  const scene = { canvas: $('view'), route: 'starting', note: '', frameRoute: '', effect: 0, tap: [0.5, 0.5], tapAt: performance.now(), engine: null, wantPlay: true, onScreen: true, busy: false };
+  let clipUrl = CLIP;
+
+  const say = (text) => { if ($('detail').textContent !== text) $('detail').textContent = text; };
+  function blank(text) {
+    $('blank').hidden = !text;
+    $('blank').textContent = text;
+  }
+
+  function frameUniforms(canvas) {
+    return uniforms({
+      width: canvas.width, height: canvas.height, videoWidth: video.videoWidth, videoHeight: video.videoHeight,
+      rects: cards.map((el) => rectOf(canvas, el)), effect: scene.effect, time: performance.now() / 1000,
+      tap: scene.tap, age: (performance.now() - scene.tapAt) / 1000, radius: 12 * (canvas.height / (canvas.clientHeight || 1)),
+    });
+  }
+
+  // #region gpu-route
+  /** WebGPU: an external texture for the frame, one element texture for each card, one pass. */
+  async function openGPU(canvas, fail) {
+    const gpu = await webgpu();
+    if (!gpu) throw new Error(webgpu.reason || 'no WebGPU device');
+    if (!gpuMethod) throw new Error('GPUQueue has no drawElementImageToTexture()');
+    const { device } = gpu;
+    const surface = new GPUCanvas(canvas, gpu);
+    const composer = gpuComposer(device, gpu.format);
+    const textures = cards.map((el) => new GPUElementTexture(device, canvas, el));
+    const source = gpuVideoSource(device);
+    let first = true;
+    function draw() {
+      for (const t of textures) t.update(); // drawElementImageToTexture()
+      const frame = video.readyState >= 2 ? source.get(video) : null; // importExternalTexture(), valid for this task
+      if (video.readyState >= 2 && !frame) return fail(`WebGPU could not take the video frame (${Object.entries(source.errors).map(([k, v]) => `${k}: ${v}`).join('; ')})`);
+      composer.frame({ target: surface.view(), video: frame, cards: textures.map((t) => t.view), uniforms: frameUniforms(canvas) });
+      scene.frameRoute = frame ? (frame.kind === 'external' ? 'importExternalTexture()' : `copyExternalImageToTexture(), because importExternalTexture() failed: ${source.errors.external}`) : '';
+      surface.shown(fail);
+    }
+    return {
+      placed: true,
+      frame() {
+        if (surface.lost) return fail(webgpu.reason || 'the WebGPU device was lost');
+        try {
+          if (first) watchFrame(device, draw, fail);
+          else draw();
+          first = false;
+        } catch (err) {
+          if (!/no cached paint record/.test(err.message)) fail(err.message); // the cards have not been painted yet
+        }
+      },
+      destroy() { for (const t of textures) t.destroy(); source.destroy(); composer.destroy(); surface.destroy(); },
+    };
+  }
+  // #endregion gpu-route
+
+  // #region gl-route
+  /** WebGL 2: texImage2D(video) for the frame, texElementSubImage2D() for each card, one draw. */
+  function openGL(canvas, fail) {
+    if (!webgl2()) throw new Error('this browser has no WebGL 2');
+    // gfx-allow: webgl-context the page's one WebGL context. The shader samples a video texture and two element textures in one draw, which ElementGL's one-texture quad does not do
+    const gl = canvas.getContext('webgl2', { alpha: false, antialias: false });
+    if (!gl) throw new Error('the canvas gave no WebGL 2 context');
+    const composer = glComposer(gl);
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); fail('the WebGL context was lost'); });
+    return {
+      placed: true,
+      frame() {
+        try {
+          cards.forEach((el, i) => composer.element(i, canvas, el));
+          composer.video(video);
+          composer.draw(frameUniforms(canvas));
+          scene.frameRoute = 'texImage2D(video)';
+        } catch (err) {
+          if (!/no cached paint record/.test(err.message)) fail(err.message);
+        }
+      },
+      destroy() {},
+    };
+  }
+  // #endregion gl-route
+
+  function open2D(canvas) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('the canvas gave no 2D context');
+    return {
+      placed: false, // drawElementImage() with a size places each card itself
+      frame() {
+        const u = frameUniforms(canvas);
+        draw2d(ctx, { video, cards: cards.map((el) => ({ el, rect: rectOf(canvas, el) })), effect: scene.effect, fit: [u[2], u[3]], radius: u[17] });
+        scene.frameRoute = 'drawImage(video)';
+      },
+      destroy() {},
+    };
+  }
+
+  // A canvas keeps the kind of context it first gave. A new route needs a new canvas with the same children.
+  function freshCanvas() {
+    const old = scene.canvas;
+    if (!old.dataset.used) { old.dataset.used = '1'; return old; }
+    const next = old.cloneNode(false);
+    old.after(next); // in the document first, so the video is moved and not removed (a removed video pauses)
+    next.append(...old.childNodes);
+    old.remove();
+    scene.canvas = next;
+    watch(next);
+    return next;
+  }
+
+  // #region layout
+  // left, top and percentages do nothing for a canvas child, so the page works out where each card goes.
+  const placedAt = new WeakMap();
+  function size(canvas) {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    const w = Math.max(1, Math.round(cw * dpr)), h = Math.max(1, Math.round(ch * dpr));
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    const gap = Math.round(cw * 0.03);
+    const wide = `${cw - gap * 2}px`;
+    if ($('caption').style.width !== wide) $('caption').style.width = wide;
+    moveTo($('score'), gap, gap);
+    moveTo($('caption'), gap, ch - gap - $('caption').offsetHeight);
+    if (!scene.engine?.placed) return;
+    for (const el of cards) {
+      const key = rectOf(canvas, el).join();
+      if (placedAt.get(el) === key) continue;
+      placedAt.set(el, key);
+      place(canvas, el); // the hit box, for the routes that draw with a shader
+    }
+  }
+  // #endregion layout
+  function watch(canvas) {
+    canvas.addEventListener('paint', () => {
+      if (scene.canvas !== canvas || !scene.engine) return;
+      size(canvas);
+      scene.engine.frame();
+    });
+    new ResizeObserver(() => canvas.requestPaint?.()).observe(canvas);
+  }
+
+  const ORDER = ['webgpu', 'webgl', '2d'];
+  let starting = 0;
+  /** Start the first route in `order` that opens. A route that fails later calls this again with the routes after it. */
+  async function start(order = ORDER, why = '') {
+    const turn = ++starting;
+    scene.engine?.destroy();
+    scene.engine = null;
+    scene.note = why;
+    for (const [i, route] of order.entries()) {
+      let failed = false;
+      const fail = (reason) => {
+        if (failed || turn !== starting) return;
+        failed = true;
+        // Not from inside the paint handler: the canvas is replaced.
+        setTimeout(() => start(order.slice(i + 1), `${route === 'webgpu' ? '' : `${route} failed: `}${reason}`), 0);
+      };
+      try {
+        // WebGPU is asked for before a canvas is spent on it.
+        if (route === 'webgpu' && !(await webgpu())) throw new Error(webgpu.reason || 'no WebGPU device');
+        if (turn !== starting) return;
+        const canvas = freshCanvas();
+        const engine = route === 'webgpu' ? await openGPU(canvas, fail) : route === 'webgl' ? openGL(canvas, fail) : open2D(canvas);
+        if (turn !== starting) return engine.destroy();
+        scene.engine = engine;
+        scene.route = route;
+        for (const el of cards) placedAt.delete(el);
+        blank('');
+        canvas.requestPaint();
+        return;
+      } catch (err) {
+        scene.note ||= err.message;
+      }
+    }
+    scene.route = 'plain';
+    blank(`Nothing can draw this picture here: ${scene.note}.`);
+  }
+
+  // One loop while the picture is on screen: the ripple moves between video frames.
+  function tick() {
+    if (scene.onScreen && !document.hidden && !scene.busy) scene.canvas.requestPaint?.();
+    const route = scene.frameRoute ? `The frame is taken with ${scene.frameRoute}.` : '';
+    say(video.error ? `The video did not load: ${video.error.message}` : `${route}${scene.route === '2d' && scene.effect === 2 ? ' The 2D route has no ripple and draws glass.' : ''}`);
+    requestAnimationFrame(tick);
+  }
+
+  function setEffect(n) {
+    scene.effect = n;
+    $('effect').value = String(n);
+    scene.tapAt = performance.now();
+  }
+  function playState() {
+    const play = scene.wantPlay && scene.onScreen && !scene.busy;
+    if (play && video.paused) video.play().catch(() => {});
+    if (!play && !video.paused) video.pause();
+    $('playPause').textContent = scene.wantPlay ? 'Pause' : 'Play';
+  }
+
+  if (supported) {
+    watch(scene.canvas);
+    const control = routeSwitch($('route'), {
+      targets: () => [scene], active: (s) => s.route, note: (s) => s.note, values: { webgpu: 'webgpu', webgl: 'webgl', '2d': '2d' },
+      apply: (choice) => start(choice ? ORDER.slice(ORDER.indexOf(choice)) : ORDER), // a route asked for by name still falls back when it cannot start
+    });
+    if (!control?.value) start();
+    // A blob URL can be seeked and looped whatever the server does with Range requests.
+    fetch(CLIP).then((r) => r.blob()).then((b) => { clipUrl = URL.createObjectURL(b); }).catch(() => {}).then(() => { video.src = clipUrl; playState(); });
+    video.requestVideoFrameCallback?.(function each(now, meta) {
+      $('frameNo').value = Math.round(meta.mediaTime * FPS);
+      video.requestVideoFrameCallback(each);
+    });
+    new IntersectionObserver(([e]) => { scene.onScreen = e.isIntersecting; playState(); }).observe($('stage'));
+    requestAnimationFrame(tick);
+  } else {
+    blank('This picture is drawn with HTML-in-canvas, which this browser does not have.');
+    $('measure').disabled = true;
+  }
+
+  // The cards' own controls. They are real elements, so these are ordinary listeners.
+  let taps = 0;
+  $('words').addEventListener('input', () => ($('headline').textContent = $('words').value || ' '));
+  $('plus').addEventListener('click', () => ($('plus').textContent = `Taps ${++taps}`));
+  $('next').addEventListener('click', () => setEffect((scene.effect + 1) % 3));
+  $('effect').addEventListener('change', () => setEffect(+$('effect').value));
+  $('playPause').addEventListener('click', () => { scene.wantPlay = !scene.wantPlay; playState(); });
+  // A tap anywhere on the picture, on a card or not, is where the ripple starts.
+  $('stage').addEventListener('pointerdown', (e) => {
+    const box = scene.canvas.getBoundingClientRect();
+    scene.tap = [(e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height];
+    scene.tapAt = performance.now();
+  });
+
+  $('measure').addEventListener('click', async () => {
+    const button = $('measure'), note = $('measureNote'), table = $('timings');
+    button.disabled = true;
+    scene.busy = true;
+    playState();
+    try {
+      const rows = await measure({ clipUrl, frames: 40, say: (text) => (note.textContent = `Measuring. ${text}`) });
+      table.tBodies[0].replaceChildren(...rows.map((r) => {
+        const tr = document.createElement('tr');
+        for (const text of [r.route, r.what, r.result + (r.note ? `. ${r.note}` : '')]) tr.insertCell().textContent = text;
+        if (r.failed) tr.cells[2].style.color = 'var(--bad)';
+        return tr;
+      }));
+      table.hidden = false;
+      window.__timings = rows;
+      note.textContent = `Measured on ${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? 'this browser'}, device pixel ratio ${devicePixelRatio}. "calls" is the time inside the upload and draw calls. "done" runs until the GPU reports the work finished. "pass" is the GPU time of the render pass.`;
+    } catch (err) {
+      note.textContent = `The measurement stopped: ${err.message}`;
+    }
+    scene.busy = false;
+    button.disabled = false;
+    playState();
+  });
+
+  // ---- live checks: every one on its own fixture ----
+  const cleanups = [];
+  // The fixture box lies over the bottom left of the window while checks run. It lets taps through, except for the moment a check asks what is at a point.
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const hitAt = (x, y) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { s.style.pointerEvents = 'none'; } };
+  const TW = 320, TH = 180;
+  const plain = (rects = []) => uniforms({ width: TW, height: TH, videoWidth: 640, videoHeight: 360, rects, effect: EFFECTS.plain, radius: 0 });
+  const px = (img, x, y) => [...img.data.slice((y * img.width + x) * 4, (y * img.width + x) * 4 + 4)];
+  const near = (a, b, t = 14) => a.slice(0, 3).every((v, i) => Math.abs(v - b[i]) <= t);
+  const short = (err) => String(err?.message ?? err).replace(/^Failed to execute '\w+' on '\w+': /, '').split('\n')[0];
+
+  async function device() {
+    if (!navigator.gpu) throw new Error('this browser has no WebGPU');
+    const gpu = await webgpu({ force: true }); // the page's device, or a software one that is never presented
+    if (!gpu) throw new Error(`no WebGPU device (${webgpu.reason || 'no adapter'})`);
+    if (!gpuMethod) throw new Error('GPUQueue has no drawElementImageToTexture()');
+    return gpu;
+  }
+  /** The shared fixture with a WebGPU context, a 320 by 180 target texture and a texture for each child. */
+  async function gpuFixture() {
+    const gpu = await device();
+    const d = gpu.device;
+    const f = buildFixture(clipUrl);
+    quietStage().append(f.canvas);
+    const context = f.canvas.getContext('webgpu');
+    context.configure({ device: d, format: gpu.format, alphaMode: 'premultiplied' });
+    Object.assign(f, {
+      gpu, device: d, composer: gpuComposer(d, 'rgba8unorm'),
+      target: d.createTexture({ size: [TW, TH], format: 'rgba8unorm', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC }),
+      cardTex: new GPUElementTexture(d, f.canvas, f.card), tagTex: new GPUElementTexture(d, f.canvas, f.tag), wholeTex: new GPUElementTexture(d, f.canvas, f.whole),
+      software: gpu.software ? ' (software adapter)' : '',
+    });
+    f.view = f.target.createView();
+    f.read = () => readTexture(d, f.target);
+    /** Run fn and throw the first validation error it caused. */
+    f.scoped = async (fn) => {
+      d.pushErrorScope('validation');
+      let out, error;
+      try { out = await fn(); } finally { error = await d.popErrorScope(); }
+      if (error) throw new Error(error.message.split('\n')[0]);
+      return out;
+    };
+    cleanups.push(() => { releaseVideo(f.video); f.cardTex.destroy(); f.tagTex.destroy(); f.wholeTex.destroy(); f.target.destroy(); f.composer.destroy(); try { context.unconfigure(); } catch {} });
+    await f.video.play();
+    f.meta = await nextFrame(f.video);
+    await inPaint(f.canvas);
+    return f;
+  }
+  const at = (video) => Math.round(video.currentTime * FPS);
+  const each = (tests) => tests.map((t) => ({ timeout: 20000, ...t, run: async () => {
+    if (!supported) throw new Error('HTML-in-canvas is not available');
+    try { return await t.run(); } finally { for (const fn of cleanups.splice(0)) { try { fn(); } catch {} } }
+  } }));
+
+  runTests($('results'), each([
+    {
+      name: 'importExternalTexture() takes a playing <video>',
+      why: 'The frame is sampled as texture_external in a pass into a 320 by 180 texture, and the clip\'s frame number is read from the result.',
+      run: async () => {
+        const f = await gpuFixture();
+        const external = f.device.importExternalTexture({ source: f.video });
+        await f.scoped(() => f.composer.frame({ target: f.view, video: { kind: 'external', external }, uniforms: plain() }));
+        const img = await f.read();
+        const centre = px(img, 160, 90);
+        if (centre[0] + centre[1] + centre[2] < 12) throw new Error('the pass drew black where the frame should be');
+        return `imported and sampled${f.software}; the pass holds frame ${frameNumber(img.data, TW)}, the video was at frame ${at(f.video)}; centre pixel ${centre.slice(0, 3).join(', ')}`;
+      },
+    },
+    {
+      name: 'One WebGPU pass samples the video and two element textures',
+      why: 'The frame, a green card and a half transparent blue tag are three textures. The target must hold the stripes of the frame, the card\'s colour and the tag over the frame.',
+      run: async () => {
+        const f = await gpuFixture();
+        await inPaint(f.canvas, () => { f.cardTex.update(); f.tagTex.update(); });
+        const source = gpuVideoSource(f.device);
+        cleanups.push(() => source.destroy());
+        const asked = at(f.video);
+        const frame = await source.getAsync(f.video);
+        const got = at(f.video);
+        if (!frame) throw new Error(`no route gave the frame: ${JSON.stringify(source.errors)}`);
+        await f.scoped(() => f.composer.frame({ target: f.view, video: frame, cards: [f.cardTex.view, f.tagTex.view], uniforms: plain([rectOf(f.canvas, f.card), rectOf(f.canvas, f.tag)]) }));
+        const img = await f.read();
+        const n = frameNumber(img.data, TW), card = px(img, 204, 130), tag = px(img, 40, 75), centre = px(img, 160, 90);
+        if (!near(card, [0, 200, 83])) throw new Error(`the card's pixel is ${card.join(', ')}, not 0, 200, 83`);
+        if (tag[2] < 120) throw new Error(`the tag's pixel is ${tag.join(', ')}: no blue over the frame`);
+        if (centre[0] + centre[1] + centre[2] < 12) throw new Error('the frame is black');
+        if (n < asked - 2 || n > got + 2) throw new Error(`the stripes read ${n} and the video went from frame ${asked} to ${got} while the frame was taken`);
+        const how = { external: 'importExternalTexture()', copy: 'copyExternalImageToTexture(video)', bitmap: 'createImageBitmap(video) then copyExternalImageToTexture(bitmap)' }[frame.kind];
+        const failed = Object.entries(source.errors).map(([k, v]) => `${k}: ${v}`).join('; ');
+        return `frame ${n} by ${how}${f.software}; card ${card.slice(0, 3).join(', ')}; tag over frame ${tag.slice(0, 3).join(', ')}${failed ? `. Routes that failed first: ${failed}` : ''}`;
+      },
+    },
+    {
+      name: 'A GPUExternalTexture from a <video> used in a later task',
+      why: 'The specification expires it when the task that imported it ends. The row reports what a pass that uses it 100 ms later does.',
+      run: async () => {
+        const f = await gpuFixture();
+        const external = f.device.importExternalTexture({ source: f.video });
+        const imported = at(f.video);
+        await sleep(100);
+        let error = '';
+        try { await f.scoped(() => f.composer.frame({ target: f.view, video: { kind: 'external', external }, uniforms: plain() })); } catch (err) { error = short(err); }
+        const img = await f.read();
+        const n = frameNumber(img.data, TW);
+        return error
+          ? `imported at frame ${imported}; 100 ms later the pass is refused: ${error}`
+          : `imported at frame ${imported}; 100 ms later the pass has no validation error and holds frame ${n}, with the video at frame ${at(f.video)}${f.software}`;
+      },
+    },
+    {
+      name: 'The frame in the composed picture is the one requestVideoFrameCallback() reports',
+      why: 'For 12 presented frames the frame is taken inside the callback, drawn with the card, and the stripes in the target are compared with metadata.mediaTime.',
+      timeout: 30000,
+      run: async () => {
+        const f = await gpuFixture();
+        await inPaint(f.canvas, () => f.cardTex.update());
+        const source = gpuVideoSource(f.device);
+        cleanups.push(() => source.destroy());
+        const rects = [rectOf(f.canvas, f.card)];
+        const pairs = [];
+        for (let i = 0; i < 12; i++) {
+          let frame = null;
+          const meta = await new Promise((resolve) => f.video.requestVideoFrameCallback((now, meta) => {
+            frame = source.get(f.video);
+            if (frame) f.composer.frame({ target: f.view, video: frame, cards: [f.cardTex.view], uniforms: plain(rects) });
+            resolve(meta);
+          }));
+          if (!frame) {
+            frame = await source.getAsync(f.video); // only the route through createImageBitmap() is left, and it is not synchronous
+            if (!frame) throw new Error(`no route gave the frame: ${JSON.stringify(source.errors)}`);
+            f.composer.frame({ target: f.view, video: frame, cards: [f.cardTex.view], uniforms: plain(rects) });
+          }
+          pairs.push([Math.round(meta.mediaTime * FPS), frameNumber((await f.read()).data, TW), frame.kind]);
+        }
+        const same = pairs.filter(([a, b]) => a === b).length;
+        const kind = pairs[0][2];
+        const list = pairs.map(([a, b]) => (a === b ? a : `${a}→${b}`)).join(', ');
+        if (kind !== 'bitmap' && same < 11) throw new Error(`${same} of 12 match by ${kind}: ${list}`);
+        if (same < 6) throw new Error(`${same} of 12 match by ${kind}: ${list}`);
+        return `${same} of 12 match, frame taken by ${kind === 'external' ? 'importExternalTexture()' : kind === 'copy' ? 'copyExternalImageToTexture(video)' : 'createImageBitmap(video), which resolves after the callback'}${f.software}: ${list}`;
+      },
+    },
+    {
+      name: 'The WebGL 2 route draws the same picture as the WebGPU pass',
+      why: 'The video is paused on frame 60. Both shaders draw glass, video inside the text and the ripple at 320 by 180, and the pictures are compared.',
+      timeout: 30000,
+      run: async () => {
+        const f = await gpuFixture();
+        const g = buildFixture(clipUrl);
+        g.video.removeAttribute('src'); // the WebGL canvas takes its frame from the first fixture's video
+        quietStage().append(g.canvas);
+        // gfx-allow: webgl-context one check fixture, made on a tap and removed when the check ends, to compare the WebGL picture with the WebGPU pass
+        const gl = g.canvas.getContext('webgl2', { alpha: false, antialias: false, preserveDrawingBuffer: true });
+        if (!gl) throw new Error('no WebGL 2 context');
+        const glc = glComposer(gl);
+        f.video.pause();
+        await new Promise((r) => { f.video.addEventListener('seeked', r, { once: true }); f.video.currentTime = 2 + 0.5 / FPS; });
+        await inPaint(f.canvas, () => { f.cardTex.update(); f.tagTex.update(); });
+        await inPaint(g.canvas, () => { glc.element(0, g.canvas, g.card); glc.element(1, g.canvas, g.tag); });
+        const source = gpuVideoSource(f.device);
+        cleanups.push(() => source.destroy());
+        const frame = await source.getAsync(f.video);
+        if (!frame) throw new Error(`no route gave the frame to WebGPU: ${JSON.stringify(source.errors)}`);
+        const rects = [rectOf(f.canvas, f.card), rectOf(f.canvas, f.tag)];
+        const out = [];
+        for (const [name, effect] of [['glass', 0], ['text', 1], ['ripple', 2]]) {
+          const u = uniforms({ width: TW, height: TH, videoWidth: 640, videoHeight: 360, rects, effect, tap: [0.3, 0.4], age: 0.8, radius: 12 });
+          await f.scoped(() => f.composer.frame({ target: f.view, video: frame, cards: [f.cardTex.view, f.tagTex.view], uniforms: u }));
+          const gpuPicture = await f.read();
+          glc.video(f.video);
+          glc.draw(u);
+          const raw = new Uint8Array(TW * TH * 4);
+          gl.readPixels(0, 0, TW, TH, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+          const glPicture = new ImageData(TW, TH);
+          for (let y = 0; y < TH; y++) glPicture.data.set(raw.subarray((TH - 1 - y) * TW * 4, (TH - y) * TW * 4), y * TW * 4); // readPixels starts at the bottom row
+          const diff = pictureDifference(glPicture, gpuPicture);
+          out.push(`${name} mean ${diff.mean.toFixed(2)}, largest ${diff.max}`);
+          if (diff.mean > 4) throw new Error(`${name}: mean difference ${diff.mean.toFixed(2)} of 255, largest ${diff.max} (${frameNumber(glPicture.data, TW)} against ${frameNumber(gpuPicture.data, TW)})`);
+        }
+        return `difference per channel of 255: ${out.join('; ')}. WebGPU frame by ${frame.kind}${f.software}`;
+      },
+    },
+    {
+      name: 'A button on a card is hit where the WebGPU pass drew the card',
+      why: 'elementFromPoint() at the drawn button, first after the pass alone, then after updateElementGeometry() with an identity matrix, then with a translation to the drawn position.',
+      run: async () => {
+        const f = await gpuFixture();
+        await inPaint(f.canvas, () => f.cardTex.update());
+        await f.scoped(() => f.composer.frame({ target: f.view, video: null, cards: [f.cardTex.view], uniforms: plain([rectOf(f.canvas, f.card)]) }));
+        const box = f.canvas.getBoundingClientRect();
+        const name = (el) => (el ? `<${el.localName}>` : 'nothing');
+        const before = hitAt(box.left + 250, box.top + 130);
+        f.canvas.updateElementGeometry(f.card, { canvasTransform: new DOMMatrix() });
+        f.card.toggleAttribute('data-moved');
+        await sleep(60);
+        const identity = [hitAt(box.left + 250, box.top + 130), hitAt(box.left + 50, box.top + 30)];
+        place(f.canvas, f.card);
+        await sleep(60);
+        const after = hitAt(box.left + 250, box.top + 130);
+        if (after !== f.button) throw new Error(`after placing, the point holds ${name(after)}; before it held ${name(before)}`);
+        return `after the pass alone: ${name(before)}. With an identity matrix: ${name(identity[0])} at the drawn button and ${name(identity[1])} at the canvas origin. With translate(200, 100): the button`;
+      },
+    },
+    {
+      name: 'An element texture stores colour without multiplying it by alpha',
+      why: 'A box with background rgb(0 0 255 / .5) is drawn over black by a shader that multiplies by alpha itself. Blue must be near 128.',
+      run: async () => {
+        const f = await gpuFixture();
+        await inPaint(f.canvas, () => f.tagTex.update());
+        await f.scoped(() => f.composer.frame({ target: f.view, video: null, cards: [f.tagTex.view], uniforms: plain([rectOf(f.canvas, f.tag)]) }));
+        const tag = px(await f.read(), 40, 75);
+        if (Math.abs(tag[2] - 128) > 8) throw new Error(`blue is ${tag[2]}: ${tag[2] < 100 ? 'the texture is already multiplied by alpha here, and the shader multiplied it again' : 'not the value for straight alpha'}`);
+        return `the pass holds ${tag.slice(0, 3).join(', ')} for the tag over black${f.software}: the texture stored 0, 0, 255 with alpha 0.5`;
+      },
+    },
+    {
+      name: 'importExternalTexture() takes a VideoFrame',
+      why: 'new VideoFrame(video), imported and sampled in the same pass as the first check.',
+      run: async () => {
+        const f = await gpuFixture();
+        const videoFrame = new VideoFrame(f.video);
+        try {
+          const external = f.device.importExternalTexture({ source: videoFrame });
+          await f.scoped(() => f.composer.frame({ target: f.view, video: { kind: 'external', external }, uniforms: plain() }));
+          const img = await f.read();
+          const centre = px(img, 160, 90);
+          if (centre[0] + centre[1] + centre[2] < 12) throw new Error('the pass drew black where the frame should be');
+          return `a ${videoFrame.format} VideoFrame with timestamp ${videoFrame.timestamp} µs was imported${f.software}; the pass holds frame ${frameNumber(img.data, TW)}`;
+        } catch (err) {
+          throw new Error(`${short(err)} (the VideoFrame is ${videoFrame.format}, ${videoFrame.codedWidth}×${videoFrame.codedHeight})`);
+        } finally {
+          videoFrame.close();
+        }
+      },
+    },
+    {
+      name: 'An element that contains the video uploads with drawElementImageToTexture() and carries the frame',
+      why: 'A <div drawable> holds the <video> and a magenta label. Its texture is drawn to the target, and the stripes are compared with requestVideoFrameCallback().',
+      run: async () => {
+        const f = await gpuFixture();
+        const frames = [];
+        let img = null;
+        for (let i = 0; i < 6; i++) {
+          const meta = await nextFrame(f.video);
+          await inPaint(f.canvas, () => f.wholeTex.update());
+          await f.scoped(() => f.composer.frame({ target: f.view, video: null, cards: [f.wholeTex.view], uniforms: plain([[0, 0, 1, 1]]) }));
+          img = await f.read();
+          frames.push(frameNumber(img.data, TW) - Math.round(meta.mediaTime * FPS));
+        }
+        const label = px(img, 30, 155), centre = px(img, 160, 90);
+        if (!near(label, [255, 0, 255])) throw new Error(`the label's pixel is ${label.join(', ')}`);
+        if (centre[0] > 245 && centre[1] > 245 && centre[2] > 245) throw new Error('the element\'s texture has its white background where the frame should be');
+        return `texture ${f.wholeTex.width}×${f.wholeTex.height} with the frame and the label${f.software}; frames behind or ahead of the callback in 6 uploads: ${frames.join(', ')}`;
+      },
+    },
+    {
+      name: 'copyExternalImageToTexture() takes the <video>',
+      why: 'The copying route, for when an external texture is not available. If it fails, createImageBitmap(video) is tried as the source.',
+      run: async () => {
+        const f = await gpuFixture();
+        const read = async (frame) => {
+          await f.scoped(() => f.composer.frame({ target: f.view, video: frame, uniforms: plain() }));
+          return frameNumber((await f.read()).data, TW);
+        };
+        const source = gpuVideoSource(f.device, { routes: ['copy'] });
+        cleanups.push(() => source.destroy());
+        const frame = source.get(f.video);
+        if (frame) return `copied into an rgba8unorm texture${f.software}; the pass holds frame ${await read(frame)}, the video was at frame ${at(f.video)}`;
+        const viaBitmap = await source.getAsync(f.video);
+        throw new Error(`${source.errors.copy}${f.software}. ${viaBitmap ? `createImageBitmap(video) as the source works: the pass holds frame ${await read(viaBitmap)}` : `createImageBitmap(video) as the source fails too: ${source.errors.bitmap}`}`);
+      },
+    },
+    {
+      name: 'The 2D route draws the frame and a card that takes hits',
+      why: 'drawImage(video), then drawElementImage(card) with a size. No updateElementGeometry() call.',
+      run: async () => {
+        const f = buildFixture(clipUrl);
+        quietStage().append(f.canvas);
+        cleanups.push(() => releaseVideo(f.video));
+        const ctx = f.canvas.getContext('2d');
+        await f.video.play();
+        await nextFrame(f.video);
+        await inPaint(f.canvas, () => draw2d(ctx, { video: f.video, cards: [{ el: f.card, rect: rectOf(f.canvas, f.card) }], effect: EFFECTS.plain, fit: [1, 1], radius: 0 }));
+        await sleep(60);
+        const img = copyOf(f.canvas).getImageData(0, 0, TW, TH);
+        const card = px(img, 204, 130), box = f.canvas.getBoundingClientRect();
+        const hit = hitAt(box.left + 250, box.top + 130);
+        if (!near(card, [0, 200, 83])) throw new Error(`the card's pixel is ${card.join(', ')}`);
+        if (hit !== f.button) throw new Error(`the point at the drawn button holds ${hit ? `<${hit.localName}>` : 'nothing'}`);
+        return `frame ${frameNumber(img.data, TW)} with the video at frame ${at(f.video)}; card ${card.slice(0, 3).join(', ')}; elementFromPoint() finds the button`;
+      },
+    },
+    {
+      name: 'importExternalTexture() takes a drawable element',
+      expect: 'fail',
+      why: 'An element as an external texture would need no copy. The source must be a <video> or a VideoFrame.',
+      run: async () => {
+        const f = await gpuFixture();
+        f.device.importExternalTexture({ source: f.card });
+        return 'the element was accepted as a source';
+      },
+    },
+  ]));
+</script>
+</body>
+</html>

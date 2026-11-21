@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Repro: loseContext() on a drawable WebGL canvas that holds an element texture crashes the tab</title>
+<!-- A reduced reproduction for a browser bug report. One file, no libraries and none of the site's scripts.
+     HTML-in-canvas must be on: chrome://flags/#canvas-draw-element, or a Chrome with the origin trial. Listed at /crashes/. -->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 16px; max-width: 680px; }
+  h1 { font-size: 19px; line-height: 1.3; }
+  button { font: inherit; min-height: 44px; padding: 6px 14px; margin: 4px 6px 4px 0; }
+  #log { font: 12.5px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #8886; border-radius: 8px; padding: 8px; min-height: 6em; }
+  canvas { display: block; border: 1px solid #8886; margin: 8px 0; max-width: 100%; }
+  .card { box-sizing: border-box; width: 240px; padding: 10px; border-radius: 8px; background: #fff7e6; color: #2a2116; }
+</style>
+<h1>loseContext() on a drawable WebGL canvas that holds an element texture crashes the tab</h1>
+<p>A drawable WebGL canvas uploads its child with <code>texElementSubImage2D()</code>. Then <code>WEBGL_lose_context.loseContext()</code> is called. Button A leaves the canvas in the page. Button B removes it in the same task. Button C does B with an iframe child in the canvas.</p>
+<p><b>Expected:</b> a <code>webglcontextlost</code> event.<br><b>Seen:</b> headless Chromium 157: tab crashes in fuller pages (/protected/, /selection/, /player-fx/, /iframe-tiles/). A reduced page did not crash in 12 runs. What this page does is in the entry on /crashes/.</p>
+<p><button id="a">A: lose, keep in the page</button><button id="b">B: lose and remove in one task</button><button id="c">C: B, with an iframe child</button> <a href="/crashes/#lose-context-drawable">The entry on /crashes/</a></p>
+<div id="stage"></div>
+<pre id="log"></pre>
+<script>
+  // The log is also kept in localStorage, so that it can be read after the tab has died.
+  const KEY = 'repro-lose-context-drawable';
+  const t0 = performance.now();
+  const logEl = document.getElementById('log'), stage = document.getElementById('stage');
+  const log = (text) => { const line = `${Math.round(performance.now() - t0)} ms  ${text}`; logEl.textContent += line + '\n'; try { localStorage.setItem(KEY, logEl.textContent); } catch {} };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try { const before = localStorage.getItem(KEY); if (before && /RUNNING/.test(before.trim().split('\n').pop())) logEl.textContent = '--- the log of the run before this page load. Its last line says RUNNING, so the page ended during the run: ---\n' + before + '--- end ---\n'; localStorage.removeItem(KEY); } catch {}
+  const drawable = (html, w = 300, h = 110, options) => {
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable');
+    canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    stage.append(canvas);
+    return canvas;
+  };
+  const paintOf = (canvas) => new Promise((resolve) => { canvas.addEventListener('paint', resolve, { once: true }); canvas.requestPaint(); });
+  const watch = (canvas, name) => { for (const type of ['contextlost', 'contextrestored', 'webglcontextlost', 'webglcontextrestored']) canvas.addEventListener(type, () => log(`${type} on ${name}`)); };
+  log(navigator.userAgent);
+  if (!('requestPaint' in HTMLCanvasElement.prototype)) log('HTML-in-canvas is not available in this browser, so this page cannot show anything.');
+
+  const run = async (mode) => {
+    log(`RUNNING ${mode}`);
+    const canvas = drawable(`<div class="card" drawable><b>An element</b> drawn by the canvas <button type="button">A button</button></div>` + (mode === 'C' ? '<iframe drawable srcdoc="frame" style="width:80px;height:40px;border:0"></iframe>' : ''));
+    const gl = canvas.getContext('webgl2'); // gfx-allow: webgl-context a reduced reproduction with no libraries
+    if (!gl) { log('done: no WebGL 2 here'); return; }
+    watch(canvas, 'the WebGL canvas');
+    await paintOf(canvas);
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    const el = canvas.firstElementChild;
+    if (gl.texElementSubImage2D) { gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 256, 128); try { gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, el); log('element uploaded with texElementSubImage2D()'); } catch (e) { log(`texElementSubImage2D threw ${e.name}: ${e.message}`); } }
+    else if (gl.texElementImage2D) { try { gl.texElementImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, el); log('element uploaded with texElementImage2D()'); } catch (e) { log(`texElementImage2D threw ${e.name}`); } }
+    else log('no element upload method on this WebGL context');
+    gl.clearColor(0, 0, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    await sleep(300);
+    log('calling loseContext()');
+    gl.getExtension('WEBGL_lose_context').loseContext(); // gfx-allow: lose-context the reproduction of the crash, on a press
+    if (mode !== 'A') { canvas.remove(); log('canvas removed in the same task'); }
+    await sleep(2000);
+    log('done: no crash');
+  };
+  for (const id of ['a', 'b', 'c']) document.getElementById(id).onclick = () => run(id.toUpperCase());
+</script>
+</html>

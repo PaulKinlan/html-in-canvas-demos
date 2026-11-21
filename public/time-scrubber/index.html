@@ -269,12 +269,22 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const frames = (n = 2) => new Promise((r) => { const f = () => (n-- ? requestAnimationFrame(f) : r()); f(); });
   const must = (cond, msg) => { if (!cond) throw new Error(msg); };
+  // Pixels of a drawable canvas are read from a drawImage() copy. getImageData() on the drawable canvas itself,
+  // with willReadFrequently, loses every 2D context on the page on Android.
+  const copyCanvas = document.createElement('canvas'), copyCtx = copyCanvas.getContext('2d', { willReadFrequently: true });
+  const copyOf = (c) => {
+    if (copyCanvas.width !== c.width) copyCanvas.width = c.width;
+    if (copyCanvas.height !== c.height) copyCanvas.height = c.height;
+    copyCtx.clearRect(0, 0, c.width, c.height);
+    copyCtx.drawImage(c, 0, 0);
+    return copyCtx;
+  };
   const near = (px, want, tol = 12) => want.every((v, i) => Math.abs(px[i] - v) <= tol);
   const YELLOW = [255, 204, 0], CYAN = [0, 204, 255];
   const rigPx = async (x, y) => {
     await new Promise((r) => rig.addEventListener('rewindframe', r, { once: true }));
     const dpr = devicePixelRatio;
-    return Array.from(rig.canvas.getContext('2d').getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data);
+    return Array.from(copyOf(rig.canvas).getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data);
   };
   const raws = document.getElementById('raws');
   const paintOf = (c) => new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
@@ -286,12 +296,12 @@
     c.width = w * dpr; c.height = h * dpr; c.style.cssText = `width:${w}px;height:${h}px`;
     c.innerHTML = html;
     raws.append(c);
-    const ctx = c.getContext('2d', { willReadFrequently: true });
+    const ctx = c.getContext('2d');
     await paintOf(c);
-    return { c, ctx, el: c.firstElementChild, dpr, px: (x, y) => Array.from(ctx.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data) };
+    return { c, ctx, el: c.firstElementChild, dpr, px: (x, y) => Array.from(copyOf(c).getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data) };
   }
   const softness = (ctx, y, w) => {
-    const d = ctx.getImageData(0, y, w, 1).data;
+    const d = copyOf(ctx.canvas).getImageData(0, y, w, 1).data;
     let mid = 0, edges = 0;
     for (let i = 0; i < w; i++) { const v = d[i * 4]; if (v > 50 && v < 205) mid++; if (i && Math.abs(v - d[(i - 1) * 4]) > 90) edges++; }
     return { mid, edges };
