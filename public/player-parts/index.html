@@ -69,6 +69,23 @@
   #htmlbar button { min-width: 64px; min-height: 44px; border: 0; border-radius: 8px; background: #2b3040; color: #fff; font: inherit; }
   #htmlbar input { flex: 1; min-width: 0; accent-color: #ffd166; }
   #htmlbar output { font: 13px ui-monospace, monospace; }
+  /* #region html-state */
+  /* The labels of the HTML controls come from the video's state, in CSS. No script sets them.
+     The video is a sibling inside the same canvas, so :has() on the canvas sees it. */
+  #hPlay::before { content: 'Pause'; }
+  #hMute::before { content: 'Mute'; }
+  #hBusy { display: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #ffd166; border-right-color: transparent; animation: pp-spin .8s linear infinite; }
+  @keyframes pp-spin { to { rotate: 360deg; } }
+  #layers:has(#lv:paused) #hPlay::before { content: 'Play'; }
+  #layers:has(#lv:muted) #hMute::before { content: 'Unmute'; }
+  #layers:has(#lv:buffering) #hBusy { display: block; }
+  #layers:has(#lv:seeking) #hTime { opacity: .5; }
+  /* The same rules on attributes, for browsers before Chrome 158. */
+  #layers[data-paused] #hPlay::before { content: 'Play'; }
+  #layers[data-muted] #hMute::before { content: 'Unmute'; }
+  #layers[data-buffering] #hBusy { display: block; }
+  #layers[data-seeking] #hTime { opacity: .5; }
+  /* #endregion html-state */
 </style>
 </head>
 <body>
@@ -145,10 +162,11 @@
         <audio id="la" data-src="/media/clip.webm" controls loop preload="metadata"></audio>
       </div>
       <div id="htmlbar" drawable style="display:none">
-        <button type="button" id="hPlay">Play</button>
+        <button type="button" id="hPlay"></button>
         <input type="range" id="hSeek" min="0" max="10" step="0.01" value="0" aria-label="Position">
         <output id="hTime">0:00</output>
-        <button type="button" id="hMute">Unmute</button>
+        <span id="hBusy" aria-hidden="true"></span>
+        <button type="button" id="hMute"></button>
       </div>
     </canvas>
     <!-- #endregion layers-markup -->
@@ -166,6 +184,7 @@
       <li data-code="#layers-markup"><b>3. The markup.</b> The video is a child of the canvas, 80 px tall.</li>
       <li data-code="#strip"><b>3. The CSS that leaves only the controls.</b></li>
       <li data-code="#audio-strip"><b>3. An audio element as the control strip.</b> Its controls stay visible during playback. The video follows it.</li>
+      <li data-code="#html-state"><b>3. HTML controls restyled from the video's state.</b> <code>:has(#lv:paused)</code> on the canvas sets the label of the play button.</li>
       <li data-code="#layers"><b>3. The paint handler.</b> <code>drawImage(video)</code> draws the frame with a filter. <code>drawElementImage()</code> draws the controls, and sets where they take clicks.</li>
     </ol>
   </details>
@@ -185,7 +204,8 @@
   <p class="note">From Chromium 157. The rows above say what your browser does.</p>
   <ul class="findings">
     <li><strong>Works: pseudo-element rules are drawn.</strong> Background, colour, <code>accent-color</code>, <code>border-radius</code>, <code>display: none</code> and <code>zoom</code> on <code>::-webkit-media-controls-*</code> parts all show in the canvas, on <code>&lt;video&gt;</code> and <code>&lt;audio&gt;</code>, and the restyled controls keep working.</li>
-    <li><strong>Works behind a flag: state pseudo-classes.</strong> <code>:paused</code>, <code>:playing</code>, <code>:seeking</code>, <code>:muted</code>, <code>:buffering</code>, <code>:stalled</code> and <code>:volume-locked</code> are not valid selectors in Chromium 157 by default. With experimental web platform features on they work, and <code>:has(video:paused)</code> on a canvas child changes a custom property that the shader reads. <code>:picture-in-picture</code> and <code>:fullscreen</code> work without the flag. Without the pseudo-classes, event listeners that set three attributes give the same result.</li>
+    <li><strong>Works behind a flag: state pseudo-classes.</strong> <code>:paused</code>, <code>:playing</code>, <code>:seeking</code>, <code>:muted</code>, <code>:buffering</code>, <code>:stalled</code> and <code>:volume-locked</code> are not valid selectors in Chromium 157 by default. chromestatus lists them for Chrome 158. In 157 with experimental web platform features on they work, and <code>:has(video:paused)</code> on a canvas child changes a custom property that the shader reads. <code>:picture-in-picture</code> and <code>:fullscreen</code> work without the flag. Without the pseudo-classes, event listeners that set three attributes give the same result.</li>
+    <li><strong>Works: HTML controls with no state code.</strong> In part 3 the labels of the HTML play and mute buttons and the busy ring are CSS <code>content</code> and <code>display</code> rules under <code>:has(#lv:paused)</code>, <code>:has(#lv:muted)</code> and <code>:has(#lv:buffering)</code>. The style change alone raises <code>paint</code>. Position and time still need script: CSS has no value for <code>currentTime</code>.</li>
     <li><strong>Works: the controls as their own layer.</strong> <code>object-position: -9999px 0</code> moves the frame out of the element's box and leaves the controls on a clear background. An 80 px tall <code>&lt;video&gt;</code> is then a control strip. The canvas draws the frame from <code>drawImage(video)</code> with any filter, and draws the strip anywhere, at any size. Hit testing follows the strip.</li>
     <li><strong>Limit: no script access.</strong> <code>video.shadowRoot</code> is <code>null</code> and <code>attachShadow()</code> throws <code>NotSupportedError</code>. One part cannot be given <code>drawable</code>, measured, or drawn by itself. The page cannot ask where the play button is.</li>
     <li><strong>Limit: nothing can be put inside.</strong> Children of <code>&lt;video&gt;</code> are not rendered, so a canvas or any HTML cannot sit among the controls. HTML over the video is a sibling in the same drawn element (see <a href="/overlay/">HTML overlays on video</a>).</li>
@@ -269,15 +289,22 @@
   // #region state-fallback
   const hasStateSelectors = CSS.supports('selector(:paused)') && CSS.supports('selector(:seeking)') && CSS.supports('selector(:muted)');
   function mirrorState(video, host) {
+    let buffering = false;
     const set = () => {
       host.toggleAttribute('data-paused', video.paused);
       host.toggleAttribute('data-seeking', video.seeking);
       host.toggleAttribute('data-muted', video.muted);
+      host.toggleAttribute('data-buffering', buffering);
     };
     for (const type of ['play', 'pause', 'seeking', 'seeked', 'volumechange']) video.addEventListener(type, set);
+    video.addEventListener('waiting', () => { buffering = true; set(); });
+    for (const type of ['playing', 'canplay', 'pause', 'emptied']) video.addEventListener(type, () => { buffering = false; set(); });
     set();
   }
-  if (!hasStateSelectors) mirrorState($('stateful').querySelector('video'), $('stateful'));
+  if (!hasStateSelectors) {
+    mirrorState($('stateful').querySelector('video'), $('stateful'));
+    mirrorState($('lv'), $('layers')); // the HTML controls in part 3
+  }
   // #endregion state-fallback
   $('stateSay').textContent = hasStateSelectors
     ? 'This browser has :paused, :seeking and :muted. The CSS rules do all of it.'
@@ -369,8 +396,6 @@
   $('hMute').onclick = () => (lv.muted = !lv.muted);
   $('hSeek').oninput = () => (lv.currentTime = +$('hSeek').value);
   const sync = () => {
-    $('hPlay').textContent = lv.paused ? 'Play' : 'Pause';
-    $('hMute').textContent = lv.muted ? 'Unmute' : 'Mute';
     if (Number.isFinite(lv.duration)) $('hSeek').max = lv.duration;
     if (document.activeElement !== $('hSeek')) $('hSeek').value = lv.currentTime;
     $('hTime').value = fmt(lv.currentTime);
@@ -381,7 +406,7 @@
     over: 'The same strip, drawn over the bottom of the picture. The filter does not reach it.',
     big: 'The strip is laid out at two thirds of the width and drawn 1.5 times larger. Taps land on the enlarged buttons.',
     audio: 'The controls belong to an <audio> element that plays the same file. They do not fade. The muted video follows its play, pause, seek and speed.',
-    html: 'The video has no controls attribute. A <div> with two buttons, a range input and an <output> is drawn instead.',
+    html: 'The video has no controls attribute. A <div> with two buttons, a range input and an <output> is drawn instead. The button labels and the busy ring are set by CSS from the state of the video.',
   };
   const say = () => { if (supported) $('layerSay').textContent = explain[$('where').value]; };
   $('where').addEventListener('change', say);
@@ -494,6 +519,33 @@
           return `--state is 1 while paused and 2 while playing. Supported: ${have.join(', ')}`;
         });
       },
+    },
+    {
+      name: 'A state change restyles a drawn control and raises paint, with no requestPaint()',
+      why: 'The video is outside the canvas. A label inside the canvas takes its text from :has(video:paused), or from an attribute where the browser has no :paused. The check plays the video and counts paint events and changed pixels.',
+      run: () => withStyle(`.pp-h:has(video:paused) b::before { content: 'PAUSED STATE'; } .pp-h[data-paused] b::before { content: 'PAUSED STATE'; }
+        .pp-h b::before { content: 'ON'; } .pp-h b { font: 700 30px system-ui; color: #000; }`, async () => {
+        const native = CSS.supports('selector(:paused)');
+        const wrap = document.createElement('div');
+        wrap.className = 'pp-h';
+        wrap.style.cssText = 'flex:none;width:320px';
+        wrap.innerHTML = '<video src="/media/clip.webm" muted playsinline preload="auto" style="display:block;width:80px;height:45px"></video><canvas content="drawable" layoutsubtree width="320" height="60" style="display:block;width:320px;height:60px"><div drawable style="width:320px;height:60px;background:#fff"><b></b></div></canvas>';
+        quietStage().append(wrap);
+        const video = wrap.querySelector('video'), c = wrap.querySelector('canvas'), ctx = c.getContext('2d', { willReadFrequently: true });
+        made.push(video);
+        if (!native) mirrorState(video, wrap);
+        let paints = 0;
+        c.addEventListener('paint', () => { paints++; ctx.clearRect(0, 0, 320, 60); ctx.drawElementImage(c.firstElementChild, 0, 0, 320, 60); });
+        const dark = () => count(ctx, (r, g, b) => r < 90 && g < 90 && b < 90);
+        await sleep(500);
+        const before = dark(), paintsBefore = paints;
+        await video.play();
+        await sleep(500);
+        const after = dark(), raised = paints - paintsBefore;
+        if (raised < 1) throw new Error('no paint event followed the change from paused to playing');
+        if (!(before > after * 1.5)) throw new Error(`the label had ${before} dark pixels paused and ${after} playing`);
+        return `${raised} paint event${raised === 1 ? '' : 's'} after play(), and the label went from ${before} to ${after} dark pixels. State came from ${native ? 'the :paused pseudo-class' : 'an attribute set by a pause/play listener (no :paused here)'}`;
+      }),
     },
     {
       name: 'The frame can be moved out of the element, leaving the controls',
