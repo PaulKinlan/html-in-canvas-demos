@@ -72,7 +72,7 @@ export default function start() {
   const show = (i, focus = true) => {
     goal += (i - front) * THIRD;
     front = i;
-    faces.forEach((face, n) => { face.inert = n !== i; });
+    faces.forEach((face, n) => { face.inert = !stage.plain && n !== i; });
     wantFocus = focus;
     stage.request();
   };
@@ -112,6 +112,8 @@ export default function start() {
     summary.textContent = `${data.get('seats') || '?'} ${data.get('ticket') || ''} for ${data.get('name') || '?'}`;
     stage.request();
   });
+  // As plain HTML all three fieldsets are shown and none is inert.
+  addEventListener('instruments-plain', () => faces.forEach((face) => { face.inert = false; }));
   show(0, false);
   return { stage, show };
 }

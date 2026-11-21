@@ -1,4 +1,4 @@
-import { mount, put, hitOnly, colors } from './kit.js';
+import { mount, put, colors } from './kit.js';
 
 export default function start() {
   const canvas = document.getElementById('clockCanvas');
@@ -42,7 +42,6 @@ export default function start() {
     const hand = (a, length, width, colour) => {
       ctx.save(); ctx.translate(cx, cy); ctx.rotate(a);
       ctx.strokeStyle = colour; ctx.lineWidth = width * k; ctx.lineCap = 'round';
-      ctx.shadowColor = '#0005'; ctx.shadowBlur = 5 * k; ctx.shadowOffsetY = 2 * k;
       ctx.beginPath(); ctx.moveTo(0, 12 * k); ctx.lineTo(0, -length * k); ctx.stroke();
       ctx.restore();
     };
@@ -50,8 +49,8 @@ export default function start() {
     hand(shown / 60 * Math.PI * 2, 92, 4, c.accent);
     ctx.fillStyle = c.accent; ctx.beginPath(); ctx.arc(cx, cy, 6 * k, 0, 7); ctx.fill();
 
-    // An invisible element over the face takes the drag. The time input is drawn under the face, as it is.
-    ctx.save(); ctx.translate(cx - R, cy - R); ctx.scale(k, k); hitOnly(ctx, grip); ctx.restore();
+    // A ring element over the face takes the drag. The time input is drawn under the face, as it is.
+    ctx.save(); ctx.translate(cx - R, cy - R); ctx.scale(k, k); put(ctx, grip); ctx.restore();
     put(ctx, input, cx - input.offsetWidth / 2, cy + R + 14 * k);
     return shown !== target;
   });

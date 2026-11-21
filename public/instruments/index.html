@@ -4,19 +4,35 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Form controls drawn as instruments</title>
+<meta name="checks" content="tap">
 <link rel="stylesheet" href="/shared/style.css">
 <style>
   section.idea { margin-top: 56px; }
   section.idea > h2 { margin-bottom: 4px; }
   section.idea > p { max-width: 72ch; }
-  canvas.idea-canvas { display: block; width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
   .idea output { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; overflow-wrap: anywhere; margin: 8px 0; }
   .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
   .idea .controls button, .idea .controls select { min-height: 40px; font: inherit; }
   .idea .controls label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
   p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
   nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
-  .grip { border-radius: 50%; touch-action: none; cursor: grab; }
+  /* The drag handles. A faint ring, so the element has a picture of its own. */
+  .grip { box-sizing: border-box; border-radius: 50%; border: 2px solid #8884; touch-action: none; cursor: grab; }
+
+  /* #region plain-css */
+  /* The controls as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: grid; gap: 10px; align-content: start; justify-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .plain-controls .grip { display: none; }
+  .plain-controls form { display: flex; flex-wrap: wrap; gap: 8px; }
+  .plain-controls #rotaryForm fieldset { display: flex; flex-wrap: wrap; gap: 8px; }
+  .plain-controls #odoInput { width: 9ch; height: 44px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); letter-spacing: normal !important; font: 600 22px/44px var(--mono); }
+  .plain-controls #prismForm fieldset { height: auto; }
+  .plain-note { margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+  /* #endregion plain-css */
 
   /* #region rotary-css */
   #rotaryForm fieldset { border: 0; margin: 0; padding: 0; }
@@ -29,7 +45,7 @@
   /* #endregion rotary-css */
 
   /* #region odometer-css */
-  #odoInput { box-sizing: border-box; width: 252px; height: 66px; margin: 0; padding: 0; border: 0; outline: none; background: transparent; text-align: right; font: 600 44px/66px var(--mono); color: transparent; caret-color: #ffd34d; appearance: textfield; }
+  #odoInput { box-sizing: border-box; width: 252px; height: 66px; margin: 0; padding: 0; border: 0; border-bottom: 1px solid #ffffff14; outline: none; background: transparent; text-align: right; font: 600 44px/66px var(--mono); color: transparent; caret-color: #ffd34d; appearance: textfield; }
   #odoInput::selection { background: #ffd34d66; color: transparent; }
   #odoInput::-webkit-inner-spin-button { display: none; }
   /* #endregion odometer-css */
@@ -198,23 +214,26 @@
   <p>Each canvas holds the real control as a descendant marked <code>drawable</code>. A <code>paint</code> handler draws the machine with ordinary 2D calls and draws the control, or parts of it, with <code>drawElementImage()</code>. That call also moves the control's hit region to where it was drawn, so taps, the caret and the focus order need no code. Three techniques are used more than once:</p>
   <ul>
     <li><b>Strips.</b> A 2D context has affine transforms only. The prism's perspective and the gauge's bend are made by drawing the same element many times, each time clipped to a narrow strip with its own transform. The last draw sets the hit region, so the prism ends each turn with one flat draw.</li>
-    <li><b>An invisible grip.</b> The knob and the clock face are canvas drawings, with no element. A transparent <code>drawable</code> element is drawn over each with <code>globalAlpha = 0</code>. It receives the pointer events and carries <code>touch-action: none</code>, so the rest of the canvas still scrolls the page.</li>
+    <li><b>A grip element.</b> The knob and the clock face are canvas drawings, with no element. A round <code>drawable</code> element that is only a faint ring is drawn over each. It receives the pointer events and carries <code>touch-action: none</code>, so the rest of the canvas still scrolls the page.</li>
     <li><b>The control is the state.</b> No demo keeps its own copy of the value. The paint handler reads <code>checked</code>, <code>valueAsNumber</code> or <code>value</code>, and a drag writes them.</li>
   </ul>
   <details class="show-code"><summary>Show the code</summary><ol>
     <li data-code="/instruments/kit.js#mount"><b>The paint loop and the draw helpers shared by the five demos.</b></li>
     <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/instruments/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/instruments/kit.js#plain"><b>The controls are then shown as plain HTML.</b></li>
   </ol></details>
 
   <h2 id="checks">Live checks</h2>
-  <p>Each check builds its own small canvas in a corner of the window. None of them touches the demos above.</p>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window, and none of them touches the demos above.</p>
   <table class="results"><tbody id="tests"></tbody></table>
 
   <h2 id="findings">Findings</h2>
-  <p>Measured in headless Chromium 157 on 2026-11-21, with a mouse, a keyboard and emulated touch. Nothing here has been tried on a phone.</p>
+  <p>Measured in headless Chromium 157 on 2026-11-21, with a mouse, a keyboard and emulated touch.</p>
+  <p><b>On a phone (Chrome 159 on Android, reported 2026-11-21):</b> the first version of this page lost its canvases repeatedly: a white box with a broken-picture icon, then a white screen, then an empty canvas. The cause is not known and could not be reproduced in the test browser. This version removes what that version did and other pages on the site do not (live checks on load, a canvas made for reading pixels back, draws with <code>globalAlpha = 0</code>, canvas shadows), and after one lost context the page stops drawing and shows every control as plain HTML. Whether that ends the losses on the phone is not verified.</p>
   <ul class="findings">
     <li><b>A radio group works with only its labels drawn.</b> The form and the fieldset are not drawn. Each <code>drawable</code> label is drawn rotated at its own place, a tap on it checks its radio, the arrow keys move the checked radio and the focus, and <code>FormData</code> holds one value.</li>
-    <li><b>A transparent element drawn with <code>globalAlpha = 0</code> works as a drag handle with its own <code>touch-action</code>.</b> A touch drag on the knob or the clock face did not scroll the page, and a vertical swipe on the same canvas beside the knob scrolled it by the length of the swipe.</li>
+    <li><b>A <code>drawable</code> element drawn over canvas pixels works as a drag handle with its own <code>touch-action</code>.</b> A touch drag on the knob or the clock face did not scroll the page, and a vertical swipe on the same canvas beside the knob scrolled it by the length of the swipe.</li>
     <li><b>A number input with transparent text adds no pixels to the canvas.</b> It still draws its caret and its selection, and a tap between two wheels puts the caret there. So a canvas can draw the digits itself and leave editing to the input.</li>
     <li><b>An outline is not in an element's picture.</b> The picture ends at the border box. The odometer's focus ring is drawn by the canvas from <code>:focus-visible</code>, and the radio labels show focus with a border and an inset shadow.</li>
     <li><b><code>stepUp()</code> raises <code>paint</code> and no <code>input</code> event.</b> The canvas redraws by itself. Code that mirrors the value somewhere else has to be told.</li>
@@ -239,7 +258,7 @@
       watch.unobserve(e.target);
       import(`./${e.target.id}.js`).then((m) => m.default()).catch((err) => console.error(e.target.id, err));
     }
-  }, { rootMargin: '300px 0px' });
+  }, { rootMargin: '100px 0px' });
   if (supported) document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
   // #endregion start
 
@@ -254,7 +273,7 @@
     canvas.style.cssText = `flex:none;width:${w}px;height:${h}px`;
     canvas.innerHTML = html;
     testStage().append(canvas);
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext('2d');
     const state = { canvas, ctx, paints: 0, error: null };
     canvas.addEventListener('paint', () => { state.paints++; ctx.reset(); try { paint(ctx, canvas); state.error = null; } catch (e) { state.error = e; } });
     state.frame = async () => { const n = state.paints; canvas.requestPaint(); for (let i = 0; i < 80 && state.paints === n; i++) await sleep(25); await sleep(40); };
@@ -262,6 +281,14 @@
     if (state.error) throw state.error;
     return state;
   }
+  // Pixels are read from a small copy made with drawImage(), never from the drawable canvas itself.
+  const copy = document.createElement('canvas');
+  const read = (state, x, y, w = 1, h = 1) => {
+    copy.width = w; copy.height = h;
+    const c2 = copy.getContext('2d');
+    c2.drawImage(state.canvas, x, y, w, h, 0, 0, w, h);
+    return c2.getImageData(0, 0, w, h).data;
+  };
   const draw = (ctx, el, x = 0, y = 0) => ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
   const middle = (el) => { const b = el.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2, b]; };
   const q = (state, sel) => state.canvas.querySelector(sel);
@@ -328,15 +355,15 @@
       },
     },
     {
-      name: 'A field with transparent text adds nothing to the canvas until it has a selection',
+      name: 'A field with transparent text adds no pixels to the canvas',
       why: 'The odometer draws its own digits over an input whose text is transparent. The picture of that input must be empty, so the digits are not drawn twice.',
       run: async () => {
         const s = await rig('<input drawable type="number" value="12345" style="width:200px;height:50px;margin:0;padding:0;border:0;outline:none;background:transparent;color:transparent;font:600 36px monospace;appearance:textfield">', (ctx, c) => draw(ctx, c.querySelector('input'), 10, 10));
-        const data = s.ctx.getImageData(0, 0, 240, 170).data;
+        const data = read(s, 10, 10, 200, 49);
         let inked = 0;
         for (let i = 3; i < data.length; i += 4) if (data[i] > 8) inked++;
         if (inked) throw new Error(`${inked} pixels are not transparent`);
-        return 'All 40,800 pixels of the canvas are transparent after the input is drawn.';
+        return 'All 9,800 pixels where the input is drawn are transparent.';
       },
     },
     {
@@ -369,7 +396,7 @@
         const s = await rig('<form><fieldset drawable inert style="box-sizing:border-box;width:200px;height:100px;margin:0;padding:10px;border:1px solid #888;background:#135"><input name="n" required style="width:150px;height:36px;margin:0;font:16px system-ui"></fieldset></form>',
           (ctx, c) => draw(ctx, c.querySelector('fieldset'), 10, 10));
         const field = q(s, 'input'), set = q(s, 'fieldset'), form = q(s, 'form');
-        const [r, g, b, a] = s.ctx.getImageData(15, 100, 1, 1).data;
+        const [r, g, b, a] = read(s, 15, 100);
         if (a < 200) throw new Error('the inert fieldset was not drawn');
         const [x, y] = middle(field);
         const hit = document.elementFromPoint(x, y);
@@ -386,7 +413,7 @@
       why: 'A meter at 100 with the optimum at 90 is drawn in 50 slices round an arc. A pixel on the arc must be mostly green. With the value at 10, two regions from the optimum, a pixel at the start of the arc must be mostly red.',
       run: async () => {
         const s = await rig(METER, (ctx, c) => arc(ctx, c.querySelector('meter')), 240, 170);
-        const at = (a) => s.ctx.getImageData(Math.round(120 + Math.sin(a) * 90), Math.round(120 - Math.cos(a) * 90), 1, 1).data;
+        const at = (a) => read(s, Math.round(120 + Math.sin(a) * 90), Math.round(120 - Math.cos(a) * 90));
         const top = at(0);
         if (!(top[3] > 200 && top[1] > top[0] + 30)) throw new Error(`pixel at the top of the arc is ${[...top]}`);
         q(s, 'meter').value = 10;

@@ -15,7 +15,6 @@ export default function start() {
   const probe = new OffscreenCanvas(8, 8).getContext('2d');
   probe.font = font;
   const spacing = CW - probe.measureText('0').width;
-  input.style.letterSpacing = `${spacing}px`;
   // #endregion odometer-fit
 
   // #region odometer
@@ -72,6 +71,7 @@ export default function start() {
     put(ctx, input, spacing / 2, 0);
     return shown !== target;
   });
+  if (!stage.plain) input.style.letterSpacing = `${spacing}px`;
   // #endregion odometer
 
   const report = () => {

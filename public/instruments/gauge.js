@@ -64,7 +64,7 @@ export default function start() {
     if (!moving) { needle = target; speed = 0; }
     ctx.save();
     ctx.translate(cx, cy); ctx.rotate(needle);
-    ctx.fillStyle = c.fg; ctx.shadowColor = '#0006'; ctx.shadowBlur = 6 * k; ctx.shadowOffsetY = 2 * k;
+    ctx.fillStyle = c.fg;
     ctx.beginPath(); ctx.moveTo(-5 * k, 0); ctx.lineTo(0, -(R - mh * k - 10 * k)); ctx.lineTo(5 * k, 0); ctx.closePath(); ctx.fill();
     ctx.beginPath(); ctx.arc(0, 0, 10 * k, 0, 7); ctx.fill();
     ctx.restore();

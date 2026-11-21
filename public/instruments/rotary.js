@@ -1,4 +1,4 @@
-import { mount, put, hitOnly, colors, clamp } from './kit.js';
+import { mount, put, colors, clamp } from './kit.js';
 
 export default function start() {
   const canvas = document.getElementById('rotaryCanvas');
@@ -15,6 +15,7 @@ export default function start() {
   let angle = detent(checked()), speed = 0, held = null, last = 0;
   let geo = { cx: 0, cy: 0, k: 1 };
 
+  // The shadow under the knob is a second, darker disc. No canvas shadows are used on this page.
   const stage = mount(canvas, (ctx, w, h, t) => {
     const c = colors(canvas);
     const k = Math.min(1, w / 380), cx = w / 2, cy = h / 2 + 14 * k;
@@ -34,18 +35,18 @@ export default function start() {
       const a = detent(i), lit = a <= angle + 0.04;
       ctx.beginPath(); ctx.arc(cx + Math.sin(a) * 80 * k, cy - Math.cos(a) * 80 * k, 5 * k, 0, 7);
       ctx.fillStyle = lit ? c.accent : c.line;
-      ctx.shadowColor = c.accent; ctx.shadowBlur = lit ? 12 * k : 0;
-      ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fill();
+      if (lit) { ctx.globalAlpha = 0.25; ctx.beginPath(); ctx.arc(cx + Math.sin(a) * 80 * k, cy - Math.cos(a) * 80 * k, 9 * k, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
     });
 
     // The knob.
+    ctx.fillStyle = '#0003'; ctx.beginPath(); ctx.arc(cx, cy + 4 * k, 65 * k, 0, 7); ctx.fill();
     ctx.save();
     ctx.translate(cx, cy); ctx.rotate(angle);
     const body = ctx.createRadialGradient(-18 * k, -22 * k, 4 * k, 0, 0, 62 * k);
     body.addColorStop(0, '#6b7280'); body.addColorStop(1, '#1f2430');
-    ctx.fillStyle = body; ctx.shadowColor = '#0008'; ctx.shadowBlur = 14 * k; ctx.shadowOffsetY = 4 * k;
+    ctx.fillStyle = body;
     ctx.beginPath(); ctx.arc(0, 0, 62 * k, 0, 7); ctx.fill();
-    ctx.shadowColor = 'transparent';
     ctx.strokeStyle = '#ffffff30'; ctx.lineWidth = 2 * k;
     for (let n = 0; n < 28; n++) { const a = n / 28 * Math.PI * 2; ctx.beginPath(); ctx.moveTo(Math.sin(a) * 54 * k, -Math.cos(a) * 54 * k); ctx.lineTo(Math.sin(a) * 61 * k, -Math.cos(a) * 61 * k); ctx.stroke(); }
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 5 * k; ctx.lineCap = 'round';
@@ -62,8 +63,8 @@ export default function start() {
       put(ctx, label, -label.offsetWidth / 2, -label.offsetHeight / 2);
       ctx.restore();
     });
-    // An invisible element over the knob takes the drag. It carries touch-action: none, the canvas does not.
-    ctx.save(); ctx.translate(cx - 62 * k, cy - 62 * k); ctx.scale(k, k); hitOnly(ctx, grip); ctx.restore();
+    // A ring element over the knob takes the drag. It carries touch-action: none, the canvas does not.
+    ctx.save(); ctx.translate(cx - 62 * k, cy - 62 * k); ctx.scale(k, k); put(ctx, grip); ctx.restore();
     return moving;
   });
   // #endregion rotary

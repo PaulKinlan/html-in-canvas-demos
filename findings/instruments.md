@@ -1,11 +1,11 @@
 # Form controls drawn as instruments (`/instruments/`)
 
-Five ideas from the element catalogue (group 1 of the backlog in PLAN.md). Measured in headless Chromium 157 (C157) on 2026-11-21 with a mouse, a keyboard and emulated touch at 412 px wide. The page's eight live checks pass there, and `node tools/instruments/check.mjs` drives the five demos with real input (17 steps, all pass). Nothing has been tried on a phone.
+Five ideas from the element catalogue (group 1 of the backlog in PLAN.md). Measured in headless Chromium 157 (C157) on 2026-11-21 with a mouse, a keyboard and emulated touch at 412 px wide. The page's eight live checks pass there, and `node tools/instruments/check.mjs` drives the five demos with real input (17 steps, all pass). The first version of the page lost its canvases on Chrome 159 on Android (A159, reported 2026-11-21). See "Lost canvases on the phone" below.
 
 | Experiment | Result | Why |
 |---|---|---|
 | Rotary switch: five `<label drawable>` of one radio group, each drawn rotated round a knob. The form and fieldset are not drawn | works | A tap on a drawn label checks its radio. Arrow keys move the checked radio and the focus. `FormData` holds one value. The knob has no state: it reads which radio is checked. |
-| A drag handle for a shape that is only canvas pixels (the knob, the clock face) | works | A transparent round `drawable` element is drawn over it with `globalAlpha = 0`. It gets the pointer events. Its `touch-action: none` applies at the drawn place: a touch drag there scrolled the page by 0 px, and a swipe elsewhere on the same canvas (`touch-action: pan-y`) scrolled it by 150 px. |
+| A drag handle for a shape that is only canvas pixels (the knob, the clock face) | works | A round `drawable` element that is only a faint ring is drawn over it. It gets the pointer events. Its `touch-action: none` applies at the drawn place: a touch drag there scrolled the page by 0 px, and a swipe elsewhere on the same canvas (`touch-action: pan-y`) scrolled it by 150 px. |
 | Odometer: `<input type="number">` with transparent text over digit wheels drawn by the canvas | works | The transparent input adds no pixels (live check). It still draws its caret and selection. `letter-spacing` set to wheel width minus the digit advance puts each character over its wheel. Typing, ArrowUp and select-all work in the field. |
 | Rolling the digits from the element's own picture | not possible | When the value changes, the picture of the old value is gone, and an `ElementImage` can only be kept for the same canvas frame. The wheels are drawn with `fillText()` in the input's font. |
 | Focus ring on a drawn input | drawn by the canvas | An `outline` is outside the border box, and the picture ends at the border box. The odometer strokes its case from `input.matches(':focus-visible')`. The radio labels use a border and an inset shadow. |
@@ -18,8 +18,26 @@ Five ideas from the element catalogue (group 1 of the backlog in PLAN.md). Measu
 | Gauge: one `<meter>` drawn in 100 slices round a 240 degree arc | works | Each slice is a clipped draw, rotated to its angle and stretched 1.5 times along the arc. The slices carry the colour the browser picks from `low`, `high` and `optimum`: rgb 16,124,16 at the optimum, 216,59,1 two regions away (live check). Setting `value` or `optimum` raises `paint`. |
 | Clock: `<input type="time">` under a drawn face, hands dragged | works | The page reads `valueAsNumber` and writes `value` plus an `input` event during a drag. The minute hand carries into the hour past 12. Typing in the field moves the hands through every minute in between. |
 
+## Lost canvases on the phone
+
+Reported from Chrome 159 on Android on 2026-11-21, on the preview of the first version: the rotary canvas as a white box with the broken-picture icon, then a white screen, then an empty canvas, repeatedly. The page has no WebGL or WebGPU context. The cause is not known. Headless Chromium 157 with software rendering does not lose a context, so nothing below is verified.
+
+What the first version did that the pages reported as working on the phone do not, all removed:
+
+| Removed | Why it was a suspect |
+|---|---|
+| Live checks that ran on load | Eight fixture canvases made and removed in the first seconds, beside the demo. The guidance for new pages is to keep checks behind a tap. The page now has `<meta name="checks" content="tap">`. |
+| Fixture canvases made with `willReadFrequently: true` | That asks for a canvas kept in main memory, and `drawElementImage()` then has to bring an element picture back from the GPU. Checks now read from a small `drawImage()` copy. |
+| `drawElementImage()` with `globalAlpha = 0` of an element with no content (the drag handles) | An empty picture, drawn every frame. The handles are now a faint ring, drawn normally. |
+| An input whose picture is completely transparent (the odometer) | The same. It has a faint bottom border now. |
+| `shadowBlur` on canvas fills | Not used by the other 2D pages. Replaced with plain fills. |
+| Demos started 300 px before they reach the screen | Two canvases were drawing at load. The margin is 100 px. |
+
+What the page now does when a context is lost: the first `contextlost` on any of the five canvases stops all five, moves their controls out into plain HTML where the canvas was, prints `window.__gfx.summary()` under them, and sets a `sessionStorage` flag so that a reload starts as plain HTML. A button clears the flag. Tested by dispatching `contextlost` on one canvas: all five show plain controls and each demo still reports its form value.
+
 ## Things that bit
 
+- `canvas { display: block }` in a page's styles beats the `hidden` attribute, so a hidden canvas stayed on screen as an empty box until the rule was written for `:not([hidden])`.
 - `click()` on a `<label>` moves focus to its radio. A live check that did that failed the jank guard (`focusMoves 1`). The check now calls `click()` on the radio found by `elementFromPoint()`.
 - One submit raises `invalid` once for every invalid field. Turning the prism on each event ended on the last invalid face. The first event in a task decides.
 - Shading each strip of a turned face separately left dark seams where strips overlap by half a pixel. The shade is now one fill over the outline of the face.
@@ -28,7 +46,8 @@ Five ideas from the element catalogue (group 1 of the backlog in PLAN.md). Measu
 
 ## Not verified
 
-- Chrome 159 on Android: all five demos. `node tools/instruments/check.mjs` covers touch only through CDP events.
+- Chrome 159 on Android: whether this version keeps its canvases. If one is lost, the line under the plain controls says which contexts were made and lost.
+- Chrome 159 on Android: the five demos by touch. `node tools/instruments/check.mjs` covers touch only through CDP events.
 - Whether a tap on the drawn time input opens the Android time dialog, and where. Open `/instruments/#clock` and tap the field.
 - The on-screen keyboard over the odometer and the prism, and whether the canvas stays in view. Tap the wheels.
 - Where Android shows the validation message for a field on the prism. Press Next with the name empty.
@@ -38,7 +57,8 @@ Five ideas from the element catalogue (group 1 of the backlog in PLAN.md). Measu
 ## For the index
 
 - Backlog: ideas 1.1 to 1.5 of the PLAN.md backlog are built on `/instruments/` (element catalogue: "Rotary switch from a radio group", "Odometer for a number input", "Form on a prism, one fieldset per face", "Dial gauge from a meter", "Clock hands from a time input"). `public/elements/ideas.js` does not mark them as built yet.
-- Hit testing: `touch-action` on a drawable element applies at the place it was drawn, including a draw with `globalAlpha = 0` (measured with CDP touch, C157, `/instruments/`).
+- Hit testing: `touch-action` on a drawable element applies at the place it was drawn (measured with CDP touch, C157, `/instruments/`).
+- Pages that hold still: `/instruments/` lost its 2D canvases repeatedly on the phone in its first version, with no WebGL context on the page (reported, A159). Cause unknown.
 - Elements: an `outline` is not in an element's picture (measured, C157, `/instruments/`).
 - Forms: an `inert` drawable fieldset is drawn, submitted and validated, and is not returned by `elementFromPoint()` (measured, C157, `/instruments/`).
 - Forms: the browser's validation message points at the drawn position of a field (seen in a screenshot, C157 headless, `/instruments/`).
