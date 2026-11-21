@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Friction log: where the API did not do what we expected</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center; margin: 10px 0; max-width: 720px; }
+  .bar button, .entry button { font: inherit; min-height: 44px; padding: 4px 12px; border-radius: 8px; }
+  .bar label { display: inline-flex; gap: 6px; align-items: center; min-height: 44px; font-size: 14px; }
+  .bar input[type=search] { font: inherit; min-height: 44px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); flex: 1 1 200px; min-width: 0; background: var(--bg); color: inherit; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; max-width: 720px; overflow-wrap: anywhere; }
+  .kind { max-width: 720px; }
+  .kind > h2 { margin-bottom: 4px; }
+  .entry { scroll-margin-top: 72px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 12px 0; overflow-wrap: anywhere; }
+  .entry h3 { margin: 6px 0 8px; font-size: 17px; line-height: 1.3; }
+  .entry p, .entry ul { margin: 6px 0; font-size: 14.5px; line-height: 1.5; }
+  .entry ul { padding-left: 1.3em; }
+  .entry b.k { font-weight: 600; }
+  .tags { display: flex; gap: 6px; flex-wrap: wrap; font: 12px/1.4 var(--mono); }
+  .tags span { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+  .tags .engine { border-color: var(--bad); color: var(--bad); }
+  .tags .open { border-color: var(--warn); color: var(--warn); }
+  .entry .here { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 1.5em; }
+  .entry .here.yes { color: var(--bad); }
+  .entry .here.no { color: var(--ok); }
+  #crashList { max-width: 720px; padding-left: 1.3em; font-size: 14.5px; line-height: 1.5; overflow-wrap: anywhere; }
+  #crashList li { margin: 6px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Friction log: where the API did not do what we expected</h1>
+  <p class="lede">
+    Every place found so far where HTML-in-canvas, or a Chrome API used with it, did not do what the person writing a page expected.
+    Each entry says what was expected, what happened, in which browser, where to see it, what the pages do now, and whether it is a
+    browser bug, a gap in the API, the API working as built, or our mistake. Nineteen entries have a probe: the live checks at the end
+    of the page re-run them in this browser and mark each entry "still happens" or "does not happen".
+  </p>
+
+  <div class="bar" id="kinds"></div>
+  <div class="bar">
+    <input type="search" id="q" placeholder="Filter by text, for example hit, paint, select" aria-label="Filter the entries by text">
+    <button type="button" id="copyAll">Copy what is shown</button>
+  </div>
+  <p id="status" role="status"></p>
+
+  <div id="entries"></div>
+
+  <section class="kind" id="crashes">
+    <h2>Crashes and lost canvases</h2>
+    <p class="note">These have their own page, with steps, evidence and a standalone reproduction for each: <a href="/crashes/">/crashes/</a>. The list below is read from that page's data and is not a second copy.</p>
+    <ul id="crashList"></ul>
+  </section>
+
+  <details class="show-code">
+    <summary>Show the code <small>the entries, the probes, the fixture a probe draws into</small></summary>
+    <ol>
+      <li data-code="/friction/entries.js#entries"><b>The entries.</b> Data, one object each. A new one is added here.</li>
+      <li data-code="/friction/probes.js#fixture"><b>The fixture.</b> A drawable 2D canvas on the test stage. Pixels are read from a <code>drawImage()</code> copy.</li>
+      <li data-code="/friction/probes.js#probes"><b>The probes.</b> One function for each entry that can be decided by script. Each answers <code>{ happens, detail }</code>.</li>
+      <li data-code="#checks"><b>From a probe to a live check.</b> A check fails while the browser still does what the entry describes.</li>
+      <li data-code="/friction/entries.js#text"><b>The text of one entry.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul>
+    <li>The entries are written by hand in <code>/friction/entries.js</code> from <code>FINDINGS.md</code>, the "Things that bit", "Chromium bugs" and "API requests" sections of the files in <code>findings/</code>, and <code>docs/graphics-rules.md</code>. Each names the file that holds the full record.</li>
+    <li>"Measured" means a live check or a script produced it in headless Chromium 157.0.8103.78 with software rendering (C157) unless the entry names another browser. "Reported" means it was seen on the project owner's phone, Chrome 159 on Android (A159), and was not reproduced in the test browser.</li>
+    <li>An entry with a probe is re-run here. The probe builds its own fixture on the test stage, away from the page, and never touches a visible canvas. No probe opens a WebGL context or a WebGPU device, and none reads a drawable canvas directly.</li>
+    <li>The probes wait for a press. Several of them ask <code>elementFromPoint()</code> on the test stage or count paint events over a third of a second, and a page should start with nothing else running.</li>
+    <li>A crash or a lost canvas is recorded on <a href="/crashes/">/crashes/</a>. An entry here that has one links to it.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">One check for each probe. A check is named after its entry and fails while this browser still does what the entry describes. All nineteen are expected to fail in Chromium 157. A check that passes marks an entry that is out of date for this browser.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Entry</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">State on 2026-11-21. Headless Chromium 157.0.8103.78 for "measured", Chrome 159 on Android for "reported".</p>
+  <ul class="findings" id="findings">
+    <li><strong>79 entries.</strong> 18 look like browser bugs, 17 are things the API has no call for, 21 are the API working as built, 8 are our mistakes, 7 come from libraries or the test browser, and 8 have no known cause. The crashes and lost canvases on <code>/crashes/</code> are counted there.</li>
+    <li><strong>Hit testing has the most entries, 13.</strong> The last draw decides an element's one hit region, a draw with no pixels moves it, a source-rectangle draw shrinks it, and the browser remembers its answer for a point after the region moves. Most pages that draw an element twice or in pieces met at least one of these.</li>
+    <li><strong>Most of the time lost was to silence.</strong> A draw with no size, an SVG drawn with <code>offsetWidth</code>, a filter id that is not found, cross-origin content and a nested drawable outside the window all draw wrongly or draw nothing and throw nothing. "No cached paint record for element" is the one error message for four different causes.</li>
+    <li><strong>All nineteen probes reproduce in Chromium 157</strong> at device scale factor 2 on 2026-11-21. At scale factor 1 the probe for a draw with no size cannot decide.</li>
+    <li><strong>Nothing here has been filed.</strong> Each entry copies as plain text for a report.</li>
+    <li><strong>Not verified:</strong> every probe on Chrome 159 for Android. Press "Run the checks" on the phone. The entries about touch (<code>:active</code>, <code>touch-action</code> in a picker, a rotated range input) were measured with emulated touch only.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests } from '/shared/support.js';
+  import { ENTRIES, KINDS, entryText } from '/friction/entries.js';
+  import { PROBES } from '/friction/probes.js';
+  import { CASES } from '/crashes/cases.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
+  const copy = async (button, text) => { const was = button.textContent; try { await navigator.clipboard.writeText(text); button.textContent = 'Copied'; } catch { button.textContent = 'Could not copy'; } setTimeout(() => (button.textContent = was), 1500); };
+  const link = (path) => el('a', { href: path, textContent: path });
+  const BROWSERS = { C157: 'Chromium 157 (headless)', C153: 'Chromium 153', A159: 'Chrome 159 on Android' };
+  const browserText = (b) => b.split(', ').map((x) => BROWSERS[x] ?? x).join(', ');
+
+  const results = new Map(); // entry id -> { happens, detail }
+  const on = new Set(Object.keys(KINDS));
+  const hereText = (e) => {
+    if (!e.probe) return ['', ''];
+    const r = results.get(e.id);
+    if (!r) return ['In this browser: not run yet. The live checks at the end of the page run the probe.', ''];
+    return r.happens === null ? ['In this browser: not decided.', ''] : r.happens ? ['In this browser: still happens.', 'yes'] : ['In this browser: does not happen.', 'no'];
+  };
+
+  function card(e) {
+    const button = el('button', { type: 'button', textContent: 'Copy as text' });
+    button.addEventListener('click', () => copy(button, entryText(e, results.get(e.id))));
+    const [here, cls] = hereText(e);
+    return el('section', { className: 'entry', id: e.id },
+      el('div', { className: 'tags' },
+        el('span', { className: e.kind, textContent: { engine: 'browser bug?', gap: 'API gap', surprise: 'as built', mistake: 'our mistake', tooling: 'library or tool', open: 'cause not found' }[e.kind] }),
+        el('span', { textContent: e.area }),
+        el('span', { textContent: e.how }),
+        el('span', { textContent: e.date }),
+        ...(e.probe ? [el('span', { textContent: 'has a probe' })] : [])),
+      el('h3', { textContent: e.title }),
+      ...(e.expected ? [el('p', {}, el('b', { className: 'k', textContent: 'Expected. ' }), e.expected)] : []),
+      el('p', {}, el('b', { className: 'k', textContent: 'Actual. ' }), e.actual),
+      el('p', {}, el('b', { className: 'k', textContent: 'Browser. ' }), browserText(e.browser)),
+      el('p', {}, el('b', { className: 'k', textContent: 'Now. ' }), e.fix),
+      el('p', {}, el('b', { className: 'k', textContent: 'Status. ' }), e.status),
+      el('ul', {}, ...e.where.map(([path, what]) => el('li', {}, link(path), what ? ` ${what}` : ''))),
+      el('p', { className: 'note' }, `Record: ${e.source}`),
+      ...(e.probe ? [el('p', { className: `here ${cls}`, textContent: here })] : []),
+      button);
+  }
+
+  const shown = () => {
+    const q = $('q').value.trim().toLowerCase();
+    return ENTRIES.filter((e) => on.has(e.kind) && (!q || [e.title, e.area, e.expected, e.actual, e.fix, e.status, e.source, ...e.where.flat()].join(' ').toLowerCase().includes(q)));
+  };
+
+  function draw() {
+    const list = shown();
+    $('entries').replaceChildren(...Object.entries(KINDS).filter(([k]) => list.some((e) => e.kind === k)).map(([k, [title, note]]) =>
+      el('section', { className: 'kind', id: `kind-${k}` }, el('h2', { textContent: title }), el('p', { className: 'note', textContent: note }), ...list.filter((e) => e.kind === k).map(card))));
+    status(list.length);
+  }
+  let count = 0;
+  function status(n = count) {
+    count = n;
+    const probed = ENTRIES.filter((e) => e.probe), ran = probed.filter((e) => results.has(e.id));
+    const still = ran.filter((e) => results.get(e.id).happens === true).length, gone = ran.filter((e) => results.get(e.id).happens === false).length;
+    $('status').textContent = `${n} of ${ENTRIES.length} entries shown. ${probed.length} have a probe` + (ran.length ? `: ${still} still happen in this browser, ${gone} do not, ${ran.length - still - gone} not decided.` : ', not run yet.');
+  }
+
+  for (const [k, [title]] of Object.entries(KINDS)) {
+    const box = el('input', { type: 'checkbox', checked: true });
+    box.addEventListener('change', () => { if (box.checked) on.add(k); else on.delete(k); draw(); });
+    $('kinds').append(el('label', {}, box, `${title} (${ENTRIES.filter((e) => e.kind === k).length})`));
+  }
+  $('q').addEventListener('input', draw);
+  $('copyAll').addEventListener('click', () => copy($('copyAll'), shown().map((e) => entryText(e, results.get(e.id))).join('\n\n----------------------------------------\n\n')));
+  $('crashList').replaceChildren(...CASES.map((c) => el('li', {}, el('a', { href: `/crashes/#${c.id}`, textContent: c.title }), ` ${{ crash: 'Crash', loss: 'Contexts lost', blank: 'Blank canvas' }[c.kind]}, ${c.how}, ${c.date}.${c.related === false ? ' Not about HTML-in-canvas.' : ''}`)));
+  draw();
+  // A link to one entry arrives before the entries exist.
+  if (location.hash.length > 1) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+
+  // #region checks
+  // One live check for each entry that has a probe. The check fails while the browser still does
+  // what the entry describes, so a pass means the entry is out of date here.
+  const say = (id, r) => {
+    results.set(id, r);
+    const line = document.querySelector(`#${CSS.escape(id)} .here`);
+    if (line) { const [text, cls] = hereText(ENTRIES.find((e) => e.id === id)); line.textContent = text; line.className = `here ${cls}`; }
+    status();
+  };
+  runTests($('results'), ENTRIES.filter((e) => e.probe).map((e) => ({
+    name: e.title,
+    why: `Expected: ${e.expected}`,
+    expect: 'fail',
+    timeout: 8000,
+    run: async () => {
+      const r = await PROBES[e.id]();
+      say(e.id, r);
+      if (r.happens) throw Object.assign(new Error(r.detail), { name: 'Still happens' });
+      return `${r.happens === null ? 'Not decided' : 'Does not happen here'}: ${r.detail}`;
+    },
+  })));
+  // #endregion checks
+</script>
+</body>
+</html>
