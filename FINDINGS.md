@@ -56,6 +56,12 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A video, an animated image, a `marquee`, an indeterminate `progress`, a focused input, a scroll-driven animation and a `scroll-state()` change each raise `paint` with no `requestPaint()`. | measured | C157 | `/video/`, `/elements/`, `/chrome-apis/probes.html` | Video and sound; PR #48; PR #50 |
 | Becoming a canvas descendant restarts an element's CSS animations. | measured | C157 | `/capture/` | Capture |
 | Inserting, moving or removing an iframe inside a `paint` handler crashes the tab. | measured | C157 | `/capture/` | Capture |
+| A `drawable` element nested inside another drawable element has its own picture and is left out of the outer one. | measured | C157 | `/carousel/`, `/translate-lens/` | CSS carousel as a cover flow; Language models, voice and input |
+| Each chunk of a streamed `<template for>` patch or of `streamAppendHTML()` raises one `paint` event. `changedElements` names only the nearest drawable element around the change. | measured | C157 | `/patch/`, `/stream/` | Declarative partial updates and `moveBefore()`; Streamed HTML |
+| `moveBefore()` keeps the focus, animation time and uploaded texture of a drawable element. | measured | C157 | `/patch/`, `/component-kit/` | Declarative partial updates and `moveBefore()`; Newer DOM features in a drawable custom element |
+| A WebAssembly program can block on `paint` through JSPI and draw in the microtask after the listener. | measured | C157 | `/wasm-ui/` | A WebAssembly loop on the paint event |
+| `canvas.when('paint')` (Observable) delivers the same events as `addEventListener('paint')`. `ElementImage` has `close()` and no `[Symbol.dispose]`, so `using` needs a wrapper. | measured | C157 | `/component-kit/` | Newer DOM features in a drawable custom element |
+| Scroll-driven animations, `scroll-state()` and `timeline-trigger` set registered custom properties on canvas children. | measured | C157 | `/scroll-fx/` | Effects driven by CSS, the tilt sensor and text measured by CSS |
 
 ### drawElementImage() in a 2D context
 
@@ -94,6 +100,14 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A drawable canvas in the top layer takes its content out of the page's scroll chain. | measured | C157 | `/portal/` | UI primitives, Touch, top layer and live checks |
 | In C157 the browser tracks where an element is drawn for anchor positioning, `interestfor`, `highlightsFromPoint()` and `OpaqueRange` rects. In C153 they use the layout box. | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
 | `getBoundingClientRect()` on a canvas child reports the box it was last drawn in, after the draw transform. Layout has to be measured with `offsetTop` and `offsetLeft`. | measured | C157 | `/translate-lens/`, `/agent-view/` | Language models, voice and input |
+| Scroll snap uses the place given to `updateElementGeometry()`. A nested drawable element inside a scroller is clipped by the scroller. | measured | C157 | `/carousel/` | CSS carousel as a cover flow |
+| The CSS anchor rectangle of an element in a drawn canvas child is the bounding box of its drawn quad, also under perspective. Chromium 153 anchors to the layout box. | measured | C157, C153 | `/popovers/` | Native popovers on a tilted panel |
+| A perspective matrix given to `updateElementGeometry()` keeps buttons on a leaning card pressable. | measured | C157 | `/tilt-card/`, `/agent-view/` | Effects driven by CSS, the tilt sensor and text measured by CSS; Language models, voice and input |
+| `inert` is enough to keep a drawn element from taking the pointer in a 2D canvas. | measured | C157 | `/wasm-ui/` | A WebAssembly loop on the paint event |
+| `createValueRange()` rects of a drawn input are at the drawn position and match the ink. | measured | C157 | `/text-labels/` | Effects driven by CSS, the tilt sensor and text measured by CSS |
+| `getBoundingClientRect()` on a canvas child that is drawn moved or scaled reports the drawn box. `offsetTop` and `offsetLeft` report layout. | measured | C157 | `/translate-lens/`, `/focus-nav/` | Language models, voice and input; Controller, keyboard and haptic navigation |
+| A draw with `globalAlpha = 0`, or one clipped away completely, still moves the element's hit region. | measured | C157 | `/element-ideas/` | Every HTML element |
+| Focusing an element whose hit region was moved far away scrolls the page towards that place. | measured | C157 | `/element-ideas/` | Every HTML element |
 
 ### ElementImage, workers and OffscreenCanvas
 
@@ -138,6 +152,9 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | Every other on-screen WebGPU path, its speed against WebGL, and three `WebGPURenderer`. | not verified | | the shader pages, `/three-form/` | WebGPU across the shader demos |
 | `XRGPUBinding` is missing, so WebXR stays on WebGL. | measured | C157 | `/xr/` | WebGPU across the shader demos |
 | A real phone GPU should do relatively better on the shader lens route than software rendering does. | inferred | | `/lens/` | Lens pipeline |
+| A swizzled view, immediates and a float blend target all work on a texture filled by `drawElementImageToTexture()`. | measured | C157 | `/webgpu-features/` | Newer WebGPU features on element textures |
+| A compatibility mode device builds and draws every shader of `/webgpu-features/`. | measured, software adapter | C157 | `/webgpu-features/` | Newer WebGPU features on element textures |
+| `dual-source-blending` and `primitive-index` shaders. | not verified | | `/webgpu-features/` | Newer WebGPU features on element textures |
 
 ### What is in an element's picture
 
@@ -161,6 +178,12 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `focusgroup` arrow keys move focus between buttons drawn through a shader, along DOM order on one axis; `reading-flow` on the container makes them, and Tab, follow the drawn order. | measured | C157 | `/focus-nav/` | Controller, keyboard and haptic navigation |
 | A focus ring shown by `focus({ focusVisible: true })` is in the element's texture. | measured | C157 | `/focus-nav/` | Controller, keyboard and haptic navigation |
 | Native media controls, `::cue` captions and rules on `::-webkit-media-controls-*` are drawn. | measured | C157 | `/video/`, `/player-parts/` | Video and sound |
+| A drawable canvas is never tainted. A cross-origin or sandboxed iframe, and an image, video or CSS background loaded without CORS, are left out of the picture (0 pixels) with no error, in 2D and through `texElementSubImage2D()`. The iframe still takes clicks where it was drawn. | measured | C157, C153 | `/protected/`, `/iframe-tiles/` | Protected content in a drawable canvas; Iframes as tiles |
+| A visited link is drawn in its unvisited colour. A password field is drawn as dots. An open popover and a modal dialog are not in the picture. | measured | C157, C153 | `/protected/` | Protected content in a drawable canvas |
+| A real click on a permission element (`<geolocation>`) in a canvas reaches it and opens no prompt. The same click outside a canvas opens it. | measured | C157, C153 | `/protected/` | Protected content in a drawable canvas |
+| `corner-shape`, `border-shape` and `clip-path: shape()` are in the element's alpha, and hit testing follows them. | measured | C157 | `/shape-ui/` | Effects driven by CSS, the tilt sensor and text measured by CSS |
+| `text-fit`, `text-box-trim` and `sideways-lr` size a canvas child, which is drawn at that size. | measured | C157 | `/text-labels/` | Effects driven by CSS, the tilt sensor and text measured by CSS |
+| A custom highlight and a script-set `:focus-visible` outline are in the texture. | measured | C157 | `/voice/`, `/focus-nav/` | Language models, voice and input; Controller, keyboard and haptic navigation |
 
 ### Slots and shadow DOM
 
@@ -173,6 +196,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A shadow root on `<body>` with a canvas and named slots works for page-level slots and for capturing a whole page. | measured | C157 | `/slot-bare/`, `/capture/` | Slots; Capture |
 | `moveBefore()` out of a drawable canvas and back in the same task breaks later draws of that element. | measured | C157 | `/slot/` | Slots |
 | `moveBefore()` into a canvas keeps focus, caret, typed value, scroll offsets and iframes. | measured | C157 | `/capture/` | Capture |
+| A scoped `CustomElementRegistry`, `slotAssignment: 'manual'` and Reference Target each work with a canvas that draws slotted children. | measured | C157 | `/component-kit/` | Newer DOM features in a drawable custom element |
 
 ### Across workers, tabs, origins and devices
 
@@ -188,6 +212,10 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | Any connection between two real networks, and TURN. | not verified | | `/remote/` | Remote across real networks |
 | Chrome's storage partitioning is expected to block the BroadcastChannel bridge between two real sites. | inferred | | `/tear-off/` | Cross-context |
 | `adoptNode()` of a drawable canvas that has painted, into a same-origin iframe, crashes the tab. | measured | C157 | `/transports/crash-adopt.html` | Transport lab |
+| At 40 kbit/s WebRTC shrinks a 960×540 element to 320×180. `degradationPreference: 'maintain-framerate-and-resolution'` keeps it at 960×540. | measured | C157 | `/transports-2/` | Transport lab 2: newer transport APIs |
+| A frame sent with `Document-Isolation-Policy` gets `SharedArrayBuffer` while the page around it stays non-isolated. | measured | C157 | `/transports-2/` | Transport lab 2: newer transport APIs |
+| `frame-sizing: content-height` parses and does not size an iframe. `window.requestResize()` throws `NotAllowedError`. | measured | C157, C153 | `/iframe-tiles/` | Iframes as tiles |
+| Element Capture, a frozen tab, and WebTransport against a real server. | not verified | | `/transports-2/` | Transport lab 2: newer transport APIs |
 
 ### Accessibility, focus and selection
 
@@ -199,6 +227,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A pixel mirror (another tab, another origin, a video) has no role, name, focus or text. | measured | C157 | `/a11y/` | Accessibility |
 | Selection hit testing follows the drawn geometry, also rotated and scaled. `Range.getClientRects()` follows the drawn position and returns upright bounding boxes under rotation. | measured | C157 | `/selection/` | Text selection |
 | Screen reader output, IME candidate windows, the find bar, OS magnifiers. | not verified | | `/a11y/` section C | Accessibility |
+| `allow="focus-without-user-activation 'none'"` stops an iframe tile taking focus in C153 and not in C157. | measured | C153, C157 | `/iframe-tiles/` | Iframes as tiles |
+| `focusgroup="toolbar wrap"` moves focus in DOM order through buttons drawn by a shader. With `reading-flow: grid-rows`, arrows and Tab follow the drawn order. | measured, real key events from a test script | C157 | `/focus-nav/` | Controller, keyboard and haptic navigation |
 
 ### Form controls and pickers
 
@@ -230,6 +260,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A named child of the canvas gets a group and empty snapshots. | measured | C157 | `/view-transitions/` | View Transitions API |
 | `element.startViewTransition()` on the canvas blanks it unless the canvas has `view-transition-name: none`. Group positions inside a canvas scope read 0,0. | measured | C157 | `/view-transitions/` | View Transitions API |
 | `element.startViewTransition()` on a `drawable` child of a drawable canvas crashes the renderer. | measured | C157 | `/view-transitions/crash.html` | View Transitions API |
+| A `navigate` listener with `precommitHandler` can append the new view as a canvas child and blend both live views with a shader. `sourceElement` gives the transition origin. | measured | C157 | `/nav-shader/` | Navigations drawn by a shader |
+| A snapshot from `captureElementImage()` still draws after its element was removed. | measured | C157 | `/nav-shader/` | Navigations drawn by a shader |
 
 ### Capture and export
 
@@ -239,6 +271,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | Frame-exact video export: set `animation.currentTime`, ask for a paint, wrap the canvas in a `VideoFrame`, encode. | measured | C157 | `/capture/`, `/overlay/` | Capture; Video and sound |
 | `page.pdf()` includes drawn DOM as a bitmap. | measured | C157 | `/capture/` | Capture |
 | Whether a capture flickers on a real screen. | not verified | | `/capture/` | Capture |
+| Element Timing reports a canvas child even when the canvas never draws it. `presentationTime` is when the element's picture was painted. A 2D canvas shows a DOM change in the same frame as plain DOM (5 ms median against 4 ms, software rendering). | measured | C157 | `/perf/` | Performance, Latency and long frames |
+| `copyElement(el, { html: true })` writes PNG, HTML and text in one `ClipboardItem`. | measured | C157 | `/capture/` | Capture, Clipboard, print margins, folders |
 
 ### 3D, XR and native toolkits
 
@@ -253,6 +287,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | Canvas children convert to Stream Deck HID reports, ESC/POS raster and RGB565 frames, and simulated devices are drawn from the bytes. | measured, no device | C157 | `/hardware-out/` | Devices |
 | A title bar element drawn by a canvas works in a simulated window, and the computed `app-region` is found at the drawn position. | measured, simulated window | C157 | `/window-chrome/` | Devices |
 | A real foldable, a real Stream Deck, printer or LED matrix, and an installed app window. | not verified | | `/fold/`, `/hardware-out/`, `/window-chrome/` | Devices |
+| A fingertip position works as a pointer on a panel, and a panel snaps to a plane, in a simulated room and in the IWER headset emulator. | measured, simulated and emulated | C157 | `/xr-room/` | 3D and spatial, Panels in a real room |
+| Real hand joints, detected planes, depth occlusion and a quad layer filled with `texElementSubImage2D()`. | not verified | | `/xr-room/` | 3D and spatial, Panels in a real room |
 
 ### Phones and lost contexts
 
@@ -266,6 +302,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | The cause is several WebGL contexts and a WebGPU device opened at once. | inferred | | | PLAN.md, Site-wide work that is open |
 | `dvh` on a canvas stage resizes it each time the URL bar moves. Assigning `canvas.width` clears the canvas even when the value is unchanged. | measured | C157 | `/board/` | Pages that hold still |
 | An opacity effect around a drawable canvas inside an iframe that is itself drawn into a canvas crashes the tab. | measured | C157 | `/board/` | Pages that hold still |
+| A guard on every page (PR #63) counts contexts and puts a note with a Reload button over a canvas that stays lost. `check:jank` limits a page to 8 live WebGL contexts and 0 lost canvases. Whether this ends the white boxes on the phone has not been reported. | measured in C157; not verified on A159 | C157 | every page | Pages that hold still |
 
 ## Chromium bugs worth filing
 
@@ -294,6 +331,11 @@ Crashes and behaviour that looks wrong, each with where to reproduce it. All wer
 | 19 | Reported from Chrome 159 on Android: canvases on new pages lose their context on first load and show a white box with a broken-picture icon. | `/selection/` and other pages built on 2026-11-21 | Cause not identified. May be a resource limit and not a bug. |
 | 20 | Tab crash: `SpeechRecognition.available({ langs: ['en-US'], processLocally: true })`. | Any page, headless Chromium 157 (`/voice/` asks only after a tap) | Not related to HTML-in-canvas. Not tried in a headed browser. |
 | 21 | `Translator.availability({ sourceLanguage: 'en', targetLanguage: 'fr' })` never settles. | `/translate-lens/`, headless Chromium 157 | The page gives up after 3 s. |
+| 22 | Possible: a drawable element whose hit box was outside the canvas keeps an empty picture after the hit box returns, until something else repaints it. | `/carousel/` | Not reduced to a small page yet. |
+| 23 | `<geolocation>` in a canvas reports `isValid` false with reason `intersection_occluded_or_distorted`, even drawn over its own box with no transform. | `/protected/` | May be intended. |
+| 24 | A touch drag on `<input type="range">` drawn rotated 90 degrees is not followed. A mouse drag is, and a slider drawn at 17 degrees drags by touch. | `/element-ideas/`, touch emulation | Needs a check on a real phone before it is reported. |
+
+Further cases of bugs 2 and 5. On `/iframe-tiles/`, removing an iframe canvas child inside `paint` or a microtask of it crashes the tab, and so does `loseContext()` there when the canvas has an iframe child; leaving the event with `setTimeout(0)` first avoids both. On `/protected/`, `loseContext()` on a drawable canvas that is then removed crashes the tab: at once when both happen in one task, and after a 150 ms wait too when the canvas has an iframe child.
 
 ## API changes that would help
 
