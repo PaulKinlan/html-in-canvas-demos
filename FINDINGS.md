@@ -147,6 +147,9 @@ One row per main result. "Section" is the section of this file with the detail.
 | Clear Key encrypted video is drawn black. The canvas is not tainted. | measured | C157 | `/video/` | Video and sound |
 | Same-origin iframes paint, take input at any zoom and nest. | measured | C157 | `/board/` | 3D and spatial |
 | Links are drawn as unvisited. | measured | C153 | `/chrome-apis/probes.html` | PR #50 |
+| A drawable canvas is never tainted: a cross-origin iframe, and an image, video or CSS background loaded without CORS, are left out of the picture (0 pixels), in 2D and through `texElementSubImage2D()`. | measured | C157, C153 | `/protected/` | PR #56 |
+| A real click on a permission element in a canvas reaches it and opens no prompt; the same click outside a canvas opens it. | measured | C157, C153 | `/protected/` | PR #56 |
+| Element Timing reports a canvas child even when the canvas never draws it; `presentationTime` is when the element's picture was painted. A 2D canvas shows a DOM change in the same frame as plain DOM. | measured | C157 | `/perf/` | PR #56 |
 | Spelling markers on a `spellcheck` textarea are not drawn. | measured | C157 | `/native-ui/` | Native UI toolkits |
 | Find-in-page marks, `::target-text`, autofill previews. | not verified | | | Transitions and motion; Text selection |
 | Permission elements (`<geolocation>` and others) are drawn and report themselves invalid (`intersection_occluded_or_distorted`). | measured | C157 | `/elements/`, `/chrome-apis/probes.html` | PR #48; PR #50 |
@@ -377,6 +380,9 @@ The main results. Each is backed by the tables in the sections below.
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
 - [Native UI toolkits (/native-ui/)](#native-ui-toolkits-native-ui)
 - [Recent platform features on drawn elements (/chrome-apis/)](#recent-platform-features-on-drawn-elements-chrome-apis)
+- [Protected content in a drawable canvas (/protected/)](#protected-content-in-a-drawable-canvas-protected)
+- [Latency and long frames (/perf/)](#latency-and-long-frames-perf)
+- [Capture additions: clipboard, print margins, folders](#capture-additions-clipboard-print-margins-folders-capture-libelement-capturejs)
 
 ## Slots
 

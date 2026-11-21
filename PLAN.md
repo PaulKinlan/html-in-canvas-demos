@@ -92,17 +92,17 @@ Source: `tools/chrome-apis/demos.json` and `docs/chrome-apis-plan.md` (PR #50). 
 | 7 | `shape-ui` | CSS shapes (`corner-shape`, `border-shape`, `shape()`) lit as solid objects | next | Build visual effect demos from plan |
 | 8 | `text-labels` | Text measured by CSS for textures, signs and particles (`text-box-trim`, `text-fit`, `OpaqueRange`) | next | Build visual effect demos from plan |
 | 9 | `caret-fx` | Carets, highlights and editing drawn through shaders | next | Build text selection effects |
-| 10 | `caps-in-canvas` | What a canvas may not see or wrap: permission elements, `:visited`, system colours, spelling markers, autofill previews, cross-origin iframes | next | Audit accessibility, capture and performance |
+| 10 | `caps-in-canvas` | What a canvas may not see or wrap: permission elements, `:visited`, system colours, spelling markers, autofill previews, cross-origin iframes | next | Audit accessibility, capture and performance. Built as `/protected/` (PR #56) |
 | 11 | `sensor-parallax` | Tilt the phone to light a live card | next | Build visual effect demos from plan |
 | 12 | `translate-lens` | A lens that translates, simplifies or summarises what is under it | then | Build AI and input demos from plan |
 | 13 | `agent-view` | An agent operating a canvas UI through WebMCP tools, drawn as it happens | then | Build AI and input demos from plan |
 | 14 | `voice-ui` | Speak a label to press what the canvas draws | then | Build AI and input demos from plan |
 | 15 | `nav-shader` | Page navigations drawn by a shader that starts at the clicked link (Navigation API) | then | Build AI and input demos from plan |
 | 16 | `focus-nav` | Controller, keyboard (`focusgroup`) and haptic navigation of drawn UI | then | Build AI and input demos from plan |
-| 17 | `perf-latency` | Latency from DOM change to canvas pixels, and a device tier | then | Audit accessibility, capture and performance |
+| 17 | `perf-latency` | Latency from DOM change to canvas pixels, and a device tier | then | Audit accessibility, capture and performance. Built on `/perf/` (PR #56) |
 | 18 | `transport-2` | New routes for the transport lab and the remote component (WebTransport, Element Capture, worker input) | then | Share live widgets across contexts |
 | 19 | `media-states` | Media state pseudo-classes for canvas-drawn players | then | Explore video and media APIs |
-| 20 | `capture-print` | Capture additions: clipboard, print margins, files | then | Audit accessibility, capture and performance |
+| 20 | `capture-print` | Capture additions: clipboard, print margins, files | then | Audit accessibility, capture and performance. Built on `/capture/` (PR #56) |
 | 21 | `component-kit` | The custom elements packaged with newer DOM features (scoped registries, Reference Target, `using`, Observable) | then | UI primitives thread |
 | 22 | `iframe-tiles` | Iframes as tiles: sizing, prerender and limits | then | Share live widgets across contexts |
 | 23 | `foldable` | DOM drawn across a fold | hardware | Build hardware demos from plan |
@@ -296,6 +296,9 @@ Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-2
 | Consent window on Android | Android opens the `/slot-view/` consent window as a tab | Phone. |
 | WebXR | A real headset or Android AR session; whether `paint` keeps firing behind an immersive session; `XRQuadLayer` | `/xr/` in a headset. The page counts paint events in session and shows the result on a panel. |
 | Other browsers | Safari and Firefox as viewers of the cross-context pages | By hand. |
+| Protected content | Spelling markers and the autofill preview in a drawn field; whether a tap on a permission element in a canvas opens a prompt on Android; a custom system accent colour | `/protected/`, "Try it by hand", on the phone. |
+| Latency | DOM change to presentation, and the long-frame split, on real hardware; whether `deviceTier()` matches the measured wall | `/perf/`, the two latency buttons, on the phone. |
+| Folders and print | `showDirectoryPicker()` and `FileSystemObserver` on Android; a printed capture with its `@page` margin boxes; HEVC recording | `/capture/` section C and "Print with page numbers". |
 | Chrome version | Chrome 159 against the four probe results that differ between 153 and 157; Chrome 148 as the floor | `/chrome-apis/probes.html` on the phone. |
 | Native UI | Qt Widgets (2D canvas route) | Not built. |
 
