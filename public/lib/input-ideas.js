@@ -67,6 +67,19 @@ input[data-idea-picker]::-webkit-calendar-picker-indicator { display: none; }
 .idea-picker .info { display: block; width: 260px; height: 20px; text-align: center; font-size: 13px; line-height: 20px; white-space: nowrap; }
 `;
 
+/**
+ * One pixel of a canvas, read from a 1 by 1 copy made with drawImage(). The
+ * drawable canvas itself is never read with getImageData(): on Android a
+ * drawable 2D canvas that is read that way can lose every 2D context on the page.
+ */
+let scratch;
+export function pixelOf(canvas, x, y) {
+  scratch ??= Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
+  scratch.clearRect(0, 0, 1, 1);
+  scratch.drawImage(canvas, x, y, 1, 1, 0, 0, 1, 1);
+  return scratch.getImageData(0, 0, 1, 1).data;
+}
+
 function addCSS(node) {
   const root = node.getRootNode(), head = root.nodeType === 9 ? root.head : root;
   if (!head.querySelector('style[data-input-ideas]')) head.append(el('style', { textContent: CSS_TEXT }, { 'data-input-ideas': '' }));
@@ -679,7 +692,7 @@ export class ColourWheel extends IdeaPicker {
     const unit = ctx.canvas.width / s.w;
     let rgb;
     if (pick.read !== false) try {
-      const px = ctx.getImageData(Math.round(pick.x * unit), Math.round(pick.y * unit), 1, 1).data;
+      const px = pixelOf(ctx.canvas, Math.round(pick.x * unit), Math.round(pick.y * unit));
       this.reads++;
       rgb = px[3] === 255 ? px : null;
     } catch (err) {

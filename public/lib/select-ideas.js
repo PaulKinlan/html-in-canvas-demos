@@ -232,10 +232,21 @@ layouts.sample = {
   },
 };
 
+// One pixel of a canvas, read from a 1 by 1 copy made with drawImage(). The
+// drawable canvas itself is never read with getImageData(): on Android a
+// drawable 2D canvas that is read that way can lose every 2D context on the page.
+let scratch;
+function pixelOf(canvas, x, y) {
+  scratch ??= Object.assign(document.createElement('canvas'), { width: 1, height: 1 }).getContext('2d');
+  scratch.clearRect(0, 0, 1, 1);
+  scratch.drawImage(canvas, x, y, 1, 1, 0, 0, 1, 1);
+  return scratch.getImageData(0, 0, 1, 1).data;
+}
+
 function paintField(s) {
   const field = document.createElement('canvas');
   field.width = 180; field.height = 100;
-  const ctx = field.getContext('2d', { willReadFrequently: true });
+  const ctx = field.getContext('2d');
   for (let x = 0; x < field.width; x++) {
     const g = ctx.createLinearGradient(0, 0, 0, field.height);
     for (let k = 0; k <= 4; k++) g.addColorStop(k / 4, hsl((x / (field.width - 1)) * 360, 92 - k * 20));
@@ -255,12 +266,12 @@ export function sampleColours(select, { make = defaultOption, canvas = null } = 
   if (!supported) return picker;
   const { s } = picker;
 
-  // Reading a pixel from the picker's own canvas, after options were drawn into it.
+  // Reading a pixel of the picker's canvas, after options were drawn into it, through a copy.
   picker.read = (x, y) => {
     const dpr = picker.canvas.width / s.w;
     try {
-      const d = picker.canvas.getContext('2d').getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data;
-      return { from: 'the picker canvas', rgb: [d[0], d[1], d[2]] };
+      const d = pixelOf(picker.canvas, Math.round(x * dpr), Math.round(y * dpr));
+      return { from: 'a drawImage() copy of the picker canvas', rgb: [d[0], d[1], d[2]] };
     } catch (err) {
       // Fall back to the field's own canvas, which has no elements drawn in it.
       const f = s.field ?? paintField(s);

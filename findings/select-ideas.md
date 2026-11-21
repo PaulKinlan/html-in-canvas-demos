@@ -10,7 +10,7 @@ Measured in C157 (headless Chromium 157, software rendering) on 2026-11-21, with
 | An option that bends like cloth | not possible with one element | `drawElementImage()` and `updateElementGeometry()` take one matrix per element. A mesh needs the pointer mapped by hand, as on `/physical/`. |
 | 70 options placed on arcs and rotated to face a point | works | Rotated options are hit where drawn. Arrow keys follow DOM order, which is row by row. |
 | Disabled option chosen from script (`option.selected = true`) | the select accepts it | The select only refuses a real click. `SelectPicker.choose()` now returns early for a disabled option, which matters for layouts that choose on finger lift. |
-| `getImageData()` on a 2D canvas after `drawElementImage()` of options | works | The canvas is not tainted. |
+| `drawImage()` from a 2D canvas after `drawElementImage()` of options into a second canvas, then `getImageData()` on the copy | works | The canvas is not tainted. Direct `getImageData()` on the drawable canvas also worked in headless C157, but the page no longer does it: on Paul's Android phone (Chrome 159, reported 2026-11-21) a drawable 2D canvas that is read with `getImageData()` after being created with `willReadFrequently: true` loses every 2D context on the page. The field canvas (not drawable) no longer asks for `willReadFrequently`. |
 | `drawImage(pickerCanvas, …)` into another canvas | works | Used to copy the chosen option's rectangle. |
 | Append an `<option drawable>` to the picker canvas while the picker is open | works | It is drawn and hit tested on the next frame, becomes the value, and appears in `<selectedcontent>`. |
 | `drawElementImage(option)` in the frame after the picker closes | fails | "No cached paint record for element." |
@@ -35,7 +35,7 @@ Measured in C157 (headless Chromium 157, software rendering) on 2026-11-21, with
 - Select: an option drawn twice in one frame is hit where it was drawn last (`/select-ideas/`).
 - Select: a disabled option can be chosen from script.
 - Select: a `label` attribute on an option replaces its content in a customisable select.
-- Reading back: `getImageData()` and `drawImage()` work on a 2D canvas after `drawElementImage()`.
+- Reading back: `drawImage()` from a 2D canvas after `drawElementImage()` works, and the copy can be read with `getImageData()`. Read the copy, not the drawable canvas.
 - Select: options stop painting when the picker closes. A copy of the picker canvas is the only picture left.
 
 ## API requests

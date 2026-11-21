@@ -135,13 +135,13 @@ const tests = [
     },
   },
   {
-    name: 'Colour field: getImageData() reads the picker canvas after options were drawn into it',
-    why: 'A canvas that has had elements drawn into it might refuse to be read. If it does, the field\'s own canvas is read instead.',
+    name: 'Colour field: a drawImage() copy of the picker canvas can be read after options were drawn into it',
+    why: 'A canvas that has had elements drawn into it might refuse to be copied or read. One pixel is copied to a 1 by 1 canvas and read there. If it does, the field\'s own canvas is read instead.',
     run: async () => {
       const { sample } = need(await opened());
       await see(sample);
       const got = sample.read(sample.s.w * 0.4, 80);
-      if (!/^the picker canvas/.test(got.from)) throw new Error(`read from ${got.from}`);
+      if (!/^a drawImage\(\) copy/.test(got.from)) throw new Error(`read from ${got.from}`);
       return `read rgb(${got.rgb.join(', ')}) from ${got.from}`;
     },
   },

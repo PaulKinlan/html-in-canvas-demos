@@ -3,14 +3,14 @@
 // focus: the pickers are opened with show() and pressed with click() or with
 // synthetic pointer events.
 import { runTests, checkBench, stillDrawn, inkFraction, supported } from '/shared/support.js';
-import { DialRange, DateRangePicker, ColourWheel, WeekYearPicker, GhostText, hsvOf, unwrap } from '/lib/input-ideas.js';
+import { DialRange, DateRangePicker, ColourWheel, WeekYearPicker, GhostText, hsvOf, unwrap, pixelOf } from '/lib/input-ideas.js';
 
 const $ = (id) => document.getElementById(id);
 const frames = (n = 3) => new Promise((resolve) => { const step = () => (n-- > 0 ? requestAnimationFrame(step) : resolve()); step(); });
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const mid = (el) => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
 /** The pixel of a canvas at a point given in its CSS px. */
-const pixel = (canvas, x, y) => { const k = canvas.width / canvas.clientWidth; return [...canvas.getContext('2d').getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data]; };
+const pixel = (canvas, x, y) => { const k = canvas.width / canvas.clientWidth; return [...pixelOf(canvas, Math.round(x * k), Math.round(y * k))]; };
 const far = (a, b) => Math.max(...a.slice(0, 3).map((v, i) => Math.abs(v - b[i])));
 const events = (input) => { const seen = []; for (const type of ['input', 'change']) input.addEventListener(type, () => seen.push(type)); return seen; };
 const press = (target, type, x, y) => target.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, bubbles: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, pointerId: 1, pointerType: 'mouse' }));
@@ -79,15 +79,15 @@ const tests = [
     run: () => { if (!supported) throw new Error('drawElementImage() is missing. Every field is an ordinary input.'); return 'drawElementImage() exists'; },
   },
   {
-    name: 'drawElementImage() with a source rectangle draws part of an element, and getImageData() reads it back',
-    why: 'A button that is red on the left and blue on the right. Only the right half is drawn, then the canvas is read with getImageData() and toDataURL().',
+    name: 'drawElementImage() with a source rectangle draws part of an element, and a drawImage() copy reads it back',
+    why: 'A button that is red on the left and blue on the right. Only the right half is drawn, then pixels are copied to a second canvas with drawImage() and read there, and toDataURL() is called.',
     run: async () => {
       const probe = $('fxProbe'), el = $('fxHalves');
       probe.width = probe.clientWidth; probe.height = probe.clientHeight;
       const got = await paintOnce(probe, (ctx) => {
         ctx.reset();
         ctx.drawElementImage(el, 30, 0, 30, 20, 50, 10, 30, 20);
-        return { drawn: [...ctx.getImageData(65, 20, 1, 1).data], left: [...ctx.getImageData(35, 20, 1, 1).data], url: probe.toDataURL().length };
+        return { drawn: [...pixelOf(probe, 65, 20)], left: [...pixelOf(probe, 35, 20)], url: probe.toDataURL().length };
       });
       await frames(2);
       const r = probe.getBoundingClientRect();
@@ -219,7 +219,7 @@ const tests = [
   },
   {
     name: 'Colour wheel: the pixel read at each swatch\'s place is that swatch\'s colour',
-    why: 'The read is getImageData() on the popover canvas, which draws the swatch buttons with drawElementImage() every frame. Five colours at full brightness.',
+    why: 'The read is a 1 by 1 drawImage() copy of the popover canvas, which draws the swatch buttons with drawElementImage() every frame. Five colours at full brightness.',
     run: async () => {
       const input = $('fxColour');
       wheel = await open(new ColourWheel(input));
@@ -236,7 +236,7 @@ const tests = [
         got.push(input.value);
         worst = Math.max(worst, far(rgb(input.value), rgb(b.dataset.value)));
       }
-      if (wheel.readError) throw new Error(`getImageData() threw ${wheel.readError}`);
+      if (wheel.readError) throw new Error(`the read threw ${wheel.readError}`);
       if (wheel.reads < 5 || worst > 10) throw new Error(`${wheel.reads} reads, read ${got.join(' ')}, furthest channel off by ${worst}`);
       return `${wheel.reads} reads, none threw. Read ${got.join(' ')}. The furthest channel is off by ${worst} of 255`;
     },
@@ -338,7 +338,10 @@ const tests = [
     ink: () => {
       const canvas = $(id), r = canvas.getBoundingClientRect();
       if (canvas.hidden || r.bottom < 0 || r.top > innerHeight) return null; // a canvas that is not on screen is not painted
-      return inkFraction(canvas.getContext('2d'));
+      // Read a copy, not the drawable canvas itself.
+      const copy = new OffscreenCanvas(canvas.width, canvas.height).getContext('2d');
+      copy.drawImage(canvas, 0, 0);
+      return inkFraction(copy);
     },
     rescue: () => {
       unwrap($(id));
