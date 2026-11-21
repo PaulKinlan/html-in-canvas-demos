@@ -1,0 +1,553 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lists and tables: col, dl, ol and thead drawn by a canvas</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.lt-canvas { display: block; width: 100%; max-width: 560px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .lt-canvas.plain-fallback { max-width: 560px; border: 1px solid var(--line); border-radius: 12px; }
+  .idea output { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button, .idea .controls select { min-height: 40px; font: inherit; }
+  .idea .controls label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* #region col-css */
+  #colWrap { position: relative; width: 100%; padding: 10px; }
+  #colTable { width: 100%; table-layout: fixed; border-spacing: 0; font: 14px/1.2 system-ui, sans-serif; color: var(--fg); background: var(--card); border-radius: 8px; }
+  #colTable caption { caption-side: top; height: 30px; font-weight: 600; text-align: left; padding: 4px 8px; background: var(--card); border-radius: 8px 8px 0 0; }
+  #colTable col.name { width: 31%; }
+  /* The flat fill: the background of the col element itself. */
+  #colTable col.lit { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+  #colTable th, #colTable td { height: 36px; padding: 0 6px; text-align: right; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  #colTable th:first-child, #colTable td:first-child { text-align: left; }
+  #colTable thead th { padding: 0; }
+  #colTable thead button { width: 100%; height: 36px; padding: 0 6px; border: 0; border-radius: 0; background: none; font: 600 14px system-ui, sans-serif; color: var(--fg); text-align: inherit; }
+  #colTable thead button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--accent); }
+  /* #endregion col-css */
+
+  /* #region dl-css */
+  #glossary { position: relative; width: 100%; margin: 0; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  #glossary > div { display: grid; height: 136px; }
+  /* The term and its definition are in the same grid cell, so both have the size of the card. */
+  #glossary dt, #glossary dd { grid-area: 1 / 1; margin: 0; min-width: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; color: var(--fg); }
+  #glossary dt { background: var(--card); }
+  #glossary dt button { width: 100%; height: 100%; padding: 6px; border: 0; background: none; font: 600 13px/1.25 var(--mono); color: var(--fg); overflow-wrap: anywhere; }
+  #glossary dt button:focus-visible { outline: 0; box-shadow: inset 0 0 0 3px var(--accent); }
+  #glossary dd { padding: 8px 9px; font: 12.5px/1.32 system-ui, sans-serif; background: color-mix(in srgb, var(--accent) 16%, var(--card)); border-color: var(--accent); }
+  /* #endregion dl-css */
+
+  /* #region ol-css */
+  #steps { position: relative; width: 100%; margin: 0; padding: 12px 12px 4px 46px; font: 15px/1.2 system-ui, sans-serif; color: var(--fg); }
+  #steps li { height: 38px; margin-bottom: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); line-height: 36px; white-space: nowrap; }
+  /* No overflow: hidden on the li: it would clip an outside marker out of the picture of the ol as well. */
+  #steps li::marker { color: var(--accent); font-weight: 700; }
+  #steps[data-markers=inside] { padding-left: 12px; }
+  #steps[data-markers=inside] li { list-style-position: inside; }
+  #steps input { width: 20px; height: 20px; margin: 0 6px 0 2px; vertical-align: -4px; accent-color: var(--ok); }
+  #steps li:has(:checked) { background: color-mix(in srgb, var(--ok) 18%, var(--card)); }
+  /* #endregion ol-css */
+
+  /* #region sticky-css */
+  #stickyWrap { position: relative; width: 100%; height: 100%; }
+  #scroller { width: 100%; height: 100%; overflow-y: auto; background: var(--card); border-radius: 11px; }
+  #log { width: 100%; table-layout: fixed; border-spacing: 0; font: 14px/1.2 system-ui, sans-serif; color: var(--fg); }
+  #log th { position: sticky; top: 0; z-index: 1; height: 42px; background: var(--card); border-bottom: 1px solid var(--line); font-weight: 600; }
+  #log th, #log td { padding: 0 8px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #log td { height: 40px; border-bottom: 1px solid var(--line); }
+  #log tbody tr:nth-child(even) { background: color-mix(in srgb, var(--fg) 5%, var(--card)); }
+  #log col.n { width: 44px; } #log col.ms { width: 64px; } #log col.keep { width: 56px; }
+  #log .num { text-align: right; font-variant-numeric: tabular-nums; }
+  #log input { width: 22px; height: 22px; margin: 0; vertical-align: middle; accent-color: var(--ok); }
+  /* #endregion sticky-css */
+
+  /* #region time-css */
+  #timeline { position: relative; margin: 0; padding: 0; }
+  /* Every item is laid out at the same place. The canvas decides where each one is drawn. */
+  #timeline li { position: absolute; left: 0; top: 0; width: 168px; height: 112px; padding: 8px 10px; list-style-position: inside; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); font: 13px/1.3 system-ui, sans-serif; overflow: hidden; }
+  #timeline li::marker { font: 700 20px/1 system-ui, sans-serif; color: var(--accent); }
+  #timeline li:focus-visible { outline: 0; border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+  #timeline time { font: 13px var(--mono); color: var(--muted); }
+  #timeline b { display: block; margin: 3px 0 2px; font-size: 15px; }
+  #timeline span { display: block; color: var(--muted); }
+  /* #endregion time-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Lists and tables: col, dl, ol and thead drawn by a canvas</h1>
+  <p class="lede">
+    Five canvases. Each holds an ordinary table or list and draws it in a way CSS does not: a light that follows the pointer along a <code>&lt;col&gt;</code>,
+    a <code>&lt;dl&gt;</code> as cards that turn over, an <code>&lt;ol&gt;</code> whose items enter one after another, a sticky <code>&lt;thead&gt;</code> that casts a shadow on the rows under it,
+    and an <code>&lt;ol&gt;</code> laid along a curve. Tap, drag and scroll inside them. The buttons, checkboxes and numbers are the real elements.
+  </p>
+  <p id="support"></p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#col">Column light</a><a href="#glossary-cards">Glossary cards</a><a href="#stagger">List entrance</a><a href="#sticky">Sticky header shadow</a><a href="#time">Timeline</a>
+  </nav>
+
+  <section class="idea" id="col" data-module="col">
+    <h2>Column highlight from <code>&lt;col&gt;</code></h2>
+    <p>Move a pointer or a finger sideways across the table, or tap a column. The canvas reads the box of the <code>&lt;col&gt;</code> under the pointer and draws a light over that column. "Flat fill" sets a background on the <code>&lt;col&gt;</code> instead, which is what CSS can do alone.</p>
+    <canvas id="colCanvas" class="lt-canvas" content="drawable" layoutsubtree style="height: 344px">
+      <!-- #region col-html -->
+      <div id="colWrap">
+        <table id="colTable" drawable>
+          <caption>Loaves sold in one week (sample data)</caption>
+          <colgroup><col class="name"><col><col><col><col><col></colgroup>
+          <thead>
+            <tr><th scope="col"><button type="button">Loaf</button></th><th scope="col"><button type="button">Mon</button></th><th scope="col"><button type="button">Tue</button></th><th scope="col"><button type="button">Wed</button></th><th scope="col"><button type="button">Thu</button></th><th scope="col"><button type="button">Fri</button></th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Sourdough</td><td>42</td><td>38</td><td>51</td><td>47</td><td>66</td></tr>
+            <tr><td>Baguette</td><td>80</td><td>74</td><td>77</td><td>90</td><td>112</td></tr>
+            <tr><td>Rye</td><td>18</td><td>21</td><td>16</td><td>19</td><td>25</td></tr>
+            <tr><td>Focaccia</td><td>12</td><td>9</td><td>14</td><td>22</td><td>31</td></tr>
+            <tr><td>Brioche</td><td>27</td><td>24</td><td>30</td><td>26</td><td>44</td></tr>
+            <tr><td>Ciabatta</td><td>33</td><td>29</td><td>35</td><td>31</td><td>40</td></tr>
+            <tr><td>Bagel</td><td>58</td><td>61</td><td>49</td><td>70</td><td>83</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <!-- #endregion col-html -->
+    </canvas>
+    <output id="colOut"></output>
+    <div class="controls">
+      <label>Highlight <select id="colMode"><option value="light">Light drawn by the canvas</option><option value="flat">Flat fill (col background)</option><option value="both">Both</option></select></label>
+    </div>
+    <p class="found">A <code>&lt;col&gt;</code> has no picture: <code>drawElementImage(col)</code> throws. It does have a box. <code>offsetLeft</code>, <code>offsetWidth</code> and <code>getBoundingClientRect()</code> give the column, so the canvas knows where to put the light without measuring any cell.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#col-html"><b>The markup.</b> The table is <code>drawable</code>. The <code>&lt;col&gt;</code> elements are not drawn. They are read.</li>
+      <li data-code="/list-table/col.js#col-pick"><b>Find the column under the pointer from the boxes of the <code>&lt;col&gt;</code> elements.</b></li>
+      <li data-code="/list-table/col.js#col-paint"><b>Draw the table, shade the other columns, add the light.</b></li>
+      <li data-code="#col-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="glossary-cards" data-module="glossary">
+    <h2>Glossary cards from a <code>&lt;dl&gt;</code></h2>
+    <p>Six terms. Each <code>&lt;dt&gt;</code> is the front of a card and its <code>&lt;dd&gt;</code> is the back. Tap a card to turn it over. Tap the back to turn it again. With a keyboard, Tab to a term and press Enter.</p>
+    <canvas id="dlCanvas" class="lt-canvas" content="drawable" layoutsubtree style="height: 470px">
+      <!-- #region dl-html -->
+      <dl id="glossary">
+        <div><dt drawable><button type="button" aria-expanded="false">content="drawable"</button></dt><dd drawable>The attribute on a <code>&lt;canvas&gt;</code> that lets it draw its own descendants. They are laid out and take input, and are not painted on the page.</dd></div>
+        <div><dt drawable><button type="button" aria-expanded="false">drawable</button></dt><dd drawable>The attribute on a descendant that gives it a picture of its own. An element without it cannot be passed to a draw call.</dd></div>
+        <div><dt drawable><button type="button" aria-expanded="false">paint event</button></dt><dd drawable>Fired on the canvas when the rendering of a drawable descendant has changed. The handler draws the new pictures.</dd></div>
+        <div><dt drawable><button type="button" aria-expanded="false">drawElementImage()</button></dt><dd drawable>Draws the picture of an element into a 2D canvas, and moves the element's hit box to where it was drawn.</dd></div>
+        <div><dt drawable><button type="button" aria-expanded="false">hit box</button></dt><dd drawable>Where the browser thinks an element is for taps, hover and focus. A link drawn here still works: <a href="#findings">go to Findings</a>.</dd></div>
+        <div><dt drawable><button type="button" aria-expanded="false">ElementImage</button></dt><dd drawable>A snapshot from <code>captureElementImage()</code>. It keeps the look the element had, and can be drawn after the element has changed.</dd></div>
+      </dl>
+      <!-- #endregion dl-html -->
+    </canvas>
+    <output id="dlOut"></output>
+    <div class="controls">
+      <button type="button" id="dlAll">Turn all</button>
+      <label><input type="checkbox" id="dlSlow"> Slow</label>
+    </div>
+    <p class="found">A 2D context has no perspective. During a turn the card is drawn in 24 vertical strips, each with its own scale, and the last strip leaves the hit box wrong. When the turn ends the card is drawn once, flat, and the other face is taken out of hit testing.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#dl-html"><b>The markup.</b> A <code>&lt;dl&gt;</code> with one <code>&lt;div&gt;</code> for each term. <code>&lt;dt&gt;</code> and <code>&lt;dd&gt;</code> are both <code>drawable</code>.</li>
+      <li data-code="/list-table/glossary.js#dl-turn"><b>A tap changes the angle the card is heading for.</b></li>
+      <li data-code="/list-table/glossary.js#dl-paint"><b>Draw one face of each card.</b> Flat when it rests, in strips while it turns.</li>
+      <li data-code="/list-table/glossary.js#dl-strips"><b>The strips.</b></li>
+      <li data-code="#dl-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="stagger" data-module="stagger">
+    <h2>Staggered list entrance</h2>
+    <p>An ordered list of seven steps. Each <code>&lt;li&gt;</code> is drawn 90 ms after the one before it. The checkboxes work while the items move. The first menu chooses where the numbers come from, and one of the three choices loses them.</p>
+    <canvas id="listCanvas" class="lt-canvas" content="drawable" layoutsubtree style="height: 380px">
+      <!-- #region ol-html -->
+      <ol id="steps" data-markers="inside">
+        <li drawable><label><input type="checkbox" checked> Run the build</label></li>
+        <li drawable><label><input type="checkbox" checked> Check the page list</label></li>
+        <li drawable><label><input type="checkbox"> Run the graphics check</label></li>
+        <li drawable><label><input type="checkbox"> Run the jank guard</label></li>
+        <li drawable><label><input type="checkbox"> Merge main</label></li>
+        <li drawable><label><input type="checkbox"> Push the branch</label></li>
+        <li drawable><label><input type="checkbox"> Open the pull request</label></li>
+      </ol>
+      <!-- #endregion ol-html -->
+    </canvas>
+    <output id="listOut"></output>
+    <div class="controls">
+      <label>Numbers from <select id="listMarkers">
+        <option value="inside">li drawable, marker inside</option>
+        <option value="outside">li drawable, marker outside</option>
+        <option value="slices">Slices of a drawable ol</option>
+      </select></label>
+      <label>Entrance <select id="listStyle"><option value="slide">Slide in</option><option value="drop">Drop</option><option value="fan">Fan out</option></select></label>
+      <button type="button" id="listReplay">Replay</button>
+      <button type="button" id="listInsert">Insert a step at 3</button>
+      <label><input type="checkbox" id="listReversed"> reversed</label>
+    </div>
+    <p class="found">The picture of an <code>&lt;li&gt;</code> ends at its border box. A marker with <code>list-style-position: outside</code> is outside that box, so it is not in the picture. Two routes keep the numbers: <code>list-style-position: inside</code>, or drawing rows of the whole <code>&lt;ol&gt;</code> with a source rectangle.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#ol-html"><b>The markup.</b></li>
+      <li data-code="/list-table/stagger.js#ol-paint"><b>Draw each item at a delay from its index.</b></li>
+      <li data-code="/list-table/stagger.js#ol-slice"><b>One item as a <code>drawable</code> <code>&lt;li&gt;</code>, or as a row cut from the picture of the <code>&lt;ol&gt;</code>.</b></li>
+      <li data-code="/list-table/stagger.js#ol-markers"><b>Switch between the three routes.</b></li>
+      <li data-code="#ol-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="sticky" data-module="sticky">
+    <h2>Sticky header that casts a shadow</h2>
+    <p>A table of 40 rows in a scroll container that is drawn by the canvas. Scroll it with a finger, a wheel or the keyboard. The browser does the scrolling and keeps the header at the top. The canvas draws the header again on top, a little larger, with a shadow that deepens over the first 140 px of scrolling.</p>
+    <canvas id="stickyCanvas" class="lt-canvas" content="drawable" layoutsubtree style="height: 380px">
+      <!-- #region sticky-html -->
+      <div id="stickyWrap">
+        <div id="scroller" drawable tabindex="0" role="region" aria-label="Request log">
+          <table id="log">
+            <colgroup><col class="n"><col><col class="ms"><col class="keep"></colgroup>
+            <thead><tr><th scope="col" class="num">#</th><th scope="col">Path</th><th scope="col" class="num">ms</th><th scope="col">Keep</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- #endregion sticky-html -->
+    </canvas>
+    <output id="stickyOut"></output>
+    <div class="controls">
+      <label>Header picture <select id="stickyMode">
+        <option value="slice">Source rectangle of the scroller</option>
+        <option value="nested">Nested thead drawable</option>
+        <option value="none">None (the browser's sticky header)</option>
+      </select></label>
+      <button type="button" id="stickyTop">Top</button>
+      <button type="button" id="stickyMid">Row 20</button>
+    </div>
+    <p class="found">A <code>drawable</code> scroll container scrolls natively inside the canvas, by touch and by wheel, and each scroll step raises a <code>paint</code> event. So the shadow needs no frame loop and no scroll listener: the paint handler reads <code>scrollTop</code>.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#sticky-html"><b>The markup.</b> The scroll container is <code>drawable</code>. The rows are added by script.</li>
+      <li data-code="/list-table/sticky.js#sticky-paint"><b>Draw the scroller, then its top band again with a shadow.</b></li>
+      <li data-code="#sticky-css"><b>Styles.</b> The header cells are <code>position: sticky</code>.</li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="time" data-module="timeline">
+    <h2>Timeline from an ordered list</h2>
+    <p>Eight dated items in an <code>&lt;ol&gt;</code>, drawn along an arch. Drag sideways, tap an item, or use the buttons. The number on each card is the list marker of its <code>&lt;li&gt;</code>. Tick "reversed" and the browser renumbers them.</p>
+    <canvas id="timeCanvas" class="lt-canvas" content="drawable" layoutsubtree style="height: 264px">
+      <!-- #region time-html -->
+      <ol id="timeline">
+        <li drawable tabindex="0"><time datetime="1993">1993</time><b>The img element</b><span>NCSA Mosaic shows pictures inside a page.</span></li>
+        <li drawable tabindex="0"><time datetime="1995">1995</time><b>JavaScript</b><span>Written at Netscape for Navigator 2.</span></li>
+        <li drawable tabindex="0"><time datetime="1996-12">1996</time><b>CSS level 1</b><span>Becomes a W3C Recommendation.</span></li>
+        <li drawable tabindex="0"><time datetime="2004">2004</time><b>The canvas element</b><span>Apple adds it to WebKit.</span></li>
+        <li drawable tabindex="0"><time datetime="2011-03">2011</time><b>WebGL 1.0</b><span>Khronos publishes the specification.</span></li>
+        <li drawable tabindex="0"><time datetime="2014-10">2014</time><b>HTML5</b><span>Becomes a W3C Recommendation.</span></li>
+        <li drawable tabindex="0"><time datetime="2018-09">2018</time><b>OffscreenCanvas</b><span>Ships in Chrome 69.</span></li>
+        <li drawable tabindex="0"><time datetime="2023-05">2023</time><b>WebGPU</b><span>Ships in Chrome 113.</span></li>
+      </ol>
+      <!-- #endregion time-html -->
+    </canvas>
+    <output id="timeOut"></output>
+    <div class="controls">
+      <button type="button" id="timePrev">Earlier</button>
+      <button type="button" id="timeNext">Later</button>
+      <label>Path <select id="timePath"><option value="arch">Arch</option><option value="wave">Wave</option></select></label>
+      <label><input type="checkbox" id="timeReversed"> reversed</label>
+    </div>
+    <p class="found">Every <code>&lt;li&gt;</code> is laid out at the same place and drawn at a point on the path, rotated to the path's direction. The markers are <code>inside</code>, so each picture carries its number. Changing <code>reversed</code> raises a <code>paint</code> event and the new numbers are drawn.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#time-html"><b>The markup.</b></li>
+      <li data-code="/list-table/timeline.js#time-path"><b>The path: a point and a direction for each position.</b></li>
+      <li data-code="/list-table/timeline.js#time-paint"><b>Draw the line, then each item at its point.</b></li>
+      <li data-code="/list-table/timeline.js#time-drag"><b>A sideways drag moves the list along the path.</b></li>
+      <li data-code="#time-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>Each canvas has <code>content="drawable"</code> and holds a real table or list. The parts that are drawn on their own carry the <code>drawable</code> attribute. A <code>paint</code> handler draws them with <code>drawElementImage()</code>, which also moves each element's hit box to where it was drawn. The five demos use the elements in three ways:</p>
+  <ul>
+    <li><b>An element that is read and not drawn.</b> A <code>&lt;col&gt;</code> has a box and no picture. The column light is placed from <code>col.offsetLeft</code> and <code>col.offsetWidth</code>.</li>
+    <li><b>An element drawn whole, at a place the canvas chooses.</b> The <code>&lt;dt&gt;</code>, <code>&lt;dd&gt;</code> and <code>&lt;li&gt;</code> elements. The glossary draws a turning card in strips, because a 2D context has affine transforms only.</li>
+    <li><b>A part of an element's picture.</b> <code>drawElementImage()</code> with nine arguments draws a source rectangle. The list entrance uses it to draw one row of the <code>&lt;ol&gt;</code> with its marker. The sticky header uses it to draw the top band of the scroller again with a shadow. A source-rectangle draw moves the hit box of the whole element, so both demos finish with a full draw at zero alpha to put it back.</li>
+  </ul>
+  <p>No demo runs a frame loop while it rests. A demo's script is loaded when its section comes near the screen, and it asks for frames only while something is moving.</p>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/lib/stage-2d.js#mount"><b>The paint loop and the draw helpers</b> (<code>mount()</code>, <code>put()</code>, <code>hitOnly()</code>, <code>park()</code>).</li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window and reads pixels from a copy of it. None of them touches the demos above.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21, at 412 px wide with a mouse, a keyboard and emulated touch.</p>
+  <ul class="findings">
+    <li><b>A <code>&lt;col&gt;</code> has a box and no picture.</b> <code>offsetLeft</code>, <code>offsetWidth</code> and <code>getBoundingClientRect()</code> return the column. <code>drawElementImage(col)</code> throws "No cached paint record for element", with or without the <code>drawable</code> attribute.</li>
+    <li><b>A background on a <code>&lt;col&gt;</code> is in the picture of its table.</b> Changing it raises a <code>paint</code> event.</li>
+    <li><b><code>&lt;dt drawable&gt;</code> and <code>&lt;dd drawable&gt;</code> in one grid cell each have a full picture.</b> The one drawn last takes the taps. A link in the <code>&lt;dd&gt;</code> is followed at the place the card was drawn.</li>
+    <li><b>An <code>outside</code> list marker is not in the picture of its <code>&lt;li&gt;</code>.</b> The picture ends at the border box. A negative margin with the same padding does not help, because the marker is placed outside the border box. An <code>inside</code> marker is in the picture.</li>
+    <li><b>The picture of the <code>&lt;ol&gt;</code> has the outside markers.</b> A source-rectangle draw of one row of it gives the item with its number.</li>
+    <li><b>A source-rectangle draw moves the hit box of the whole element.</b> A full draw with <code>globalAlpha = 0</code> afterwards puts it back.</li>
+    <li><b>The <code>drawable</code> attribute can be moved between an <code>&lt;ol&gt;</code> and its items at run time.</b> The new pictures are there on the next <code>paint</code> event.</li>
+    <li><b><code>reversed</code> on the <code>&lt;ol&gt;</code> changes the markers in the pictures of the items</b> and raises a <code>paint</code> event.</li>
+    <li><b>A <code>drawable</code> scroll container scrolls natively inside a canvas</b>, by touch and by wheel, and every scroll step raises a <code>paint</code> event. <code>position: sticky</code> header cells stay at the top of its picture. A scroll container that is not <code>drawable</code> does not scroll from input on its drawn descendants: the page scrolls.</li>
+    <li><b>A canvas shadow applies to a source-rectangle draw.</b> <code>shadowBlur</code> and <code>shadowOffsetY</code> before the nine-argument call give the header a shadow in the shape of the band.</li>
+    <li><b>A <code>&lt;thead drawable&gt;</code> nested in the drawable scroller also works</b> while the canvas is fully on screen. An older finding on this site says a nested drawable element is recorded only where it is inside the window when it repaints, so this page uses the source rectangle by default.</li>
+    <li><b>An absolutely positioned <code>&lt;li&gt;</code> keeps its list marker and its number.</b></li>
+    <li><b>Not verified:</b> everything on a phone. In particular the momentum of a native scroll inside the canvas, whether the page scroll takes over at the ends of the table, the frame rate of the card turn (24 draws of one element for each frame), and a horizontal touch drag on the timeline next to a vertical page scroll.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, testStage } from '/shared/support.js';
+  import { supported } from '/lib/stage-2d.js';
+  banner();
+  // #region start
+  // A demo's script is loaded and started the first time its section comes near the screen.
+  const started = new Set();
+  const begin = (section) => {
+    if (started.has(section.id)) return;
+    started.add(section.id);
+    import(`./${section.dataset.module}.js`).then((m) => m.default()).catch((err) => { window.__gfx?.report?.('error', `list-table ${section.id}: ${err.message}`); throw err; });
+  };
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { watch.unobserve(e.target); begin(e.target); }
+  }, { rootMargin: '100px 0px' });
+  for (const section of document.querySelectorAll('section.idea')) {
+    if (supported) watch.observe(section); else begin(section);   // without the API every demo falls back to plain HTML at once
+  }
+  // #endregion start
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // A fixture canvas on the test stage. paint(ctx, canvas) runs on every paint event.
+  async function rig(html, paint = () => {}, w = 320, h = 220) {
+    if (!supported) throw new Error('this browser has no HTML-in-canvas API');
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, ctx, paints: 0, error: null, paint };
+    canvas.addEventListener('paint', () => { state.paints++; ctx.reset(); try { state.paint(ctx, canvas); state.error = null; } catch (e) { state.error = e; } });
+    state.frame = async () => { const n = state.paints; canvas.requestPaint(); for (let i = 0; i < 80 && state.paints === n; i++) await sleep(25); await sleep(40); };
+    state.q = (sel) => canvas.querySelector(sel);
+    for (let i = 0; i < 12; i++) { await state.frame(); if (state.paints && !state.error) break; }
+    if (state.error) throw state.error;
+    return state;
+  }
+  // Pixels are read from a copy made with drawImage(), never from the drawable canvas itself.
+  const copy = document.createElement('canvas');
+  const read = (state, x, y, w = 1, h = 1) => {
+    copy.width = w; copy.height = h;
+    const c2 = copy.getContext('2d');
+    c2.drawImage(state.canvas, x, y, w, h, 0, 0, w, h);
+    return c2.getImageData(0, 0, w, h).data;
+  };
+  // Fraction of the pixels in a rectangle for which test(r, g, b, a) is true.
+  const share = (state, x, y, w, h, test) => {
+    const d = read(state, x, y, w, h);
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) n++;
+    return n / (d.length / 4);
+  };
+  const dark = (r, g, b, a) => a > 100 && r + g + b < 330;
+  const any = (r, g, b, a) => a > 8;
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const draw = (ctx, el, x = 0, y = 0) => ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
+  const at = (state, x, y) => { const r = state.canvas.getBoundingClientRect(); return document.elementFromPoint(r.left + x, r.top + y); };
+
+  const TABLE = `<div style="width:300px"><table drawable style="width:300px;table-layout:fixed;border-spacing:0;font:14px system-ui;background:#fff;color:#000">
+    <colgroup><col><col id="c2"><col></colgroup>
+    <tbody><tr style="height:30px"><td>a</td><td>b</td><td>c</td></tr><tr style="height:30px"><td>d</td><td>e</td><td>f</td></tr></tbody></table></div>`;
+  const LIST = (olStyle, liStyle, olAttr = '', liAttr = 'drawable') => `<ol ${olAttr} style="position:relative;margin:0;padding:0 0 0 40px;width:300px;font:700 20px system-ui;color:#000;${olStyle}">
+    <li ${liAttr} style="height:30px;background:#cde;${liStyle}"><input type="checkbox" style="width:20px;height:20px;margin:0"></li>
+    <li ${liAttr} style="height:30px;background:#edc;${liStyle}"></li></ol>`;
+  const rowsHtml = Array.from({ length: 30 }, (_, i) => `<tr style="height:30px"><td>row ${i}</td></tr>`).join('');
+  const SCROLLER = (headAttr = '') => `<div style="width:300px;height:200px"><div id="sc" drawable style="width:300px;height:200px;overflow-y:auto;background:#fff;color:#000;font:14px system-ui">
+    <table style="width:100%;border-spacing:0"><thead ${headAttr}><tr><th style="position:sticky;top:0;height:30px;background:#fe0">head</th></tr></thead><tbody>${rowsHtml}</tbody></table></div></div>`;
+  const yellow = (r, g, b) => r > 200 && g > 190 && b < 90;
+
+  const tests = [
+    { name: 'A <col> has a box: offsetLeft, offsetWidth and getBoundingClientRect() give the column', why: 'A 300 px table with three columns, drawn at x = 10. Read the second <col>.',
+      run: async () => {
+        const s = await rig(TABLE, (ctx, c) => draw(ctx, c.querySelector('table'), 10, 20));
+        const col = s.q('#c2'), table = s.q('table'), r = col.getBoundingClientRect(), t = table.getBoundingClientRect();
+        const left = col.offsetLeft - table.offsetLeft;
+        return need(left === 100 && col.offsetWidth === 100 && Math.round(r.left - t.left) === 100 && Math.round(r.width) === 100,
+          `offsetLeft ${left} from the table, offsetWidth ${col.offsetWidth}, rect ${Math.round(r.left - t.left)} to ${Math.round(r.right - t.left)}, ${Math.round(r.height)} px tall.`);
+      } },
+    { name: 'drawElementImage(col) draws the column', expect: 'fail', why: 'The second <col> gets the drawable attribute and a red background, then is passed to drawElementImage().',
+      run: async () => {
+        const s = await rig(TABLE, (ctx, c) => draw(ctx, c.querySelector('table'), 10, 20));
+        const col = s.q('#c2');
+        col.setAttribute('drawable', ''); col.style.background = '#f00';
+        await s.frame();
+        s.ctx.reset();
+        s.ctx.drawElementImage(col, 10, 100, 100, 60);
+        return need(share(s, 10, 100, 100, 60, any) > 0.5, `${pct(share(s, 10, 100, 100, 60, any))} of the box has ink.`);
+      } },
+    { name: 'A <col> background is in the picture of the table, and changing it raises paint', why: 'Set col.style.background to red and wait for the paint event. Read the second column.',
+      run: async () => {
+        const s = await rig(TABLE, (ctx, c) => draw(ctx, c.querySelector('table'), 10, 20));
+        const before = s.paints;
+        s.q('#c2').style.background = '#f00';
+        for (let i = 0; i < 40 && s.paints === before; i++) await sleep(25);
+        await sleep(40);
+        const red = share(s, 110, 20, 100, 60, (r, g, b) => r > 200 && g < 60 && b < 60);
+        return need(s.paints > before && red > 0.8, `${s.paints - before} paint event, ${pct(red)} of the column is red.`);
+      } },
+    { name: '<dt drawable> and <dd drawable> in one grid cell: two full pictures, the one drawn last takes the tap', why: 'Draw the dt at x = 10 and the dd at x = 160. Then draw both at x = 10, dd last, and ask elementFromPoint() for the link in the dd.',
+      run: async () => {
+        const s = await rig(`<dl style="margin:0;position:relative"><div style="display:grid;width:140px;height:60px;font:14px system-ui">
+          <dt drawable style="grid-area:1/1;background:#fc0"><button style="width:100%;height:100%">term</button></dt>
+          <dd drawable style="grid-area:1/1;margin:0;background:#0cf"><a href="#x" style="display:block;height:60px">definition</a></dd></div></dl>`,
+          (ctx, c) => { draw(ctx, c.querySelector('dt'), 10, 20); draw(ctx, c.querySelector('dd'), 160, 20); });
+        const a = share(s, 10, 20, 140, 60, any), b = share(s, 160, 20, 140, 60, any);
+        s.paint = (ctx, c) => { draw(ctx, c.querySelector('dt'), 10, 20); draw(ctx, c.querySelector('dd'), 10, 20); };
+        await s.frame();
+        s.q('dd').toggleAttribute('data-moved');
+        const hit = at(s, 80, 50);
+        return need(a > 0.95 && b > 0.95 && hit?.localName === 'a', `dt ${pct(a)} ink, dd ${pct(b)} ink, elementFromPoint() returns <${hit?.localName}>.`);
+      } },
+    { name: 'An outside list marker is in the picture of its <li>', expect: 'fail', why: 'ol with 40 px of padding, li drawable. Draw the first li with its box at x = 100 and look for dark pixels in the 40 px to the left of it.',
+      run: async () => {
+        const s = await rig(LIST('', ''), (ctx, c) => draw(ctx, c.querySelector('li + li'), 100, 100));
+        const v = share(s, 60, 100, 40, 30, dark), box = share(s, 100, 100, 300 - 40, 30, any);
+        return need(v > 0.01, `No marker: ${pct(v)} dark pixels left of the box. The box itself is ${pct(box)} drawn.`);
+      } },
+    { name: 'A negative margin with equal padding brings the outside marker into the picture', expect: 'fail', why: 'li with margin-left: -40px and padding-left: 40px, so its border box covers the place of the marker.',
+      run: async () => {
+        const s = await rig(LIST('', 'margin-left:-40px;padding-left:40px'), (ctx, c) => draw(ctx, c.querySelector('li + li'), 20, 100));
+        const li = s.q('li + li');
+        const v = share(s, 20, 100, 40, 30, dark);
+        return need(v > 0.01, `The li is ${li.offsetWidth} px wide and starts at ${li.offsetLeft}. ${pct(v)} dark pixels in its first 40 px: the marker is placed outside the border box.`);
+      } },
+    { name: 'An inside list marker is in the picture of its <li>', why: 'list-style-position: inside. Draw the second li and look for dark pixels at the start of its box.',
+      run: async () => {
+        const s = await rig(LIST('', 'list-style-position:inside'), (ctx, c) => draw(ctx, c.querySelector('li + li'), 20, 100));
+        const v = share(s, 20, 100, 40, 30, dark);
+        return need(v > 0.02, `${pct(v)} dark pixels in the first 40 px of the box.`);
+      } },
+    { name: 'A source-rectangle draw of the <ol> gives one row with its outside marker', why: 'ol drawable, li not. drawElementImage(ol, 0, 30, 300, 30, 20, 100, 300, 30) draws the second row.',
+      run: async () => {
+        const s = await rig(LIST('', '', 'drawable', ''), (ctx, c) => { const ol = c.querySelector('ol'); ctx.drawElementImage(ol, 0, 30, 300, 30, 20, 100, 300, 30); });
+        const marker = share(s, 20, 100, 40, 30, dark), row = share(s, 60, 100, 260, 30, (r, g, b) => r > 220 && g > 210 && b > 180 && b < 215), above = share(s, 20, 60, 300, 38, any);
+        return need(marker > 0.02 && row > 0.9 && above === 0, `${pct(marker)} dark pixels where the marker is, ${pct(row)} of the row has the second item's colour, nothing drawn above it.`);
+      } },
+    { name: 'A source-rectangle draw moves the hit box of the whole element. A full draw at zero alpha puts it back', why: 'The checkbox in the first row of a drawable ol. The ol is drawn at y = 10, then its second row is drawn at y = 150, then the ol is drawn again at y = 10 with globalAlpha = 0.',
+      run: async () => {
+        const s = await rig(LIST('', '', 'drawable', ''), (ctx, c) => draw(ctx, c.querySelector('ol'), 0, 10));
+        const ol = s.q('ol'), box = s.q('input');
+        const where = () => { ol.toggleAttribute('data-moved'); return at(s, 50, 25) === box; };
+        const first = where();
+        s.paint = (ctx) => { draw(ctx, ol, 0, 10); ctx.drawElementImage(ol, 0, 30, 300, 30, 0, 150, 300, 30); };
+        await s.frame();
+        const afterSlice = where();
+        s.paint = (ctx) => { draw(ctx, ol, 0, 10); ctx.drawElementImage(ol, 0, 30, 300, 30, 0, 150, 300, 30); ctx.globalAlpha = 0; draw(ctx, ol, 0, 10); };
+        await s.frame();
+        const afterFull = where();
+        return need(first && !afterSlice && afterFull, `Checkbox found at its drawn place: ${first} after the full draw, ${afterSlice} after the row draw, ${afterFull} after the zero-alpha draw.`);
+      } },
+    { name: 'The drawable attribute can move from the items to the <ol> at run time', why: 'Start with li drawable. Remove it from each li, set it on the ol, wait for a paint event, draw the ol.',
+      run: async () => {
+        const s = await rig(LIST('', ''), (ctx, c) => draw(ctx, c.querySelector('li'), 40, 10));
+        const ol = s.q('ol');
+        for (const li of ol.children) li.removeAttribute('drawable');
+        ol.setAttribute('drawable', '');
+        s.paint = (ctx) => draw(ctx, ol, 0, 100);
+        await s.frame();
+        if (s.error) throw s.error;
+        const marker = share(s, 0, 100, 40, 60, dark), rows = share(s, 40, 100, 260, 60, any);
+        return need(marker > 0.01 && rows > 0.95, `The ol has a picture: ${pct(marker)} dark pixels in the marker column, ${pct(rows)} of the rows drawn.`);
+      } },
+    { name: 'reversed on the <ol> changes the marker in the picture of an <li> and raises paint', why: 'Inside markers. Draw the first li, set ol.reversed, wait for the paint event and compare the pixels of the marker.',
+      run: async () => {
+        const s = await rig(LIST('', 'list-style-position:inside'), (ctx, c) => draw(ctx, c.querySelector('li + li'), 20, 100));
+        const a = read(s, 20, 100, 40, 30).slice();
+        const before = s.paints;
+        s.q('ol').reversed = true;
+        for (let i = 0; i < 40 && s.paints === before; i++) await sleep(25);
+        await sleep(40);
+        const b = read(s, 20, 100, 40, 30);
+        let diff = 0;
+        for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) > 40) diff++;
+        return need(s.paints > before && diff > 10, `${s.paints - before} paint event, ${diff} pixels of the marker changed (2 became 1).`);
+      } },
+    { name: 'A drawable scroll container: setting scrollTop raises paint and the sticky header stays at the top of the picture', why: 'A 200 px tall scroller with 30 rows and a yellow sticky header. scrollTop = 143.',
+      run: async () => {
+        const s = await rig(SCROLLER(), (ctx, c) => draw(ctx, c.querySelector('#sc'), 10, 10));
+        const sc = s.q('#sc'), before = s.paints, row = read(s, 20, 60, 120, 20).slice();
+        sc.scrollTop = 143;
+        for (let i = 0; i < 40 && s.paints === before; i++) await sleep(25);
+        await sleep(60);
+        const head = share(s, 10, 10, 280, 30, yellow), row2 = read(s, 20, 60, 120, 20);
+        let diff = 0;
+        for (let i = 0; i < row.length; i += 4) if (Math.abs(row[i] - row2[i]) > 40) diff++;
+        return need(s.paints > before && head > 0.85 && diff > 0, `${s.paints - before} paint event after scrollTop = 143. ${pct(head)} of the top 30 px is still the header, and the row under it changed.`);
+      } },
+    { name: 'A canvas shadow applies to a source-rectangle draw of the header band', why: 'Scroll by 150, draw the scroller, then its top 30 px again with shadowBlur 10 and shadowOffsetY 12.',
+      run: async () => {
+        const s = await rig(SCROLLER(), (ctx, c) => {
+          const sc = c.querySelector('#sc');
+          draw(ctx, sc, 10, 10);
+          ctx.shadowColor = '#000'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 12;
+          ctx.drawElementImage(sc, 0, 0, 280, 30, 10, 10, 280, 30);
+        });
+        s.q('#sc').scrollTop = 150;
+        await s.frame(); await s.frame();
+        const shade = share(s, 40, 42, 200, 8, (r, g, b) => r < 190 && g < 190 && b < 190), head = share(s, 10, 10, 280, 30, yellow);
+        return need(shade > 0.8 && head > 0.85, `${pct(shade)} of the 8 px under the header is shaded, and the header is ${pct(head)} yellow.`);
+      } },
+    { name: 'A <thead drawable> nested in the drawable scroller has a picture', why: 'The same scroller with drawable on the thead. Scroll by 150 and draw the thead at the top with a shadow. The fixture is fully inside the window.',
+      run: async () => {
+        const s = await rig(SCROLLER('drawable'), (ctx, c) => {
+          const sc = c.querySelector('#sc'), th = c.querySelector('thead');
+          draw(ctx, sc, 10, 10);
+          ctx.shadowColor = '#000'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 12;
+          ctx.drawElementImage(th, 10, 10, th.offsetWidth, th.offsetHeight);
+        });
+        s.q('#sc').scrollTop = 150;
+        await s.frame(); await s.frame();
+        const head = share(s, 10, 10, 280, 30, yellow);
+        return need(head > 0.85, `${pct(head)} of the top 30 px is the header after scrolling.`);
+      } },
+    { name: 'An absolutely positioned <li> keeps its marker and number', why: 'Two li elements with position: absolute at the same place and inside markers. Draw them side by side and compare the marker pixels.',
+      run: async () => {
+        const s = await rig(LIST('padding:0', 'position:absolute;left:0;top:0;width:120px;list-style-position:inside'), (ctx, c) => { const [a, b] = c.querySelectorAll('li'); draw(ctx, a, 10, 100); draw(ctx, b, 160, 100); });
+        const a = read(s, 10, 100, 40, 30).slice(), b = read(s, 160, 100, 40, 30);
+        const inkA = share(s, 34, 100, 16, 30, dark);
+        let darkA = 0, darkB = 0, diff = 0;
+        for (let i = 0; i < a.length; i += 4) { const x = dark(a[i], a[i + 1], a[i + 2], a[i + 3]), y = dark(b[i], b[i + 1], b[i + 2], b[i + 3]); darkA += x; darkB += y; if (x !== y) diff++; }
+        return need(darkA > 10 && darkB > 10 && diff > 10, `Both have a marker (${darkA} and ${darkB} dark pixels) and the two differ in ${diff} pixels, as "1." and "2." do.`);
+      } },
+    { name: 'An <li> drawn rotated takes a tap on its checkbox at the drawn place', why: 'The first li is drawn rotated by 0.3 rad around the point (160, 120). elementFromPoint() at the centre of getBoundingClientRect() of its checkbox.',
+      run: async () => {
+        const s = await rig(LIST('', 'list-style-position:inside'), (ctx, c) => {
+          const li = c.querySelector('li');
+          ctx.translate(160, 120); ctx.rotate(0.3);
+          ctx.drawElementImage(li, -130, -15, li.offsetWidth, li.offsetHeight);
+        });
+        const li = s.q('li'), box = s.q('input');
+        li.toggleAttribute('data-moved');
+        // getBoundingClientRect() of an element in a canvas follows the place it was drawn at.
+        const r = box.getBoundingClientRect(), c = s.canvas.getBoundingClientRect();
+        const px = r.left + r.width / 2 - c.left, py = r.top + r.height / 2 - c.top;
+        const hit = at(s, px, py);
+        need(Math.round(r.width) > 20, `the bounding box of the 20 px checkbox is ${Math.round(r.width)} px wide, so it is not rotated`);
+        return need(hit === box, hit === box ? `The rotated checkbox has a ${Math.round(r.width)} by ${Math.round(r.height)} px bounding box at (${Math.round(px)}, ${Math.round(py)}) and elementFromPoint() returns it there.` : `elementFromPoint() returned <${hit?.localName ?? 'nothing'}>.`);
+      } },
+  ];
+  runTests(document.getElementById('tests'), supported ? tests : []);
+</script>
+</body>
+</html>
