@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cross-origin isolated frame</title>
+<style>html, body { margin: 0; font: 12px system-ui; } canvas { display: block; } iframe { width: 1px; height: 1px; border: 0; }</style>
+</head>
+<body>
+<!-- Served with "Document-Isolation-Policy: isolate-and-credentialless" (see /_headers).
+     That header makes this one document cross-origin isolated. The page that embeds it is not. -->
+<script type="module">
+  const W = 240, H = 80;
+  const q = new URLSearchParams(location.search);
+  const say = (msg, transfer = []) => parent.postMessage({ type: 'isolated-result', ...msg }, location.origin, transfer);
+  try {
+    if (!crossOriginIsolated) throw new Error('this frame is not cross-origin isolated: the Document-Isolation-Policy header was not applied');
+    // #region sab
+    // 1. An element drawn into a canvas, as on every other page.
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = W; c.height = H;
+    c.innerHTML = `<div drawable style="width:${W}px;height:${H}px;box-sizing:border-box;background:rgb(255,204,0);color:#000;font:700 18px system-ui;padding:8px 8px 8px 40px">DOM in shared memory</div>`;
+    document.body.append(c);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    await new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
+    ctx.drawElementImage(c.firstElementChild, 0, 0, W, H);
+
+    // 2. Shared memory for the pixels and a frame counter the worker waits on.
+    const pixels = new SharedArrayBuffer(W * H * 4);
+    const flag = new SharedArrayBuffer(4);
+    const worker = new Worker('/transports-2/worker.js');
+    const answer = new Promise((resolve, reject) => { worker.onmessage = (e) => (e.data.ok ? resolve(e.data) : reject(new Error(e.data.detail))); });
+    worker.postMessage({ id: 1, kind: 'sab', pixels, flag, width: W });
+
+    // 3. Publish a frame: copy the pixels in, bump the counter, wake the worker.
+    await new Promise((r) => setTimeout(r, 30));
+    new Uint8ClampedArray(pixels).set(ctx.getImageData(0, 0, W, H).data);
+    Atomics.store(new Int32Array(flag), 0, 1);
+    Atomics.notify(new Int32Array(flag), 0);
+    const got = await answer;
+    // #endregion sab
+
+    // Can an isolated document still embed a frame from another origin?
+    let third = 'not tried';
+    if (q.get('remote')) {
+      const f = document.createElement('iframe');
+      const ready = new Promise((r) => addEventListener('message', (e) => e.source === f.contentWindow && e.data?.type === 'echo-ready' && r(true)));
+      f.src = q.get('remote') + '/transports/echo.html';
+      document.body.append(f);
+      third = (await Promise.race([ready, new Promise((r) => setTimeout(() => r(false), 3000))])) ? 'loaded and answered' : 'did not load';
+    }
+    const bitmap = await createImageBitmap(c);
+    const own = Array.from(ctx.getImageData(14, 14, 1, 1).data);
+    // The same picture twice: as an ImageBitmap and as plain bytes, to see which crosses out of an isolated document.
+    const bytes = ctx.getImageData(0, 0, W, H).data.buffer;
+    say({ ok: true, own, px: got.px, waited: got.waited, spins: got.spins, pause: got.pause, third, bitmap, bytes }, [bitmap, bytes]);
+  } catch (err) {
+    say({ ok: false, detail: `${err.name}: ${err.message}` });
+  }
+</script>
+</body>
+</html>

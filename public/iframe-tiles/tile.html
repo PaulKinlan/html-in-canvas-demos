@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- #region meta -->
+<!-- The embedded document agrees to tell its embedder how tall it is.
+     Without this line, frame-sizing on the iframe element does nothing. -->
+<meta name="responsive-embedded-sizing">
+<!-- #endregion meta -->
+<title>Tile</title>
+<style>
+  html, body { margin: 0; }
+  body { font: 14px/1.4 system-ui, sans-serif; background: rgb(255, 204, 0); color: #000; padding: 10px 12px; box-sizing: border-box; }
+  h1 { font-size: 15px; margin: 0 0 6px; }
+  p { margin: 0 0 6px; }
+  button, input { font: inherit; min-height: 36px; padding: 4px 10px; box-sizing: border-box; max-width: 100%; }
+  #where { font: 11px ui-monospace, monospace; opacity: 0.7; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<h1 id="title">Tile</h1>
+<div id="lines"></div>
+<p><button id="more" type="button">Add a line</button> <span id="n"></span></p>
+<p><input id="field" placeholder="Type here" aria-label="A field in the tile" autocomplete="off"></p>
+<p id="where"></p>
+<script>
+  // One document used for every tile on /iframe-tiles/. Query: ?id=&lines=&meta=0&focus=1&bg=
+  const q = new URLSearchParams(location.search);
+  const id = q.get('id') || 'tile';
+  const wasPrerendering = document.prerendering === true;
+  if (q.get('meta') === '0') document.querySelector('meta[name=responsive-embedded-sizing]').remove();
+  if (q.get('bg')) document.body.style.background = q.get('bg');
+  document.getElementById('title').textContent = q.get('title') || 'Tile ' + id;
+  document.getElementById('where').textContent = location.origin === 'null' ? 'sandboxed (opaque origin)' : location.host;
+  const lines = document.getElementById('lines');
+  const say = (extra = {}) => parent.postMessage({ type: 'tile', id, height: document.documentElement.scrollHeight, lines: lines.childElementCount, wasPrerendering, ...extra }, '*');
+  function add(n = 1) {
+    for (let i = 0; i < n; i++) lines.append(Object.assign(document.createElement('p'), { textContent: `Line ${lines.childElementCount + 1} of the embedded document.` }));
+    document.getElementById('n').textContent = lines.childElementCount + ' lines';
+    say();
+  }
+  add(Number(q.get('lines') ?? 2));
+  document.getElementById('more').onclick = () => add(1);
+  addEventListener('message', (e) => {
+    if (e.data?.type === 'tile-add') add(e.data.n ?? 1);
+    if (e.data?.type === 'tile-ask') say({ focused: document.activeElement === document.getElementById('field'), hasFocus: document.hasFocus() });
+  });
+  // #region focus
+  // ?focus=1: take focus on load with no user action, the way an embedded sign-in box or chat widget does.
+  if (q.get('focus') === '1') {
+    document.getElementById('field').focus();
+    say({ focused: document.activeElement === document.getElementById('field'), hasFocus: document.hasFocus(), tried: true });
+  }
+  // #endregion focus
+  addEventListener('load', () => say({ loaded: true }));
+</script>
+</body>
+</html>

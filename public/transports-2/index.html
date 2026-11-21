@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Transport lab 2: newer routes</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1000px; }
+  .lab { list-style: none; margin: 0; padding: 0; }
+  .lab > li { display: grid; grid-template-columns: 84px minmax(0, 1fr) 124px; gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); align-items: start; }
+  .lab .status { font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .lab .route { font-weight: 600; }
+  .lab .via { font: 12px var(--mono); color: var(--muted); }
+  .lab .detail { grid-column: 2 / -1; font: 12px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }
+  .lab canvas.out { display: block; width: 120px; height: 40px; border: 1px solid var(--line); border-radius: 4px; background: repeating-conic-gradient(#0001 0 25%, transparent 0 50%) 0 0 / 10px 10px; }
+  .lab button { min-height: 40px; }
+  @media (max-width: 560px) {
+    .lab > li { grid-template-columns: 76px minmax(0, 1fr); }
+    .lab canvas.out { grid-column: 2; }
+  }
+  .skip { color: var(--warn); }
+  #go { min-height: 44px; font-weight: 600; }
+  #score { font: 14px var(--mono); min-height: 1.5em; }
+  /* Fixtures: on screen so they paint, out of flow so nothing moves, removed after each row. */
+  #sources { position: fixed; left: 8px; bottom: 8px; opacity: 0.02; pointer-events: none; z-index: -1; width: 240px; height: 80px; overflow: hidden; }
+  #sources iframe { width: 240px; height: 80px; border: 0; }
+  /* Element Capture can only record what is really on screen, so its fixtures are visible. */
+  #capture-stage { display: flex; gap: 10px; flex-wrap: wrap; min-height: 84px; margin: 8px 0; }
+  #capture-stage > * { width: 120px; height: 80px; border-radius: 6px; isolation: isolate; }
+  #capture-stage .plain { background: rgb(255, 204, 0); color: #000; font: 700 14px system-ui; padding: 8px; box-sizing: border-box; }
+  #freeze-log { font: 12px/1.6 var(--mono); color: var(--muted); padding-left: 18px; }
+  h2 small { font: 13px var(--mono); color: var(--muted); font-weight: 400; margin-left: 8px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Transport lab 2: newer routes</h1>
+  <p class="lede">
+    More routes for getting a drawn element to another thread, document or device, using APIs from Chrome 130 to 160:
+    WebRTC sender settings that keep text sharp, an <code>RTCDataChannel</code> moved to a worker, <code>SharedArrayBuffer</code> under
+    <code>Document-Isolation-Policy</code>, WebTransport datagrams and Element Capture. The <a href="/transports/">first lab</a> has the other fifty.
+  </p>
+  <p>Each row is a test that runs in this browser. Nothing runs until you press the button, and each row removes its canvas before the next one starts.</p>
+  <p><button id="go" type="button">Run the routes</button> <span id="score" role="status"></span></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>the helpers the rows share</small></summary>
+    <p>Every row has its own <b>Show the code</b> link with the function it ran. They use these.</p>
+    <ol>
+      <li data-code="#source"><b><code>source()</code>: a drawable canvas with one element drawn into it.</b></li>
+      <li data-code="#loopback"><b><code>loopback()</code>: two <code>RTCPeerConnection</code>s in this page, joined to each other.</b> It stands in for two devices.</li>
+      <li data-code="/transports-2/worker.js"><b>The worker that takes the data channel and reads the shared memory.</b></li>
+      <li data-code="/transports-2/isolated.html"><b>The frame served with <code>Document-Isolation-Policy</code>.</b></li>
+      <li data-code="#freeze"><b>The freeze test.</b></li>
+      <li data-code="/transports-2/ticks.js"><b>The timer that runs in a worker and in a SharedWorker.</b></li>
+      <li data-code="/lib/freeze-log.js"><b><code>freeze-log.js</code>: record when the browser stopped the page.</b></li>
+    </ol>
+  </details>
+
+  <h2>A · WebRTC sender settings <small>for a stream of text, not of camera video</small></h2>
+  <ul class="lab" id="tA"></ul>
+
+  <h2>B · Workers and shared memory</h2>
+  <ul class="lab" id="tB"></ul>
+
+  <h2>C · WebTransport</h2>
+  <ul class="lab" id="tC"></ul>
+
+  <h2>D · Element Capture <small>needs a press and a permission prompt</small></h2>
+  <p>Element Capture records the tab and crops the track to one element. It is the browser's own way to share one element, so it is compared here with <code>canvas.captureStream()</code> of a canvas that draws the element. The three targets below must be on screen to be captured.</p>
+  <div id="capture-stage">
+    <div class="plain" id="cap-plain">plain div</div>
+    <canvas id="cap-canvas" content="drawable" layoutsubtree width="120" height="80"><div id="cap-child" drawable style="width:120px;height:80px;box-sizing:border-box;background:rgb(255,204,0);color:#000;font:700 14px system-ui;padding:8px">canvas child</div></canvas>
+  </div>
+  <ul class="lab" id="tD"></ul>
+
+  <h2>E · When the browser freezes the source tab</h2>
+  <p>A page that streams an element only produces frames while it runs. Chrome on Android freezes a hidden tab after about a minute; desktop Chrome does it under Energy Saver. This test measures what stops. Press the button, switch to another tab or app for at least 90 seconds, then come back.</p>
+  <p><button id="freeze-go" type="button">Start the freeze test</button> <span id="freeze-state" role="status"></span></p>
+  <table class="results"><thead><tr><th>What</th><th>Longest stop</th><th>Detail</th></tr></thead><tbody id="freeze-rows">
+    <tr><td>Timer on the page</td><td>not run</td><td><code>setInterval</code>, 250 ms</td></tr>
+    <tr><td><code>paint</code> events of a drawable canvas</td><td>not run</td><td><code>requestPaint()</code> on every timer tick</td></tr>
+    <tr><td>Timer in a dedicated worker</td><td>not run</td><td>where a worker-owned canvas would draw</td></tr>
+    <tr><td>Timer in a SharedWorker</td><td>not run</td><td>the broker of the cross-tab demo</td></tr>
+    <tr><td>WebSocket to this site's room server</td><td>not run</td><td>the signalling and relay route of the remote demo</td></tr>
+  </tbody></table>
+  <p>What <code>freeze-log.js</code> has recorded for this tab:</p>
+  <ul id="freeze-log"><li>Nothing recorded yet: this tab has not been hidden.</li></ul>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong><code>degradationPreference: 'maintain-framerate-and-resolution'</code> keeps the element at its own size.</strong> With the default (<code>balanced</code>) and a low bitrate, WebRTC shrinks the picture, which blurs text first. With this value the encoder keeps the size and the page is responsible for sending fewer frames.</li>
+    <li><strong><code>scaleResolutionDownTo</code> sends a smaller stream without resizing the canvas.</strong> The source canvas stays at full size for the page; the phone gets a picture no larger than the size given.</li>
+    <li><strong>An <code>RTCDataChannel</code> transfers to a worker, once, before anything is sent on it.</strong> Transfer it in the <code>datachannel</code> event. After that, input from the far device is parsed off the main thread.</li>
+    <li><strong><code>Document-Isolation-Policy</code> isolates one frame.</strong> The frame gets <code>SharedArrayBuffer</code> and <code>Atomics.wait</code>; the page around it stays as it was and keeps its cross-origin frames. This page is not isolated, so the same code fails here, which the row before it shows.</li>
+    <li><strong>WebTransport has no server on this site.</strong> The Cloudflare Workers documentation lists no way to accept a WebTransport session, so the datagram row fails with the browser's error. The row's code has not been run against a real server. Add <code>?wt=https://host/path</code> to point the row at an echo server of your own.</li>
+    <li><strong>Element Capture cannot be answered by a headless browser,</strong> so those rows have only been run by hand. See the detail text they print.</li>
+    <li><strong>Freezing has not been measured yet.</strong> Neither test browser can be made to freeze a tab (the DevTools lifecycle command changes nothing there, and no <code>freeze</code> event fires), so the freeze test above has only run with the tab visible. It needs a phone. The remote and cross-tab pages now report on their own page how long they were stopped.</li>
+    <li><strong><code>track.stats</code> does not exist on a canvas capture track.</strong> The frame counters are only on camera and screen capture tracks, so a canvas stream has to count its own frames.</li>
+  </ul>
+
+  <div id="sources" aria-hidden="true"></div>
+</main>
+
+<script type="module">
+  import { banner, nav, supported, withTimeout } from '/shared/support.js';
+  import { otherOrigin } from '/lib/live-origins.js';
+  import { freezeLog, describeFreezeLog, onThaw } from '/lib/freeze-log.js';
+  nav('/transports-2/');
+  banner();
+
+  const W = 240, H = 80;
+  const YELLOW = [255, 204, 0];
+  const sources = document.getElementById('sources');
+  const q = new URLSearchParams(location.search);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const near = (px, tol = 3) => px && YELLOW.every((v, i) => Math.abs(px[i] - v) <= tol) && px[3] > 250;
+  const skip = (msg) => Object.assign(new Error(msg), { skip: true });
+  const until = async (fn, ms = 4000) => {
+    const end = performance.now() + ms;
+    while (performance.now() < end) {
+      const v = await fn();
+      if (v) return v;
+      await sleep(80);
+    }
+    return null;
+  };
+
+  // #region source
+  /** A drawable canvas with one yellow element drawn into it. `live` redraws it 20 times a second so streams have frames. */
+  async function source({ w = W, h = H, live = false } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = w; c.height = h;
+    c.style.cssText = `width:${w}px;height:${h}px`;
+    c.innerHTML = `<div drawable style="width:${w}px;height:${h}px;box-sizing:border-box;background:rgb(255,204,0);color:#000;font:700 ${Math.round(h / 4)}px system-ui;padding:${h / 10}px ${h / 6}px ${h / 10}px ${h / 2}px">DOM <button style="font:inherit">btn</button> Sharp text 0123456789</div>`;
+    sources.append(c);
+    const el = c.firstElementChild;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    await new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
+    const draw = () => { ctx.reset(); ctx.drawElementImage(el, 0, 0, w, h); };
+    draw();
+    let timer = 0, n = 0;
+    if (live) timer = setInterval(() => { draw(); ctx.fillStyle = `rgb(${n++ % 255},0,0)`; ctx.fillRect(w - 2, h - 2, 2, 2); }, 50);
+    return { c, el, ctx, remove() { clearInterval(timer); c.remove(); } };
+  }
+  // #endregion source
+
+  /** Draw what arrived into the row's small canvas and check that the element's colour is there. */
+  function arrive(out, drawable, tol = 3) {
+    const ctx = out.getContext('2d', { willReadFrequently: true });
+    ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(drawable, 0, 0, W, H);
+    const px = Array.from(ctx.getImageData(14, 14, 1, 1).data);
+    if (!near(px, tol)) throw new Error(`arrived, but the pixel is ${px.join(',')} and the element is 255,204,0`);
+    return px;
+  }
+
+  // #region loopback
+  /** Send a stream from one RTCPeerConnection to another in this page. `tune(sender)` runs before the offer. */
+  async function loopback(stream, { tune, channel } = {}) {
+    const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+    a.onicecandidate = (e) => e.candidate && b.addIceCandidate(e.candidate);
+    b.onicecandidate = (e) => e.candidate && a.addIceCandidate(e.candidate);
+    const remote = stream ? new Promise((r) => (b.ontrack = (e) => r(e.streams[0] ?? new MediaStream([e.track])))) : null;
+    const senders = stream ? stream.getTracks().map((t) => a.addTrack(t, stream)) : [];
+    const dc = channel ? a.createDataChannel(channel, { ordered: true }) : null;
+    const incoming = channel ? new Promise((r) => (b.ondatachannel = (e) => r(e.channel))) : null;
+    await a.setLocalDescription(await a.createOffer());
+    await b.setRemoteDescription(a.localDescription);
+    await b.setLocalDescription(await b.createAnswer());
+    await a.setRemoteDescription(b.localDescription);
+    if (tune) await tune(senders[0]);
+    return { a, b, sender: senders[0], dc, incoming, remote: remote ? await remote : null, close() { a.close(); b.close(); } };
+  }
+  // #endregion loopback
+
+  async function videoOf(stream) {
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.srcObject = stream;
+    await v.play();
+    await new Promise((r) => v.requestVideoFrameCallback(r));
+    return v;
+  }
+  const outbound = async (pc) => { for (const s of (await pc.getStats()).values()) if (s.type === 'outbound-rtp' && s.kind === 'video') return s; return {}; };
+
+  /** Stream a 960×540 element at a bitrate far too low for it and report the size that arrives. */
+  async function squeezed(preference) {
+    const s = await source({ w: 960, h: 540, live: true });
+    let link;
+    try {
+      link = await loopback(s.c.captureStream(20), {
+        tune: async (sender) => {
+          const p = sender.getParameters();
+          p.encodings[0].maxBitrate = 40_000;
+          if (preference) p.degradationPreference = preference;
+          await sender.setParameters(p);
+        },
+      });
+      const v = await videoOf(link.remote);
+      // Adaptation takes a few seconds to react to the bitrate cap.
+      let last = [v.videoWidth, v.videoHeight];
+      for (let i = 0; i < 12; i++) { await sleep(350); last = [v.videoWidth, v.videoHeight]; }
+      const stats = await outbound(link.a);
+      return { v, size: last, reason: stats.qualityLimitationReason ?? '?', applied: link.sender.getParameters().degradationPreference ?? '(not reported)' };
+    } finally {
+      setTimeout(() => { link?.close(); s.remove(); }, 0);
+    }
+  }
+
+  const routes = {
+    tA: [
+      ['WebRTC at 40 kbit/s, default adaptation', "degradationPreference left alone ('balanced')", async (out) => {
+        const r = await squeezed(null);
+        arrive(out, r.v, 60);
+        return `the 960×540 element arrived as ${r.size.join('×')}; limited by: ${r.reason}. This row is the comparison for the next one.`;
+      }, 16000],
+      ["WebRTC at 40 kbit/s, 'maintain-framerate-and-resolution'", 'sender.setParameters({ degradationPreference })', async (out) => {
+        const r = await squeezed('maintain-framerate-and-resolution');
+        arrive(out, r.v, 60);
+        if (r.size[0] !== 960) throw new Error(`the picture was still shrunk to ${r.size.join('×')} (the sender reports "${r.applied}")`);
+        return `arrived at ${r.size.join('×')}, the size it was drawn; limited by: ${r.reason}; the sender reports "${r.applied}"`;
+      }, 16000],
+      ['WebRTC: scaleResolutionDownTo', 'encodings[0].scaleResolutionDownTo = { maxWidth: 320, maxHeight: 180 }', async (out) => {
+        const s = await source({ w: 960, h: 540, live: true });
+        let link;
+        try {
+          link = await loopback(s.c.captureStream(20), {
+            tune: async (sender) => {
+              const p = sender.getParameters();
+              p.encodings[0].scaleResolutionDownTo = { maxWidth: 320, maxHeight: 180 };
+              await sender.setParameters(p);
+              if (!sender.getParameters().encodings[0].scaleResolutionDownTo) throw new Error('the browser ignored scaleResolutionDownTo');
+            },
+          });
+          const v = await videoOf(link.remote);
+          const ok = await until(() => v.videoWidth > 0 && v.videoWidth <= 320, 5000);
+          arrive(out, v, 60);
+          if (!ok) throw new Error(`arrived as ${v.videoWidth}×${v.videoHeight}`);
+          return `canvas stays 960×540; the far end decodes ${v.videoWidth}×${v.videoHeight}`;
+        } finally { setTimeout(() => { link?.close(); s.remove(); }, 0); }
+      }, 14000],
+      ['RTP timestamp of each received frame', 'MediaStreamTrackProcessor → VideoFrame.metadata().rtpTimestamp', async (out) => {
+        if (!globalThis.MediaStreamTrackProcessor) throw skip('MediaStreamTrackProcessor is not available on this thread');
+        const s = await source({ live: true });
+        let link;
+        try {
+          link = await loopback(s.c.captureStream(20));
+          const reader = new MediaStreamTrackProcessor({ track: link.remote.getVideoTracks()[0] }).readable.getReader();
+          const stamps = [];
+          let frame;
+          for (let i = 0; i < 3; i++) {
+            ({ value: frame } = await reader.read());
+            stamps.push(frame.metadata?.().rtpTimestamp);
+            if (i < 2) frame.close();
+          }
+          arrive(out, frame, 60); frame.close(); reader.cancel();
+          if (stamps.some((t) => typeof t !== 'number')) throw new Error(`metadata() gave ${JSON.stringify(stamps)}`);
+          return `three frames at RTP time ${stamps.join(', ')} (90 kHz clock: ${((stamps[2] - stamps[0]) / 90 / 2).toFixed(0)} ms apart). The sender can match these to its own clock to measure latency per frame.`;
+        } finally { setTimeout(() => { link?.close(); s.remove(); }, 0); }
+      }, 12000],
+      ['Frames a capture track delivered and dropped', 'canvas.captureStream() → track.stats', async (out) => {
+        const s = await source({ live: true });
+        try {
+          const [track] = s.c.captureStream(20).getVideoTracks();
+          const v = await videoOf(new MediaStream([track]));
+          await sleep(600);
+          arrive(out, v, 14);
+          const st = track.stats;
+          if (!st) throw new Error('track.stats is undefined for a canvas capture track');
+          return `delivered ${st.deliveredFrames}, discarded ${st.discardedFrames}, total ${st.totalFrames}`;
+        } finally { s.remove(); }
+      }],
+    ],
+    tB: [
+      ['RTCDataChannel → transfer to a worker', "postMessage({ channel }, [channel]) inside the 'datachannel' event", async () => {
+        const worker = new Worker('/transports-2/worker.js');
+        const link = await loopback(null, { channel: 'input' });
+        try {
+          const there = await link.incoming;
+          const heard = new Promise((resolve, reject) => { worker.onmessage = (e) => (e.data.ok ? resolve(e.data) : reject(new Error(e.data.detail))); });
+          worker.postMessage({ id: 1, kind: 'channel', channel: there }, [there]);
+          await until(() => link.dc.readyState === 'open', 4000);
+          link.dc.send(JSON.stringify({ t: 'pointer', kind: 'down', x: 0.42, y: 0.5, sent: Date.now() }));
+          const got = await heard;
+          return `a ${got.thread} received ${JSON.stringify({ t: got.input.t, kind: got.input.kind, x: got.input.x, y: got.input.y })} ${got.lag} ms after it was sent; the main thread at the receiving end handled no message`;
+        } finally { link.close(); worker.terminate(); }
+      }, 10000],
+      ['SharedArrayBuffer on this page', 'new SharedArrayBuffer(), no isolation headers here', async () => {
+        if (!crossOriginIsolated) throw new Error(`crossOriginIsolated is false${typeof SharedArrayBuffer === 'undefined' ? ' and SharedArrayBuffer is undefined' : ''}. Expected: this page sends no isolation header`);
+        return 'this page is cross-origin isolated';
+      }],
+      ['SharedArrayBuffer in a frame with Document-Isolation-Policy', 'pixels → shared memory → Atomics.notify → a worker reads them in place', async (out) => {
+        const f = document.createElement('iframe');
+        f.title = 'Cross-origin isolated frame';
+        const remote = otherOrigin();
+        const answer = new Promise((resolve) => addEventListener('message', function on(e) {
+          if (e.source !== f.contentWindow || e.data?.type !== 'isolated-result') return;
+          removeEventListener('message', on);
+          resolve(e.data);
+        }));
+        f.src = '/transports-2/isolated.html' + (remote ? '?remote=' + encodeURIComponent(remote) : '');
+        sources.append(f);
+        try {
+          const r = await answer;
+          if (!r.ok) throw new Error(r.detail);
+          if (!near(r.px)) throw new Error(`the worker read ${r.px.join(',')}; the frame's own canvas has ${r.own.join(',')}`);
+          // Out of the isolated frame: try the ImageBitmap, fall back to the bytes.
+          let crossed = 'an ImageBitmap posted to this page arrived intact';
+          try {
+            arrive(out, r.bitmap);
+          } catch (err) {
+            crossed = `an ImageBitmap posted to this page ${err.message.replace('arrived, but the', 'arrived with the wrong pixels: the')}; the same pixels as an ArrayBuffer arrived intact`;
+            const c = new OffscreenCanvas(W, H);
+            c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(r.bytes), W, H), 0, 0);
+            arrive(out, c);
+          }
+          return `${crossed}. The worker read ${r.px.join(',')} from shared memory after ${r.waited} ms (${r.spins} spins${r.pause ? ' with Atomics.pause()' : ''}, then Atomics.wait). A frame from the other origin inside the isolated frame: ${r.third}. This page: crossOriginIsolated ${crossOriginIsolated}.`;
+        } finally { f.remove(); }
+      }, 10000],
+      ['Bytes as text: Uint8Array.toBase64()', 'PNG bytes → base64 in JSON → BroadcastChannel → Uint8Array.fromBase64()', async (out) => {
+        if (!Uint8Array.prototype.toBase64) throw skip('Uint8Array.prototype.toBase64 is not in this browser');
+        const s = await source();
+        try {
+          const bytes = new Uint8Array(await (await new Promise((r) => s.c.toBlob(r, 'image/png'))).arrayBuffer());
+          const a = new BroadcastChannel('lab2-b64'), b = new BroadcastChannel('lab2-b64');
+          const got = new Promise((r) => (b.onmessage = (e) => r(e.data)));
+          a.postMessage(JSON.stringify({ type: 'image/png', data: bytes.toBase64() }));
+          const msg = JSON.parse(await got); a.close(); b.close();
+          arrive(out, await createImageBitmap(new Blob([Uint8Array.fromBase64(msg.data)], { type: msg.type })));
+          return `${bytes.length} bytes as ${msg.data.length} characters, with no helper function`;
+        } finally { s.remove(); }
+      }],
+    ],
+    tC: [
+      ['WebTransport datagrams', 'one PNG of the element in datagram-sized pieces, echoed by a server', async (out) => {
+        if (!globalThis.WebTransport) throw skip('WebTransport is not in this browser');
+        const url = q.get('wt') ?? `https://${location.host}/api/x/wt`;
+        const wt = new WebTransport(url);
+        try {
+          await withTimeout(wt.ready, 5000);
+        } catch (err) {
+          throw new Error(`no WebTransport session at ${url}: ${err.message || err.name}. ${q.get('wt') ? '' : 'This site runs on Cloudflare Workers, whose documentation lists no WebTransport server. Add ?wt=<url of an echo server> to test the route.'}`);
+        }
+        const s = await source();
+        try {
+          const bytes = new Uint8Array(await (await new Promise((r) => s.c.toBlob(r, 'image/png'))).arrayBuffer());
+          const size = Math.min(1000, wt.datagrams.maxDatagramSize - 4);
+          const count = Math.ceil(bytes.length / size);
+          const writer = wt.datagrams.writable.getWriter();
+          const reader = wt.datagrams.readable.getReader();
+          // Datagrams may be lost or reordered: each carries its index and the total.
+          for (let i = 0; i < count; i++) {
+            const d = new Uint8Array(4 + Math.min(size, bytes.length - i * size));
+            new DataView(d.buffer).setUint16(0, i); new DataView(d.buffer).setUint16(2, count);
+            d.set(bytes.subarray(i * size, (i + 1) * size), 4);
+            await writer.write(d);
+          }
+          const parts = new Array(count);
+          let have = 0;
+          await withTimeout((async () => { while (have < count) { const { value, done } = await reader.read(); if (done) break; const i = new DataView(value.buffer, value.byteOffset).getUint16(0); if (!parts[i]) { parts[i] = value.slice(4); have++; } } })(), 4000).catch(() => {});
+          if (have < count) throw new Error(`${have} of ${count} datagrams came back`);
+          arrive(out, await createImageBitmap(new Blob(parts, { type: 'image/png' })));
+          const stats = await wt.getStats?.().catch(() => null);
+          return `${count} datagrams of up to ${size} bytes echoed by ${new URL(url).host}${stats?.smoothedRtt != null ? `, round trip ${Math.round(stats.smoothedRtt)} ms` : ''}`;
+        } finally { s.remove(); wt.close(); }
+      }, 14000],
+    ],
+  };
+
+  // ---- Element Capture: one prompt, three targets ----
+  const captureRows = [
+    ['Element Capture of a plain element', 'getDisplayMedia({ preferCurrentTab }) → track.restrictTo(RestrictionTarget.fromElement(div))', 'cap-plain'],
+    ['Element Capture of a canvas that draws an element', 'restrictTo(the drawable canvas)', 'cap-canvas'],
+    ['Element Capture of an element that is a child of a drawable canvas', 'restrictTo(the element inside the canvas)', 'cap-child'],
+  ];
+  async function runCapture(rows) {
+    const set = (i, state, detail) => finish(rows[i], captureRows[i][0], state, detail);
+    if (!globalThis.RestrictionTarget) return captureRows.forEach((_, i) => set(i, 'skip', 'RestrictionTarget (Element Capture) is not in this browser. It is desktop only.'));
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 20 }, preferCurrentTab: true });
+    } catch (err) {
+      return captureRows.forEach((_, i) => set(i, 'fail', `no tab capture: ${err.name}: ${err.message}`));
+    }
+    const [track] = stream.getVideoTracks();
+    const v = await videoOf(stream);
+    // Compare with captureStream() of the same canvas: no prompt, and it works while the canvas is covered or scrolled away.
+    const own = await videoOf(document.getElementById('cap-canvas').captureStream(20)).catch(() => null);
+    for (const [i, [, , id]] of captureRows.entries()) {
+      try {
+        const el = document.getElementById(id);
+        await track.restrictTo(await RestrictionTarget.fromElement(el));
+        await sleep(700);
+        await new Promise((r) => v.requestVideoFrameCallback(r));
+        arrive(rows[i].querySelector('canvas.out'), v, 40);
+        const r = el.getBoundingClientRect();
+        set(i, 'pass', `the track is ${v.videoWidth}×${v.videoHeight} for a ${Math.round(r.width)}×${Math.round(r.height)} CSS px element (device pixel ratio ${devicePixelRatio})${id === 'cap-canvas' && own ? `; captureStream() of the same canvas gives ${own.videoWidth}×${own.videoHeight} with no prompt` : ''}`);
+      } catch (err) {
+        set(i, err.skip ? 'skip' : 'fail', `${err.name}: ${err.message}`);
+      }
+    }
+    track.stop();
+  }
+
+  // ---- runner ----
+  const tally = { pass: 0, fail: 0, skip: 0 };
+  const results = [];
+  const score = document.getElementById('score');
+  const rowCode = (fn) => {
+    const d = document.createElement('details');
+    d.className = 'row-code';
+    d.innerHTML = '<summary>Show the code</summary>';
+    d.addEventListener('toggle', () => { if (d.open && !d.querySelector('figure') && window.showCode) d.append(window.showCode.block(fn, 'js', 'this route')); });
+    return d;
+  };
+  function addRow(tbody, name, via, fn) {
+    const li = document.createElement('li');
+    li.innerHTML = `<div class="status pending">not run</div><div><div class="route"></div><div class="via"></div></div><canvas class="out" width="${W}" height="${H}" role="img" aria-label="What arrived"></canvas><div class="detail"></div>`;
+    li.querySelector('.route').textContent = name;
+    li.querySelector('.via').textContent = via;
+    if (fn) li.querySelector('.via').after(rowCode(fn));
+    document.getElementById(tbody).append(li);
+    return li;
+  }
+  function finish(li, name, state, detail) {
+    tally[state]++;
+    const status = li.querySelector('.status');
+    status.className = 'status ' + state;
+    status.textContent = { pass: '✓ works', fail: '✗ fails', skip: '– n/a' }[state];
+    li.querySelector('.detail').textContent = detail ?? '';
+    results.push({ name, ok: state !== 'fail', state, detail });
+    score.textContent = `${tally.pass} work · ${tally.fail} fail · ${tally.skip} not testable here`;
+  }
+  const rows = [];
+  for (const [tbody, list] of Object.entries(routes)) for (const [name, via, run, timeout] of list) rows.push({ li: addRow(tbody, name, via, run), name, run, timeout });
+  const capRows = captureRows.map(([name, via]) => addRow('tD', name, via, runCapture));
+  const capGo = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Capture this tab and run these three' });
+  document.getElementById('tD').before(capGo);
+  capGo.onclick = async () => { capGo.disabled = true; await runCapture(capRows); };
+
+  // The canvas in the Element Capture stage draws its child, like any drawable canvas.
+  if (supported) {
+    const cc = document.getElementById('cap-canvas');
+    const cctx = cc.getContext('2d');
+    cc.addEventListener('paint', () => { cctx.reset(); cctx.drawElementImage(cc.firstElementChild, 0, 0, 120, 80); });
+    cc.requestPaint();
+  }
+
+  const go = document.getElementById('go');
+  async function runAll() {
+    go.disabled = true;
+    window.__checkState = 'running';
+    for (const r of rows) {
+      r.li.querySelector('.status').textContent = '… running';
+      let state, detail;
+      try {
+        detail = await withTimeout(r.run(r.li.querySelector('canvas.out')), r.timeout ?? 6000);
+        state = 'pass';
+      } catch (err) {
+        state = err.skip ? 'skip' : 'fail';
+        detail = err.skip ? err.message : `${err.name}: ${err.message}`;
+      }
+      sources.replaceChildren(); // one fixture at a time
+      finish(r.li, r.name, state, detail);
+      await sleep(50);
+    }
+    window.__checkState = 'done';
+    window.__results = results;
+    go.textContent = 'Done';
+  }
+  if (!supported) {
+    go.disabled = true;
+    score.textContent = 'HTML-in-canvas is not available, so nothing can be tested here.';
+  } else {
+    window.__checkState = 'waiting';
+    go.onclick = runAll;
+    if (q.get('autochecks') === '1') runAll();
+  }
+
+  // ---- freeze test ----
+  // #region freeze
+  const FKEY = 'freeze-test';
+  const frows = [...document.querySelectorAll('#freeze-rows tr')];
+  const fstate = document.getElementById('freeze-state');
+  const setF = (i, stop, detail) => { frows[i].cells[1].textContent = stop; if (detail) frows[i].cells[2].textContent = detail; };
+  const secs = (ms) => (ms < 1500 ? 'none (' + Math.round(ms) + ' ms)' : (ms / 1000).toFixed(1) + ' s');
+  async function freezeTest() {
+    document.getElementById('freeze-go').disabled = true;
+    const t0 = Date.now();
+    const m = { timer: 0, paint: 0, started: t0, hidden: 0 };
+    // 1 and 2: a timer on the page, and the paint events of one small drawable canvas.
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+    c.width = 60; c.height = 20; c.style.cssText = 'width:60px;height:20px';
+    c.innerHTML = '<div drawable style="width:60px;height:20px;background:rgb(255,204,0);font:10px system-ui"></div>';
+    document.getElementById('sources').append(c);
+    const cx = c.getContext('2d');
+    let lastTick = t0, lastPaint = t0, n = 0;
+    c.addEventListener('paint', () => { const now = Date.now(); m.paint = Math.max(m.paint, now - lastPaint); lastPaint = now; cx.reset(); cx.drawElementImage(c.firstElementChild, 0, 0, 60, 20); });
+    // 3 and 4: the same timer on two other threads.
+    const dedicated = new Worker('/transports-2/ticks.js');
+    let shared = null;
+    try { shared = new SharedWorker('/transports-2/ticks.js'); shared.port.start(); } catch {}
+    const askWorker = (target, msg) => new Promise((r) => { target.onmessage = (e) => r(e.data); target.postMessage(msg); setTimeout(() => r(null), 1500); });
+    await askWorker(dedicated, 'reset');
+    if (shared) await askWorker(shared.port, 'reset');
+    // 5: a WebSocket to a room of its own.
+    let ws = null, wsClosed = 0, wsNote = '';
+    try {
+      ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/x/room/freeze-${Math.random().toString(36).slice(2, 8)}?role=probe`);
+      ws.onclose = (e) => { wsClosed = Date.now(); wsNote = `closed with code ${e.code}`; };
+      ws.onerror = () => (wsNote = 'no room server on this host');
+    } catch (err) { wsNote = err.message; }
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') m.hiddenAt = Date.now(); else if (m.hiddenAt) m.hidden += Date.now() - m.hiddenAt; });
+    setInterval(async () => {
+      const now = Date.now();
+      m.timer = Math.max(m.timer, now - lastTick);
+      lastTick = now;
+      c.firstElementChild.textContent = n++; // a change, so there is something to paint
+      c.requestPaint();
+      if (n % 4) return;
+      const d = await askWorker(dedicated, 'get');
+      const s = shared ? await askWorker(shared.port, 'get') : null;
+      setF(0, secs(m.timer));
+      setF(1, secs(m.paint), document.visibilityState === 'hidden' ? null : 'requestPaint() on every timer tick. A hidden tab gets no paint events even before it is frozen.');
+      setF(2, d ? secs(d.longest) : 'no answer');
+      setF(3, shared ? (s ? secs(s.longest) : 'no answer') : 'SharedWorker is not available here', shared && s ? `${s.ticks} ticks so far. A SharedWorker belongs to no single tab.` : null);
+      setF(4, ws ? (ws.readyState === 1 ? 'still open' : ws.readyState === 0 ? 'connecting' : `closed ${wsClosed ? Math.round((wsClosed - t0) / 1000) + ' s after the start' : ''}`) : 'not opened', wsNote || null);
+      fstate.textContent = `running for ${Math.round((now - t0) / 1000)} s, hidden for ${Math.round(m.hidden / 1000)} s of it${m.hidden < 60000 ? '. Hide this tab for 90 s to see a freeze.' : '.'}`;
+      try { sessionStorage.setItem(FKEY, JSON.stringify({ ...m, at: now })); } catch {}
+    }, 250);
+  }
+  // #endregion freeze
+  document.getElementById('freeze-go').onclick = freezeTest;
+  if (q.get('freeze') === '1') freezeTest();
+
+  // ---- freeze log ----
+  const logEl = document.getElementById('freeze-log');
+  function showLog() {
+    const lines = describeFreezeLog(freezeLog());
+    if (!lines.length) return;
+    logEl.replaceChildren(...lines.map((t) => Object.assign(document.createElement('li'), { textContent: t })));
+  }
+  showLog();
+  onThaw(showLog);
+  document.addEventListener('visibilitychange', () => setTimeout(showLog, 50));
+</script>
+</body>
+</html>
