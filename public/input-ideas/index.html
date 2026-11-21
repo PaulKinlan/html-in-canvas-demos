@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Five more input pickers</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  /* #region css */
+  .idea input:not([type="range"]) {
+    font: inherit; min-height: 44px; box-sizing: border-box; min-width: 0;
+    padding: 6px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--fg);
+  }
+  .idea input[type="color"] { padding: 4px; width: 72px; }
+  /* The colours of the popovers and of the two canvases that hold an input. */
+  .placed-popover, .idea canvas { --picker-bg: var(--card); --picker-ink: var(--fg); --picker-accent: var(--accent); }
+  /* #endregion css */
+
+  .idea { display: grid; gap: 6px; justify-items: start; margin: 12px 0 0; }
+  .idea label { display: grid; gap: 4px; font-size: 14px; }
+  .idea label b { font-size: 15px; }
+  .idea .pair { display: flex; flex-wrap: wrap; gap: 10px; }
+  .idea canvas { accent-color: var(--accent); }
+  .idea .wide { width: 100%; }
+  output.form-data { display: block; font: 13px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; min-height: 1.5em; }
+  .canvas-note { font-size: 14px; color: var(--muted); margin: 6px 0 0; }
+  .canvas-note:empty { display: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Five more input pickers</h1>
+  <p class="lede">
+    Five controls, each on a real <code>&lt;input&gt;</code> element that keeps its value, its form entry, its <code>input</code> and
+    <code>change</code> events and its keyboard handling, with a canvas doing the drawing. They are the ideas listed at the end of
+    <a href="/inputs/">/inputs/</a>. Each one asks a separate question of the API: drawing one element in slices, drawing under a set of
+    buttons, reading pixels back from a canvas that draws elements, magnifying buttons, and drawing a datalist option inside an input.
+  </p>
+
+  <h2 id="dial">A range input bent round a dial</h2>
+  <p>
+    The track, the thumb and the tick marks are the browser's own picture of <code>&lt;input type="range"&gt;</code>. The canvas draws that
+    picture in slices 3 px wide, each under its own rotation. Drag round the arc, or focus the dial with Tab and use the arrow keys, Home
+    and End. The number in the middle is an <code>&lt;output&gt;</code> element drawn by the same canvas.
+  </p>
+  <form class="idea" id="dialForm">
+    <!-- #region dial-markup -->
+    <canvas id="dialCanvas" content="drawable" layoutsubtree>
+      <input type="range" name="level" min="0" max="100" step="1" value="30" list="dialTicks" aria-label="Level" drawable>
+      <output drawable></output>
+      <datalist id="dialTicks"><option value="0"><option value="25"><option value="50"><option value="75"><option value="100"></datalist>
+    </canvas>
+    <!-- #endregion dial-markup -->
+    <output class="form-data" id="dialData"></output>
+  </form>
+  <p class="canvas-note" id="dialNote"></p>
+  <details class="show-code">
+    <summary>Show the code <small>a range input drawn in slices round an arc</small></summary>
+    <ol>
+      <li data-code="#dial-markup"><b>The input is a child of the canvas.</b> Its datalist gives it tick marks.</li>
+      <li data-code="#dial-page"><b>One call.</b></li>
+      <li data-code="/lib/input-ideas.js#dial"><b>Inside the library.</b> <code>#paint()</code> draws the slices with the nine-argument form of <code>drawElementImage()</code>. <code>valueAt()</code> turns the pointer's angle into a value.</li>
+    </ol>
+  </details>
+
+  <h2 id="range">A date range on one calendar</h2>
+  <p>
+    Two <code>&lt;input type="date"&gt;</code> elements share one calendar. Tap either field, tap the first day, then the last day. With a
+    mouse the band follows the pointer between the two taps. By touch, press on the first day, slide to the last and lift. The band and
+    the two discs are drawn by the canvas under the day buttons. On a keyboard, press Alt and Arrow Down in a field, move with the arrow
+    keys and press Enter on each day.
+  </p>
+  <form class="idea" id="rangeForm">
+    <!-- #region range-markup -->
+    <span class="pair" id="stay">
+      <label><b>From</b> <input type="date" name="from" value="2026-11-24" min="2026-01-01" max="2027-12-31"></label>
+      <label><b>To</b> <input type="date" name="to" value="2026-11-27" min="2026-01-01" max="2027-12-31"></label>
+    </span>
+    <!-- #endregion range-markup -->
+    <output class="form-data" id="rangeData"></output>
+  </form>
+  <p class="canvas-note" id="rangeNote"></p>
+  <details class="show-code">
+    <summary>Show the code <small>two date inputs and one calendar</small></summary>
+    <ol>
+      <li data-code="#range-markup"><b>Two ordinary date inputs.</b></li>
+      <li data-code="#range-page"><b>One picker for both.</b> The popover opens next to the element that holds them.</li>
+      <li data-code="/lib/input-ideas.js#open"><b>Inside the library: open the popover in place of the browser's picker.</b></li>
+      <li data-code="/lib/input-ideas.js#band"><b>The band.</b> Two day numbers move towards the chosen days a little each frame, and the canvas fills the cells between them.</li>
+      <li data-code="/lib/input-ideas.js#range"><b>The whole picker.</b> <code>begin()</code>, <code>preview()</code> and <code>finish()</code> are the three steps of a choice.</li>
+      <li data-code="/lib/placed-popover.js#draw"><b>The shared part that moves and draws the buttons.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="wheel">A colour wheel that reads its own pixels</h2>
+  <p>
+    Tap the swatch. The wheel is two canvas gradients. Press on it and the pixel under the pointer is read back with
+    <code>getImageData()</code> and written to the input. During a drag the colour is worked out from the position, and the pixel is read again on release, so the canvas is not read on every frame. The colours of the input's <code>&lt;datalist&gt;</code> are real buttons, each
+    drawn on the wheel where its own colour is. The brightness slider is a real range input drawn by the same canvas.
+  </p>
+  <form class="idea" id="wheelForm">
+    <!-- #region wheel-markup -->
+    <label><b>Colour</b> <input type="color" name="colour" value="#2e8b57" list="wheelColours"></label>
+    <datalist id="wheelColours">
+      <option value="#dc143c"><option value="#ff8c00"><option value="#ffd700"><option value="#9acd32"><option value="#2e8b57">
+      <option value="#40e0d0"><option value="#4682b4"><option value="#4169e1"><option value="#da70d6"><option value="#ff69b4"><option value="#f5f5f5">
+    </datalist>
+    <!-- #endregion wheel-markup -->
+    <output class="form-data" id="wheelData"></output>
+  </form>
+  <p class="canvas-note" id="wheelNote"></p>
+  <details class="show-code">
+    <summary>Show the code <small>a wheel, swatch buttons and a pixel read</small></summary>
+    <ol>
+      <li data-code="#wheel-markup"><b>A colour input with a datalist.</b></li>
+      <li data-code="#wheel-page"><b>One call.</b></li>
+      <li data-code="/lib/input-ideas.js#wheel-read"><b>Draw the wheel, then read one pixel of it.</b> The read is in the same canvas that draws the buttons.</li>
+      <li data-code="/lib/input-ideas.js#wheel"><b>The whole picker.</b> <code>spot()</code> gives the place of a colour, which is where its swatch button is drawn.</li>
+    </ol>
+  </details>
+
+  <h2 id="week">A week picker on a year view</h2>
+  <p>
+    Tap the field. Every week of the year is a button, drawn at about half size in rows of thirteen. The weeks near the pointer or finger
+    are pushed apart and drawn larger. Slide over the weeks and lift to choose, or tap one. The arrows step the year. A year has 52 or 53
+    weeks: 2026 has 53.
+  </p>
+  <form class="idea" id="weekForm">
+    <!-- #region week-markup -->
+    <label><b>Week</b> <input type="week" name="week" value="2026-W47"></label>
+    <!-- #endregion week-markup -->
+    <output class="form-data" id="weekData"></output>
+  </form>
+  <p class="canvas-note" id="weekNote"></p>
+  <details class="show-code">
+    <summary>Show the code <small>53 week buttons under a fisheye</small></summary>
+    <ol>
+      <li data-code="#week-markup"><b>An ordinary week input.</b></li>
+      <li data-code="#week-page"><b>One call.</b></li>
+      <li data-code="/lib/input-ideas.js#week"><b>Inside the library.</b> <code>base()</code> is the small grid and <code>place()</code> applies the fisheye to it.</li>
+    </ol>
+  </details>
+
+  <h2 id="ghost">Ghost text from a datalist</h2>
+  <p>
+    Type the start of a station name, for example <kbd>Le</kbd> or <kbd>new</kbd>. The rest of the first matching
+    <code>&lt;option&gt;</code> is drawn after the caret at reduced opacity. Tab, Arrow Right or End accepts it, and so does a tap on the
+    dimmed text, because the option is hit tested where it is drawn. Escape hides it. The input and the options are children of one
+    canvas, which draws the input and then part of one option.
+  </p>
+  <form class="idea" id="ghostForm">
+    <label class="wide" for="ghostInput"><b>Station</b></label>
+    <!-- #region ghost-markup -->
+    <canvas id="ghostCanvas" content="drawable" layoutsubtree>
+      <input id="ghostInput" name="station" list="ghostStations" autocomplete="off" autocapitalize="off" spellcheck="false" drawable>
+      <datalist id="ghostStations">
+        <option>Leeds</option><option>Leicester</option><option>Lancaster</option><option>Liverpool Lime Street</option>
+        <option>London King's Cross</option><option>Manchester Piccadilly</option><option>Newcastle</option><option>Newport</option>
+        <option>Norwich</option><option>Nottingham</option><option>Sheffield</option><option>York</option>
+      </datalist>
+    </canvas>
+    <!-- #endregion ghost-markup -->
+    <output class="form-data" id="ghostData"></output>
+  </form>
+  <p class="canvas-note" id="ghostNote"></p>
+  <details class="show-code">
+    <summary>Show the code <small>an option drawn at the caret</small></summary>
+    <ol>
+      <li data-code="#ghost-markup"><b>The input and its datalist are children of the canvas.</b></li>
+      <li data-code="#ghost-page"><b>One call.</b></li>
+      <li data-code="/lib/input-ideas.js#ghost"><b>Inside the library.</b> <code>#paint()</code> measures the typed text with <code>measureText()</code> and draws the option from that point with the nine-argument form of <code>drawElementImage()</code>.</li>
+    </ol>
+  </details>
+
+  <h2 id="checks">Live checks</h2>
+  <p class="note">These run on test inputs in a panel at the bottom of the window, not on the fields above. They wait for a tap because they open test pickers on top of the page.</p>
+  <table class="results"><tbody id="results"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li><strong>One element can be drawn many times in one frame, in pieces.</strong> <code>drawElementImage()</code> has a nine-argument form with a source rectangle, in CSS pixels of the element. The dial calls it about 134 times a frame. A clip with the five-argument form gives the same picture.</li>
+    <li><strong>The tick marks of a range input's datalist bend with it.</strong> They are part of the input's picture.</li>
+    <li><strong>The hit box does not bend.</strong> Each draw moves the element's one hit box, so after the slices it sits where the last slice was drawn. The dial gives the input <code>pointer-events: none</code>, maps the pointer's angle to a value itself, and finishes with one draw at no opacity that leaves the box over the whole dial.</li>
+    <li><strong>The focus ring is not in the picture.</strong> An outline outside the element's border box is not drawn by <code>drawElementImage()</code>. The dial draws its own ring, and the text input uses an outline with a negative offset.</li>
+    <li><strong><code>getImageData()</code> works on a canvas that draws elements.</strong> It did not throw and the canvas was not tainted after <code>drawElementImage()</code> of same-origin content, so the wheel needs no second canvas. The colour wheel reads the pixel after drawing the wheel and before drawing the buttons, so a swatch or the marker is never read by mistake.</li>
+    <li><strong>A datalist option can be drawn inside the picture of an input.</strong> The source rectangle form draws the option from the end of the typed letters onwards. With the source rectangle, only the drawn part of the option is hit tested, so a tap on the ghost text reaches the option and a tap on the typed text reaches the input.</li>
+    <li><strong>Not verified on real hardware.</strong> These results are from Chromium 157 driven by Playwright with a mouse and emulated touch. Touch on a phone, the on-screen keyboard with the ghost text, and whether the read-only step stops the Android date and week dialogs have not been tried.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported } from '/shared/support.js';
+  import { DialRange, DateRangePicker, ColourWheel, WeekYearPicker, GhostText } from '/lib/input-ideas.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+
+  // #region dial-page
+  const dial = new DialRange($('dialCanvas'));
+  // #endregion dial-page
+
+  // #region range-page
+  const [from, to] = $('stay').querySelectorAll('input');
+  const range = new DateRangePicker(from, to, { anchor: $('stay') });
+  // #endregion range-page
+
+  // #region wheel-page
+  const wheel = new ColourWheel($('wheelForm').elements.colour);
+  // #endregion wheel-page
+
+  // #region week-page
+  const week = new WeekYearPicker($('weekForm').elements.week);
+  // #endregion week-page
+
+  // #region ghost-page
+  const ghost = new GhostText($('ghostCanvas'));
+  // #endregion ghost-page
+
+  window.ideas = { dial, range, wheel, week, ghost };
+
+  for (const name of ['dial', 'range', 'wheel', 'week', 'ghost']) {
+    const form = $(`${name}Form`), out = $(`${name}Data`);
+    const show = () => { out.textContent = 'FormData: ' + new URLSearchParams(new FormData(form)).toString(); };
+    form.addEventListener('input', show);
+    form.addEventListener('change', show);
+    form.addEventListener('submit', (e) => e.preventDefault());
+    show();
+  }
+
+  const plain = {
+    dial: 'so this is the ordinary straight range input.',
+    range: 'so the two fields open the browser\'s own date picker.',
+    wheel: 'so the field opens the browser\'s own colour chooser.',
+    week: 'so the field opens the browser\'s own week picker.',
+    ghost: 'so this is an ordinary input with the browser\'s own datalist popup.',
+  };
+  if (!supported) for (const [name, text] of Object.entries(plain)) $(`${name}Note`).textContent = `HTML-in-canvas is not available, ${text}`;
+  // A canvas that lost its context or could not draw says so under its demo.
+  setInterval(() => {
+    for (const [name, demo] of Object.entries(window.ideas)) {
+      const note = demo.note || demo.pop?.note;
+      if (note && supported) $(`${name}Note`).textContent = `The canvas reported: ${note}. ${demo.canvas?.hidden ? 'The input is shown as an ordinary input.' : ''}`;
+    }
+  }, 2000);
+</script>
+<script type="module" src="/input-ideas/checks.js"></script>
+</body>
+</html>
