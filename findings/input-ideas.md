@@ -49,7 +49,7 @@ Live checks: 15, of which 14 pass and 1 fails as expected (the hit box of the sl
 - The on-screen keyboard with the ghost text: whether the keyboard's own suggestions and composition (IME) leave the ghost text in the right place, and whether a tap on the ghost text keeps the keyboard open. Type in the Station field on a phone.
 - Screen readers. The ghost text is not announced by anything the page does, and the dial is announced as an ordinary slider. Listen with TalkBack.
 - `getImageData()` after drawing an element that holds cross-origin content (for example a cross-origin `<img>`). A probe was written but its image from a second local port did not load in the test browser. A page with a cross-origin image inside a drawn element, read with `getImageData()`, would verify it.
-- The cost of about 134 `drawElementImage()` calls a frame and of one `getImageData()` a frame on a phone GPU. A frame time readout on the device would verify it.
+- The cost of about 134 `drawElementImage()` calls a frame on a phone GPU. (The colour wheel reads one pixel on a press and one on release, not per frame, because per-frame readback is suspected in lost contexts on the phone: `docs/lost-contexts.md`.) A frame time readout on the device would verify it.
 - The swatch buttons on the wheel are 24 px, below the usual 44 px touch target. Not tried by finger.
 - Right-to-left text and non-Latin scripts in the ghost text.
 

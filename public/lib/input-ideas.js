@@ -558,6 +558,7 @@ export class ColourWheel extends IdeaPicker {
   reads = 0;
   readError = '';
   #pick = null;
+  #last = null;
   #down = false;
 
   constructor(input) {
@@ -575,10 +576,10 @@ export class ColourWheel extends IdeaPicker {
     this.slider.addEventListener('input', (e) => {
       e.stopPropagation(); // the slider is part of the picker, not a field of the form
       this.hsv.v = this.slider.value / 100;
-      this.#pick = { ...this.spot(this.hsv), types: ['input'] };
+      this.#pick = { ...this.spot(this.hsv), types: ['input'], read: false };
       this.pop.invalidate();
     });
-    this.slider.addEventListener('change', (e) => { e.stopPropagation(); requestAnimationFrame(() => requestAnimationFrame(() => fire(this.input, 'change'))); });
+    this.slider.addEventListener('change', (e) => { e.stopPropagation(); this.#pick = { ...this.spot(this.hsv), types: ['input'] }; this.pop.invalidate(); requestAnimationFrame(() => requestAnimationFrame(() => fire(this.input, 'change'))); });
     let armed = null; // a press that began on a swatch: it becomes a drag once it has moved
     const begin = (e) => {
       this.#down = this.input.value;
@@ -598,13 +599,18 @@ export class ColourWheel extends IdeaPicker {
       if (armed && e.buttons && Math.hypot(e.clientX - armed.x, e.clientY - armed.y) > 8) begin(e);
       if (this.#down === false) return;
       const r = this.pop.canvas.getBoundingClientRect();
-      this.pickAt(e.clientX - r.left, e.clientY - r.top, ['input']);
+      // While the pointer moves the colour is worked out from the position. The
+      // canvas is read once on the press and once on the release, not on every frame.
+      this.#last = [e.clientX - r.left, e.clientY - r.top];
+      this.pickAt(...this.#last, ['input'], { read: false });
     });
     const up = () => {
       armed = null;
       if (this.#down === false) return;
       const before = this.#down;
       this.#down = false;
+      if (this.#last) this.pickAt(...this.#last, ['input']);
+      this.#last = null;
       // The last read happens in the next frame, so the change event waits for it.
       requestAnimationFrame(() => requestAnimationFrame(() => { if (this.input.value !== before) fire(this.input, 'change'); }));
     };
@@ -630,10 +636,10 @@ export class ColourWheel extends IdeaPicker {
   }
 
   /** Ask for the pixel at a point of the canvas (CSS px) to become the value. The read happens in the next frame. */
-  pickAt(x, y, types = ['input', 'change']) {
+  pickAt(x, y, types = ['input', 'change'], { read = true } = {}) {
     const dx = x - WHEEL.cx, dy = y - WHEEL.cy, d = Math.hypot(dx, dy), max = WHEEL.R - 2;
     const k = d > max ? max / d : 1; // a point outside the wheel is pulled to its edge
-    this.#pick = { x: WHEEL.cx + dx * k, y: WHEEL.cy + dy * k, types };
+    this.#pick = { x: WHEEL.cx + dx * k, y: WHEEL.cy + dy * k, types, read };
     this.hsv = { h: ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 360, s: Math.min(1, (d * k) / WHEEL.R), v: this.hsv.v };
     this.pop.invalidate();
   }
@@ -672,7 +678,7 @@ export class ColourWheel extends IdeaPicker {
     this.#pick = null;
     const unit = ctx.canvas.width / s.w;
     let rgb;
-    try {
+    if (pick.read !== false) try {
       const px = ctx.getImageData(Math.round(pick.x * unit), Math.round(pick.y * unit), 1, 1).data;
       this.reads++;
       rgb = px[3] === 255 ? px : null;
