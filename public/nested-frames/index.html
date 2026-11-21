@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frames and nested canvases</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .idea output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 6em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button { min-height: 40px; font: inherit; }
+  .idea .controls button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .idea .controls label { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* #region plain-css */
+  /* The elements as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: flex; flex-wrap: wrap; gap: 10px; align-content: start; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .plain-note { margin: 0; flex-basis: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+  .plain-controls > iframe { border: 1px solid var(--line); border-radius: 8px; }
+  .plain-controls > script { max-width: 100%; background: #10131c; border-radius: 8px; }
+  /* #endregion plain-css */
+
+  /* #region widget-css */
+  /* An inner canvas has a fixed size in CSS pixels. The scene scales it when it draws it. */
+  canvas.inner { display: block; width: 200px; height: 240px; }
+  .wcard { box-sizing: border-box; width: 160px; height: 200px; margin: 0; padding: 14px; border-radius: 14px; display: grid; align-content: space-between; justify-items: stretch; gap: 8px; font: 14px/1.3 system-ui, sans-serif; }
+  .wcard h3 { margin: 0; font-size: 15px; color: inherit; }
+  .wcard button { box-sizing: border-box; min-height: 44px; margin: 0; border-radius: 10px; font: 600 16px system-ui, sans-serif; touch-action: manipulation; }
+  #dialCard { background: #fff3d6; color: #4a3200; border: 1px solid #e0b25a; }
+  #dialCard input[type="range"] { width: 100%; height: 32px; margin: 0; accent-color: #d98200; }
+  #dialCard output { font: 700 30px/1 system-ui, sans-serif; }
+  #dialCard button { border: 1px solid #b3801d; background: #ffd27a; color: #4a3200; }
+  #padCard { background: #e9f1ff; color: #10254d; border: 1px solid #7fa2e6; }
+  #padCard output { font: 700 46px/1 var(--mono); text-align: center; }
+  #padCard .keys { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #padCard button { border: 1px solid #3b63b8; background: #3b6fe0; color: #fff; }
+  /* #endregion widget-css */
+
+  /* #region mail-css */
+  #mailFrame { display: block; width: 236px; height: 420px; border: 0; margin: 0; background: #f3f1ec; }
+  /* #endregion mail-css */
+
+  /* #region element-css */
+  /* The page gives the element a height and styles its own children. Nothing here is about the canvas. */
+  #fxFrame { display: block; height: 318px; border: 1px solid var(--line); border-radius: 12px; background: #1c2333; }
+  .fx-card { box-sizing: border-box; width: min(100% - 24px, 348px); margin: 12px auto; padding: 14px 16px; border-radius: 12px; background: #fdfcf9; color: #1d1d1f; display: grid; gap: 10px; font: 15px/1.35 system-ui, sans-serif; }
+  .fx-card h3 { margin: 0; font-size: 18px; color: #1d1d1f; }
+  .fx-card label { display: grid; gap: 4px; font-size: 13px; color: #55555c; }
+  .fx-card label.row { display: flex; align-items: center; gap: 8px; min-height: 32px; font-size: 14px; color: #1d1d1f; }
+  .fx-card input[name="name"] { box-sizing: border-box; height: 40px; padding: 0 10px; border: 1px solid #b9b6ad; border-radius: 8px; background: #fff; color: #1d1d1f; font: 16px system-ui, sans-serif; outline: none; }
+  .fx-card input[name="name"]:focus { border-color: #d2491f; box-shadow: inset 0 0 0 1px #d2491f; }
+  .fx-card input[type="checkbox"] { width: 20px; height: 20px; margin: 0; accent-color: #d2491f; }
+  .fx-card > button { min-height: 44px; border: 0; border-radius: 8px; background: #d2491f; color: #fff; font: 600 16px system-ui, sans-serif; }
+  .fx-card output { min-height: 1.35em; font-size: 13px; color: #55555c; }
+  /* #endregion element-css */
+
+  /* #region diagram-css */
+  #diagramSvg { display: block; width: 360px; height: 300px; font: 13px/1.2 system-ui, sans-serif; }
+  #diagramSvg .node { fill: #123a63; stroke: #9fd0ff; stroke-width: 1.5; }
+  #diagramSvg .edge { fill: none; stroke: #9fd0ff; stroke-width: 2; stroke-dasharray: 5 5; }
+  #diagramSvg .port { fill: #9fd0ff; }
+  #diagramSvg foreignObject > div { box-sizing: border-box; width: 100%; height: 100%; padding: 8px 10px; display: grid; align-content: space-between; color: #e6f3ff; }
+  #diagramSvg b { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: #9fd0ff; }
+  #diagramSvg button { min-height: 40px; margin: 0; border: 1px solid #ffd27a; border-radius: 8px; background: #ffb238; color: #2b1a00; font: 600 15px system-ui, sans-serif; touch-action: manipulation; }
+  #diagramSvg input[type="range"] { width: 100%; height: 32px; margin: 0; accent-color: #ffb238; }
+  #diagramSvg label { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+  #diagramSvg input[type="checkbox"] { width: 22px; height: 22px; margin: 0; accent-color: #ffb238; }
+  #diagramSvg output { font: 700 24px/1 var(--mono); color: #ffd27a; }
+  /* #endregion diagram-css */
+
+  /* #region self-css */
+  /* A script element has display: none by default. With display: block it has a box and draws its text. */
+  #selfCanvas { height: 716px; }
+  #selfScript { display: block; box-sizing: border-box; width: min(100% - 24px, 440px); margin: 0; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; outline: none; font: 11.5px/1.45 var(--mono); caret-color: #fff;
+    color: transparent; background: linear-gradient(100deg, #7ee7ff, #b6ff8a 30%, #ffe27a 55%, #ff9ec4 80%, #c7a6ff); -webkit-background-clip: text; background-clip: text; }
+  @media (min-width: 860px) { #selfCanvas { height: 430px; } }
+  /* #endregion self-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Frames and nested canvases</h1>
+  <p class="lede">
+    Five ideas from the <a href="/elements/">element catalogue</a> in which the thing a canvas draws is itself a container with a document
+    or a drawing of its own: a second drawable canvas, an <code>&lt;iframe&gt;</code>, a custom element's shadow tree, an
+    <code>&lt;svg&gt;</code> with HTML in <code>&lt;foreignObject&gt;</code>, and the <code>&lt;script&gt;</code> element that is doing the
+    drawing. The question for each is whether the inner content still draws, still tells the outer canvas when it changed, and still takes
+    a tap at the place it was drawn. Each demo is one 2D canvas.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#widget">Widget in a scene</a><a href="#mail">Email on a drawn phone</a><a href="#element">Effect as a custom element</a><a href="#diagram">Button in an SVG diagram</a><a href="#self">Script that shows itself</a>
+  </nav>
+
+  <!-- Three SVG filters that each keep one colour channel, for the counter widget's colour split. -->
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <filter id="nfRed" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter>
+    <filter id="nfGreen" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter>
+    <filter id="nfBlue" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0"/></filter>
+  </svg>
+
+  <section class="idea" id="widget">
+    <h2>Widget with its own effect inside a scene</h2>
+    <p>Two widgets in a room. Each widget is drawn by a small canvas of its own, and the room is a third canvas that draws those two. Drag the lamp's slider: the lamp canvas adds bloom to its card, and the room is lit by the same value. Press <b>+</b> or <b>&minus;</b>: the counter canvas splits its card into red, green and blue for half a second. Move a finger or the pointer across the room and both lean.</p>
+    <canvas id="widgetCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 372px">
+      <!-- #region widget-html -->
+      <canvas id="dialCanvas" class="inner" drawable content="drawable" layoutsubtree>
+        <div id="dialCard" class="wcard" drawable>
+          <h3>Lamp</h3>
+          <output id="dialValue" for="dialRange">40%</output>
+          <input id="dialRange" type="range" min="0" max="100" value="40" aria-label="Brightness">
+          <button type="button" id="dialOff">Off / on</button>
+        </div>
+      </canvas>
+      <canvas id="padCanvas" class="inner" drawable content="drawable" layoutsubtree>
+        <div id="padCard" class="wcard" drawable>
+          <h3>Counter</h3>
+          <output id="padCount" aria-label="Count">0</output>
+          <div class="keys"><button type="button" data-step="-1" aria-label="Subtract one">&minus;</button><button type="button" data-step="1" aria-label="Add one">+</button></div>
+        </div>
+      </canvas>
+      <!-- #endregion widget-html -->
+    </canvas>
+    <output class="line" id="widgetOut"></output>
+    <p class="found">The room's paint handler never draws a card. It draws the two inner canvases, sheared, and once more upside down for the floor. A change inside an inner canvas reaches the room as a <code>paint</code> event with that canvas in <code>changedElements</code>, so the room has no listener on either widget.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#widget-html"><b>A drawable canvas as a <code>drawable</code> child of a drawable canvas.</b></li>
+      <li data-code="/nested-frames/widget.js#widget-inner"><b>Each inner canvas draws its card with its own effect.</b></li>
+      <li data-code="/nested-frames/widget.js#widget-scene"><b>The scene draws the inner canvases as elements.</b></li>
+      <li data-code="#widget-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="mail">
+    <h2>Email preview on a drawn phone</h2>
+    <p>The message is an <code>&lt;iframe srcdoc&gt;</code>. The phone round it is drawn by the canvas. Scroll the message with a finger or the wheel, and tap its links and buttons. <b>Turn the phone</b> makes the iframe 420 pixels wide, so the message's own media query puts its cards in two columns. The other buttons load a different message or switch its colours.</p>
+    <canvas id="mailCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 500px">
+      <!-- #region mail-html -->
+      <iframe id="mailFrame" drawable title="Message preview"></iframe>
+      <!-- #endregion mail-html -->
+    </canvas>
+    <div class="controls">
+      <button type="button" data-mail="order" aria-pressed="true">Order</button><button type="button" data-mail="news" aria-pressed="false">Newsletter</button><button type="button" data-mail="reset" aria-pressed="false">Password reset</button>
+      <button type="button" id="mailTurn">Turn the phone</button><button type="button" id="mailDark" aria-pressed="false">Dark colours</button>
+    </div>
+    <output class="line" id="mailOut"></output>
+    <p class="found">Scrolling happens inside the iframe, in the browser. The canvas hears about it only as a <code>paint</code> event, and draws the iframe again where the phone's screen is. No scroll or touch listener is involved.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#mail-html"><b>The iframe is a <code>drawable</code> child of the canvas.</b></li>
+      <li data-code="/nested-frames/mail.js#mail-messages"><b>Each message is a whole document.</b></li>
+      <li data-code="/nested-frames/mail.js#mail-frame"><b>Listen for links inside the message.</b></li>
+      <li data-code="/nested-frames/mail.js#mail"><b>Draw the phone, then the iframe on its screen.</b></li>
+      <li data-code="/nested-frames/mail.js#mail-controls"><b>Resize and reload the iframe outside the paint handler.</b></li>
+      <li data-code="#mail-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="element">
+    <h2>Custom element that packages an effect</h2>
+    <p>The form is ordinary markup inside one tag, <code>&lt;effect-frame&gt;</code>. The tag's shadow tree holds the canvas and draws the form through the effect named in its <code>effect</code> attribute. The buttons below only change that attribute. The effect is calm under the pointer or the finger, so the field being used can be read. The stars are a second custom element with a shadow tree of its own.</p>
+    <!-- #region element-html -->
+    <effect-frame id="fxFrame" effect="glass">
+      <form class="fx-card" id="fxForm">
+        <h3>Rate this page</h3>
+        <label>Your name <input name="name" autocomplete="off" value="Ada" enterkeyhint="done"></label>
+        <tap-rating name="stars" value="4"></tap-rating>
+        <label class="row"><input type="checkbox" name="again" checked> I would open it again</label>
+        <button>Send</button>
+        <output name="said"></output>
+      </form>
+    </effect-frame>
+    <!-- #endregion element-html -->
+    <div class="controls">
+      <button type="button" data-effect="glass" aria-pressed="true">Glass blocks</button><button type="button" data-effect="wave" aria-pressed="false">Wave</button><button type="button" data-effect="melt" aria-pressed="false">Melt</button><button type="button" data-effect="blinds" aria-pressed="false">Blinds</button><button type="button" data-effect="none" aria-pressed="false">None</button>
+      <label>Amount <input type="range" id="fxAmount" min="0" max="1" step="0.05" value="1"></label>
+    </div>
+    <output class="line" id="fxOut"></output>
+    <p class="found">The form needs no <code>drawable</code> attribute. The element's shadow tree has one drawable <code>&lt;div&gt;</code> round a <code>&lt;slot&gt;</code>, and the picture of that div is the picture of whatever is slotted into it. Blinds is not in the library: this page registers it in six lines.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#element-html"><b>The page's markup: a tag round a form.</b></li>
+      <li data-code="/lib/effect-frame.js#shadow"><b>The shadow tree: a canvas, a drawable div and a slot.</b></li>
+      <li data-code="/lib/effect-frame.js#paint"><b>The paint handler calls the effect and puts the hit region back.</b></li>
+      <li data-code="/lib/effect-frame.js#effects"><b>The built-in effects.</b></li>
+      <li data-code="/nested-frames/element.js#blinds"><b>Registering one more effect from the page.</b></li>
+      <li data-code="/nested-frames/element.js#rating"><b>The stars: a custom element inside the custom element.</b></li>
+      <li data-code="/lib/effect-frame.js#lost"><b>After a lost context the children are plain HTML.</b></li>
+      <li data-code="#element-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="diagram">
+    <h2>HTML button inside an SVG diagram</h2>
+    <p>The diagram is one <code>&lt;svg&gt;</code> element. Each node holds HTML in a <code>&lt;foreignObject&gt;</code>: a button, a range, a checkbox and an output. The lights that travel along the edges are drawn by the canvas on the SVG's own paths. <b>Send 5</b> adds lights, the range sets their size from the second node on, and the checkbox sends them the long way. <b>Tilt the diagram</b> shears everything, controls included.</p>
+    <canvas id="diagramCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 372px">
+      <!-- #region diagram-html -->
+      <svg id="diagramSvg" drawable viewBox="0 0 360 300" role="group" aria-label="Flow diagram with four nodes">
+        <path id="e1" class="edge" d="M150 60 H210"/>
+        <path id="e2" class="edge" d="M275 100 V140 Q275 160 255 160 H245"/>
+        <path id="e3" class="edge" d="M180 195 V215"/>
+        <path id="e4" class="edge" d="M115 160 H60 Q30 160 30 190 V220 Q30 250 60 250 H115"/>
+        <rect class="node" x="20" y="20" width="130" height="80" rx="10"/>
+        <rect class="node" x="210" y="20" width="130" height="80" rx="10"/>
+        <rect class="node" x="115" y="125" width="130" height="70" rx="10"/>
+        <rect class="node" x="115" y="215" width="130" height="70" rx="10"/>
+        <circle class="port" cx="150" cy="60" r="4"/><circle class="port" cx="210" cy="60" r="4"/><circle class="port" cx="275" cy="100" r="4"/><circle class="port" cx="245" cy="160" r="4"/><circle class="port" cx="180" cy="195" r="4"/><circle class="port" cx="180" cy="215" r="4"/><circle class="port" cx="115" cy="160" r="4"/><circle class="port" cx="115" cy="250" r="4"/>
+        <foreignObject x="20" y="20" width="130" height="80"><div><b>Source</b><button type="button" id="nodeSend">Send 5</button></div></foreignObject>
+        <foreignObject x="210" y="20" width="130" height="80"><div><b>Size</b><input type="range" id="nodeSize" min="0.4" max="3" step="0.1" value="1" aria-label="Size of the lights"></div></foreignObject>
+        <foreignObject x="115" y="125" width="130" height="70"><div><b>Route</b><label><input type="checkbox" id="nodeDetour"> Long way</label></div></foreignObject>
+        <foreignObject x="115" y="215" width="130" height="70"><div><b>Arrived</b><output id="nodeArrived">0</output></div></foreignObject>
+      </svg>
+      <!-- #endregion diagram-html -->
+    </canvas>
+    <div class="controls"><button type="button" id="diagramTilt" aria-pressed="false">Tilt the diagram</button></div>
+    <output class="line" id="diagramOut"></output>
+    <p class="found">The SVG is drawn with one call. The controls in it are hit tested through the SVG's <code>viewBox</code>, the <code>foreignObject</code> and the canvas transform together. The lights use <code>path.getPointAtLength()</code> and the same transform, so they stay on the dashed lines when the diagram is tilted.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#diagram-html"><b>One <code>drawable</code> SVG with HTML controls in its nodes.</b></li>
+      <li data-code="/nested-frames/diagram.js#diagram"><b>Draw the SVG, then the lights on its paths.</b></li>
+      <li data-code="/nested-frames/diagram.js#diagram-controls"><b>The node's button and the tilt.</b></li>
+      <li data-code="#diagram-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="self">
+    <h2>Script that shows itself</h2>
+    <p>The code block is not a copy of the script. It is the <code>&lt;script&gt;</code> element, a child of the canvas with <code>display: block</code>. The script draws the wheel from its own picture: eight wedges of its source text, every second one mirrored. The text can be edited. Change a number, for example <code>WEDGES</code> or <code>ZOOM</code>, and press <b>Run the edited script</b>.</p>
+    <canvas id="selfCanvas" class="idea-canvas" content="drawable" layoutsubtree>
+<!-- #region self -->
+<script id="selfScript" drawable contenteditable="plaintext-only" spellcheck="false">// This <script> element is a child of the
+// canvas. The canvas draws it as this block,
+// and it draws the wheel from its picture.
+document.currentScript.draw =
+function (ctx, x, y, radius, time) {
+  const WEDGES = 8, SPEED = 0.3, ZOOM = 1.3;
+  const turn = 2 * Math.PI / WEDGES;
+  for (let i = 0; i < WEDGES; i++) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(i * turn + time * SPEED);
+    if (i % 2) ctx.scale(1, -1);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, radius, 0, turn + 0.01);
+    ctx.clip();
+    ctx.scale(ZOOM, ZOOM);
+    // `this` is the script element.
+    ctx.drawElementImage(this,
+      -40, -190 + 130 * Math.sin(time / 2),
+      this.offsetWidth, this.offsetHeight);
+    ctx.restore();
+  }
+};
+</script>
+<!-- #endregion self -->
+    </canvas>
+    <div class="controls"><button type="button" id="selfRun">Run the edited script</button><button type="button" id="selfReset">Put the original back</button></div>
+    <output class="line" id="selfOut"></output>
+    <p class="found">Editing the text of a script that has run does nothing by itself. <b>Run the edited script</b> puts a new <code>&lt;script&gt;</code> element with the edited text in the old one's place, and the browser runs it because it is new. A syntax error in the edited text is reported in the line under the canvas and the old script stays.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#self"><b>The script, in the canvas. This listing is the same text as the block in the demo.</b></li>
+      <li data-code="/nested-frames/self.js#self-draw"><b>The page draws the script element and then calls the function it defined.</b></li>
+      <li data-code="/nested-frames/self.js#self-run"><b>Run the edited text by replacing the element.</b></li>
+      <li data-code="#self-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>In each demo the canvas draws one element whose content is produced somewhere else: by another paint handler, by another document, by a shadow tree, by SVG layout, or by the HTML parser. Four things are the same in all five:</p>
+  <ul>
+    <li><b>The container is drawn with one call.</b> <code>drawElementImage(container, x, y, width, height)</code> draws the inner canvas, the iframe, the slotted children or the SVG with everything in it.</li>
+    <li><b>A change inside raises <code>paint</code> outside.</b> A draw in the inner canvas, a scroll in the iframe, a typed letter in the slotted form and a new value in the SVG's output each raise <code>paint</code> on the canvas that draws the container. No demo forwards events from the inside to the outside.</li>
+    <li><b>Input follows the last draw.</b> A tap is tested through every transform between the outer canvas and the control. Where an effect draws a container more than once (the mirror image in the room, the tiles of the glass effect, the wedges of the wheel), the last draw decides, so each handler ends with a draw at the plain position. Where that draw must add no pixels it is made inside an empty clip.</li>
+    <li><b>Changes to a container are made outside the paint handler.</b> The iframe is resized and reloaded from click listeners, the SVG's output is written from a timer and the filter of the melt effect is changed in an animation frame.</li>
+  </ul>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="/nested-frames/kit.js#mount"><b>The paint loop and the draw helpers shared by the demos.</b></li>
+    <li data-code="/nested-frames/page.js#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/nested-frames/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/nested-frames/kit.js#plain"><b>The elements are then shown as plain HTML.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window, and none of them touches the demos above. Pixels are read from a <code>drawImage()</code> copy, not from the drawable canvas.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21, at 412 px wide with emulated touch (taps, and drags sent as touch events) and at 1100 px with a mouse. Not yet run on a phone.</p>
+  <ul class="findings">
+    <li><b>A drawable canvas can be a <code>drawable</code> child of another drawable canvas.</b> The outer canvas draws it with one <code>drawElementImage()</code> call. A draw in the inner canvas raised one <code>paint</code> event on the outer canvas, with the inner canvas in <code>changedElements</code>. A style change on an element inside the inner canvas raised one <code>paint</code> on each canvas, in that order.</li>
+    <li><b>Input passes through both draws.</b> A button moved by the inner canvas's draw, then enlarged and sheared by the outer canvas's draw, was found by <code>elementFromPoint()</code> at the drawn place, and taps on it counted. A touch drag on the range input in the sheared lamp widget set it to 96.</li>
+    <li><b>An inner canvas is recorded whole.</b> A 400 px inner canvas in a 240 px outer canvas, drawn 300 px to the left, showed its pixel at 360 px. This differs from a <code>drawable</code> element nested in another <code>drawable</code> element, which <a href="/keycaps/">/keycaps/</a> found is recorded clipped to the window.</li>
+    <li><b>A scroll inside a drawn iframe raises <code>paint</code>.</b> A touch drag of 160 px on the drawn phone screen scrolled the iframe 145 px, the page did not scroll, and the canvas got <code>paint</code> events with the iframe in <code>changedElements</code>. The demo has no scroll or touch listener.</li>
+    <li><b>Links inside the iframe take taps at the drawn place</b>, with the phone upright and with the iframe drawn at 0.84 scale after the phone was turned. Resizing the iframe applied the message's media query and raised one <code>paint</code>.</li>
+    <li><b>The outer document sees only the iframe.</b> <code>elementFromPoint()</code> returns the <code>&lt;iframe&gt;</code>, and its <code>getBoundingClientRect()</code> is the box round the rotated drawing.</li>
+    <li><b>A drawable <code>&lt;div&gt;</code> round a <code>&lt;slot&gt;</code>, in a shadow tree, holds the picture of the slotted children.</b> The children need no <code>drawable</code> attribute, they are hit tested at the drawn place, and a style change on one raised <code>paint</code> with the shadow <code>&lt;div&gt;</code> in <code>changedElements</code>. A custom element with its own shadow tree, slotted in, drew and took taps too. The <code>&lt;slot&gt;</code> itself cannot be drawn ("No cached paint record for element"), and a slotted child with no attribute cannot be passed to <code>drawElementImage()</code>.</li>
+    <li><b><code>ctx.filter = 'url(#id)'</code> looks for the filter in the canvas's own tree.</b> For a canvas in a shadow root, a filter in the same shadow root applied. A filter in the document was not found, and the element was drawn unfiltered with no error. So a component can carry its SVG filters with it.</li>
+    <li><b>HTML in <code>&lt;foreignObject&gt;</code> takes input through the <code>viewBox</code>, the foreignObject's position and a sheared canvas transform together.</b> A button, a checkbox and a range (by touch drag) worked in the tilted diagram. An <code>&lt;output&gt;</code> written in the SVG raised <code>paint</code>. The foreignObject, and the button inside it, cannot be the drawable element themselves ("No cached paint record for element").</li>
+    <li><b>A <code>&lt;script&gt;</code> element in a canvas runs, and with <code>display: block</code> it draws its source text.</b> It can be <code>contenteditable</code>, takes a tap and typed letters at its drawn place, and can pass itself to <code>drawElementImage()</code>. Changing its text does not run it again. A new script element put in its place runs.</li>
+    <li><b>An SVG element has no <code>offsetWidth</code>.</b> A draw helper that reads the size from the element passed <code>undefined</code> and drew nothing, with no error. The size of an SVG is passed in by hand.</li>
+    <li><b>The page drew nothing at rest</b> in the widget scene (0 scene paint events in 0.7 s after a change settled), the phone and the glass effect. The diagram, the wheel and the wave, melt and blinds effects draw every frame while they are on screen.</li>
+    <li><b>Not verified:</b> everything on a phone. In particular scroll momentum inside the drawn iframe, the on-screen keyboard over the name field and over the editable script, the speed of the melt effect (an SVG displacement filter on every frame), and what a screen reader reads for the inner canvases and the iframe.</li>
+  </ul>
+</main>
+<script type="module" src="./page.js"></script>
+</body>
+</html>
