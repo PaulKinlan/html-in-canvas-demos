@@ -70,6 +70,7 @@ const LIMITS = {
   timedReadbacks: 2,   // different seconds in which pixels were read back from a GPU canvas with no tap and no live check running; a measurement at load and one after a resize make 2, a timer or a frame loop makes more
   openSnapshots: 8,    // captureElementImage() pictures still open at the end (made, not closed, not collected); each holds a picture on the GPU
   unaskedReadbackMP: 0.5, // megapixels of the largest such readback
+  wrongDrawSize: 0,    // drawElementImage() calls that drew an element devicePixelRatio times too large or too small (docs/draw-size.md)
 };
 // The graphics limits are measured by /shared/context-guard.js. docs/graphics-rules.md says what each is for.
 // The list of pages and each page's known exceptions come from the page.json
@@ -352,6 +353,7 @@ function summarise(r) {
     canvases: j.gfx?.canvases ?? 0,
     timedReadbacks: j.gfx?.unaskedSeconds ?? 0,
     openSnapshots: j.gfx?.snapshotsOpen ?? 0,
+    wrongDrawSize: j.gfx?.wrongDraws ?? 0,
     unaskedReadbacks: j.gfx?.unasked ?? 0,
     unaskedReadbackMP: +((j.gfx?.largestUnasked ?? 0) / 1e6).toFixed(2),
     longTasks: j.longTasks.length,
@@ -375,6 +377,7 @@ function summarise(r) {
     resized: visibleResizes.filter((c) => c.writes > 2).map((c) => `${c.canvas} in ${c.host}: ${c.writes} writes (${c.same} unchanged) by ${Object.keys(c.by).slice(0, 2).join(', ')}`),
     forcedBy: r.trace?.forcedBy ?? {},
     contexts: j.gfx?.summary ?? '',
+    drawSize: j.gfx?.wrongDrawFirst ?? '',
     readbacks: Object.entries(j.gfx?.readsBy ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ×${v}`),
   };
   const ok = allow[r.href] ?? {};

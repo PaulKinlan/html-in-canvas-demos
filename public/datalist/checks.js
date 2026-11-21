@@ -57,6 +57,7 @@ const tests = [
         probe.addEventListener('paint', () => {
           const ctx = probe.getContext('2d'), out = {};
           for (const id of ['bare', 'marked']) {
+            // gfx-allow: draw-size the probe canvas has a new, unscaled context and a backing size equal to its CSS size
             try { ctx.drawElementImage($(id), id === 'bare' ? 4 : 80, 6); out[id] = 'drawn'; } catch (err) { out[id] = short(err.message); }
           }
           out.ink = inkFraction(ctx);

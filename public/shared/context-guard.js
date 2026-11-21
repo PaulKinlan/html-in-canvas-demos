@@ -61,6 +61,18 @@
 //      every 2D canvas at the second read and at every second read after
 //      it. getImageData() on a drawable canvas now reads a drawImage() copy
 //      in a plain canvas (`__gfx.copyReads` counts them).
+//  14. Finds an element drawn at the wrong size on a high-density screen.
+//      With no size, drawElementImage(el, x, y) draws the element at its
+//      layout size times the canvas's backing scale, in canvas pixels, and
+//      the context's transform is applied on top. Under
+//      ctx.scale(devicePixelRatio) the picture and its hit region come out
+//      devicePixelRatio times too large (2.625 on the test phone, 1 in a
+//      default test browser). The guard reports the first such call on a
+//      page (`draw-size`) and counts them in `__gfx.draws`. On a screen
+//      whose ratio is not a whole number it also reports a call that passes
+//      a size and draws the element at exactly the ratio, or one over the
+//      ratio, times its layout size (device pixels passed in a scaled
+//      context, or CSS pixels in an unscaled one). docs/draw-size.md has the measurements.
 //
 // Rules for pages, checked by `npm run check:gfx` (static) and
 // `npm run check:jank` (measured): docs/graphics-rules.md.
@@ -82,6 +94,8 @@
 //   budget      { canvasPx, bytes }: the limits the estimate is compared with
 //   report(type, message, body)   send one report (point 9)
 //   reports     what was sent or queued on this page: { type, message }
+//   draws       { noSize, wrong, first }: drawElementImage() calls with no size,
+//               calls that drew at the wrong size, and the first of those (point 14)
 //   snapshots   { made, open, peak }: captureElementImage() pictures (point 11)
 //   held        true while drawing is held after a crash (point 10)
 //   reads       counts of readbacks; reads.timed is true after point 6
@@ -128,6 +142,7 @@
     frequentDrawable: 0,
     reports: [],
     snapshots: { made: 0, open: 0, peak: 0 },
+    draws: { noSize: 0, wrong: 0, first: null },
     report: send,
     reads: { calls: 0, unasked: 0, unaskedSeconds: 0, largestUnasked: 0, timed: false, by: {}, recent: [] },
     active: function () { prune(); return gl.size; },
@@ -429,9 +444,59 @@
           send('frequent-read-drawable', 'drawElementImage() into a willReadFrequently canvas', { id: this.canvas.id || '', raw: this.canvas.hasAttribute('data-gfx-raw') });
         }
       } catch (e) {}
+      try { drawSize(this, arguments); } catch (e) {}
       return draw.apply(this, arguments);
     };
   })();
+
+  // Point 14. `scale` is how many canvas pixels the context draws per unit,
+  // `backing` is how many canvas pixels the canvas has per CSS pixel. An
+  // element drawn with no size covers its layout size times `scale` in CSS
+  // pixels, so the call is right only where the context is not scaled.
+  var sizeChecks = new WeakMap();
+  function drawSize(ctx, args) {
+    var D = G.draws, n = args.length, canvas = ctx.canvas, source = args[0];
+    var isElement = !!(source && source.nodeType === 1);
+    var sized = n === 5 || n >= 9;
+    if (!sized) D.noSize++;
+    else if (!isElement) return;
+    if (!canvas || !canvas.isConnected || canvas.hasAttribute('data-gfx-any-size')) return;
+    // A sized draw is measured three times for each element, an unsized one 200 times on a page.
+    if (sized) { var seen = sizeChecks.get(source) || 0; if (seen >= 3) return; sizeChecks.set(source, seen + 1); }
+    else if (D.noSize > 200) return;
+    var cssWidth = canvas.clientWidth;
+    if (!cssWidth) return;
+    var backing = canvas.width / cssWidth, m = ctx.getTransform(), scale = Math.sqrt(m.a * m.a + m.b * m.b);
+    if (!(backing > 0) || !(scale > 0)) return;
+    var ratio, why;
+    if (!sized) {
+      if (Math.abs(backing - 1) < 0.02 || Math.abs(scale - 1) < 0.02) return;
+      ratio = scale;
+      why = 'drawElementImage() with no size in a context scaled by ' + round2(scale) + ': drawn ' + round2(scale) + ' times the layout size';
+    } else {
+      var dpr = window.devicePixelRatio || 1;
+      if (dpr < 1.2 || Math.abs(dpr - Math.round(dpr)) < 0.05) return;
+      var layout = n === 5 ? source.offsetWidth : +args[3], drawn = n === 5 ? +args[3] : +args[7];
+      if (!(layout > 0) || !(drawn > 0)) return;
+      ratio = drawn * scale / backing / layout;
+      // Two mistakes are looked for, and both need exact matches so that an effect which
+      // changes an element's size over time (a fisheye, a zoom) is not counted when it passes the ratio:
+      // device pixels passed in a context that is already scaled by the ratio, and
+      // CSS pixels passed in an unscaled context on a canvas whose backing store has the ratio.
+      var near = function (a, b, by) { return Math.abs(a / b - 1) < by; };
+      var twice = near(scale, backing, 0.01) && near(drawn / layout, dpr, 0.01);
+      var none = near(scale, 1, 0.01) && near(backing, dpr, 0.02) && near(drawn / layout, 1, 0.005);
+      if (!twice && !none) return;
+      why = 'drawElementImage() drew an element at ' + round2(ratio) + ' times its layout size, and the device pixel ratio is ' + round2(dpr);
+    }
+    D.wrong++;
+    if (D.first) return;
+    var name = isElement ? source.localName + (source.id ? '#' + source.id : '') : 'ElementImage';
+    D.first = { why: why, element: name, canvas: canvas.id || '', args: n, scale: round2(scale), backing: round2(backing), ratio: round2(ratio) };
+    console.warn('context-guard: ' + why + ' (' + name + '). Pass the width and height in the units of the context.');
+    send('draw-size', why, D.first);
+  }
+  function round2(x) { return Math.round(x * 100) / 100; }
 
   function wrap(proto, where) {
     var original = proto.getContext;
@@ -566,6 +631,7 @@
     });
     return 'Contexts made: ' + (parts.join(', ') || 'none') + '. WebGL alive: ' + G.active() + ' of ' + GL_LIMIT + ' (peak ' + G.peak + ', ' + G.released + ' given back). ' +
       'Canvas memory, estimated: ' + mb(m.bytes) + ' MB in ' + m.canvases + ' canvases (peak ' + mb(G.peakBytes) + ' MB, budget ' + mb(BUDGET.bytes) + ' MB), largest ' + mp(m.largest) + ' megapixels, ' + mb(m.removed) + ' MB in removed canvases, ' + G.freed + ' freed. ' +
+      (G.draws.wrong ? 'Wrong draw size: ' + G.draws.wrong + ' calls, first: ' + G.draws.first.why + ' (' + G.draws.first.element + '). ' : '') +
       (G.snapshots.made ? 'Snapshots: ' + G.snapshots.made + ' made, ' + G.snapshots.open + ' open (peak ' + G.snapshots.peak + '). ' : '') +
       'Readbacks: ' + R.calls + ', ' + R.unasked + ' unasked' + (R.timed ? ' (on a timer)' : '') + '. ' +
       'Lost: ' + (groups.length > 8 ? (groups.length - 8) + ' earlier; ' : '') + (shown.join('; ') || 'none') + (G.halted ? '. Drawing stopped by the guard' : '') + '.';

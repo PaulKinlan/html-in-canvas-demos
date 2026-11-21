@@ -287,6 +287,47 @@ await test('getImageData() on a drawable canvas is read from a copy, with the sa
   return JSON.stringify(out);
 });
 
+// Point 14 needs a real device scale factor: Playwright's deviceScaleFactor leaves the canvas backing scale at 1.
+{
+  const name = 'At device scale 2.625, a draw with no size under ctx.scale(dpr) and a sized draw at dpr times the layout size are counted; right draws are not';
+  const hi = await chromium.launch({ args: ['--force-device-scale-factor=2.625', '--window-size=412,780'] });
+  try {
+    const page = await (await hi.newContext({ viewport: null })).newPage();
+    await page.goto('http://127.0.0.1:8013/');
+    const out = await page.evaluate(async () => {
+      const dpr = devicePixelRatio, D = window.__gfx.draws, stage = document.getElementById('stage');
+      const make = (backing) => {
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+        c.width = Math.round(200 * backing); c.height = Math.round(80 * backing); c.style.cssText = 'width:200px;height:80px;display:block';
+        c.innerHTML = '<div drawable style="width:100px;height:40px;background:#f00"></div>';
+        stage.append(c);
+        return new Promise((r) => { c.addEventListener('paint', () => r(c), { once: true }); c.requestPaint(); });
+      };
+      const cases = {};
+      const run = async (label, backing, fn) => {
+        const c = await make(backing), ctx = c.getContext('2d'), el = c.firstElementChild, before = D.wrong;
+        fn(ctx, el, dpr);
+        cases[label] = { counted: D.wrong - before, cssWidth: Math.round(el.getBoundingClientRect().width) };
+      };
+      await run('noSizeUnscaled', dpr, (ctx, el) => ctx.drawElementImage(el, 0, 0));
+      await run('noSizePlainCanvas', 1, (ctx, el) => ctx.drawElementImage(el, 0, 0));
+      await run('sizedScaled', dpr, (ctx, el, d) => { ctx.scale(d, d); ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight); });
+      await run('sizedDouble', dpr, (ctx, el, d) => { ctx.scale(d, d); ctx.drawElementImage(el, 0, 0, 200, 80); });
+      await run('noSizeScaled', dpr, (ctx, el, d) => { ctx.scale(d, d); ctx.drawElementImage(el, 0, 0); });
+      await run('sizedTimesDpr', dpr, (ctx, el, d) => { ctx.scale(d, d); ctx.drawElementImage(el, 0, 0, el.offsetWidth * d, el.offsetHeight * d); });
+      await run('cssSizeUnscaled', dpr, (ctx, el) => ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight));
+      return { dpr, cases, first: D.first && D.first.why, reported: window.__gfx.reports.filter((r) => r.type === 'draw-size').length };
+    });
+    const c = out.cases;
+    const right = ['noSizeUnscaled', 'noSizePlainCanvas', 'sizedScaled', 'sizedDouble'].every((k) => c[k].counted === 0);
+    const wrong = ['noSizeScaled', 'sizedTimesDpr', 'cssSizeUnscaled'].every((k) => c[k].counted === 1);
+    if (!right || !wrong || c.noSizeScaled.cssWidth !== 263 || c.noSizeUnscaled.cssWidth !== 100 || out.reported < 1) throw new Error(JSON.stringify(out));
+    results.push({ name, ok: true, detail: JSON.stringify(out) });
+  } catch (e) { results.push({ name, ok: false, detail: e.message.split('\n')[0] }); }
+  await Promise.race([hi.close(), new Promise((r) => setTimeout(r, 3000))]);
+}
+
 await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 3000))]);
 server.close();
 for (const r of results) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name}\n       ${r.detail}`);
