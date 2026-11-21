@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sortable table: rows travel to their new places</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  /* #region styles */
+  #canvas { display: block; width: 100%; max-width: 560px; height: 400px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); touch-action: pan-y; }
+  #table { width: 100%; table-layout: fixed; border-spacing: 0; font: 15px/1.3 system-ui, sans-serif; color: var(--fg); }
+  #table col.size { width: 84px; } #table col.date { width: 76px; } #table col.keep { width: 56px; }
+  #table tr { height: 44px; background: var(--card); }
+  #table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--fg) 6%, var(--card)); }
+  #table tbody tr:has(:checked) { background: color-mix(in srgb, var(--ok) 20%, var(--card)); }
+  #table th, #table td { padding: 0 8px; text-align: left; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #table th { padding: 0 2px; }
+  #table th button { width: 100%; min-height: 40px; padding: 0 6px; border: 0; background: none; font: 600 14px system-ui, sans-serif; text-align: left; color: var(--fg); }
+  #table th[aria-sort=ascending] button::after { content: ' ▲'; color: var(--accent); }
+  #table th[aria-sort=descending] button::after { content: ' ▼'; color: var(--accent); }
+  #table input[type=number] { width: 100%; min-height: 34px; font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  #table input[type=checkbox] { width: 24px; height: 24px; margin: 0; vertical-align: middle; accent-color: var(--ok); }
+  /* #endregion styles */
+  .tools { display: flex; gap: 10px 16px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .tools button, .tools select { min-height: 40px; font: inherit; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 2.6em; margin: 6px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Sortable table: rows travel to their new places</h1>
+  <p class="lede">
+    A table of files inside a canvas. Every <code>&lt;tr&gt;</code> has the <code>drawable</code> attribute, so the canvas draws each row on its own.
+    Tap a column heading to sort. The rows are reordered in the DOM at once, and the canvas draws each row moving from where it was to where it now belongs.
+    The number fields and checkboxes work while the rows move. Change a size or tick a box and sort again.
+  </p>
+  <p id="support"></p>
+
+  <!-- #region markup -->
+  <canvas id="canvas" content="drawable" layoutsubtree>
+    <table id="table">
+      <colgroup><col><col class="size"><col class="date"><col class="keep"></colgroup>
+      <thead>
+        <tr drawable>
+          <th aria-sort="none"><button type="button" data-key="name">File</button></th>
+          <th aria-sort="none"><button type="button" data-key="size">kB</button></th>
+          <th aria-sort="none"><button type="button" data-key="date">Changed</button></th>
+          <th aria-sort="none"><button type="button" data-key="keep">Keep</button></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr drawable><td>index.html</td><td><input type="number" value="14" aria-label="Size of index.html"></td><td><time datetime="2026-11-02">2 Nov</time></td><td><input type="checkbox" aria-label="Keep index.html" checked></td></tr>
+        <tr drawable><td>worker.js</td><td><input type="number" value="52" aria-label="Size of worker.js"></td><td><time datetime="2026-10-19">19 Oct</time></td><td><input type="checkbox" aria-label="Keep worker.js"></td></tr>
+        <tr drawable><td>style.css</td><td><input type="number" value="8" aria-label="Size of style.css"></td><td><time datetime="2026-11-20">20 Nov</time></td><td><input type="checkbox" aria-label="Keep style.css"></td></tr>
+        <tr drawable><td>hero.avif</td><td><input type="number" value="310" aria-label="Size of hero.avif"></td><td><time datetime="2026-08-30">30 Aug</time></td><td><input type="checkbox" aria-label="Keep hero.avif" checked></td></tr>
+        <tr drawable><td>fonts.woff2</td><td><input type="number" value="96" aria-label="Size of fonts.woff2"></td><td><time datetime="2026-06-11">11 Jun</time></td><td><input type="checkbox" aria-label="Keep fonts.woff2"></td></tr>
+        <tr drawable><td>app.wasm</td><td><input type="number" value="1240" aria-label="Size of app.wasm"></td><td><time datetime="2026-11-18">18 Nov</time></td><td><input type="checkbox" aria-label="Keep app.wasm"></td></tr>
+        <tr drawable><td>manifest.json</td><td><input type="number" value="2" aria-label="Size of manifest.json"></td><td><time datetime="2026-09-05">5 Sep</time></td><td><input type="checkbox" aria-label="Keep manifest.json"></td></tr>
+        <tr drawable><td>readme.md</td><td><input type="number" value="5" aria-label="Size of readme.md"></td><td><time datetime="2026-10-01">1 Oct</time></td><td><input type="checkbox" aria-label="Keep readme.md"></td></tr>
+      </tbody>
+    </table>
+  </canvas>
+  <!-- #endregion markup -->
+  <p id="status">&nbsp;</p>
+
+  <div class="tools">
+    <button type="button" id="shuffle">Shuffle the rows</button>
+    <label>Travel <select id="travel"><option value="arc">Arc and lift</option><option value="straight">Straight</option><option value="none">None (jump)</option></select></label>
+    <label>Move with <select id="mover"><option value="moveBefore">moveBefore()</option><option value="insertBefore">insertBefore()</option></select></label>
+    <label><input type="checkbox" id="trails" checked> Trails</label>
+    <label><input type="checkbox" id="fade" checked> Fade from the old look</label>
+    <label><input type="checkbox" id="slow"> Slow</label>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>drawable rows, the reorder, the travel</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> An ordinary table inside the canvas. Each row has <code>drawable</code>. The table itself is not drawn.</li>
+      <li data-code="#sort"><b>Sort.</b> Remember where each row is drawn, take a snapshot of it, then move the rows in the DOM.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Draw each row between its remembered place and its new <code>offsetTop</code>.</li>
+      <li data-code="/lib/stage-2d.js#mount"><b>The paint loop and <code>put()</code>.</b></li>
+      <li data-code="#styles"><b>Styles.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>The table is a child of the canvas and is laid out as a table. It has no <code>drawable</code> attribute, so it has no picture of its own. Each <code>&lt;tr drawable&gt;</code> has one.
+    On every <code>paint</code> event the canvas draws the heading row and the eight body rows with <code>drawElementImage()</code>, and each draw puts the row's hit region where the row was drawn.</p>
+  <p>A sort does three things in one task. It records the y position at which each row was last drawn. It calls <code>captureElementImage()</code> on each row to keep a picture of the row as it looked.
+    Then it moves the rows with <code>moveBefore()</code> (or <code>insertBefore()</code>). The table's layout changes at once: <code>offsetTop</code> of every row is its new place.
+    For the next 700 ms the canvas draws each row at a position between the recorded one and the new one. In "Arc and lift" a row that moves up swings out to the right, a row that moves down swings to the left, and both are scaled up with a shadow under them.
+    The trail is the same row drawn three more times at earlier points on its path with low alpha.</p>
+  <p>The striping comes from <code>:nth-child(even)</code>, so a row changes background the moment it is moved. With "Fade from the old look" on, the snapshot taken before the move is drawn over the live row and fades out during the travel.</p>
+  <p>The row is drawn last at its travel position, so taps and typing go to the moving row. With <code>moveBefore()</code> a number field that has focus keeps it through the sort.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own small tables in the corner of the window, not on the table above.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>In Chromium 157 a <code>&lt;tr drawable&gt;</code> inside a table that is a canvas child keeps <code>display: table-row</code> and the column widths of its table, and can be drawn at any position. A <code>&lt;tr&gt;</code> that is the canvas's direct child is laid out as a block (recorded on <a href="/elements/">/elements/</a>).</li>
+    <li>A row moved with <code>moveBefore()</code>, <code>insertBefore()</code> or <code>append()</code> can be drawn in the same task, before the next <code>paint</code> event. The picture is the one from before the move, so a style that depends on position, such as <code>:nth-child()</code> striping, shows one frame late.</li>
+    <li><code>captureElementImage(row)</code> taken before the move still draws after it. That gives the two pictures a cross-fade needs.</li>
+    <li>Inputs in a row that is drawn rotated, scaled and away from its layout position take taps at the drawn position.</li>
+    <li>A canvas shadow (<code>shadowBlur</code>) applies to <code>drawElementImage()</code> of a row.</li>
+    <li>With <code>insertBefore()</code> a focused number field loses focus when its row moves. With <code>moveBefore()</code> it keeps it (measured on <a href="/patch/">/patch/</a>; the menu above switches between the two).</li>
+    <li>Not verified: frame rate of the travel on a phone, and the on-screen keyboard staying open through a sort.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage, nextPaint } from '/shared/support.js';
+  import { mount, put, snapshot, supported, lerp, clamp, smooth, reducedMotion, inkIn, fixtureCanvas } from '/lib/stage-2d.js';
+  banner();
+
+  const canvas = document.getElementById('canvas');
+  const table = document.getElementById('table');
+  const body = table.tBodies[0];
+  const head = table.tHead.rows[0];
+  const status = document.getElementById('status');
+  const opt = (id) => document.getElementById(id);
+  const state = new Map();     // row -> { from, t0, delay, old, y }
+  let duration = 700;
+
+  // #region sort
+  const KEYS = {
+    name: (tr) => tr.cells[0].textContent.trim().toLowerCase(),
+    size: (tr) => tr.querySelector('input[type=number]').valueAsNumber || 0,
+    date: (tr) => tr.querySelector('time').dateTime,
+    keep: (tr) => (tr.querySelector('input[type=checkbox]').checked ? 0 : 1),
+  };
+
+  function reorder(rows) {
+    const now = performance.now();
+    duration = reducedMotion() || opt('travel').value === 'none' ? 0 : opt('slow').checked ? 2800 : 700;
+    // 1. Where is each row drawn now, and what does it look like?
+    for (const tr of body.rows) {
+      const s = state.get(tr) ?? {};
+      state.set(tr, { from: s.y ?? tr.offsetTop, y: s.y ?? tr.offsetTop, t0: now, delay: 0, old: opt('fade').checked ? snapshot(canvas, tr) : null });
+    }
+    // 2. Move the rows. Layout changes at once.
+    const move = opt('mover').value === 'moveBefore' && body.moveBefore ? 'moveBefore' : 'insertBefore';
+    rows.forEach((tr, i) => { if (body.rows[i] !== tr) body[move](tr, body.rows[i]); });
+    // 3. Rows that travel further start a little later.
+    rows.forEach((tr, i) => { state.get(tr).delay = duration ? i * 22 : 0; });
+    stage.request();
+    return move;
+  }
+
+  function sortBy(key, th) {
+    const dir = th.getAttribute('aria-sort') === 'ascending' ? -1 : 1;
+    for (const other of head.cells) other.setAttribute('aria-sort', 'none');
+    th.setAttribute('aria-sort', dir === 1 ? 'ascending' : 'descending');
+    const value = KEYS[key];
+    const rows = [...body.rows].sort((a, b) => { const x = value(a), y = value(b); return (x < y ? -1 : x > y ? 1 : 0) * dir; });
+    const move = reorder(rows);
+    status.textContent = `Sorted by ${th.textContent.trim()}, ${dir === 1 ? 'ascending' : 'descending'}. Rows moved with ${move}().`;
+  }
+  // #endregion sort
+
+  // #region paint
+  const stage = mount(canvas, (ctx, w, h, now) => {
+    // The table sits at the canvas origin. offsetTop of a row is measured from the table.
+    const left = 0, top = 0;
+    const travel = opt('travel').value, trails = opt('trails').checked;
+    let moving = false;
+    // The place of a row at progress p along its path.
+    const place = (tr, s, p) => {
+      const to = tr.offsetTop, e = smooth(p), lift = Math.sin(Math.PI * clamp(p));
+      const dist = to - s.from;
+      const swing = travel === 'arc' ? -Math.sign(dist) * Math.min(26, Math.abs(dist) * 0.3) * lift : 0;
+      return { x: left + swing, y: top + lerp(s.from, to, e), lift: travel === 'arc' && dist ? lift : 0, turn: travel === 'arc' ? Math.sign(dist) * -0.035 * lift : 0 };
+    };
+    const drawRow = (tr, at, alpha = 1, picture = tr) => {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(at.x + tr.offsetWidth / 2, at.y + tr.offsetHeight / 2);
+      ctx.rotate(at.turn);
+      ctx.scale(1 + 0.05 * at.lift, 1 + 0.05 * at.lift);
+      if (at.lift > 0.02 && alpha === 1) { ctx.shadowColor = 'rgb(0 0 0 / .35)'; ctx.shadowBlur = 22 * at.lift; ctx.shadowOffsetY = 10 * at.lift; }
+      const ok = put(ctx, picture, -tr.offsetWidth / 2, -tr.offsetHeight / 2, tr.offsetWidth, tr.offsetHeight);
+      ctx.restore();
+      return ok;
+    };
+
+    put(ctx, head, left, top + head.offsetTop);
+    const order = [...body.rows].map((tr) => {
+      const s = state.get(tr) ?? { from: tr.offsetTop, t0: 0, delay: 0 };
+      const p = duration ? clamp((now - s.t0 - s.delay) / duration) : 1;
+      if (p < 1) moving = true; else if (s.old) { s.old.close?.(); s.old = null; }
+      const at = place(tr, s, p);
+      s.y = at.y - top;                       // remembered for the next sort, which may start mid-travel
+      state.set(tr, s);
+      return { tr, s, p, at };
+    });
+    // Rows that are lifted highest are drawn last, on top of the others.
+    order.sort((a, b) => a.at.lift - b.at.lift);
+    for (const { tr, s, p, at } of order) {
+      if (trails && p > 0 && p < 1 && at.lift) for (let k = 3; k >= 1; k--) drawRow(tr, place(tr, s, p - k * 0.07), 0.16);
+      drawRow(tr, at);                                                    // the live row. Its hit region is here.
+      if (s.old && p < 1) drawRow(tr, at, 1 - smooth(p * 1.4), s.old);    // its old look, fading out
+    }
+    return moving;
+  });
+  // #endregion paint
+
+  head.addEventListener('click', (e) => { const b = e.target.closest('button[data-key]'); if (b) sortBy(b.dataset.key, b.closest('th')); });
+  opt('shuffle').addEventListener('click', () => {
+    for (const th of head.cells) th.setAttribute('aria-sort', 'none');
+    const rows = [...body.rows];
+    for (let i = rows.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rows[i], rows[j]] = [rows[j], rows[i]]; }
+    reorder(rows);
+    status.textContent = 'Shuffled.';
+  });
+  if (!body.moveBefore) { opt('mover').value = 'insertBefore'; opt('mover').options[0].disabled = true; }
+  window.__sortTable = { canvas, body, state };
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const TABLE = `<table style="border-spacing:0;width:300px;table-layout:fixed;font:14px system-ui"><tbody>
+    <tr drawable style="height:30px;background:#cde"><td>one</td><td><input value="1" style="width:60px"></td></tr>
+    <tr drawable style="height:30px;background:#edc"><td>two</td><td><input value="2" style="width:60px"></td></tr>
+    <tr drawable style="height:30px;background:#dec"><td>three</td><td><input value="3" style="width:60px"></td></tr></tbody></table>`;
+  async function fixture() {
+    const f = fixtureCanvas(testStage(), TABLE);
+    await nextPaint(f.cv);
+    f.rows = [...f.cv.querySelectorAll('tr')];
+    f.body = f.cv.querySelector('tbody');
+    return f;
+  }
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const tests = [
+    { name: 'A <tr drawable> in a table draws as a table row', expect: 'pass', why: 'drawElementImage(row, 10, 150, …) on a row of a table that is a canvas child',
+      run: async () => {
+        const f = await fixture(), tr = f.rows[1];
+        f.ctx.drawElementImage(tr, 10, 150, tr.offsetWidth, tr.offsetHeight);
+        const ink = inkIn(f.ctx, 10, 150, 300, 30);
+        need(getComputedStyle(tr).display === 'table-row', `display is ${getComputedStyle(tr).display}`);
+        return need(ink > 0.9 && tr.offsetWidth === 300, `display: table-row, ${tr.offsetWidth} px wide, ${Math.round(ink * 100)}% of the drawn box has ink.`);
+      } },
+    { name: 'An input in a row is hit where the row was drawn', expect: 'pass', why: 'The row is drawn 120 px below its layout position and scaled by 1.05. elementFromPoint() at the drawn input.',
+      run: async () => {
+        const f = await fixture(), tr = f.rows[0], input = tr.querySelector('input');
+        const r0 = input.getBoundingClientRect(), t0 = tr.getBoundingClientRect();
+        f.ctx.save(); f.ctx.translate(10, 150); f.ctx.scale(1.05, 1.05); f.ctx.drawElementImage(tr, 0, 0, tr.offsetWidth, tr.offsetHeight); f.ctx.restore();
+        tr.toggleAttribute('data-moved');
+        const c = f.cv.getBoundingClientRect();
+        const x = c.left + 10 + (r0.left - t0.left + r0.width / 2) * 1.05, y = c.top + 150 + (r0.top - t0.top + r0.height / 2) * 1.05;
+        const hit = document.elementFromPoint(x, y);
+        return need(hit === input, hit === input ? 'elementFromPoint() returns the input at the drawn position.' : `elementFromPoint() returned ${hit?.localName ?? 'nothing'}.`);
+      } },
+    ...['moveBefore', 'insertBefore'].map((method) => ({
+      name: `A row moved with ${method}() can be drawn in the same task`, expect: 'pass', why: `tbody.${method}(lastRow, firstRow), then drawElementImage(lastRow) with no paint event in between`,
+      run: async () => {
+        const f = await fixture(), tr = f.rows[2];
+        need(typeof f.body[method] === 'function', `${method}() exists`);
+        f.body[method](tr, f.rows[0]);
+        f.ctx.reset(); f.ctx.drawElementImage(tr, 0, 100, 300, 30);
+        return need(inkIn(f.ctx, 0, 100, 300, 30) > 0.9 && tr.offsetTop === 0, `Drawn at once. offsetTop is already ${tr.offsetTop}.`);
+      } })),
+    { name: 'captureElementImage() of a row draws its old look after the row has changed', expect: 'pass', why: 'Snapshot a row, change its background, wait for a paint, draw the snapshot and the live row side by side',
+      run: async () => {
+        const f = await fixture(), tr = f.rows[0];
+        const old = f.cv.captureElementImage(tr);
+        tr.style.background = '#123';
+        await nextPaint(f.cv);
+        f.ctx.reset(); f.ctx.drawElementImage(old, 0, 100, 300, 30); f.ctx.drawElementImage(tr, 0, 140, 300, 30);
+        const a = f.ctx.getImageData(290, 115, 1, 1).data, b = f.ctx.getImageData(290, 155, 1, 1).data;
+        return need(a[0] > 180 && b[0] < 60, `Snapshot pixel ${[...a].slice(0, 3)}, live pixel ${[...b].slice(0, 3)}.`);
+      } },
+    { name: 'A canvas shadow applies to a drawn row', expect: 'pass', why: 'shadowBlur 12 and shadowOffsetY 20 before drawElementImage(row)',
+      run: async () => {
+        const f = await fixture(), tr = f.rows[1];
+        f.ctx.reset(); f.ctx.shadowColor = '#000'; f.ctx.shadowBlur = 12; f.ctx.shadowOffsetY = 20; f.ctx.drawElementImage(tr, 10, 100, 300, 30);
+        const ink = inkIn(f.ctx, 40, 136, 200, 10);
+        return need(ink > 0.5, `${Math.round(ink * 100)}% of a strip under the row has shadow.`);
+      } },
+    { name: 'The table above still has a picture', expect: 'pass', why: 'Read the visible canvas after the fixtures came and went',
+      run: async () => {
+        if (stage.plain || canvas.dataset.plain) return 'Shown as plain HTML.';
+        const ink = inkIn(stage.ctx, 0, 0, canvas.clientWidth, canvas.clientHeight);
+        return need(ink > 0.5, `${Math.round(ink * 100)}% of the canvas has ink.`);
+      } },
+  ];
+  runTests(document.getElementById('tests'), supported ? tests : []);
+</script>
+</body>
+</html>

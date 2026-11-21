@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accordion from &lt;details&gt; that unfolds</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  /* #region styles */
+  #canvas { display: block; width: 100%; max-width: 520px; height: 470px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  #list { position: relative; width: 100%; padding: 10px; display: grid; gap: 8px; font: 15px/1.45 system-ui, sans-serif; color: var(--fg); }
+  #list details { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  #list summary { min-height: 48px; padding: 12px 14px; font-weight: 600; cursor: pointer; }
+  #list details[open] summary { color: var(--accent); }
+  #list .body { padding: 0 14px 14px; height: 150px; display: flex; flex-direction: column; gap: 8px; }
+  #list .body p { margin: 0; }
+  #list .body :is(button, input, select) { font: inherit; min-height: 38px; }
+  #list .bar { height: 12px; border-radius: 6px; background: linear-gradient(90deg, #2a9d8f 62%, var(--line) 62%); }
+  #list .swatches { display: flex; gap: 8px; }
+  #list .swatches i { flex: 1; height: 34px; border-radius: 8px; }
+  /* The CSS route: the browser animates the height of the content and the canvas only redraws. */
+  #list.css-route { interpolate-size: allow-keywords; }
+  #list.css-route details::details-content { height: 0; overflow: clip; transition: height .6s ease, content-visibility .6s allow-discrete; }
+  #list.css-route details[open]::details-content { height: auto; }
+  /* #endregion styles */
+  .css-t { interpolate-size: allow-keywords; }
+  .css-t details::details-content { height: 0; overflow: clip; transition: height .3s linear, content-visibility .3s allow-discrete; }
+  .css-t details[open]::details-content { height: auto; }
+  .tools { display: flex; gap: 10px 16px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .tools select, .tools button { min-height: 40px; font: inherit; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 2.6em; margin: 6px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Accordion from <code>&lt;details&gt;</code> that unfolds</h1>
+  <p class="lede">
+    Four <code>&lt;details&gt;</code> elements with the same <code>name</code>, drawn by a canvas. Tap a heading. The browser opens that one and closes the other in the same instant.
+    The canvas has a picture of the closed one from before it closed and a live picture of the one that opened, and joins them with a fold: the content is cut into strips that open like folded paper.
+    The controls inside the open section work, also while it unfolds.
+  </p>
+  <p id="support"></p>
+
+  <!-- #region markup -->
+  <canvas id="canvas" content="drawable" layoutsubtree>
+    <div id="list">
+      <details drawable name="settings" open>
+        <summary>Storage</summary>
+        <div class="body"><p>6.2 GB of 10 GB used. Photos take the most space.</p><div class="bar"></div><p><button type="button" id="free">Free up space</button> <span id="freed"></span></p></div>
+      </details>
+      <details drawable name="settings">
+        <summary>Notifications</summary>
+        <div class="body"><label><input type="checkbox" checked> Mentions</label><label><input type="checkbox"> Weekly summary</label><label>Quiet from <input type="time" value="22:00"></label></div>
+      </details>
+      <details drawable name="settings">
+        <summary>Appearance</summary>
+        <div class="body"><p>Accent colour</p><div class="swatches"><i style="background:#d2491f"></i><i style="background:#2a9d8f"></i><i style="background:#e9a03b"></i><i style="background:#5b6ee1"></i></div><label>Text size <input type="range" min="12" max="22" value="15" id="size"></label></div>
+      </details>
+      <details drawable name="settings">
+        <summary>Account</summary>
+        <div class="body"><label>Display name <input type="text" value="Sam" size="12"></label><p>Signed in on 3 devices. <a href="#findings">What was measured</a></p></div>
+      </details>
+    </div>
+  </canvas>
+  <!-- #endregion markup -->
+  <p id="status">&nbsp;</p>
+
+  <div class="tools">
+    <label>Fold <select id="fold">
+      <option value="concertina">Concertina, 6 strips</option>
+      <option value="hinge">One flap</option>
+      <option value="roll">Unroll</option>
+      <option value="css">CSS height transition</option>
+      <option value="none">None (jump)</option>
+    </select></label>
+    <label><input type="checkbox" id="exclusive" checked> One open at a time (<code>name</code>)</label>
+    <label><input type="checkbox" id="slow"> Slow</label>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>the two pictures, the strips</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Ordinary <code>&lt;details name&gt;</code> elements, each with <code>drawable</code>.</li>
+      <li data-code="#track"><b>Notice a change and keep the open picture.</b> Each paint compares <code>open</code> with the last paint. While a section is open and at rest, the canvas keeps a snapshot of it.</li>
+      <li data-code="#fold"><b>Draw the content as strips.</b> One clipped, sheared and squashed draw for each strip, then a shade over it.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Stack the sections at their animated heights.</li>
+      <li data-code="#styles"><b>Styles,</b> including the CSS route.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>A closed <code>&lt;details&gt;</code> has no box for its content, so its picture is only the summary. The open picture exists only while it is open. An animation between the two needs both at once, and the browser changes the state in one step.</p>
+  <p><b>Closing.</b> On every paint while a section is open and not animating, the canvas calls <code>captureElementImage()</code> and keeps the result. When a later paint finds the section closed, the content strips are drawn from that snapshot, folding shut.
+    This also covers a section that the browser closed because another one with the same <code>name</code> was opened: the page gets no warning before that happens.</p>
+  <p><b>Opening.</b> The section is already open in layout, so the strips are drawn from the live element. Each strip is a clipped <code>drawElementImage()</code> with a transform that squashes it vertically and shears it sideways, alternating direction, and a dark or light fill over it.
+    A last draw with no alpha puts the hit region of the whole section at its final size, so its controls can be used during the fold.</p>
+  <p><b>Positions.</b> The layout jumps at once. The canvas ignores the layout positions and stacks the sections itself, using an animated height for each.</p>
+  <p><b>CSS route.</b> With "CSS height transition" the page does none of that. <code>interpolate-size: allow-keywords</code> and a transition on <code>::details-content</code> make the browser animate the height, each frame raises a <code>paint</code> event, and the canvas draws every section where layout puts it.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own <code>&lt;details&gt;</code> elements in the corner of the window.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li>In Chromium 157 a <code>&lt;details drawable&gt;</code> draws in both states. Closed, its picture and its <code>offsetHeight</code> are the summary only.</li>
+    <li>A snapshot from <code>captureElementImage()</code> taken while the element was open still draws the open content after it has closed. This is the only way found to get the open picture of a closed <code>&lt;details&gt;</code>.</li>
+    <li>The content of a closed <code>&lt;details&gt;</code> cannot be drawn on its own: a nested <code>drawable</code> content element throws "No cached paint record" while closed. The check below records it.</li>
+    <li>Opening one <code>&lt;details name&gt;</code> closes the other synchronously. One <code>paint</code> event shows both changes, so both animations start on the same frame.</li>
+    <li>A clipped draw of part of an element, under a shear, works, and several draws of one element in a frame are allowed. The hit region is that of the last draw, so the page ends with a draw at alpha 0 in the resting position.</li>
+    <li>The CSS route works in a canvas: a height transition on <code>::details-content</code> raises a <code>paint</code> event for each frame.</li>
+    <li>Not verified: frame rate on a phone, and what a screen reader announces during the fold (the elements and their states are the native ones).</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage, nextPaint } from '/shared/support.js';
+  import { mount, put, hitOnly, snapshot, supported, lerp, clamp, smooth, reducedMotion, inkIn, fixtureCanvas } from '/lib/stage-2d.js';
+  banner();
+
+  const canvas = document.getElementById('canvas');
+  const list = document.getElementById('list');
+  const items = [...list.querySelectorAll('details')];
+  const status = document.getElementById('status');
+  const foldMenu = document.getElementById('fold'), slow = document.getElementById('slow');
+  const state = new Map(items.map((d) => [d, { open: d.open, h: null, from: 0, t0: -1e9, snap: null, openH: 0 }]));
+  const GAP = 8, PAD = 10;
+
+  // #region track
+  function track(d, s, now, duration) {
+    const sumH = d.querySelector('summary').offsetHeight + 1;       // 1 px for the top border
+    if (s.h === null) s.h = d.offsetHeight;
+    if (d.open !== s.open) {                                        // the state changed since the last paint
+      s.open = d.open; s.from = s.h; s.t0 = now;
+    }
+    const p = duration ? clamp((now - s.t0) / duration) : 1;
+    if (d.open) s.openH = d.offsetHeight;
+    const target = d.open ? d.offsetHeight : sumH + 1;
+    s.h = lerp(s.from, target, smooth(p));
+    if (d.open && p === 1) {                                        // open and at rest: keep its picture for a later close
+      s.snap?.close?.();
+      s.snap = snapshot(canvas, d);
+    }
+    return { sumH, p, moving: p < 1 };
+  }
+  // #endregion track
+
+  // #region fold
+  // Draw the content part of a section (below its summary) at height `shown`, out of `full`.
+  // `picture` is the live element while opening and the snapshot while closing.
+  function foldContent(ctx, picture, d, x, y, sumH, full, shown, style) {
+    const w = d.offsetWidth, H = full - sumH, f = clamp((shown - sumH) / H);
+    if (f <= 0.004 || H <= 0) return;
+    const strips = style === 'hinge' ? 1 : 6, sh = H / strips;
+    const lean = Math.sqrt(1 - f * f);                 // sine of the fold angle: 1 when shut, 0 when flat
+    const amp = style === 'hinge' ? 26 * lean : 12 * lean;
+    for (let i = 0; i < strips; i++) {
+      const odd = i % 2 === 1;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x - 30, y + sumH, w + 60, shown - sumH); ctx.clip();
+      // Squash by f, and shear so the strip leans: even strips to the right, odd strips back again.
+      ctx.translate(x + (odd ? amp : 0) - amp / 2, y + sumH + i * sh * f);
+      ctx.transform(1, 0, (odd ? -amp : amp) / sh, f, 0, 0);
+      ctx.beginPath(); ctx.rect(0, 0, w, sh + 0.5); ctx.clip();
+      put(ctx, picture, 0, -(sumH + i * sh), w, full);
+      ctx.fillStyle = odd ? `rgb(0 0 0 / ${0.3 * lean})` : `rgb(255 255 255 / ${0.16 * lean})`;
+      ctx.fillRect(0, 0, w, sh + 0.5);
+      ctx.restore();
+    }
+  }
+
+  function rollContent(ctx, picture, d, x, y, sumH, full, shown) {
+    const w = d.offsetWidth, r = 5 + 16 * (1 - clamp((shown - sumH) / (full - sumH)));
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y + sumH, w, Math.max(0, shown - sumH - r)); ctx.clip();
+    put(ctx, picture, x, y, w, full);
+    ctx.restore();
+    // The roll: the next rows of the content, upside down and squashed, under a shaded cylinder.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x, y + shown - r * 2, w, r * 2); ctx.clip();
+    ctx.translate(x, y + shown); ctx.scale(1, -0.6);
+    put(ctx, picture, 0, -shown + r, w, full);
+    ctx.restore();
+    const g = ctx.createLinearGradient(0, y + shown - r * 2, 0, y + shown);
+    g.addColorStop(0, 'rgb(255 255 255 / .55)'); g.addColorStop(0.5, 'rgb(128 128 128 / .35)'); g.addColorStop(1, 'rgb(0 0 0 / .55)');
+    ctx.fillStyle = g; ctx.fillRect(x, y + shown - r * 2, w, r * 2);
+  }
+  // #endregion fold
+
+  // #region paint
+  const stage = mount(canvas, (ctx, w, h, now) => {
+    const style = foldMenu.value;
+    if (style === 'css') {                               // the browser animates. Draw where layout says.
+      for (const d of items) { const s = state.get(d); s.open = d.open; s.h = d.offsetHeight; put(ctx, d, d.offsetLeft, d.offsetTop); }
+      return false;
+    }
+    const duration = reducedMotion() || style === 'none' ? 0 : slow.checked ? 2600 : 620;
+    const info = items.map((d) => track(d, state.get(d), now, duration));
+    const total = PAD * 2 + items.reduce((n, d) => n + state.get(d).h + GAP, -GAP);
+    const k = Math.min(1, h / total);                    // with every section open the stack is taller than the canvas
+    ctx.translate((w - w * k) / 2, 0); ctx.scale(k, k);
+    let y = PAD, moving = false;
+    items.forEach((d, i) => {
+      const s = state.get(d), { sumH, p } = info[i], x = d.offsetLeft, dw = d.offsetWidth;
+      if (p === 1) put(ctx, d, x, y);                    // at rest: one draw
+      else {
+        moving = true;
+        const picture = d.open ? d : s.snap;             // opening: live. Closing: the snapshot from before.
+        ctx.save();                                      // the card behind the strips
+        ctx.beginPath(); ctx.roundRect(x, y, dw, s.h, 10); ctx.clip();
+        ctx.fillStyle = getComputedStyle(d).backgroundColor; ctx.fillRect(x, y, dw, s.h);
+        ctx.save(); ctx.beginPath(); ctx.rect(x, y, dw, sumH); ctx.clip(); put(ctx, d, x, y); ctx.restore();   // the summary, live
+        if (picture) (style === 'roll' ? rollContent : foldContent)(ctx, picture, d, x, y, sumH, s.openH, s.h, style);
+        ctx.restore();
+        ctx.strokeStyle = getComputedStyle(d).borderTopColor; ctx.beginPath(); ctx.roundRect(x + 0.5, y + 0.5, dw - 1, s.h - 1, 10); ctx.stroke();
+        hitOnly(ctx, d, x, y);                           // input goes to the section at its final size
+      }
+      y += s.h + GAP;
+    });
+    return moving;
+  });
+  // #endregion paint
+
+  list.addEventListener('toggle', () => {
+    const open = items.filter((d) => d.open).map((d) => d.querySelector('summary').textContent);
+    status.textContent = `Open: ${open.join(', ') || 'none'}. ${foldMenu.value === 'css' ? 'The browser animates the height.' : 'The canvas animates the fold.'}`;
+    stage.request();
+  }, true);
+  foldMenu.addEventListener('change', () => { list.classList.toggle('css-route', foldMenu.value === 'css'); stage.request(); });
+  document.getElementById('exclusive').addEventListener('change', (e) => {
+    for (const d of items) { if (e.target.checked) d.setAttribute('name', 'settings'); else d.removeAttribute('name'); }
+    stage.request();
+  });
+  let freed = 0;
+  document.getElementById('free').addEventListener('click', () => { document.getElementById('freed').textContent = `${++freed * 120} MB freed`; });
+  document.getElementById('size').addEventListener('input', (e) => { list.style.fontSize = `${e.target.value}px`; });
+  window.__accordion = { canvas, items, state };
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const HTML = (extra = '', attr = '') => `<div style="position:relative;width:300px;font:14px system-ui" ${attr}>
+    <details drawable open name="t" style="background:#cde"><summary style="height:30px">A</summary><div class="c" ${extra} style="height:100px;background:#345">content <button>b</button></div></details>
+    <details drawable name="t" style="background:#edc"><summary style="height:30px">B</summary><div class="c" style="height:100px;background:#543">content</div></details></div>`;
+  async function fixture(extra, attr) {
+    const f = fixtureCanvas(testStage(), HTML(extra, attr));
+    await nextPaint(f.cv);
+    [f.a, f.b] = f.cv.querySelectorAll('details');
+    return f;
+  }
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const tests = [
+    { name: 'A closed <details drawable> is only its summary', expect: 'pass', why: 'offsetHeight and the drawn picture of a closed element',
+      run: async () => {
+        const f = await fixture();
+        f.ctx.drawElementImage(f.b, 0, 0, 300, 130);
+        return need(f.b.offsetHeight < 40 && f.a.offsetHeight > 120, `Closed: ${f.b.offsetHeight} px. Open: ${f.a.offsetHeight} px.`);
+      } },
+    { name: 'A snapshot taken while open draws the content after the element closed', expect: 'pass', why: 'captureElementImage(details), then open = false, a paint, then drawElementImage(snapshot)',
+      run: async () => {
+        const f = await fixture();
+        const snap = f.cv.captureElementImage(f.a), h = f.a.offsetHeight;
+        f.a.open = false; await nextPaint(f.cv);
+        f.ctx.reset(); f.ctx.drawElementImage(snap, 0, 0, 300, h);
+        const old = inkIn(f.ctx, 0, 50, 300, 60);
+        f.ctx.reset(); f.ctx.drawElementImage(f.a, 0, 0, 300, f.a.offsetHeight);
+        const live = inkIn(f.ctx, 0, 50, 300, 60);
+        return need(old > 0.9 && live < 0.1, `Content area: ${Math.round(old * 100)}% ink from the snapshot, ${Math.round(live * 100)}% from the live closed element.`);
+      } },
+    { name: 'The content of a closed <details> can be drawn on its own', expect: 'fail', why: 'The content div has drawable. drawElementImage(content) while the element is closed.',
+      run: async () => {
+        const f = await fixture('drawable');
+        f.a.open = false; await nextPaint(f.cv);
+        const c = f.a.querySelector('.c');
+        f.ctx.reset(); f.ctx.drawElementImage(c, 0, 0, 300, 100);
+        return need(inkIn(f.ctx, 0, 0, 300, 100) > 0.5, 'Drawn, but with no ink: the picture is empty.');
+      } },
+    { name: 'Opening one <details name> closes the other before the next paint', expect: 'pass', why: 'b.open = true, then read a.open in the same task and count toggle events before the paint',
+      run: async () => {
+        const f = await fixture();
+        f.b.open = true;
+        const sync = f.a.open === false;
+        await nextPaint(f.cv);
+        return need(sync && f.a.offsetHeight < 40 && f.b.offsetHeight > 120, `a.open is ${!sync} in the same task. At the next paint: a ${f.a.offsetHeight} px, b ${f.b.offsetHeight} px.`);
+      } },
+    { name: 'A summary drawn 80 px lower is hit there', expect: 'pass', why: 'elementFromPoint() at the drawn summary of the second element',
+      run: async () => {
+        const f = await fixture();
+        f.ctx.reset(); f.ctx.drawElementImage(f.b, 10, 180, 300, f.b.offsetHeight); f.b.toggleAttribute('data-moved');
+        const c = f.cv.getBoundingClientRect();
+        const hit = document.elementFromPoint(c.left + 60, c.top + 195);
+        return need(hit === f.b.querySelector('summary'), hit?.localName === 'summary' ? 'elementFromPoint() returns the summary.' : `elementFromPoint() returned ${hit?.localName ?? 'nothing'}.`);
+      } },
+    { name: 'A strip of the content draws clipped and sheared', expect: 'pass', why: 'clip to a 20 px strip, transform(1, 0, 0.5, 0.5, 0, 0), drawElementImage(details)',
+      run: async () => {
+        const f = await fixture();
+        f.ctx.reset(); f.ctx.translate(0, 150); f.ctx.transform(1, 0, 0.5, 0.5, 0, 0); f.ctx.beginPath(); f.ctx.rect(0, 0, 300, 20); f.ctx.clip();
+        f.ctx.drawElementImage(f.a, 0, -60, 300, f.a.offsetHeight);
+        f.ctx.resetTransform();
+        const inside = inkIn(f.ctx, 20, 152, 250, 6), below = inkIn(f.ctx, 20, 164, 250, 20);
+        return need(inside > 0.9 && below < 0.05, `${Math.round(inside * 100)}% ink in the squashed strip, ${Math.round(below * 100)}% under it.`);
+      } },
+    { name: 'A CSS height transition on ::details-content raises paint events as it runs', expect: 'pass', why: 'interpolate-size: allow-keywords and transition: height .3s on ::details-content. Count paint events and heights during the transition.',
+      run: async () => {
+        const f = await fixture('', 'class="css-t"');
+        await nextPaint(f.cv);
+        const heights = new Set(), log = []; let paints = 0;
+        const on = () => { paints++; heights.add(f.b.offsetHeight); log.push(f.b.offsetHeight); };
+        f.cv.addEventListener('paint', on);
+        f.b.open = true;
+        await new Promise((r) => setTimeout(r, 500));
+        f.cv.removeEventListener('paint', on);
+        return need(paints >= 4 && heights.size >= 3, `${paints} paint events, ${heights.size} different heights of the opening element: ${log.slice(0, 8).join(', ')}.`);
+      } },
+    { name: 'The accordion above still has a picture', expect: 'pass', why: 'Read the visible canvas after the fixtures came and went',
+      run: async () => {
+        if (stage.plain || canvas.dataset.plain) return 'Shown as plain HTML.';
+        const ink = inkIn(stage.ctx, 0, 0, canvas.clientWidth, canvas.clientHeight);
+        return need(ink > 0.3, `${Math.round(ink * 100)}% of the canvas has ink.`);
+      } },
+  ];
+  runTests(document.getElementById('tests'), supported ? tests : []);
+</script>
+</body>
+</html>

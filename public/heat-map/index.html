@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heat map over table cells</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  /* #region styles */
+  #canvas { display: block; width: 100%; max-width: 560px; height: 336px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); touch-action: pan-y; }
+  #grid { width: 100%; table-layout: fixed; border-spacing: 0; font: 600 14px/1 system-ui, sans-serif; color: var(--fg); }
+  #grid col.day { width: 46px; }
+  #grid th, #grid td { height: 42px; padding: 0; text-align: center; }
+  #grid th { font-weight: 500; font-size: 12px; color: var(--muted); }
+  /* A cell has no background: the canvas paints the colour under it. */
+  #grid td { color: #fff; text-shadow: 0 1px 2px rgb(0 0 0 / .55); caret-color: currentColor; }
+  #grid td.light { color: #1d1c1a; text-shadow: 0 1px 2px rgb(255 255 255 / .5); }
+  #grid td:focus { outline: 2px solid currentColor; outline-offset: -4px; border-radius: 8px; }
+  /* #endregion styles */
+  .tools { display: flex; gap: 10px 16px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .tools button, .tools select { min-height: 40px; font: inherit; }
+  .tools fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 4px 14px; flex-wrap: wrap; }
+  .tools button[aria-pressed=true] { background: var(--fg); color: var(--bg); }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 2.6em; margin: 6px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Heat map over table cells</h1>
+  <p class="lede">
+    A table of requests per second, seven days by eight times of day, inside a canvas. Each <code>&lt;td&gt;</code> is drawn on its own with no background.
+    Under the cells the canvas paints a colour field computed from the numbers, with a smooth gradient from each cell to its neighbours and contour lines at 20, 40, 60 and 80.
+    Tap a number and type a new one, or press <b>Live data</b>. The numbers are the table's own text, and the field is recomputed from them.
+  </p>
+  <p id="support"></p>
+
+  <canvas id="canvas" content="drawable" layoutsubtree>
+    <table id="grid" aria-label="Requests per second by day and time"></table>
+  </canvas>
+  <p id="status">&nbsp;</p>
+
+  <div class="tools">
+    <fieldset id="modes">
+      <label><input type="radio" name="mode" value="blocks"> Cell blocks</label>
+      <label><input type="radio" name="mode" value="smooth"> Smooth</label>
+      <label><input type="radio" name="mode" value="contours" checked> Smooth with contour lines</label>
+    </fieldset>
+    <label>Colours <select id="palette"><option value="heat">Dark to hot</option><option value="split">Blue to red</option></select></label>
+    <label><input type="checkbox" id="relief" checked> Bigger numbers for hotter cells</label>
+    <button type="button" id="live" aria-pressed="false">Live data</button>
+    <button type="button" id="reset">Reset</button>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>the table, the field, the cells on top</small></summary>
+    <ol>
+      <li data-code="#table"><b>The table.</b> Built from an array. Every <code>&lt;th&gt;</code> and <code>&lt;td&gt;</code> has <code>drawable</code>, and each <code>&lt;td&gt;</code> can be edited.</li>
+      <li data-code="#field"><b>The field.</b> A small bitmap, six samples for each cell in each direction, interpolated from the cell numbers with a Catmull-Rom curve.</li>
+      <li data-code="#contours"><b>Contour lines.</b> Marching squares over the same samples.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Stretch the bitmap over the cells, stroke the lines, then draw each cell on top.</li>
+      <li data-code="/lib/stage-2d.js#mount"><b>The paint loop and <code>put()</code>.</b></li>
+      <li data-code="#styles"><b>Styles.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>The table is laid out by the browser with <code>table-layout: fixed</code>, so all number cells are the same size. The table has no picture. Each cell has <code>drawable</code> and a transparent background, so its picture is its text and, when it has focus, its outline and caret.</p>
+  <p>The page reads the numbers from the cells' text. For each frame it fills a bitmap of 48 by 42 pixels: six samples across and down each cell. A sample's value is interpolated from the 4 by 4 cells around it with a Catmull-Rom curve, which passes through each cell's own number at the cell's centre.
+    The value picks a colour from a list of stops. <code>drawImage()</code> stretches the bitmap over the cell area with smoothing on. In "Cell blocks" each cell is one flat rectangle.</p>
+  <p>The contour lines come from the same samples. For each square of four neighbouring samples and each level, marching squares finds where the level crosses the square's edges and joins the crossings.</p>
+  <p>Then each cell is drawn at its layout position with <code>drawElementImage()</code>. With the checkbox on, a cell is scaled about its centre by its number, from 0.8 to 1.35 times, and its hit region is scaled with it.
+    A changed number moves the shown value towards the new one over a few frames, so the colour spreads. The text colour of a cell is switched between white and black from the brightness of its colour.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own small tables in the corner of the window.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>In Chromium 157 a <code>&lt;td drawable&gt;</code> with no background has a picture with transparent pixels around its text. What the canvas painted before the cell shows through, so a canvas-drawn background needs no CSS on the cells.</li>
+    <li>The table lays the cells out. With <code>table-layout: fixed</code> the cell boxes are a regular grid, and <code>offsetLeft</code> and <code>offsetTop</code> of a cell are relative to the table.</li>
+    <li>Editing a cell's text (<code>contenteditable="plaintext-only"</code>) raises a <code>paint</code> event with no <code>requestPaint()</code>. The caret and the focus outline are part of the cell's picture.</li>
+    <li>A cell drawn scaled about its centre is hit tested at the scaled box.</li>
+    <li><code>drawImage()</code> of a 48 by 42 bitmap stretched to the cell area gives the smooth gradient at no measurable cost next to the 63 <code>drawElementImage()</code> calls of a frame.</li>
+    <li>Not verified: the on-screen number keyboard for <code>inputmode="numeric"</code> on a cell drawn in a canvas, and frame rate with Live data on a phone.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage, nextPaint } from '/shared/support.js';
+  import { mount, put, supported, clamp, lerp, inkIn, fixtureCanvas } from '/lib/stage-2d.js';
+  banner();
+
+  const canvas = document.getElementById('canvas');
+  const grid = document.getElementById('grid');
+  const status = document.getElementById('status');
+  const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], TIMES = ['00', '03', '06', '09', '12', '15', '18', '21'];
+  const ROWS = DAYS.length, COLS = TIMES.length, G = 6;
+
+  // Two bumps of load that move with t. Used for the first numbers and for Live data.
+  const load = (r, c, t = 0) => {
+    const bump = (cr, cc, s) => Math.exp(-(((r - cr) / 1.8) ** 2 + ((c - cc) / s) ** 2));
+    const v = 92 * bump(1.5 + 1.2 * Math.sin(t * 0.7), 4 + 1.5 * Math.cos(t * 0.5), 1.7) + 70 * bump(5 + 0.8 * Math.cos(t * 0.9), 6.2 + 1.4 * Math.sin(t * 0.6), 1.3) + 6;
+    return Math.round(clamp(v, 0, 99));
+  };
+
+  // #region table
+  grid.innerHTML = `<colgroup><col class="day"></colgroup>
+    <thead><tr><th drawable></th>${TIMES.map((t) => `<th drawable scope="col">${t}</th>`).join('')}</tr></thead>
+    <tbody>${DAYS.map((d, r) => `<tr><th drawable scope="row">${d}</th>${TIMES.map((t, c) =>
+      `<td drawable contenteditable="plaintext-only" inputmode="numeric" aria-label="${d} ${t}:00">${load(r, c)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  const heads = [...grid.querySelectorAll('th')];
+  const cells = [...grid.tBodies[0].rows].map((tr) => [...tr.querySelectorAll('td')]);
+  const read = (td) => clamp(parseFloat(td.textContent) || 0, 0, 99);
+  // #endregion table
+
+  const PALETTES = {
+    heat: [[8, 6, 28], [58, 15, 110], [140, 41, 129], [222, 73, 104], [254, 159, 109], [252, 253, 191]],
+    split: [[33, 80, 160], [103, 169, 207], [240, 240, 235], [239, 138, 98], [178, 24, 43]],
+  };
+  let stops = PALETTES.heat;
+  const colour = (v) => {
+    const t = clamp(v / 99) * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(t)), f = t - i;
+    return [0, 1, 2].map((k) => Math.round(lerp(stops[i][k], stops[i + 1][k], f)));
+  };
+
+  const shown = cells.map((row) => row.map(read));      // the values being drawn, which follow the numbers
+  let target = cells.map((row) => row.map(read));
+
+  // #region field
+  const cr = (a, b, c, d, t) => 0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (3 * b - a - 3 * c + d) * t * t * t);
+  const at = (v, r, c) => v[clamp(r, 0, ROWS - 1)][clamp(c, 0, COLS - 1)];
+  // The value at a point given in cell units, where (0, 0) is the centre of the first cell.
+  function valueAt(v, y, x) {
+    const r = Math.floor(y), c = Math.floor(x), fy = y - r, fx = x - c;
+    const rows = [-1, 0, 1, 2].map((dr) => cr(at(v, r + dr, c - 1), at(v, r + dr, c), at(v, r + dr, c + 1), at(v, r + dr, c + 2), fx));
+    return clamp(cr(rows[0], rows[1], rows[2], rows[3], fy), 0, 99);
+  }
+  const W = COLS * G, H = ROWS * G;
+  const bitmap = new OffscreenCanvas(W, H), bctx = bitmap.getContext('2d');
+  const samples = new Float32Array(W * H);
+  function fillField(v) {
+    const img = bctx.createImageData(W, H);
+    for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+      const value = valueAt(v, (j + 0.5) / G - 0.5, (i + 0.5) / G - 0.5);
+      samples[j * W + i] = value;
+      const [r, g, b] = colour(value), o = (j * W + i) * 4;
+      img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+    }
+    bctx.putImageData(img, 0, 0);
+  }
+  // #endregion field
+
+  // #region contours
+  // Marching squares: one path, in sample units, for all the levels.
+  function contourPath(levels) {
+    const path = new Path2D();
+    const cross = (a, b, level) => (level - a) / (b - a);
+    for (const level of levels) for (let j = 0; j < H - 1; j++) for (let i = 0; i < W - 1; i++) {
+      const tl = samples[j * W + i], tr = samples[j * W + i + 1], bl = samples[(j + 1) * W + i], br = samples[(j + 1) * W + i + 1];
+      const pts = [];
+      if ((tl < level) !== (tr < level)) pts.push([i + cross(tl, tr, level), j]);
+      if ((tr < level) !== (br < level)) pts.push([i + 1, j + cross(tr, br, level)]);
+      if ((bl < level) !== (br < level)) pts.push([i + cross(bl, br, level), j + 1]);
+      if ((tl < level) !== (bl < level)) pts.push([i, j + cross(tl, bl, level)]);
+      for (let k = 0; k + 1 < pts.length; k += 2) { path.moveTo(pts[k][0] + 0.5, pts[k][1] + 0.5); path.lineTo(pts[k + 1][0] + 0.5, pts[k + 1][1] + 0.5); }
+    }
+    return path;
+  }
+  // #endregion contours
+
+  const mode = () => document.querySelector('input[name=mode]:checked').value;
+  const relief = document.getElementById('relief');
+
+  // #region paint
+  const stage = mount(canvas, (ctx, w, h) => {
+    // Move the shown values towards the numbers in the table.
+    let moving = false;
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+      const d = target[r][c] - shown[r][c];
+      if (Math.abs(d) > 0.4) { shown[r][c] += d * 0.14; moving = true; } else shown[r][c] = target[r][c];
+    }
+    const first = cells[0][0], cw = first.offsetWidth, ch = first.offsetHeight, x0 = first.offsetLeft, y0 = first.offsetTop;
+    const fw = cw * COLS, fh = ch * ROWS;
+
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(x0, y0, fw, fh, 8); ctx.clip();
+    if (mode() === 'blocks') {
+      cells.forEach((row, r) => row.forEach((td, c) => { ctx.fillStyle = `rgb(${colour(shown[r][c])})`; ctx.fillRect(td.offsetLeft, td.offsetTop, cw + 0.5, ch + 0.5); }));
+    } else {
+      fillField(shown);
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(bitmap, x0, y0, fw, fh);                  // 48 x 42 pixels stretched over the cells
+      if (mode() === 'contours') {
+        ctx.save();
+        ctx.translate(x0, y0); ctx.scale(fw / W, fh / H);
+        ctx.lineWidth = 1.3 * W / fw; ctx.strokeStyle = 'rgb(255 255 255 / .55)';
+        ctx.stroke(contourPath([20, 40, 60, 80]));
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+
+    for (const th of heads) put(ctx, th, th.offsetLeft, th.offsetTop);
+    // The cells, on top of the colour. A cell's picture is its text: the rest of its box is transparent.
+    cells.forEach((row, r) => row.forEach((td, c) => {
+      const k = relief.checked ? 0.8 + 0.55 * shown[r][c] / 99 : 1;
+      ctx.save();
+      ctx.translate(td.offsetLeft + cw / 2, td.offsetTop + ch / 2);
+      ctx.scale(k, k);
+      put(ctx, td, -cw / 2, -ch / 2, cw, ch);
+      ctx.restore();
+    }));
+    return moving;
+  });
+  // #endregion paint
+
+  // Read the table again: new targets, and black or white text for each cell.
+  function sync() {
+    target = cells.map((row) => row.map(read));
+    cells.forEach((row, r) => row.forEach((td, c) => {
+      const [red, green, blue] = colour(target[r][c]);
+      td.classList.toggle('light', 0.299 * red + 0.587 * green + 0.114 * blue > 150);
+    }));
+    const flat = target.flat(), max = Math.max(...flat);
+    status.textContent = `Highest ${max} on ${DAYS[Math.floor(flat.indexOf(max) / COLS)]} at ${TIMES[flat.indexOf(max) % COLS]}:00. Mean ${(flat.reduce((a, b) => a + b, 0) / flat.length).toFixed(1)}.`;
+    stage.request();
+  }
+  grid.addEventListener('input', sync);
+  document.getElementById('modes').addEventListener('change', () => stage.request());
+  relief.addEventListener('change', () => stage.request());
+  document.getElementById('palette').addEventListener('change', (e) => { stops = PALETTES[e.target.value]; sync(); });
+
+  let timer = 0, t = 0;
+  const write = () => cells.forEach((row, r) => row.forEach((td, c) => { if (td !== document.activeElement) td.textContent = load(r, c, t); }));
+  const liveButton = document.getElementById('live');
+  function setLive(on) {
+    clearInterval(timer);
+    liveButton.setAttribute('aria-pressed', on);
+    if (on) timer = setInterval(() => { t += 0.35; write(); sync(); }, 600);
+  }
+  liveButton.addEventListener('click', () => setLive(liveButton.getAttribute('aria-pressed') !== 'true'));
+  document.getElementById('reset').addEventListener('click', () => { setLive(false); t = 0; write(); sync(); });
+  // Stop the timer while the canvas is off screen.
+  new IntersectionObserver(([e]) => { if (!e.isIntersecting && liveButton.getAttribute('aria-pressed') === 'true') setLive(false); }).observe(canvas);
+  sync();
+  window.__heatMap = { canvas, cells, valueAt };
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const TABLE = `<table style="border-spacing:0;width:300px;table-layout:fixed;font:600 16px system-ui;color:#fff"><tbody>
+    <tr><td drawable contenteditable="plaintext-only" style="height:40px;text-align:center">11</td><td drawable style="height:40px;text-align:center">22</td><td drawable style="height:40px;text-align:center">33</td></tr>
+    <tr><td drawable style="height:40px;text-align:center">44</td><td drawable style="height:40px;text-align:center">55</td><td drawable style="height:40px;text-align:center">66</td></tr></tbody></table>`;
+  async function fixture() {
+    const f = fixtureCanvas(testStage(), TABLE);
+    await nextPaint(f.cv);
+    f.tds = [...f.cv.querySelectorAll('td')];
+    return f;
+  }
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const tests = [
+    { name: 'Cells with drawable are laid out by their table', expect: 'pass', why: 'Six <td drawable> in two rows, table-layout: fixed. Read offsetLeft, offsetTop and offsetWidth.',
+      run: async () => {
+        const f = await fixture(), [a, b, c, d] = f.tds;
+        return need(a.offsetWidth === 100 && b.offsetLeft === 100 && c.offsetLeft === 200 && d.offsetTop === 40 && getComputedStyle(a).display === 'table-cell',
+          `display: ${getComputedStyle(a).display}. Widths ${a.offsetWidth}, ${b.offsetWidth}, ${c.offsetWidth}. Second row at ${d.offsetTop} px.`);
+      } },
+    { name: 'A cell with no background is drawn as text on transparent pixels', expect: 'pass', why: 'Fill the canvas red, drawElementImage(cell), then read a corner of the cell and count pixels that changed',
+      run: async () => {
+        const f = await fixture(), td = f.tds[4];
+        f.ctx.fillStyle = '#f00'; f.ctx.fillRect(0, 0, 320, 240);
+        f.ctx.drawElementImage(td, 100, 100, 100, 40);
+        const corner = [...f.ctx.getImageData(104, 104, 1, 1).data].slice(0, 3);
+        const d = f.ctx.getImageData(100, 100, 100, 40).data; let text = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i + 1] > 128) text++;
+        return need(corner.join() === '255,0,0' && text > 20, `Corner pixel ${corner}. ${text} pixels of white text over the red.`);
+      } },
+    { name: 'A cell drawn at 1.3 times its size is hit at the larger box', expect: 'pass', why: 'scale(1.3) about a point, drawElementImage(cell), elementFromPoint() just inside the scaled edge',
+      run: async () => {
+        const f = await fixture(), td = f.tds[1];
+        f.ctx.save(); f.ctx.translate(160, 150); f.ctx.scale(1.3, 1.3); f.ctx.drawElementImage(td, -50, -20, 100, 40); f.ctx.restore(); td.toggleAttribute('data-moved');
+        const c = f.cv.getBoundingClientRect();
+        const hit = document.elementFromPoint(c.left + 160 + 62, c.top + 150);
+        return need(hit === td, hit === td ? '62 px from the centre (the unscaled half width is 50) hits the cell.' : `Returned ${hit?.localName ?? 'nothing'}.`);
+      } },
+    { name: "Changing a cell's text raises a paint event", expect: 'pass', why: 'td.textContent = "99" with no requestPaint(). Wait 400 ms.',
+      run: async () => {
+        const f = await fixture();
+        await new Promise((r) => setTimeout(r, 120));
+        let paints = 0; f.cv.addEventListener('paint', () => paints++);
+        f.tds[0].textContent = '99';
+        await new Promise((r) => setTimeout(r, 400));
+        return need(paints > 0, `${paints} paint event${paints === 1 ? '' : 's'}.`);
+      } },
+    { name: "The smooth field passes through each cell's own number", expect: 'pass', why: 'valueAt() at the centre of every cell of a test grid, and halfway between two cells',
+      run: async () => {
+        const v = Array.from({ length: ROWS }, (_, r) => Array.from({ length: COLS }, (_, c) => (r * 13 + c * 29) % 90));
+        let worst = 0;
+        for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) worst = Math.max(worst, Math.abs(valueAt(v, r, c) - v[r][c]));
+        const mid = valueAt(v, 0, 0.5);
+        return need(worst < 1e-6, `Largest error at a cell centre: ${worst}. Between ${v[0][0]} and ${v[0][1]} the field is ${mid.toFixed(1)}.`);
+      } },
+    { name: 'The heat map above still has a picture', expect: 'pass', why: 'Read the visible canvas after the fixtures came and went',
+      run: async () => {
+        if (stage.plain || canvas.dataset.plain) return 'Shown as plain HTML.';
+        const ink = inkIn(stage.ctx, 60, 60, 200, 200);
+        return need(ink > 0.9, `${Math.round(ink * 100)}% of the cell area has ink.`);
+      } },
+  ];
+  runTests(document.getElementById('tests'), supported ? tests : []);
+</script>
+</body>
+</html>
