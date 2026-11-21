@@ -105,7 +105,7 @@ All of these are in `shared/style.css` unless noted.
 | Show the code | `details.show-code` with an `<ol>` of `<li data-code="file#region">` | Closed in the HTML, one line of 46 px. The summary has a `</>` badge and a `<small>` that says what the listing covers. Each step gets a code block (`.sc-block`) with the file name linked to GitHub, a Copy button and a Wrap button (at least 34 px high). Long blocks are cut at 26em with a fade and a "Show all lines" button. |
 | Row code | `details.row-code` | The function behind one row of a results table (`window.showCode.block(fn)`). |
 | Source view | `<details class="source" data-src>` | Whole example files on the slot pages (`shared/source-view.js`). Fixed height, scrolls inside itself. |
-| About this experiment | inserted by `nav.js` from `learn.js` under `main p.lede` | The question, "Builds on" links, the API calls used, and a link to the page's Findings. Closed on a phone, as one line. |
+| About this experiment | inserted by `nav.js` and `learn.js` under `main p.lede`, from the page's `page.json` | The question, "Builds on" links, the API calls used, and a link to the page's Findings. Closed on a phone, as one line. |
 | "Drawn with" switch | `routeSwitch()` from `shared/route-switch.js` | A menu of WebGPU, WebGL and 2D with a line that says what is drawing and, when it is not WebGPU, why. |
 | Note | `.note` | Muted 14 px text for caveats under a demo. |
 | Findings list | `ul.findings` | 6 px between items. |
@@ -131,7 +131,7 @@ Built by `shared/nav.js`, which carries its own CSS.
 `public/index.html` with `public/home.js`. Section order, set by the project owner:
 
 1. A hero heading and lede, with links to the experiments and the tutorial.
-2. "Experiments": the full grouped list from `demos.js`, as cards (number, title, blurb, tag chips). With the API available, `home.js` slots the same links into a canvas in a shadow root and draws them with a hover effect. Without it the cards are a plain grid.
+2. "Experiments": the full grouped list from the page files (`shared/pages.js`), as cards (number, title, blurb, tag chips). With the API available, `home.js` slots the same links into a canvas in a shadow root and draws them with a hover effect. Without it the cards are a plain grid.
 3. "Examples": cards with a 3:2 picture each, from `public/shared/thumbs/*.jpg` (720×480). The cross-context pages (remote, tear-off, time scrubber, picture-in-picture) lead this section.
 4. "Learn the API": a link to `/start/` and the table of which experiments use each API call (`LEARN.uses`).
 5. "The building block" and "Limits of the API".
@@ -191,7 +191,7 @@ Use exactly the names "How it works", "Live checks" and "Findings" (PR #38). Any
 - Focus outlines are `2px` or `3px solid var(--accent)` with a 1 or 2 px offset. Do not remove them.
 - Every test input and control has a name (PR #20 added names to the motion pages).
 - Tables that stack on a phone keep their reading order.
-- `/a11y/` runs the same audit over every page in `demos.js`. A new page is audited automatically.
+- `/a11y/` runs the same audit over every page that has a `page.json`. A new page is audited automatically.
 - Not verified by a person: screen reader output, IME candidate windows, the find bar. `/a11y/` section C is the list to try by hand.
 
 ## Writing rules
@@ -230,7 +230,7 @@ Some existing headings and blurbs predate these rules (for example the homepage 
 
 - [ ] `<script src="/shared/nav.js"></script>` is the first thing in `<body>`.
 - [ ] `<link rel="stylesheet" href="/shared/style.css">` and the viewport meta tag are in `<head>`.
-- [ ] One line in `shared/demos.js` and one entry in `shared/learn.js`.
+- [ ] A `page.json` beside the page. No edits to shared lists.
 - [ ] `<div id="support"></div>`, `h1`, `p.lede`, then the demo.
 - [ ] A closed `details.show-code` under the demo, with `#region` comments in the source.
 - [ ] Sections "How it works", "Live checks", "Findings".

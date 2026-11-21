@@ -9,14 +9,16 @@
 // experiment asks, the pages it builds on, the API calls it uses and a link to
 // the page's Findings. On a phone the box starts closed, as one line.
 //
-// To describe a new experiment, add ONE entry to LEARN.pages, keyed by the
-// same href as its line in /shared/demos.js:
+// What the box says comes from the page's own file, public/<name>/page.json:
 //
 //   question  the question the experiment asks, in one sentence (HTML allowed)
 //   result    the short answer, if there is one (optional; details go in the
 //             page's Findings section)
-//   first     hrefs of pages this one builds on (optional)
+//   first     paths of pages this one builds on (optional)
 //   api       the calls and attributes the page uses (optional)
+//
+// `npm run build` collects the page files into /shared/pages.js. This file
+// holds no per-page data, so adding a page does not change it.
 //
 // LEARN.uses lists, for each API call, experiments that use it. The tutorial
 // and the homepage show it as a reference. It is not a reading order.
@@ -30,78 +32,10 @@
       { call: 'drawElementImageToTexture()', what: 'Upload an element as a WebGPU texture.', pages: ['/slot-effects/', '/three-form/'] },
       { call: 'captureElementImage()', what: 'Take an <code>ElementImage</code> snapshot that can be transferred to a worker.', pages: ['/offscreen/', '/time-scrubber/'] },
     ],
-
-    pages: {
-      '/start/': { kind: 'tutorial' },
-
-      // --- slots ---
-      '/slot/': { question: 'Can a custom element with a canvas in its shadow root draw its light-DOM children and keep them clickable, focusable and typeable?', first: ['/start/', '/slot-bare/'], api: ['<slot>', 'attachShadow()', 'drawElementImage()', 'requestPaint()'] },
-      '/slot-bare/': { question: 'Does a <code>&lt;slot&gt;</code> inside a <code>&lt;canvas&gt;</code> project elements with no library?', result: 'It does when the canvas is in a shadow root. The page shows three ways to create one.', first: ['/start/'], api: ['<template shadowrootmode>', '<slot name>', 'paint', 'drawElementImage()'] },
-      '/slot-bare/plain.html': { question: 'What does a <code>&lt;slot&gt;</code> in a light-DOM canvas do with no shadow root?', result: 'It projects nothing. A script that moves the matching elements into the canvas makes the markup work.', first: ['/slot-bare/'], api: ['<slot name>', 'moveBefore()', 'MutationObserver'] },
-
-      // --- contexts ---
-      '/offscreen/': { question: 'Can a worker draw DOM elements while the main thread is blocked?', result: 'An <code>ElementImage</code> transfers to a worker. It draws only into its source canvas.', first: ['/start/', '/slot/'], api: ['captureElementImage()', 'ElementImage', 'transferControlToOffscreen()'] },
-      '/cross-tab/': { question: 'Can an element be shown and used in another tab?', result: 'The page sends <code>ImageBitmap</code> frames over a <code>MessagePort</code>. The other tab sends pointer and key events back, and they are dispatched on the element.', first: ['/offscreen/'], api: ['createImageBitmap()', 'MessagePort', 'SharedWorker'] },
-      '/cross-origin/': { question: 'What of a drawn element can be sent to another origin, and can a cross-origin frame draw this page\'s elements into a canvas transferred to it?', first: ['/offscreen/', '/cross-tab/'], api: ['postMessage()', 'transferControlToOffscreen()', 'ElementImage'] },
-      '/transports/': { question: 'Which transports can carry drawn DOM to another context? About fifty are tested, with the reason for each failure.', first: ['/offscreen/', '/cross-tab/'], api: ['ElementImage', 'ImageBitmap', 'VideoFrame', 'captureStream()'] },
-      '/tear-off/': { question: 'Can a widget move to a popup, an always-on-top window, another tab or another origin and keep working? Four methods are compared.', first: ['/cross-tab/'], api: ['window.open()', 'documentPictureInPicture', 'BroadcastChannel'] },
-      '/remote/': { question: 'Can one element be streamed to another device with <code>captureStream()</code> and WebRTC, and take taps and typing from it?', first: ['/cross-tab/'], api: ['captureStream()', 'RTCPeerConnection', 'WebSocket'] },
-      '/embed/': { question: 'Can a host page apply a shader to content from another origin without access to its DOM? Two methods are compared.', first: ['/cross-origin/', '/shader-css/'], api: ['ElementImage', 'transferControlToOffscreen()', 'WebGL'] },
-      '/support/': { question: 'Can a page share one element, instead of the screen, with another person or a vision model, with marked fields blacked out before the frame is sent?', first: ['/cross-tab/', '/remote/'], api: ['drawElementImage()', 'captureStream()', 'WebRTC'] },
-      '/slot-view/': { question: 'Can an element from another origin be laid out inline at its own size, with a permission prompt on the providing origin?', first: ['/cross-origin/', '/embed/'], api: ['postMessage()', 'ImageBitmap', 'shape-outside'] },
-      '/pip/': { question: 'Can any element be put in a picture-in-picture window, and does it accept input there? Three methods are compared.', first: ['/tear-off/'], api: ['documentPictureInPicture', 'captureStream()', 'moveBefore()'] },
-
-      // --- primitives ---
-      '/portal/': { question: 'Can one element be drawn in two places and take input in both?', result: 'An element has one hit-test region. The page moves it to the copy under the pointer.', first: ['/start/', '/slot/'], api: ['drawElementImage()', 'updateElementGeometry()'] },
-      '/lens/': { question: 'Can live DOM be magnified and distorted without blur while clicks and typing pass through the lens?', first: ['/start/', '/portal/'], api: ['drawElementImage()', 'texImage2D()', 'updateElementGeometry()'] },
-      '/shader-css/': { question: 'Can an HTML attribute draw an element through a fragment shader, with CSS custom properties as the uniforms?', first: ['/start/'], api: ['texElementSubImage2D()', 'updateElementGeometry()', '@property'] },
-      '/slot-effects/': { question: 'Can <code>&lt;canvas-slot&gt;</code> apply a shader to each slot without the page author writing a render loop?', first: ['/slot/', '/shader-css/'], api: ['texElementSubImage2D()', 'drawElementImageToTexture()', '@property'] },
-      '/physical/': { question: 'Can hit testing stay correct for a form drawn on a mesh that changes shape every frame?', first: ['/shader-css/', '/portal/'], api: ['texElementSubImage2D()', 'updateElementGeometry()'] },
-      '/component-kit/': { question: 'Do a scoped custom element registry, manual slot assignment, Reference Target, <code>using</code>, Observable and <code>moveBefore()</code> work in a custom element whose shadow root draws its children in a canvas, and how much code does each remove?', result: 'All six work in Chromium 157. Five remove code, most of it for labels and slots; <code>moveBefore()</code> adds lines and fixes what script could not: a wrapped iframe no longer reloads.', first: ['/slot/', '/portal/'], api: ['drawElementImage()', 'captureElementImage()', 'requestPaint()'] },
-      '/select/': { question: 'Can a canvas inside a customisable <code>&lt;select&gt;</code> draw the options while the select keeps the value, the keyboard and hit testing? And does the picker of a select inside a canvas draw into that canvas?', result: 'Options inside a canvas inside the select work, in 2D, WebGL and WebGPU. The picker of a select that is in a canvas stays in the top layer and is not drawn by that canvas.', first: ['/start/', '/portal/', '/three-form/'], api: ['appearance: base-select', 'drawElementImage()', 'texElementSubImage2D()', 'drawElementImageToTexture()', 'updateElementGeometry()'] },
-      '/datalist/': { question: 'The popup of <code>&lt;input list&gt;</code> cannot be styled. Can the <code>&lt;datalist&gt;</code> element itself be put in a canvas and its options drawn as the suggestions?', result: 'Yes, once the input\'s <code>list</code> attribute is removed and the keyboard handling is rewritten. An option in a datalist renders only text, so rich suggestions are not possible this way.', first: ['/start/', '/select/'], api: ['drawElementImage()', 'updateElementGeometry()', 'popover', 'CSS anchor positioning'] },
-      '/inputs/': { question: 'Date, time and colour inputs have pickers with no element to style. Can a canvas-drawn picker made of real buttons replace them on the same input, and what happens to the built-in controls when the input is drawn in a canvas?', result: 'The replacement pickers work with touch, mouse and keyboard. Built-in controls draw and work rotated. Their own pickers stay outside the canvas.', first: ['/start/', '/select/', '/datalist/'], api: ['drawElementImage()', 'updateElementGeometry()', 'popover', 'CSS anchor positioning'] },
-
-      // --- motion ---
-      '/transitions/': { question: 'Can two states both accept input while a shader blends between them, and which one does a click reach?', first: ['/shader-css/'], api: ['texElementSubImage2D()', 'updateElementGeometry()'] },
-      '/view-transitions/': { question: 'Does a canvas that draws HTML work with the View Transitions API, and can a shader replace the cross-fade?', result: 'A named canvas transitions as one live picture. A canvas child gets a group with no picture. Scoped transitions on the canvas or its children fail.', first: ['/transitions/'], api: ['document.startViewTransition()', 'view-transition-name', '@view-transition', 'drawElementImage()'] },
-      '/time-scrubber/': { question: 'Can a page keep past frames of an element and return to an earlier one, form values included?', first: ['/offscreen/'], api: ['ElementImage', 'changedElements', 'createImageBitmap()'] },
-      '/particles/': { question: 'Can each glyph of a paragraph be drawn separately while the paragraph stays selectable, searchable and editable?', first: ['/shader-css/'], api: ['Range.getClientRects()', 'texElementSubImage2D()', 'WebGL instancing'] },
-      '/selection/': { question: 'When text inside a canvas is selected, what does the browser draw, and can the canvas draw its own highlight from the rectangles of the selected text?', first: ['/particles/', '/shader-css/'], api: ['Range.getClientRects()', '::selection', 'CSS.highlights', 'updateElementGeometry()', 'texElementSubImage2D()'] },
-      '/caret/': { question: 'Is the CSS caret drawn into an element\'s picture, and can a canvas add effects to the caret and to Custom Highlight ranges in an editable element?', first: ['/selection/'], api: ['caret-shape', 'caret-animation', 'CSS.highlights.highlightsFromPoint()', 'Range.getClientRects()'] },
-      '/stream/': { question: 'When markup is streamed into an element in a canvas, does the canvas get a paint event for each chunk, and can it draw the newest blocks differently from the rest?', result: 'In Chromium 157 each chunk raises one paint event with no call to requestPaint(). A MutationObserver gives the new blocks, and one shader pass draws them through an effect while the text stays selectable.', first: ['/shader-css/'], api: ['streamAppendHTML()', 'paint event', 'texElementSubImage2D()', 'updateElementGeometry()'] },
-
-      // --- media ---
-      '/video/': { question: 'Does a playing <code>&lt;video&gt;</code> with native controls and captions draw into a canvas, frame by frame, and do its controls still work under a shader?', result: 'Frames, controls and <code>::cue</code> captions are drawn, and <code>paint</code> fires for each video frame. Cross-origin video without CORS and encrypted video are left out.', first: ['/start/', '/shader-css/'], api: ['<video controls>', '<track>', 'requestVideoFrameCallback()', 'texElementSubImage2D()', 'MediaKeys'] },
-      '/overlay/': { question: 'Can HTML drawn over a video in one canvas be recorded with the video\'s sound, exported with exact frames, and sent as a camera?', result: 'All three work. The export seeks the video and steps CSS animations one frame at a time.', first: ['/video/', '/capture/', '/remote/'], api: ['drawElementImage()', 'captureStream()', 'MediaRecorder', 'VideoEncoder', 'AudioEncoder', 'RTCPeerConnection'] },
-      '/audio/': { question: 'Can sound analysis drive the shader that draws live DOM, with CSS custom properties as the only link?', first: ['/shader-css/', '/video/'], api: ['AnalyserNode', 'OfflineAudioContext', '<audio controls>', '@property'] },
-      '/player-parts/': { question: 'The native media controls are a shadow tree a page cannot open. Can a canvas restyle their parts, react to the player\'s state, or draw the controls apart from the picture?', result: 'Pseudo-element rules are drawn. State pseudo-classes drive a shader through <code>:has()</code> where the browser has them. A video reduced to its controls can be drawn anywhere. No single part can be reached from script.', first: ['/video/', '/shader-css/'], api: ['::-webkit-media-controls-panel', ':paused', ':has()', 'drawImage()', 'drawElementImage()'] },
-      '/player-fx/': { question: 'Can one shader work on the native controls and the video frame as separate inputs, and can an effect start at one control when no script can reach it?', result: 'Yes. The controls and the frame are two textures from one element. Each named part is found by giving it a flat colour for one paint and reading the picture back.', first: ['/player-parts/', '/video/'], api: ['texElementSubImage2D()', 'texImage2D(video)', '::-webkit-media-controls-play-button', 'getElementImageDefaultSize()'] },
-
-      // --- 3d ---
-      '/three-form/': { question: 'Can an HTML form be a three.js texture and keep typing, Tab and text selection on a 3D surface?', first: ['/shader-css/', '/portal/'], api: ['texElementSubImage2D()', 'drawElementImageToTexture()', 'updateElementGeometry()'] },
-      '/board/': { question: 'Can a zoomable board of live documents be built with 2D <code>drawElementImage()</code> only, with text rasterised again at each zoom level?', first: ['/start/'], api: ['drawElementImage()', 'updateElementGeometry()', '<iframe>'] },
-      '/xr/': { question: 'Can HTML panels be used in WebXR, where there is no mouse? Controller rays are converted to pointer events on the elements.', first: ['/three-form/'], api: ['WebXR', 'texElementSubImage2D()', 'PointerEvent'] },
-      '/native-ui/': { question: 'Can a native UI toolkit compiled to WebAssembly (egui, Qt Quick) use real DOM inputs as widgets inside its own WebGL canvas?', result: 'Yes for both, with a bridge of about 200 lines and no change to the toolkit. Tab order and occlusion are left to the bridge.', first: ['/three-form/'], api: ['texElementSubImage2D()', 'updateElementGeometry()', 'WebAssembly'] },
-      '/xr-room/': { question: 'Can HTML panels use what a WebXR session knows about the room: fingertips, detected walls and tables, anchors, depth and compositor layers?', result: 'In a simulated room and a headset emulator, fingertip presses, plane snapping and anchors work. Detected planes, depth and quad layers are unverified until the page runs on a device.', first: ['/xr/'], api: ['WebXR hand input', 'XRPlane', 'XRAnchor', 'XRQuadLayer', 'texElementSubImage2D()'] },
-
-      // --- input ---
-      '/translate-lens/': { question: 'Can a canvas draw a translated, simplified or summarised copy of an element inside a lens, lined up with the original, and which on-device language APIs can fill the copy?', result: 'A second drawable child holds the copy. Drawing it once per block, clipped and moved to the original block, keeps the two lined up. The APIs were not usable in the test browser; recorded text stands in.', first: ['/lens/', '/board/'], api: ['drawElementImage()', 'Translator', 'LanguageDetector', 'Summarizer', 'Rewriter'] },
-      '/agent-view/': { question: 'Can a canvas show what an agent is doing to a live form (which field, which value), and can WebMCP tools and the Prompt API drive it?', result: 'A tool call sets four CSS custom properties and the input\'s value; a shader draws the marker and the lean from them. WebMCP and the Prompt API were missing or without a model in the test browser, so those paths are not verified.', first: ['/shader-css/', '/three-form/', '/support/'], api: ['navigator.modelContext', 'LanguageModel', 'ariaNotify()', 'texElementSubImage2D()', 'updateElementGeometry()'] },
-      '/voice/': { question: 'Can speech recognition press controls that a shader draws, using only the accessible names in the DOM, and does a word-by-word transcript highlight reach the canvas?', result: 'Names read from the DOM drive the matching and the phrase list, and custom highlights are in the element\'s picture. Recognition itself could not be run in the test browser.', first: ['/shader-css/', '/audio/', '/caret/'], api: ['SpeechRecognition', 'SpeechRecognitionPhrase', 'CSS.highlights', 'texElementSubImage2D()'] },
-      '/nav-shader/': { question: 'Can the Navigation API drive a canvas transition between two live views: load the new view before the URL changes, and start the shader from the element that was clicked?', first: ['/transitions/', '/view-transitions/'], api: ['navigation', 'precommitHandler', 'NavigateEvent.sourceElement', 'texElementSubImage2D()', 'drawElementImageToTexture()'] },
-      '/focus-nav/': { question: 'Can arrow keys, a game controller and an on-screen pad move real DOM focus through buttons that a shader draws, and can the shader show where focus is?', first: ['/shader-css/', '/a11y/'], api: ['focusgroup', 'focus({ focusVisible })', 'navigator.getGamepads()', 'rawgamepadinputchange', 'navigator.vibrate()', 'updateElementGeometry()'] },
-
-      // --- audit ---
-      '/a11y/': { question: 'Which accessibility features work for DOM drawn in a canvas, and which techniques on this site break them?', first: ['/start/'], api: ['accessibility tree', 'focus', 'forced-colors'] },
-      '/capture/': { question: 'Can any element be exported as a PNG, a video or a printed page by wrapping it in a canvas for one frame?', first: ['/start/'], api: ['drawElementImage()', 'moveBefore()', 'VideoEncoder'] },
-      '/perf/': { question: 'How many elements can a canvas draw per frame on your device, compared with plain DOM and with a worker?', first: ['/start/', '/offscreen/'], api: ['requestPaint()', 'captureElementImage()'] },
-      '/chrome-apis/': { question: 'Which features from Chrome 130 to 160 can be combined with a canvas that draws live DOM, and which demos should be built from them?', result: '359 of 678 features have an idea, 44 are measured, and 28 demos are planned.', first: ['/chrome-apis/probes.html'] },
-      '/chrome-apis/probes.html': { question: 'Do recent CSS and DOM features take effect on an element that a canvas draws?', result: 'Shapes, carets, highlights, scroll markers and scroll-driven animations do. Popovers are not in the picture, links are drawn as unvisited, and permission elements report that they are distorted.', first: ['/start/'], api: ['drawElementImage()', 'requestPaint()', 'getImageData()'] },
-      '/elements/': { question: 'What does each HTML element do inside a drawable canvas: is it drawn, can it be hit, does it take input?', result: 'Every element with a box draws and hit tests. Top-layer content (modal dialogs, popovers, the base-select picker) stays outside the canvas, other origins are blank, and the picture is clipped to the element\'s box.', first: ['/start/', '/a11y/'], api: ['drawElementImage()', 'paint', 'elementsFromPoint()'] },
-      '/element-ideas/': { question: 'Can the ideas in the element catalogue be built with the real elements: a wheel of options, rotated range inputs, a dialog in the canvas, table cells as bars?', result: 'All 17 work. Options, list items and table cells can each be drawn on their own. A range input turned a quarter turn needs help with touch drags.', first: ['/start/', '/elements/'], api: ['drawElementImage()', 'updateElementGeometry()', 'paint', 'inert'] },
-    },
   };
+  // What each page says about itself, from the page.json files (window.PAGES is
+  // in /shared/pages.js, which `npm run build` writes).
+  Object.defineProperty(LEARN, 'pages', { get: function () { return window.PAGES || {}; } });
   window.LEARN = LEARN;
 
   // ---------------------------------------------------------------- the box
