@@ -6,6 +6,17 @@ Live: https://html-in-canvas-demos.kinlan-test.workers.dev (second origin for th
 
 Needs Chrome 148+ (desktop or Android) with `chrome://flags/#canvas-draw-element` set to Enabled, or the `html-in-canvas` origin trial. Without it the site is plain HTML. The demos are tested in Chromium 157 and in Chrome 159 on Android.
 
+## Project documents
+
+| File | What it holds |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Start here if you are a coding agent or a new contributor: which file to read for what, and the rules for every change. |
+| [PLAN.md](PLAN.md) | Goals, strands of work and their status, every open idea and planned demo, and what still needs real hardware. |
+| [FINDINGS.md](FINDINGS.md) | Every measured result, indexed by API area with the browser and page for each, Chromium bugs worth filing and API requests. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Repository layout, the Worker and its routes, shared modules, the check harness, scripts, local testing, deploy and previews, how to add a page. |
+| [DESIGN.md](DESIGN.md) | The visual style as built (colours, type, spacing, components), section order, phone rules and writing rules. |
+| [KNOWN-LINKS-AND-RESOURCES.md](KNOWN-LINKS-AND-RESOURCES.md) | The explainer, Chrome documentation, every external source cited here, and the live and preview URLs. |
+
 ## Learn the API
 
 [`/start/`](https://html-in-canvas-demos.kinlan-test.workers.dev/start/) is a tutorial: how to enable the API, a 60-line page that draws one element ([`public/start/hello.html`](public/start/hello.html)), common errors with their fixes, and a glossary.
@@ -56,11 +67,14 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/a11y/` | Accessibility audit: API probes, a pattern-by-pattern table (tree, focus order, find, selection, zoom), the same audit run over every demo, and a by-hand checklist |
 | `/capture/` | Any element or a whole page to PNG (up to print quality), video (MediaRecorder or frame-exact WebCodecs) or print with one call |
 | `/perf/` | Performance wall: how many live elements before frames drop; DOM vs 2D canvas vs worker |
+| `/elements/` | Every HTML element, input type and a few attributes inside a drawable canvas: drawn or not, hit testing, real clicks and keys, and one idea per element. `ELEMENTS.md` is the same table as Markdown; `npm run record:elements` re-records it |
+| `/element-ideas/` | 17 ideas from the element catalogue built with the real elements: picker wheel, mixing desk, step sequencer, CRT textarea, in-canvas dialog, anchored popovers, inert, find and camera, MathML, video, image map, cover flow, radial menu, table bar chart, ins and del, editable style, marquee ticker. `npm run check:ideas` drives each with real input |
 | `/transitions/` | `<live-transition>`: shatter, fold, burn, morph or your own fragment shader between two states that both stay live and clickable |
 | `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
 | `/selection/` | `<selection-fx>`: the canvas draws the highlight of selected text (2D and shader effects), plus measurements of what the browser paints for a selection in a canvas |
+| `/caret/` | An editable block in a canvas: CSS caret shape and animation in the picture, a caret streak and wavy typo lines drawn by the canvas, `highlightsFromPoint()` |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
 | `/transports-2/` | Newer transport APIs for a drawn element: WebRTC sender settings, a data channel in a worker, shared memory under Document-Isolation-Policy, WebTransport, Element Capture, and a tab freeze test |
 | `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
@@ -77,6 +91,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
 | `/player-fx/` | One WebGL shader over the native controls and the video frame as two textures from one `<video>`: the play button grows into a lens, the controls refract, melt into and light the picture. Finds the box of each control without script access |
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
+| `/component-kit/` | One drawable custom element written with a scoped registry, manual slot assignment, Reference Target, `using`, Observable and `moveBefore()`, and again without them, with the lines each feature removes |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
