@@ -84,7 +84,10 @@ fn box(p: vec2f, r: vec4f) -> f32 {
       let d = (uv - centre) * aspect() / reach;
       let src = home + d * small * 0.3 / aspect();
       let inside = step(max(abs(d.x), abs(d.y)), 1.0);
-      let g = smoothstep(0.35, 0.6, C(src).a) * inside * smoothstep(0.02, 0.2, k);
+      // The glyph is white. A hovered or focused button also has a dark disc and a focus ring behind the glyph,
+      // which have alpha too, so the shape is taken from brightness and not from alpha.
+      let ink = C(src);
+      let g = smoothstep(0.45, 0.7, min(ink.r, min(ink.g, ink.b))) * inside * smoothstep(0.02, 0.2, k);
       let dist = length((uv - centre) * aspect());
       let ring = sin(dist * 40.0 - u.pulse * 14.0) * exp(-dist * 3.0) * max(0.0, 1.0 - u.pulse / 1.2);
       col = F(uv + normalize(uv - centre + vec2f(1e-5)) * ring * 0.02) * (1.0 - 0.45 * k);
@@ -144,7 +147,7 @@ export function createGpuPlayer(canvas, gpu, { present = true, onParts = () => {
   const data = new Float32Array(28);
   for (let i = 0; i < 4; i++) data[12 + i * 4] = 1; // x1 < x0: not found
 
-  const state = { effect: 1, parts: {}, toggledAt: -1e9, probing: false, probeWanted: true, frame: null, bitmapBusy: false, route: '', paints: 0, placed: '' };
+  const state = { effect: 1, parts: {}, toggledAt: -1e9, probing: false, probeWanted: true, frame: null, bitmapBusy: false, route: '', paints: 0, placed: '', retries: 0 };
 
   // #region gpu-upload
   function frameView() {
@@ -190,6 +193,8 @@ export function createGpuPlayer(canvas, gpu, { present = true, onParts = () => {
       data.set(r, 12 + i * 4);
     });
     onParts(state.parts);
+    // The controls were not painted yet: look again, three times at most.
+    if (!state.parts.play && state.retries < 3) { state.retries++; setTimeout(() => (state.probeWanted = true), 600); }
   }
   // #endregion gpu-measure
 
@@ -251,10 +256,12 @@ export function createGpuPlayer(canvas, gpu, { present = true, onParts = () => {
     canvas.requestPaint();
     raf = requestAnimationFrame(tick);
   };
-  const toggled = () => { state.toggledAt = performance.now(); setTimeout(() => (state.probeWanted = true), 350); };
+  const toggled = () => { state.toggledAt = performance.now(); };
   video.addEventListener('play', toggled);
   video.addEventListener('pause', toggled);
-  for (const type of ['loadeddata', 'pointerdown', 'pointerenter']) video.addEventListener(type, () => setTimeout(() => (state.probeWanted = true), 350));
+  // The parts are measured once for each size of the canvas, and again after the video loads. Each measurement
+  // is a readback, so it is not repeated when the pointer moves or the video plays.
+  video.addEventListener('loadeddata', () => setTimeout(() => (state.probeWanted = true), 350));
 
   return {
     video, layer, state, surface,

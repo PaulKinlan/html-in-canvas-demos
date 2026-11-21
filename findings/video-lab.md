@@ -60,6 +60,9 @@ The test clips are `video-lab/wide.webm` (VP9 profile 0, tagged BT.2020 primarie
 
 ## Things that bit
 
+- Reported from Chrome on a Mac on 2026-11-21 (WebGPU on screen, `bgra8unorm`, frame through `copyExternalImageToTexture(video)`): the meld lens became a square while the tab had focus. A hovered or focused play button has a dark disc and a focus ring behind its glyph, and the shader took the glyph's shape from alpha. It now takes it from brightness: the glyph is white. A live check gives the button a dark background and compares the lens (41 % of it changed before, 6 % after). `/player-fx/` has the same alpha test in its GLSL and is not changed here.
+- The same report showed the guard's `timed-readback` warning: the parts were measured again on every `pointerenter`, `pointerdown`, play and pause, each a `mapAsync()`. They are now measured once per canvas size and once after the video loads.
+
 - A check that compared the canvas just before and just after a transition failed when the two times fell in different video frames. The fixture's clip starts half a frame into its file, so no seek lands on a frame boundary.
 - `swirl` and `pixelate` are continuous at the ends of a transition but change fast there: 0.7 % before the end, `swirl` still turns the picture by 0.15 radians. The check reads half a millisecond from each end.
 - A title card at `--t` 0 has no visible text, so a tap finds nothing to edit. The editor starts stopped at 1.0 s.
@@ -70,7 +73,7 @@ The test clips are `video-lab/wide.webm` (VP9 profile 0, tagged BT.2020 primarie
 
 ## Not verified
 
-- WebGPU on screen: the pass presenting to the canvas, `copyExternalImageToTexture(video)` on a hardware adapter, and the speed. To verify, open `/video-lab/` on the phone, scroll to "The player shader in WebGPU" and read the line under the canvas, then run the live checks and read the last row.
+- WebGPU on screen on the phone, and the speed. Reported working on Chrome on a Mac on 2026-11-21: the pass presents to the canvas and `copyExternalImageToTexture(video)` gives the frame. To verify on the phone, open `/video-lab/`, scroll to "The player shader in WebGPU" and read the line under the canvas, then run the live checks and read the last row.
 - A wide-gamut screen: that the Display P3 canvas looks more saturated than the sRGB one. The caption under the right canvas says what gamut the screen reports.
 - An HDR screen: whether the PQ clip keeps values above 1.0 in the float16 canvas there. The ninth live check reports the value.
 - The sound through speakers or headphones, and whether `AudioContext` starts from a tap on the play button drawn on the screen on Android.

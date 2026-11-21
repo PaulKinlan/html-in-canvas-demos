@@ -96,6 +96,8 @@
   .probe video::-webkit-media-controls-mute-button { background: rgb(0 255 0) !important; }
   .probe video::-webkit-media-controls-fullscreen-button { background: rgb(255 0 0) !important; }
   /* #endregion gpu-css */
+  /* Only for a live check: the dark disc Chrome draws behind a hovered or focused button. */
+  .as-hovered video::-webkit-media-controls-play-button { background-color: rgb(32 33 36 / .85) !important; }
 </style>
 </head>
 <body>
@@ -722,7 +724,18 @@
             const d = differing(A, pic(img));
             if (d < 0.01) throw new Error(`${GPU_EFFECTS[effect]}: the picture is the same as with no effect.`);
             out.push(`${GPU_EFFECTS[effect]} ${(d * 100).toFixed(0)} %`);
-            if (effect === 1) window.__videoLab = { gpuRead: img };
+            if (effect === 1) {
+              window.__videoLab = { gpuRead: img };
+              // A hovered or focused play button has a dark disc behind its glyph. The lens must keep the glyph's shape.
+              player.layer.classList.add('as-hovered');
+              await player.read();
+              await sleep(150);
+              const hovered = await player.read();
+              player.layer.classList.remove('as-hovered');
+              const h = differing(pic(img), pic(hovered), 0.2, 0.05, 0.8, 0.7);
+              if (h > 0.12) throw new Error(`meld: with a background behind the play glyph, ${(h * 100).toFixed(0)} % of the lens changes. It should keep the glyph's shape.`);
+              out.push(`meld with a button background ${(h * 100).toFixed(1)} %`);
+            }
           }
           return `${gpu.software ? 'Software adapter' : 'Hardware adapter'}, ${gpu.format}. Frame 60 through ${player.state.route}. Parts: ${Object.keys(player.state.parts).join(', ')}. Share of the picture each effect changes: ${out.join(', ')}.`;
         } finally { player.destroy(); }
