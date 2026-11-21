@@ -198,27 +198,15 @@
 <script type="module">
   // #region start
   import '/scroll-fx/effects.js';
-  import { webgpu } from '/shared/backend.js';
+  import { loadFx, sameOnWebGPU } from '/shared/fx-route.js';
   import { banner, runTests, supported, testStage } from '/shared/support.js';
-  import { routeSwitch } from '/shared/route-switch.js';
   banner();
 
   const $ = (id) => document.getElementById(id);
-  const blocks = [...document.querySelectorAll('#article [fx]')];
-
-  // One graphics context for the page: the shared WebGPU device when it works,
-  // else one WebGL context that every block is drawn through in turn.
-  const asked = new URLSearchParams(location.search).get('route');
-  const route = (choice) => {
-    for (const el of blocks) {
-      if (choice === 'webgpu') el.setAttribute('fx-backend', 'webgpu');
-      else if (choice === 'webgl' || !gpu) el.setAttribute('fx-backend', 'shared');
-      else el.removeAttribute('fx-backend');
-    }
-  };
-  const gpu = asked === 'webgl' ? null : await webgpu();
-  route(asked);
-  await import('/lib/shader-fx.js');
+  // Loads the fx library, which moves each [fx] block into a canvas. The page
+  // uses one graphics context: the shared WebGPU device when it works, else
+  // one WebGL context that every block is drawn through in turn.
+  await loadFx({ targets: () => document.querySelectorAll('#article [fx]'), mount: $('route') });
   // #endregion start
 
   for (const button of document.querySelectorAll('#article button[data-count]')) {
@@ -234,14 +222,6 @@
   ];
   $('status').textContent = (supported ? '' : 'HTML-in-canvas is not available, so the blocks are plain HTML. The percentages still follow the scroll. ') +
     features.map(([name, ok]) => `${name}: ${ok ? 'yes' : 'no'}`).join(' · ');
-
-  const surfaceOf = (el) => el.closest('fx-surface');
-  routeSwitch($('route'), {
-    targets: () => blocks,
-    active: (el) => surfaceOf(el)?.backend,
-    note: (el) => surfaceOf(el)?.gpuNote,
-    apply: route,
-  });
 
   // ---- live checks: every one on its own fixture ----
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -352,6 +332,7 @@
         return `0 before, ${mid.toFixed(2)} 150 ms after the scroll stopped, 1 at the end, ${reset} after scrolling back`;
       },
     },
+    sameOnWebGPU(['burn-in', 'mosaic-in', 'rows-in', 'roll-in', 'shock-in', 'melt'], { vars: '--fx-progress:0.5;--fx-amount:0.6' }),
   ]);
 </script>
 </body>

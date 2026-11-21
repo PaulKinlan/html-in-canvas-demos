@@ -75,6 +75,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/audio/` | Web Audio band levels as CSS custom properties that drive a shader over a working `<audio>` card |
 | `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
+| `/shape-ui/` | Buttons outlined with `corner-shape`, `border-shape` and `clip-path: shape()`, lit by a shader that reads alpha as height. The light follows the pointer or the phone's tilt (`lib/tilt-light.js`) |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
@@ -98,6 +99,8 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/effects.js`: the effect registry shared by `fx` and `<canvas-slot effect>`. `defineEffect(name, { glsl, wgsl, animated, bleed, geometry })`, or two `<script data-effect="name">` elements (one `type="text/glsl"`, one `type="text/wgsl"`) with no script call; CSS properties `--fx-progress`, `--fx-amount`, `--fx-x`, `--fx-y`.
 - `public/lib/slot-effects.js`: the shader renderer `<canvas-slot effect>` loads on demand. WebGPU when usable, else WebGL; `backend="webgpu|gl|webgl|shared"` names a route.
 - `public/lib/physical-ui.js`: `<physical-ui material="jelly|cloth|paper" wind pin>`. `backend="webgpu|webgl"` names a route; without it WebGPU is used when usable.
+- `public/lib/tilt-light.js`: `tiltLight(el)` writes a direction to `--fx-x` and `--fx-y` on an element, from the pointer, from `deviceorientation` after `light.useSensor()` is called in a tap, or from a slow circle when idle.
+- `public/shared/fx-route.js`: `loadFx({ targets, mount })` loads the fx library with one graphics context for the page: the shared WebGPU device, else one shared WebGL context.
 - `public/lib/surface.js`: the shared base that slots any markup into a canvas; `SurfaceElement.adopt(el)` wraps an element in place.
 
 - `public/lib/live-surface.js`: `<live-region>` and `attachSurface(el)` turn any element into a shareable surface (frames, redaction, element map, replayed input). `serve(surface, link)` speaks the protocol.
