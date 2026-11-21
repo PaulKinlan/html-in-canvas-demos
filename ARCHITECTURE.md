@@ -58,7 +58,7 @@ The site needs Chrome 148 or later with `chrome://flags/#canvas-draw-element` en
 ├── docs/
 │   └── native-frameworks.md   Survey of ten native UI frameworks
 └── tools/
-    ├── site/             npm run build, pages, tools, check:merge. groups.json holds the menu groups
+    ├── site/             npm run build, pages, tools, check:merge. groups/ holds one file per menu group
     ├── jank/             npm run check:jank
     ├── chrome-apis/      The plan of platform features: features.json, ideas.json, demos.json, build.mjs, site-build.mjs
     ├── bundle/fx.mjs     npm run build:fx
@@ -67,7 +67,7 @@ The site needs Chrome 148 or later with `chrome://flags/#canvas-draw-element` en
 
 ### Pages
 
-`npm run pages` prints the pages by menu group. The list is not written down anywhere: each page has a `page.json` in its folder, and the build collects them. The groups and their order are in `tools/site/groups.json`.
+`npm run pages` prints the pages by menu group. The list is not written down anywhere: each page has a `page.json` in its folder, and the build collects them. The groups and their order are in `tools/site/groups/`, one file per group (`{ "order", "title" }`).
 
 Several folders hold extra files that are not in the menu: stand-alone examples (`/slot/hello.html`, `mount.html`, `outside.html`, `reslot.html`, `wrapper.html`, `/slot-bare/attach-shadow.html`, `body.html`, `declarative.html`, `/start/hello.html`, `/shader-css/standalone.html`), second-context pages (`/cross-tab/viewer.html`, `/cross-origin/frame.html`, `/remote/view.html`, `/tear-off/window.html`, `dock.html`, `bridge.html`, `/embed/card.html`, `lend.html`, `/slot-view/provider.html`, `/support/agent.html`), fixtures and reproductions (`/transports/crash-adopt.html`, `/view-transitions/crash.html`, `/capture/fixture.html`, `/a11y/pattern.html`), and workers (`/offscreen/renderer.js`, `/perf/worker.js`, `/transports/worker.js`, `/a11y/pattern-worker.js`).
 
@@ -262,7 +262,7 @@ Rules for a check (the reasons are in FINDINGS.md, "Pages that hold still"):
 
 | Command | Tool | What it does |
 |---|---|---|
-| `npm run build` | `tools/site/build.mjs`, `pages.mjs`, `groups.json` | Reads every `page.json` under `public/`, validates it, and writes `public/shared/pages.js`. It then runs `build()` from every `tools/<name>/site-build.mjs`, which is where another generator of uncommitted output hooks in. No dependencies. It is also the `postinstall` script, so `npm install` or `bun install` runs it, which is how Workers Builds runs it before every deploy and preview. |
+| `npm run build` | `tools/site/build.mjs`, `pages.mjs`, `groups/` | Reads every `page.json` under `public/`, validates it, and writes `public/shared/pages.js`. It then runs `build()` from every `tools/<name>/site-build.mjs`, which is where another generator of uncommitted output hooks in. No dependencies. It is also the `postinstall` script, so `npm install` or `bun install` runs it, which is how Workers Builds runs it before every deploy and preview. |
 | `npm run check:pages` | same, `--check` | Validates the page files and writes nothing. Fails on an unknown field, an unknown group, a page file with no HTML file, a `first` that names a page with no file, and on `public/shared/demos.js` or `tools/jank/allow.json` coming back through a merge. |
 | `npm run pages` | same, `--list` | Prints the pages by group. |
 | `npm run tools` | `tools/site/tools.mjs` | Lists the scripts under `tools/` with the first line of each header comment. New tools are run as `node tools/<name>/<script>.mjs` and get no line in `package.json`. |
@@ -350,6 +350,8 @@ The causes, by kind:
 
 `.gitattributes` with `merge=union` is not a fix. GitHub's merge button does not run custom merge drivers, so the pull request page would still show a conflict.
 
+After the conversion on 2026-11-21 the eight open pull requests were merged with `main` and converted. 5 of their 28 pairs still conflicted, each in one file: `PLAN.md` (2), `README.md` (1), `package.json` (1), which those branches had already edited, and the list of menu groups (1), which is one file per group since then.
+
 ### The arrangement
 
 Three rules follow from the causes.
@@ -365,6 +367,7 @@ Three rules follow from the causes.
 | A section in `FINDINGS.md` and a line in its Contents | A file in `findings/`, named after the page |
 | A row in the table of pages in `README.md` and in this file | Nothing. `npm run pages` prints the list |
 | A script in `package.json` | `node tools/<name>/<script>.mjs`, described in the script's header comment. `npm run tools` prints the list |
+| A line in `DEMO_GROUPS` in `demos.js` | A file in `tools/site/groups/`, one per menu group |
 | `"built": "/page/"` in `tools/chrome-apis/demos.json`, then a regenerated `public/chrome-apis/data.js` and `docs/chrome-apis-plan.md` | `"plan": "<demo key>"` in the page's `page.json`. The two outputs are build products (`public/chrome-apis/plan.md` replaces the document in `docs/`) |
 
 The order of pages inside a menu group comes from the `order` number in the page files that were converted on 2026-11-21. A new page leaves `order` out and sets `added` to the date. It is placed after the numbered pages, by date and then by path, so no page file has to be renumbered.
@@ -379,7 +382,7 @@ The order of pages inside a menu group comes from the `order` number in the page
 |---|---|
 | The index, bug list and API requests in `FINDINGS.md` | One writer at a time (rule 3). They lag behind `findings/` until a documentation pass runs. |
 | The library table in this file and the library list in `README.md` | One writer at a time. Each library documents itself in the comment at the top of its file, which is the source. |
-| `LEARN.uses` in `learn.js`, `tools/site/groups.json` | Short lists that rarely change. A change goes in its own pull request. |
+| `LEARN.uses` in `learn.js` | A short list that rarely changes. A change goes in its own pull request. |
 | `public/index.html` "Examples" cards and `public/shared/thumbs/` | The cards are written in the homepage HTML. Adding one is a homepage change in its own pull request. |
 | `ELEMENTS.md`, `public/lib/fx.js`, `public/native-ui/egui/`, `public/native-ui/qt/` | Committed generated files with one owner each (the thread that runs the generator). They have not conflicted. `fx.js` stays committed because other sites load it from a fresh deploy and `check:fx` guards it. |
 
@@ -432,5 +435,5 @@ The order of pages inside a menu group comes from the `order` number in the page
 | A transport route | One row in the route table of `public/transports/index.html`. |
 | A server route | A module in `src/` and one line in `src/index.js`. |
 | A page that the board shows as a tile | Nothing: the board loads demo pages with `?autochecks=0`. |
-| A menu group | One line in `tools/site/groups.json`, in its own pull request. |
+| A menu group | A file `tools/site/groups/<key>.json` with `{ "order": 70, "title": "Experiments: …" }`. The menu sorts groups by `order`, then by key. Leave gaps between numbers. |
 | A generator of files that should not be committed | `tools/<name>/site-build.mjs` that exports `async build({ pages, menu, groups })`, and the output paths in `.gitignore`. `npm run build` runs it. |
