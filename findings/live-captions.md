@@ -17,6 +17,8 @@ Chromium 157 headless (C157), 2026-11-21. The test browser has no speech recogni
 
 ## Things that bit
 
+- Reported from the phone (2026-11-21): the Play button did nothing. The caption element is drawn twice with a clip, and its hit-test box is its whole box at the last draw, which reached over the control bar. Taps on Play went to the caption paragraph. The bar is now drawn after the captions, and a live check asks `elementFromPoint()` at the button. The other four pages' Play buttons were tapped with touch input in the test browser and worked.
+
 - A new caption that replaced the last one word by word marked every word as revised. A new utterance now clears the words first.
 - `SpeechRecognition.prototype.start.length` is 0 in C157 although `start(track)` is accepted, so the page cannot test for the argument. It looks for `processLocally`, which shipped with it. That is an inference.
 - `SpeechRecognition.available()` crashed the tab in headless C157 on `/voice/`, so this page never calls it.

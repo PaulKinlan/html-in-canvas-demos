@@ -136,9 +136,10 @@
   <p class="note">From Chromium 157 headless, 2026-11-21. The rows above and the two status blocks under the player say what your browser does.</p>
   <ul class="findings">
     <li><strong>Works: captions as elements in the picture.</strong> Words fed in as interim and final results are drawn over the frame, and the translation under it. Both are in a <code>MediaRecorder</code> file of the canvas.</li>
+    <li><strong>Found: an element drawn twice has one hit-test box, at its last draw.</strong> The caption element's box under the bar reached up over the Play button, and taps on the button went to the caption (reported from a phone, 2026-11-21). The bar is now drawn after the captions, because the element drawn last is on top for taps.</li>
     <li><strong>Works: only revised words change.</strong> When an interim result differs from the last one, the words that stayed the same keep their elements, so only new and revised words animate.</li>
     <li><strong>Works: WebVTT from results.</strong> The file made from the final results loads back into a <code>&lt;track&gt;</code> with the same number of cues.</li>
-    <li><strong>Not run here: recognition.</strong> Headless Chromium 157 has <code>SpeechRecognition</code> with <code>processLocally</code>, <code>phrases</code>, <code>available()</code> and <code>install()</code>, but no recognition service. The seventh check records what <code>start(track)</code> did.</li>
+    <li><strong>Not run here: recognition.</strong> Headless Chromium 157 has <code>SpeechRecognition</code> with <code>processLocally</code>, <code>phrases</code>, <code>available()</code> and <code>install()</code>, but no recognition service. The eighth check records what <code>start(track)</code> did.</li>
     <li><strong>Not run here: translation.</strong> <code>Translator.availability()</code> did not settle in headless Chromium 157 and no model can be downloaded in the test container. The page falls back to the recorded translations there.</li>
     <li><strong>Not verified:</strong> whether Chrome 159 on Android accepts <code>start(track)</code> with a track from <code>video.captureStream()</code>, whether it needs <code>processLocally</code> for that, how late interim results are against the sound, and the speed of <code>Translator</code> on a phone. The line under the player shows the time of the last translation.</li>
     <li><strong>The recorded Spanish, French, German and Japanese were written by a language model</strong> for this page and have not been checked by a speaker.</li>
@@ -148,7 +149,7 @@
 <script type="module">
   import { captionBox, listen, replayCues, translatorFor, translatorState, latestOnly, toVtt, Recognition } from '/live-captions/captions.js';
   import { recordCanvas } from '/lib/video-export.js';
-  import { fit, blobUrl, quietStage, sleep, until, release } from '/lib/timed-stage.js';
+  import { fit, blobUrl, quietStage, hitAt, sleep, until, release } from '/lib/timed-stage.js';
   import { banner, runTests, supported, nextPaint } from '/shared/support.js';
   banner();
 
@@ -170,7 +171,6 @@
       ctx.reset();
       ctx.scale(k, k);
       ctx.drawElementImage(video, 0, 0, W, vh);
-      if (controls) ctx.drawElementImage(controls, 0, vh, W, bar);
       // The first line, over the bottom of the frame. Skipped while it has no words.
       if (heard.childElementCount) {
         ctx.save();
@@ -187,6 +187,9 @@
       ctx.clip();
       ctx.drawElementImage(caps, 0, vh + bar - split, cw, ch);
       ctx.restore();
+      // The control bar is drawn last. The caption element's hit-test box is its whole box at the place
+      // of its last draw, which reaches up over the bar, and the element drawn last is on top for taps.
+      if (controls) ctx.drawElementImage(controls, 0, vh, W, bar);
     });
     return ctx;
   }
@@ -363,7 +366,7 @@
   // ---- live checks: every one on its own fixture ----
   const made = [];
   /** A 320 px wide canvas with its own video and caption element. */
-  async function fixture({ load = true } = {}) {
+  async function fixture({ load = true, bar = false } = {}) {
     const c = document.createElement('canvas');
     c.setAttribute('content', 'drawable');
     c.setAttribute('layoutsubtree', '');
@@ -372,11 +375,19 @@
     c.innerHTML = `<video drawable muted playsinline preload="auto" style="display:block;width:100%;aspect-ratio:16/9"></video>
       <div drawable style="width:100%;color:#fff;font:650 15px/1.3 system-ui"><p class="heard" style="margin:0;min-height:2.6em;padding:4px 8px;background:#000c"></p><p class="translated" style="margin:0;min-height:80px;padding:4px 8px;color:#ff0"></p></div>`;
     const v = c.querySelector('video'), el = c.querySelector('div');
+    let controls = null;
+    if (bar) {
+      controls = document.createElement('div');
+      controls.setAttribute('drawable', '');
+      controls.style.cssText = 'width:100%;height:48px;background:#1b2030';
+      controls.innerHTML = '<button type="button" style="width:68px;height:40px;margin:4px 10px">Play</button>';
+      v.after(controls);
+    }
     quietStage().append(c);
     made.push(v);
-    const f = { c, v, el, results: [] };
+    const f = { c, v, el, controls, results: [] };
     f.box = captionBox(el, { clock: () => v.currentTime, ontext: (r) => { f.results.push(r); c.requestPaint(); } });
-    compose(c, v, null, el);
+    compose(c, v, controls, el);
     if (load) {
       const t = Object.assign(document.createElement('track'), { kind: 'metadata', src: CUES });
       v.append(t);
@@ -418,6 +429,23 @@
         if (under < 60) throw new Error(`only ${under} yellow pixels under the frame`);
         if (stray > 10) throw new Error(`${stray} yellow pixels of the translation leaked into the frame`);
         return `text pixels over the frame: ${interim} interim, ${over} final; ${under} translation pixels under the frame, ${stray} in it`;
+      },
+    },
+    {
+      name: 'The Play button in the bar takes taps while a caption and a translation are drawn',
+      why: 'The caption element is drawn twice and its box overlaps the bar. elementFromPoint() at the button must return the button.',
+      run: async () => {
+        const f = await fixture({ load: false, bar: true });
+        const entry = f.box.feed({ text: 'The page reads the active cues.', final: true, at: 3 });
+        f.box.translate('La página lee las entradas activas.', { final: true, entry });
+        await nextPaint(f.c); await sleep(200); await nextPaint(f.c);
+        const button = f.controls.querySelector('button'), box = f.c.getBoundingClientRect();
+        const hit = hitAt(box.left + 44, box.top + 180 + 24);
+        if (hit !== button) throw new Error(`the point on the button answered ${hit ? `<${hit.localName} class="${hit.className}">` : 'nothing'}`);
+        let clicks = 0;
+        button.onclick = () => clicks++;
+        hit.click();
+        return `elementFromPoint() on the drawn button returned the button, and its click handler ran ${clicks} time`;
       },
     },
     {
