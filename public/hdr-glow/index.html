@@ -143,7 +143,7 @@
     The button is there because the 2D float canvas showed no extra brightness on the test phone.</p>
 
   <h2>Live checks</h2>
-  <p>These run on their own small canvases in the corner of the window. They wait for a tap, because they read float pixels back and open a WebGL context and two WebGPU devices. On the test phone a float readback loses every float16 context on the page, so running them there also replaces the demo's canvas. Rows marked as expected failures record what the API clamps or refuses in the browser that wrote this page.</p>
+  <p>These run on their own small canvases in the corner of the window. They wait for a tap, because they read float pixels back and open a WebGL context and use the WebGPU device. On the test phone a float readback loses every float16 context on the page, so running them there also replaces the demo's canvas. Rows marked as expected failures record what the API clamps or refuses in the browser that wrote this page.</p>
   <table class="results"><tbody id="tests"></tbody></table>
 
   <h2>Findings</h2>
@@ -231,6 +231,7 @@
     old.before(next);
     if (next.moveBefore) next.moveBefore(ui, null); else next.append(ui);
     old.remove();
+    window.__gfx?.retire(old);
     return next;
   }
   function noReadback(reason) {
@@ -561,9 +562,9 @@
       } },
     { name: 'WebGPU: drawElementImageToTexture() into rgba16float keeps values above 1.0', expect: 'fail', why: 'The 3.0 element copied to a float texture and read back',
       run: async () => {
-        const adapter = await navigator.gpu?.requestAdapter();
-        if (!adapter || !('drawElementImageToTexture' in GPUQueue.prototype)) throw new Error('No WebGPU adapter with drawElementImageToTexture() here, so this was not measured.');
-        const device = await adapter.requestDevice();
+        const { checkDevice } = await import('/shared/backend.js');
+        const device = (await checkDevice())?.device;
+        if (!device || !('drawElementImageToTexture' in GPUQueue.prototype)) throw new Error('No WebGPU device with drawElementImageToTexture() here, so this was not measured.');
         const f = await fixture(HOT, 'webgpu');
         f.cv.getContext('webgpu').configure({ device, format: 'rgba16float', colorSpace: 'display-p3', toneMapping: { mode: 'extended' }, alphaMode: 'premultiplied' });
         await nextPaint(f.cv);
@@ -573,14 +574,14 @@
         const enc = device.createCommandEncoder(); enc.copyTextureToBuffer({ texture }, { buffer, bytesPerRow: row }, [SIZE, SIZE]); device.queue.submit([enc.finish()]);
         await buffer.mapAsync(GPUMapMode.READ);
         const v = [...new Float16Array(buffer.getMappedRange().slice(row * 50 + 50 * 8, row * 50 + 50 * 8 + 8))];
-        buffer.unmap(); texture.destroy(); device.destroy();
+        buffer.unmap(); texture.destroy();
         return expectAbove(v, 'The texture');
       } },
     { name: 'WebGPU: a shader raises the uploaded element above 1.0 in an rgba16float target', expect: 'pass', why: 'The pass that "Use a WebGPU canvas" runs, drawn into a texture and read back: a white block with a gain of 4, and the page beside it',
       run: async () => {
-        const adapter = await navigator.gpu?.requestAdapter();
-        if (!adapter || !('drawElementImageToTexture' in GPUQueue.prototype)) throw new Error('No WebGPU adapter with drawElementImageToTexture() here, so this was not measured.');
-        const device = await adapter.requestDevice();
+        const { checkDevice } = await import('/shared/backend.js');
+        const device = (await checkDevice())?.device;
+        if (!device || !('drawElementImageToTexture' in GPUQueue.prototype)) throw new Error('No WebGPU device with drawElementImageToTexture() here, so this was not measured.');
         const { HdrGpu, configureHdr } = await import('./gpu-route.js');
         const f = await fixture(block('background:#fff'), 'webgpu');
         const kept = configureHdr(f.cv, device).getConfiguration?.() ?? {};
@@ -595,7 +596,7 @@
         const all = buffer.getMappedRange().slice(0);
         const at = (px, py) => [...new Float16Array(all, row * py + px * 8, 4)];
         const inside = at(50, 50), outside = at(8, 8);
-        buffer.unmap(); texture.destroy(); hdr.destroy(); device.destroy();
+        buffer.unmap(); texture.destroy(); hdr.destroy();
         if (Math.abs(inside[0] - 4) > 0.1 || outside[0] > 1.01) throw new Error(`Inside the box ${show(inside)}, outside ${show(outside)}.`);
         return `Inside the box ${show(inside)}, outside ${show(outside)}. The canvas configuration reports tone mapping ${kept.toneMapping?.mode ?? 'not reported'}.`;
       } },
