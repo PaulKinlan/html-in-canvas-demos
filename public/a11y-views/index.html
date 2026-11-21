@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus trail and heading outline drawn by a canvas</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 48px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 10px 0 0; font-size: 14px; max-width: 640px; }
+  .controls label { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; }
+  .controls button, .controls select, .controls input[type="text"] { font: inherit; min-height: 40px; }
+  .controls input[type="text"] { width: 12em; padding: 0 8px; }
+  output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 7.5em; overflow-wrap: anywhere; white-space: pre-line; margin: 8px 0; max-width: 640px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  .scene { display: block; position: relative; width: 100%; max-width: 640px; border-radius: 16px; background: #10131f; overflow-anchor: none; }
+  .plain-fallback { background: #10131f; border-radius: 16px; display: grid; gap: 12px; }
+  .plain-fallback > #card, .plain-fallback > #doc, .plain-fallback > #toc { position: static; width: auto; height: auto; }
+  .plain-fallback > .note { color: #c9d1e8; margin: 0; }
+  .plain-fallback > #toc { background: #f6f4ef; border-radius: 12px; padding: 8px 14px; }
+  .plain-fallback > #toc a { color: #b5330c; height: auto; min-height: 40px; }
+
+  /* #region form-css */
+  #formCanvas { height: 352px; touch-action: pan-y; }
+  /* One child of the canvas. Everything in it is ordinary form markup. */
+  #card { position: absolute; left: 0; top: 0; box-sizing: border-box; width: calc(100% - 24px); margin: 0; padding: 12px 14px 14px; border-radius: 12px;
+    background: #f6f4ef; color: #1d1c1a; font: 15px/1.4 system-ui, sans-serif; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+  #card .wide { grid-column: 1 / -1; }
+  #card .links { display: flex; gap: 16px; align-items: center; }
+  #card .links a { color: #b5330c; padding: 6px 0; }
+  #card .links button { margin-left: auto; width: 20px; height: 20px; padding: 0; border: 1px solid #a19c93; border-radius: 50%; background: #fff; color: #1d1c1a; font: 13px/1 system-ui, sans-serif; }
+  #card label { font-size: 13px; }
+  #card .field { display: grid; gap: 3px; }
+  #card input[type="text"], #card input[type="email"], #card input[type="tel"], #card select, #card textarea { box-sizing: border-box; width: 100%; min-height: 40px; margin: 0; padding: 4px 8px;
+    border: 1px solid #a19c93; border-radius: 8px; background: #fff; color: #1d1c1a; font: inherit; font-size: 15px; }
+  #card textarea { min-height: 48px; height: 48px; resize: none; display: block; }
+  #card .check { display: inline-flex; gap: 6px; align-items: center; min-height: 40px; font-size: 14px; }
+  #card .check input { width: 16px; height: 16px; margin: 0; }
+  #card .buttons { display: flex; gap: 10px; justify-content: flex-end; }
+  #card .buttons button { min-height: 48px; padding: 4px 16px; border-radius: 8px; border: 1px solid #a19c93; background: #fff; color: #1d1c1a; font: inherit; }
+  #card #send { background: #1d1c1a; color: #fff; }
+  /* The browser's ring. It is part of the picture of #card, because the focused control is inside #card. */
+  #card :focus-visible { outline: 3px solid #12b76a; outline-offset: 1px; }
+  #formCanvas.no-ring #card :focus-visible { outline: none; }
+  /* #endregion form-css */
+
+  /* #region doc-css */
+  /* An ordinary scroll container. The canvas sticks to its top and the spacer gives it the article's height to scroll. */
+  #reader { position: relative; width: 100%; max-width: 640px; height: 520px; overflow-y: auto; overscroll-behavior: auto; border-radius: 16px; background: #10131f; scrollbar-width: thin; }
+  #docCanvas { position: sticky; top: 0; height: 520px; border-radius: 0; }
+  #reader.plain { height: auto; overflow: visible; }
+  #reader.plain #docSpacer { display: none; }
+  #doc { position: absolute; left: 0; top: 0; box-sizing: border-box; width: calc(100% - var(--rail, 150px) - 20px); margin: 0; padding: 14px 14px 30px; border-radius: 12px;
+    background: #f6f4ef; color: #1d1c1a; font: 14px/1.5 system-ui, sans-serif; overflow-wrap: anywhere; }
+  #doc :is(h1, h2, h3, h4, h5, h6, [role="heading"]) { margin: 18px 0 6px; line-height: 1.2; font-weight: 700; color: #1d1c1a; scroll-margin: 0; }
+  #doc h1 { font-size: 22px; margin-top: 0; }
+  #doc h2 { font-size: 18px; }
+  #doc h3, #doc [role="heading"] { font-size: 16px; }
+  #doc h4 { font-size: 15px; }
+  #doc h5, #doc h6 { font-size: 14px; }
+  #doc p { margin: 0 0 8px; }
+  #doc a { color: #b5330c; }
+  #doc code { font-size: 12.5px; }
+  /* The outline. Its links are laid out here and drawn with no ink: the canvas draws each row itself. */
+  #toc { position: absolute; left: 0; top: 0; box-sizing: border-box; width: var(--rail, 150px); height: 100%; margin: 0; padding: 6px 0; overflow: hidden; font: 13px/1.2 system-ui, sans-serif; }
+  #toc ol { list-style: none; margin: 0; padding: 0; }
+  #toc a { display: block; box-sizing: border-box; height: var(--row, 44px); padding: 4px 8px; overflow: hidden; color: #fff; }
+  /* Inside the canvas the canvas draws the focus ring. As plain HTML these rules do not match and the browser's ring is back. */
+  #docCanvas :focus-visible, #docCanvas :focus { outline: none; }
+  /* #endregion doc-css */
+
+  /* For the live checks. */
+  .av-ring:focus-visible { outline: 4px solid rgb(255, 0, 0); outline-offset: 2px; }
+  .av-ring.inside:focus-visible { outline-offset: -6px; }
+  .av-quiet:focus-visible { outline: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Focus trail and heading outline drawn by a canvas</h1>
+  <p class="lede">
+    Two accessibility views from the <a href="/elements/">element catalogue</a>, and two more on the same form. A canvas draws a form and, when
+    focus moves, a ring that travels from the control that lost focus to the one that gained it. The same canvas can mark the size of each
+    touch target and draw a line from each label to its control. A second canvas draws an article with a list of its headings beside it. Each
+    row of that list is the heading's own pixels, drawn a second time.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#trail">Focus ring that leads the eye</a><a href="#outline">Heading outline beside the page</a>
+  </nav>
+
+  <section class="idea" id="trail">
+    <h2>Focus ring that leads the eye</h2>
+    <p>Tap a field or a button in the form, press Tab, or use "Next stop". The ring flies from the old position to the new one and the rest of the form is shaded. "Target sizes" and "Label lines" draw two more views over the same form.</p>
+    <!-- #region form-html -->
+    <canvas id="formCanvas" class="scene" content="drawable" layoutsubtree>
+      <form id="card" drawable aria-label="Order" autocomplete="off">
+        <nav class="wide links" aria-label="Shop">
+          <a href="#trail" id="orders">Orders</a><a href="#trail" id="returns">Returns</a><a href="#trail" id="help">Help</a>
+          <button type="button" id="clear" aria-label="Clear the form">×</button>
+        </nav>
+        <label class="field">Name <input type="text" id="name" name="name"></label>
+        <div class="field"><label for="email">Email</label><input type="email" id="email" name="email"></div>
+        <input type="tel" id="phone" name="phone" placeholder="Phone">
+        <select id="country" name="country" aria-label="Country"><option>Wales</option><option>Japan</option><option>Peru</option></select>
+        <div class="wide field"><label for="note">Delivery note</label><textarea id="notes" name="notes"></textarea></div>
+        <label class="check"><input type="checkbox" id="gift" name="gift"> Gift wrap</label>
+        <div class="buttons"><button type="button" id="cancel">Cancel</button><button type="button" id="send">Order</button></div>
+      </form>
+    </canvas>
+    <!-- #endregion form-html -->
+    <div class="controls">
+      <button type="button" id="prev">Previous stop</button>
+      <button type="button" id="next">Next stop</button>
+      <label>Effect
+        <select id="effect">
+          <option value="both" selected>trail and shade</option>
+          <option value="trail">trail</option>
+          <option value="shade">shade</option>
+          <option value="none">none</option>
+        </select>
+      </label>
+    </div>
+    <div class="controls">
+      <label><input type="checkbox" id="showTargets"> Target sizes</label>
+      <label><input type="checkbox" id="showLabels"> Label lines</label>
+      <label><input type="checkbox" id="ownRing" checked> Browser's ring</label>
+      <label>Drawn at
+        <select id="size"><option value="1" selected>100%</option><option value="0.8">80%</option><option value="0.6">60%</option></select>
+      </label>
+    </div>
+    <output class="line" id="trailOut"></output>
+    <p class="found">The canvas learns that focus moved from <code>focusin</code>, which names both elements. It reads where each one was drawn from <code>getBoundingClientRect()</code>. When the ring arrives, the canvas draws that rectangle of the form's picture a second time, 12% larger, for a third of a second. The form has four faults on purpose: a 20 px button, a field with only a placeholder, a label whose <code>for</code> matches nothing, and the field that label was meant for.</p>
+    <details class="show-code"><summary>Show the code <small>focusin, two rectangles, and a ring drawn between them</small></summary><ol>
+      <li data-code="#form-html"><b>The markup.</b> One <code>drawable</code> form. Nothing in it is there for the views.</li>
+      <li data-code="/a11y-views/trail.js#trail-listen"><b>Hearing that focus moved.</b></li>
+      <li data-code="/a11y-views/trail.js#trail-draw"><b>One frame of the ring.</b></li>
+      <li data-code="#form-frame"><b>The paint handler.</b> The form, then the views, then the ring.</li>
+      <li data-code="#lift"><b>Drawing the focused control enlarged.</b> A piece of the form's picture, and a draw with no ink to put the hit box back.</li>
+      <li data-code="/a11y-views/trail.js#trail-shapes"><b>The shade, the tail and the ring.</b></li>
+      <li data-code="/a11y-views/overlays.js#targets"><b>Target sizes.</b></li>
+      <li data-code="/a11y-views/overlays.js#labels"><b>Label lines.</b></li>
+      <li data-code="#form-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="outline">
+    <h2>Heading outline beside the page</h2>
+    <p>Scroll the article with a finger or the wheel. The list on the right has one row for each heading. Tap a row to go to that heading. Change a heading with the controls under the picture and its row changes, because the row is drawn from the article's picture.</p>
+    <!-- #region doc-html -->
+    <div id="reader">
+      <canvas id="docCanvas" class="scene" content="drawable" layoutsubtree>
+        <article id="doc" drawable>
+          <h1>Heading levels in a document</h1>
+          <p>This article is a child of the canvas. The list beside it is drawn by the canvas from the headings below.</p>
+          <h2>What a level means</h2>
+          <p>The elements <code>h1</code> to <code>h6</code> give a heading a level from 1 to 6. A heading starts a section. The section ends at the next heading of the same level or of a level with a lower number.</p>
+          <h3>Nesting</h3>
+          <p>An <code>h3</code> that follows an <code>h2</code> starts a part of the <code>h2</code> section. The outline indents it and draws a line to its parent.</p>
+          <h3>Skipped levels</h3>
+          <p>A heading two or more levels below the one before it leaves a gap in the outline. The control under the picture changes this heading to an <code>h5</code>. The outline then marks its row in red. See <a href="#doc-list">Listing every heading</a>.</p>
+          <h2>How a screen reader uses headings</h2>
+          <p>Headings are a way to move through a page without reading all of it.</p>
+          <h3>Moving by heading</h3>
+          <p>A screen reader can move from one heading to the next. TalkBack on Android does this when its reading control is set to "Headings".</p>
+          <h3 id="doc-list">Listing every heading</h3>
+          <p>Some screen readers show all headings of the page in a list, with their levels. The rail beside this article is the same list, drawn. Back to <a href="#doc-skip">Skipped levels</a>.</p>
+          <h2>Elements that count</h2>
+          <p>The outline collects <code>h1</code> to <code>h6</code> and every element with <code>role="heading"</code>.</p>
+          <div role="heading" aria-level="3">A div with role="heading"</div>
+          <p>The line above is a <code>div</code>. Its level comes from <code>aria-level</code>. With no <code>aria-level</code> the level is 2.</p>
+          <h2>What the outline leaves out</h2>
+          <p>A heading that is not rendered, or is inside <code>aria-hidden="true"</code> or <code>inert</code>, is left out. Shadow trees and frames are not followed.</p>
+        </article>
+        <nav id="toc" drawable aria-label="Headings of the article"><ol id="tocList"></ol></nav>
+      </canvas>
+      <div id="docSpacer"></div>
+    </div>
+    <!-- #endregion doc-html -->
+    <div class="controls">
+      <label>"Skipped levels" is an
+        <select id="skipLevel"><option value="h3" selected>h3</option><option value="h5">h5 (skips h4)</option><option value="h2">h2</option></select>
+      </label>
+      <label>Second heading <input type="text" id="rename" value="What a level means" autocomplete="off"></label>
+      <button type="button" id="addSection">Add a section</button>
+    </div>
+    <output class="line" id="docOut" style="min-height: 4.5em"></output>
+    <p class="found">The rows are not text drawn by the canvas. Each one is <code>drawElementImage(article, sx, sy, sw, sh, dx, dy, dw, dh)</code> with the rectangle of one heading, so the font, the wrapping and any edit are the article's. The links that take the taps are children of the canvas drawn with <code>globalAlpha = 0</code>. Scrolling is the browser's own: the canvas is <code>position: sticky</code> inside a scroll container and draws the article at minus <code>scrollTop</code>.</p>
+    <details class="show-code"><summary>Show the code <small>headings from the DOM, rows from the article's picture</small></summary><ol>
+      <li data-code="#doc-html"><b>The markup.</b> A scroll container, a sticky canvas, the article and an empty list.</li>
+      <li data-code="/a11y-views/outline.js#collect"><b>Collecting the headings.</b></li>
+      <li data-code="/a11y-views/outline.js#links"><b>One link per heading.</b></li>
+      <li data-code="/a11y-views/outline.js#measure"><b>Where each heading is in the article.</b></li>
+      <li data-code="#doc-frame"><b>The paint handler.</b> Links with no ink, the rail, then the article.</li>
+      <li data-code="/a11y-views/outline.js#draw-outline"><b>Drawing the rail.</b></li>
+      <li data-code="#jump"><b>Going to a heading.</b></li>
+      <li data-code="#doc-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>Each picture is one 2D canvas with <code>content="drawable"</code>. Its children are ordinary HTML and the <code>paint</code> handler draws them with <code>drawElementImage()</code>. Everything else in the picture (ring, tail, shade, target boxes, label lines, the rail) is drawn after them in the same context.</li>
+    <li>Focus: <code>focusin</code> bubbles to the canvas. <code>event.target</code> is the element that gained focus and <code>event.relatedTarget</code> the one that lost it. When the old element is outside the canvas, the ring starts at the nearest point of the canvas edge. The flight lasts 220 to 560 ms, longer for a longer move. With <code>prefers-reduced-motion</code> the ring is drawn at the new position at once and a straight line with an arrow head shows where it came from.</li>
+    <li>Positions: <code>getBoundingClientRect()</code> of a canvas child, or of an element inside one, reports where it was last drawn. "Drawn at 60%" draws the form smaller, and the ring, the target boxes and the label lines follow without any code for it.</li>
+    <li>Target sizes: every link, button and form control is measured as drawn. A side under 24 CSS px is red, under 48 px amber. 24 is the size in WCAG 2.2 "Target Size (Minimum)". 48 is the size Android asks for. The view measures the control's own box. It does not add the label of a checkbox, which also takes the tap.</li>
+    <li>Label lines: a line runs from the words of each <code>&lt;label&gt;</code> to its control, found through <code>control.labels</code>. The words are measured with a <code>Range</code>. A control named only by <code>aria-label</code> has a dashed outline and the name on a plate, because nothing visible names it. A control with only a placeholder is amber, a control with nothing is red, and a label whose <code>for</code> matches no control is marked.</li>
+    <li>Heading outline: the headings are collected from the DOM with a rule of about 15 lines. A <code>MutationObserver</code> on the article runs it again after an edit. The rail's rows are rectangles of the article's picture. The article is drawn last and whole, which puts its hit box back after the pieces.</li>
+    <li>The article is taller than the canvas. The canvas is <code>position: sticky</code> in a scroll container, with a spacer of the article's height after it. A <code>scroll</code> listener asks for a paint, and the handler draws the article at minus <code>scrollTop</code>. Tapping a row calls <code>scrollTo()</code> on the container and <code>focus()</code> on the heading, so the ring flies from the row to the heading.</li>
+    <li>Without the API, or after a lost context, both canvases are replaced by their children as plain HTML. The outline is then an ordinary list of links.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds a small canvas of its own in a corner of the window. The checks that move focus run in a hidden copy of this page. The two pictures above are not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157, headless, on 2026-11-21. The rows above say what your browser does. Real key presses and touch events were sent by <code>tools/a11y-views/check.mjs</code>.</p>
+  <ul class="findings" id="findingsList">
+    <li><strong>Works: a focus ring is in the picture when the focused element is inside the drawable element.</strong> A 4 px red outline round a button inside a drawable <code>div</code> was found in the canvas pixels at the button's drawn position. Focus moving raised one <code>paint</code> event with the <code>div</code> in <code>changedElements</code>.</li>
+    <li><strong>Limit: the ring is cut at the border box of the drawable element.</strong> A button in the corner of its drawable parent kept only the part of its ring that was inside the parent. An outline round the drawable element itself is not in its picture at all, unless <code>outline-offset</code> is negative.</li>
+    <li><strong>Found: no pixel change, no paint event.</strong> With <code>outline: none</code> on the focused element, moving focus raised no <code>paint</code> event. A trail that waits for <code>paint</code> would not start. <code>focusin</code> fired every time, with <code>relatedTarget</code> set.</li>
+    <li><strong>Works: the trail follows the picture.</strong> The start and the end of the trail were at the drawn positions of the two buttons when the fixture was drawn at half size and offset.</li>
+    <li><strong>Found: a control drawn smaller is a smaller target.</strong> A 40 px button drawn at half size took a hit only inside its 20 px drawn box. The target view reported 20 by 20.</li>
+    <li><strong>Works: label text measured with a <code>Range</code> follows the picture</strong> at half size, so the line starts at the drawn words.</li>
+    <li><strong>Works: a row of the outline is the heading's pixels.</strong> A piece draw of the article with the heading's rectangle put the heading's colour at the row. After the pieces, one whole draw of the article put its hit box back: a point on a link in the article returned the link.</li>
+    <li><strong>Works: links drawn with <code>globalAlpha = 0</code> take the tap.</strong> <code>elementFromPoint()</code> at a row returned the link for that row, and the canvas pixels there came only from the canvas's own drawing.</li>
+    <li><strong>Found: scrolling the container raises no paint event.</strong> The page asks for one from a <code>scroll</code> listener. Changing a heading's text raises one. Changing <code>aria-level</code> raises none, so the outline is rebuilt from a <code>MutationObserver</code>.</li>
+    <li><strong>Works: the Tab key scrolls the article by itself.</strong> Tab from above the canvas reached a link about 710 px down the article, below the 520 px canvas. The browser scrolled the container to 480 px, which put the link in the middle of the canvas. The page did not move. The page has no code for this.</li>
+    <li><strong>Works: a finger drag on the drawn article scrolls the container.</strong> A 250 px drag moved <code>scrollTop</code> by 235 px and the page by 0 px.</li>
+    <li><strong>Not verified here:</strong> a phone and a screen reader. TalkBack moves its own accessibility focus, which is not DOM focus. Whether <code>focusin</code> fires when TalkBack moves to a control, and so whether the trail runs, was not measured. The line under the first picture counts <code>focusin</code> events: move through the form with TalkBack and read the count. The frame rate of the article scrolling under a finger was not measured on a phone either.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { mount, put, hitOnly, toPlain, clamp, reducedMotion } from '/lib/stage-2d.js';
+  import { nameOf } from '/lib/devtools/stage.js';
+  import { tabOrder } from '/lib/devtools/focus-path.js';
+  import { rig, sleep, readable, pixelBox } from '/lib/devtools/check-rig.js';
+  import { createTrail } from '/a11y-views/trail.js';
+  import { measureTargets, drawTargets, readLabels, drawLabels, textBox } from '/a11y-views/overlays.js';
+  import { collectHeadings, measureHeadings, drawOutline, syncLinks } from '/a11y-views/outline.js';
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const say = (out, text) => { if (out.textContent !== text) out.textContent = text; };
+  const views = (window.__a11yViews = {});
+
+  // ------------------------------------------------------------------ the form
+  {
+    const canvas = $('formCanvas'), card = $('card'), out = $('trailOut');
+    let home = { x: 12, y: 12, s: 1, w: 0, h: 0 }, stage = null;
+    const twice = () => { stage.request(); requestAnimationFrame(() => stage.request()); };
+    const trail = createTrail(canvas, { request: () => stage?.request() });
+
+    // #region lift
+    // Draw the focused control a second time, enlarged, from a rectangle of the form's picture.
+    function lift(ctx, el, to, k) {
+      const m = 6, { x, y, s, w, h } = home;
+      const sx = clamp((to.x - x) / s - m, 0, w), sy = clamp((to.y - y) / s - m, 0, h);
+      const sw = Math.min(to.width / s + m * 2, w - sx), sh = Math.min(to.height / s + m * 2, h - sy);
+      const cx = x + (sx + sw / 2) * s, cy = y + (sy + sh / 2) * s, dw = sw * s * k, dh = sh * s * k;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(cx - dw / 2, cy - dh / 2, dw, dh, 8);
+      ctx.clip();
+      try { ctx.drawElementImage(card, sx, sy, sw, sh, cx - dw / 2, cy - dh / 2, dw, dh); } catch {}
+      ctx.restore();
+      // A piece draw moves the hit box of the whole form to the piece. Draw the form again
+      // where it was, with no ink, to put the hit box back.
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(s, s);
+      hitOnly(ctx, card, 0, 0, w, h);
+      ctx.restore();
+    }
+    // #endregion lift
+
+    // #region form-frame
+    stage = mount(canvas, (ctx, W, H, now) => {
+      const s = Number($('size').value), w = card.offsetWidth, h = card.offsetHeight;
+      home = { x: (W - w * s) / 2, y: 12, s, w, h };
+      ctx.save();
+      ctx.translate(home.x, home.y);
+      ctx.scale(s, s);
+      put(ctx, card, 0, 0, w, h);                       // the form, and its hit box
+      ctx.restore();
+      const lines = [];
+      if ($('showTargets').checked) {
+        const t = drawTargets(ctx, measureTargets(canvas, card), { width: W });
+        lines.push(`Targets: ${t.total}. A side under 24 px: ${t.bad}. Under 48 px: ${t.small}. 48 px or more: ${t.good}.`);
+      }
+      if ($('showLabels').checked) {
+        const c = drawLabels(ctx, canvas, readLabels(card), { width: W });
+        lines.push(`Controls: ${c.label + c.labelledby + c.aria + c.placeholder + c.none}. With a label: ${c.label + c.labelledby}. aria-label only: ${c.aria}. Placeholder only: ${c.placeholder}. No name: ${c.none}. Labels with no control: ${c.orphans}.`);
+      }
+      const effect = $('effect').value;
+      const moving = effect === 'none' ? false : trail.draw(ctx, W, H, now, { comet: effect !== 'shade', spotlight: effect !== 'trail', lift });
+      report(lines);
+      return moving;                                    // true asks for another frame
+    }, { onLost: () => say(out, 'The canvas lost its drawing context. The form is shown as plain HTML.') });
+    // #endregion form-frame
+
+    function report(lines) {
+      const { active, geometry, moves } = trail.state;
+      const g = geometry?.from ? ` It moved ${Math.round(geometry.distance)} px` + (geometry.flight ? ` in ${Math.round(geometry.flight)} ms.` : '.') : '';
+      say(out, [
+        active ? `Focus is on ${nameOf(active)}.${g}` : 'Focus is outside the picture.',
+        `focusin events in the canvas: ${moves}.`,
+        ...lines,
+      ].join('\n'));
+      views.form = { moves, active: active?.id ?? null, distance: geometry?.distance ?? null, flight: geometry?.flight ?? null, home };
+    }
+
+    if (stage.plain) say(out, 'HTML-in-canvas is not available. The form is plain HTML and nothing is drawn over it.');
+    else {
+      for (const id of ['effect', 'showTargets', 'showLabels', 'size']) $(id).addEventListener('change', twice);
+      $('ownRing').addEventListener('change', () => { canvas.classList.toggle('no-ring', !$('ownRing').checked); twice(); });
+      // Typing, a new option or a tick changes the picture: the browser raises paint and mount() draws.
+    }
+    card.addEventListener('click', (e) => { if (e.target.closest('a')) e.preventDefault(); });
+    card.addEventListener('submit', (e) => e.preventDefault());
+    $('clear').addEventListener('click', () => card.reset());
+    // "Previous stop" and "Next stop" move focus along the Tab order of the form. The buttons do not take
+    // focus themselves (mousedown is cancelled), so the ring flies from control to control.
+    let lastStop = null;
+    card.addEventListener('focusin', (e) => (lastStop = e.target));
+    const step = (by) => {
+      const order = tabOrder(card);
+      const i = order.indexOf(card.contains(document.activeElement) ? document.activeElement : lastStop);
+      const stop = order[i < 0 ? (by > 0 ? 0 : order.length - 1) : (i + by + order.length) % order.length];
+      if (!stop) return;
+      // A text field focused from a button would open the on-screen keyboard. inputmode="none" keeps it
+      // down until the field is tapped or loses focus.
+      if (stop.matches('input, textarea')) {
+        stop.setAttribute('inputmode', 'none');
+        const typing = () => { stop.removeAttribute('inputmode'); stop.removeEventListener('pointerdown', typing); stop.removeEventListener('blur', typing); };
+        stop.addEventListener('pointerdown', typing);
+        stop.addEventListener('blur', typing);
+      }
+      stop.focus({ focusVisible: true, preventScroll: true });
+    };
+    for (const [id, by] of [['prev', -1], ['next', 1]]) {
+      $(id).addEventListener('mousedown', (e) => e.preventDefault());
+      $(id).addEventListener('click', () => step(by));
+    }
+  }
+
+  // ------------------------------------------------------------------ the article and its outline
+  {
+    const reader = $('reader'), canvas = $('docCanvas'), article = $('doc'), toc = $('toc'), list = $('tocList'), spacer = $('docSpacer'), out = $('docOut');
+    const PAD = 10;
+    let items = [], stale = true, stage = null, current = -1, lastJump = '', ids = 0, rail = 0;
+    const trail = createTrail(canvas, { request: () => stage?.request() });
+
+    function refresh() {
+      items = collectHeadings(article);
+      for (const item of items) if (!item.el.id) item.el.id = `doc-h-${++ids}`;
+      syncLinks(list, items);
+      // Up to 11 rows are 44 px high. More rows share the height of the rail.
+      const row = Math.max(30, Math.min(44, Math.floor((reader.clientHeight - 12) / Math.max(1, items.length))));
+      if (toc.style.getPropertyValue('--row') !== row + 'px') toc.style.setProperty('--row', row + 'px');
+      stale = false;
+    }
+
+    // #region doc-frame
+    stage = mount(canvas, (ctx, W, H, now) => {
+      const RAIL = clamp(Math.round(W * 0.4), 132, 230);
+      if (rail !== RAIL) { rail = RAIL; canvas.style.setProperty('--rail', RAIL + 'px'); }   // the article is laid out beside the rail
+      if (stale) refresh();
+      const top = reader.scrollTop;
+      measureHeadings(article, items);
+
+      // The links: a draw with no ink puts the hit box of each one at its row.
+      hitOnly(ctx, toc, W - RAIL, 0, RAIL, H);
+      const t = toc.getBoundingClientRect();
+      const rows = [...list.querySelectorAll('a')].map((a) => {
+        const r = a.getBoundingClientRect();           // relative to the nav, so it does not matter where the nav was drawn before
+        return { x: W - RAIL + r.left - t.left, y: r.top - t.top, width: r.width, height: r.height };
+      });
+
+      // The rail. Each row is a rectangle of the article's picture.
+      const view = { top: top - PAD, bottom: top - PAD + H };
+      let here = 0;
+      items.forEach((item, i) => { if (item.top <= view.top + 56) here = i; });
+      const sum = drawOutline(ctx, items, rows, {
+        rail: { x: W - RAIL, y: 0, width: RAIL, height: H }, view, current: here,
+        piece: (...box) => { try { ctx.drawElementImage(article, ...box); } catch {} },
+      });
+
+      // The article, whole and last. This draw decides its hit box.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, W - RAIL, H);
+      ctx.clip();
+      put(ctx, article, PAD, PAD - top, article.offsetWidth, article.offsetHeight);
+      ctx.restore();
+
+      const moving = trail.draw(ctx, W, H, now, { comet: true, spotlight: false });
+      if (here !== current) {
+        current = here;
+        list.querySelectorAll('a').forEach((a, i) => (i === here ? a.setAttribute('aria-current', 'location') : a.removeAttribute('aria-current')));
+      }
+      say(out, `${items.length} headings. In view: ${sum.inView}. Skipped levels: ${sum.skipped}. Scrolled ${Math.round(top)} of ${Math.max(0, reader.scrollHeight - reader.clientHeight)} px.\n${lastJump}`);
+      views.doc = { headings: items.map((i) => `${i.level}${i.skipped ? '!' : ''} ${i.text}`), inView: sum.inView, skipped: sum.skipped, top, current: here, moves: trail.state.moves, active: trail.state.active?.id ?? null, rows: rows.length };
+      return moving;
+    }, { onLost: plain });
+    // #endregion doc-frame
+
+    function plain() {
+      reader.classList.add('plain');
+      refresh();
+      say(out, 'The outline is shown as plain HTML: the article and a list of links to its headings.');
+    }
+
+    // #region jump
+    const yOf = (el) => el.getBoundingClientRect().top - article.getBoundingClientRect().top;   // in article pixels
+    function go(heading) {
+      if (!heading) return;
+      if (stage.plain || reader.classList.contains('plain')) { heading.scrollIntoView({ block: 'start' }); return; }
+      reader.scrollTo({ top: Math.max(0, yOf(heading) + PAD - 8), behavior: reducedMotion() ? 'auto' : 'smooth' });
+      // Focus goes to the heading, as it would after following a link to it. The ring flies there from the row.
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+      lastJump = `Went to "${heading.textContent.trim()}".`;
+      stage.request();
+    }
+    const follow = (e) => {
+      const a = e.target.closest('a[href^="#"]');
+      if (!a || e.defaultPrevented) return;
+      e.preventDefault();
+      go(article.querySelector('#' + CSS.escape(a.hash.slice(1))));
+    };
+    list.addEventListener('click', follow);
+    article.addEventListener('click', follow);
+    // The Tab key needs no code here: when focus reaches a link that is out of view, the browser scrolls the container to it.
+    // #endregion jump
+
+    $('doc').querySelectorAll('h3')[1].id = 'doc-skip';
+    if (stage.plain) plain();
+    else {
+      reader.addEventListener('scroll', () => stage.request(), { passive: true });   // scrolling raises no paint event
+      new MutationObserver(() => { stale = true; stage.request(); }).observe(article, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['role', 'aria-level', 'aria-hidden', 'hidden', 'inert'] });
+      new ResizeObserver(() => {
+        const need = Math.max(0, article.offsetHeight + PAD * 2 - reader.clientHeight) + 'px';
+        if (spacer.style.height !== need) spacer.style.height = need;
+        stage.request();
+      }).observe(article);
+    }
+
+    $('skipLevel').addEventListener('change', () => {
+      const old = $('doc-skip'), fresh = document.createElement($('skipLevel').value);
+      fresh.id = old.id;
+      fresh.append(...old.childNodes);
+      old.replaceWith(fresh);
+      if (stage.plain || reader.classList.contains('plain')) refresh();
+    });
+    $('rename').addEventListener('input', () => {
+      const h = article.querySelector('h2');
+      if (h) h.textContent = $('rename').value;
+      if (stage.plain || reader.classList.contains('plain')) refresh();
+    });
+    let added = 0;
+    $('addSection').addEventListener('click', () => {
+      if (added >= 3) return;
+      added++;
+      const h = document.createElement('h2'), p = document.createElement('p');
+      h.textContent = `Added section ${added}`;
+      p.textContent = 'This heading was appended by the button. The outline picked it up from a MutationObserver.';
+      article.append(h, p);
+      if (added >= 3) $('addSection').disabled = true;
+      if (stage.plain || reader.classList.contains('plain')) refresh();
+    });
+  }
+
+  // ------------------------------------------------------------------ live checks, each on its own canvas
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const ABS = 'position:absolute;left:0;top:0;margin:0;';
+  const isRed = (r, g, b, a) => r > 200 && g < 70 && b < 70 && a > 200;
+  const near = (a, b, by = 1.5) => Math.abs(a - b) <= by;
+  const fmt = (b) => (b ? `${b.left}, ${b.top} to ${b.right}, ${b.bottom}` : 'none');
+  // Keep drawing a fixture on every paint event, and count the events the browser raises.
+  function keep(f, draw) {
+    const log = { paints: 0, changed: [] };
+    f.c.addEventListener('paint', (e) => { log.paints++; log.changed.push(...(e.changedElements ?? [])); f.g.reset(); draw(f.g); });
+    return log;
+  }
+  // elementFromPoint() remembers its last answers for a point. An attribute change clears that memory.
+  const at = (f, x, y) => { f.kids[0].toggleAttribute('data-asked'); const o = f.box(); return document.elementFromPoint(o.left + x, o.top + y); };
+  const who = (el) => el?.id || el?.localName || 'nothing';
+  // In the hidden copy nothing empties the test stage between checks, and a fixture below the first
+  // would be outside the stage's box and would not be painted. So each of those checks empties it first.
+  function rigAlone(html, options) {
+    const stage = testStage();
+    for (const old of [...stage.children]) { window.__gfx?.retire(old); old.remove(); }
+    return rig(html, options);
+  }
+  // The checks that need a ring run in a hidden frame. The page takes focus back from the frame after each
+  // check, so wait for that, then focus, then confirm that the element really shows as focused.
+  async function ring(el) {
+    await sleep(200);
+    el.focus({ focusVisible: true, preventScroll: true });
+    await sleep(300);
+    if (!el.matches(':focus-visible')) throw new Error('the element does not match :focus-visible, so there is no ring to look for');
+  }
+  const rgba = (f, x, y) => [...readable(f.g).getImageData(x, y, 1, 1).data];
+
+  runTests($('results'), [
+    {
+      name: 'A focus ring on an element inside a drawable element is in the picture',
+      why: 'A drawable div holds a button with a 4 px red outline at an offset of 2 px when focused. The div is drawn at 40, 40 and the button is at 60, 60, 80 by 30. After focus({ focusVisible: true }) the red pixels must span 54, 54 to 146, 96.',
+      apart: true,
+      run: async () => {
+        need();
+        const f = rigAlone(`<div style="${ABS}width:200px;padding:20px;box-sizing:content-box;background:#eee"><button class="av-ring" style="display:block;width:80px;height:30px;margin:0">x</button></div>`);
+        const draw = (g) => g.drawElementImage(f.kids[0], 40, 40, f.kids[0].offsetWidth, f.kids[0].offsetHeight);
+        await f.paint(draw);
+        const log = keep(f, draw);
+        await sleep(120);
+        const before = log.paints;
+        await ring(f.c.querySelector('button'));
+        const box = pixelBox(f.g, isRed);
+        if (!box) throw new Error('no red pixels: the ring is not in the picture');
+        if (!near(box.left, 54) || !near(box.top, 54) || !near(box.right, 146) || !near(box.bottom, 96)) throw new Error(`red pixels at ${fmt(box)}`);
+        const named = log.changed.includes(f.kids[0]);
+        return `ring at ${fmt(box)}. Paint events raised by the focus change: ${log.paints - before}. The div was ${named ? '' : 'not '}in changedElements`;
+      },
+    },
+    {
+      name: 'A ring that reaches past the border box of the drawable element is cut there',
+      why: 'The same button in the top left corner of a drawable div with no padding. The div is drawn at 40, 40. Red pixels above 40 or left of 40 would be ring outside the div.',
+      apart: true,
+      run: async () => {
+        need();
+        const f = rigAlone(`<div style="${ABS}width:200px;background:#eee"><button class="av-ring" style="display:block;width:80px;height:30px;margin:0">x</button></div>`);
+        const draw = (g) => g.drawElementImage(f.kids[0], 40, 40, f.kids[0].offsetWidth, f.kids[0].offsetHeight);
+        await f.paint(draw);
+        keep(f, draw);
+        await ring(f.c.querySelector('button'));
+        const box = pixelBox(f.g, isRed);
+        if (!box) throw new Error('no red pixels at all');
+        if (box.left < 39 || box.top < 39) throw new Error(`ring pixels outside the div, at ${fmt(box)}`);
+        return `only ${fmt(box)} is red: the part of the ring to the right of the button. The parts above, left and below are outside the div and are not drawn`;
+      },
+    },
+    {
+      name: 'An outline round the drawable element itself is not in its picture',
+      why: 'A drawable button with the same outline. With outline-offset 2 px the ring is outside the border box. With outline-offset -6 px it is inside.',
+      apart: true,
+      run: async () => {
+        need();
+        const f = rigAlone(`<button class="av-ring" style="${ABS}width:80px;height:30px">x</button>`);
+        const draw = (g) => g.drawElementImage(f.kids[0], 40, 40, 80, 30);
+        await f.paint(draw);
+        const log = keep(f, draw);
+        await sleep(250);
+        const before = log.paints;
+        await ring(f.kids[0]);
+        const outside = pixelBox(f.g, isRed), paints = log.paints - before;
+        f.kids[0].classList.add('inside');
+        await sleep(300);
+        const inside = pixelBox(f.g, isRed);
+        if (outside) throw new Error(`the ring was drawn, at ${fmt(outside)}`);
+        if (!inside) throw new Error(`no ring with a negative offset either. Matches :focus-visible: ${f.kids[0].matches(':focus-visible')}. Paint events since: ${log.paints - before - paints}. Outline: ${getComputedStyle(f.kids[0]).outline} ${getComputedStyle(f.kids[0]).outlineOffset}`);
+        return `offset 2 px: no red pixels, and ${paints} paint event${paints === 1 ? '' : 's'}. Offset -6 px: red at ${fmt(inside)}`;
+      },
+    },
+    {
+      name: 'Moving focus raises no paint event when no pixel changes, and focusin still fires',
+      why: 'A button and a link with outline: none inside a drawable div. Focus goes to the button, then to the link.',
+      apart: true,
+      run: async () => {
+        need();
+        const f = rigAlone(`<div style="${ABS}width:200px;padding:20px;background:#eee"><button id="q1" class="av-quiet">x</button> <a href="#" id="q2" class="av-quiet">link</a></div>`);
+        const draw = (g) => g.drawElementImage(f.kids[0], 40, 40, f.kids[0].offsetWidth, f.kids[0].offsetHeight);
+        await f.paint(draw);
+        const log = keep(f, draw), seen = [];
+        f.c.addEventListener('focusin', (e) => seen.push(`${e.relatedTarget?.id || 'null'} to ${e.target.id}`));
+        await sleep(300);
+        const before = log.paints;
+        f.c.querySelector('#q1').focus({ focusVisible: true, preventScroll: true });
+        await sleep(250);
+        f.c.querySelector('#q2').focus({ focusVisible: true, preventScroll: true });
+        await sleep(250);
+        if (seen.length !== 2 || seen[1] !== 'q1 to q2') throw new Error(`focusin: ${seen.join('; ') || 'none'}`);
+        if (log.paints - before !== 0) throw new Error(`${log.paints - before} paint events`);
+        return `0 paint events for 2 focus changes. focusin: ${seen.join('; ')}`;
+      },
+    },
+    {
+      name: 'The trail starts and ends where the two elements were drawn',
+      why: 'Two 60 by 30 buttons in a drawable div drawn at 100, 50 at half size. Focus goes from the first to the second. The trail must run between their drawn centres, 115, 57.5 and 115, 82.5.',
+      apart: true,
+      run: async () => {
+        need();
+        const f = rigAlone(`<div style="${ABS}width:200px"><button id="t1" class="av-quiet" style="display:block;width:60px;height:30px;margin:0">a</button><button id="t2" class="av-quiet" style="display:block;width:60px;height:30px;margin:20px 0 0">b</button></div>`);
+        const trail = createTrail(f.c, { request() {}, reduced: () => true });
+        await f.paint((g) => g.drawElementImage(f.kids[0], 100, 50, 100, f.kids[0].offsetHeight / 2));
+        await sleep(250);
+        f.c.querySelector('#t1').focus({ preventScroll: true });
+        f.c.querySelector('#t2').focus({ preventScroll: true });
+        f.g.reset();
+        trail.draw(f.g, 320, 200, performance.now(), {});
+        const { from, to, distance } = trail.state.geometry ?? {};
+        if (!from) throw new Error('the trail has no start');
+        const a = [from.x + from.width / 2, from.y + from.height / 2], b = [to.x + to.width / 2, to.y + to.height / 2];
+        if (!near(a[0], 115) || !near(a[1], 57.5) || !near(b[0], 115) || !near(b[1], 82.5)) throw new Error(`from ${a.map((v) => v.toFixed(1))} to ${b.map((v) => v.toFixed(1))}`);
+        return `from ${a.map((v) => v.toFixed(1)).join(', ')} to ${b.map((v) => v.toFixed(1)).join(', ')}, ${distance.toFixed(1)} px. focusin events: ${trail.state.moves}`;
+      },
+    },
+    {
+      name: 'A button drawn at half size is a target only inside the drawn box',
+      why: 'A 40 by 40 button is drawn at 100, 60 at half size. The target view must report 20 by 20. A point at 110, 70 must hit the button and a point at 130, 90, inside the full-size box, must not.',
+      run: async () => {
+        need();
+        const f = rig(`<button id="half" style="${ABS}width:40px;height:40px;padding:0">x</button>`, { hits: true });
+        await f.paint((g) => g.drawElementImage(f.kids[0], 100, 60, 20, 20));
+        await sleep(60);
+        const [t] = measureTargets(f.c);
+        const inside = at(f, 110, 70), outside = at(f, 130, 90);
+        if (!near(t.width, 20) || !near(t.height, 20) || t.grade !== 'bad') throw new Error(`measured ${t.width.toFixed(1)} by ${t.height.toFixed(1)}, graded ${t.grade}`);
+        if (inside !== f.kids[0] || outside === f.kids[0]) throw new Error(`110, 70 hit ${who(inside)}; 130, 90 hit ${who(outside)}`);
+        return `measured ${t.width.toFixed(0)} by ${t.height.toFixed(0)}, under 24 px. 110, 70 hits the button, 130, 90 hits the ${who(outside)}`;
+      },
+    },
+    {
+      name: 'The source of a control\'s name: label, aria-label, placeholder or nothing',
+      why: 'Six controls: inside a label, named by for=, aria-labelledby, aria-label, placeholder only, nothing. One more label has a for= that matches no id.',
+      run: async () => {
+        need();
+        const f = rig(`<div style="${ABS}width:300px;font:12px sans-serif"><label>A <input id="l1" size="3"></label> <label for="l2">B</label><input id="l2" size="3"> <b id="by">C</b><input id="l3" size="3" aria-labelledby="by">
+          <input id="l4" size="3" aria-label="D"> <input id="l5" size="3" placeholder="E"> <input id="l6" size="3"> <label for="nowhere">G</label></div>`);
+        await f.paint((g) => g.drawElementImage(f.kids[0], 0, 0, 300, f.kids[0].offsetHeight));
+        const r = readLabels(f.c);
+        const got = r.controls.map((c) => `${c.el.id} ${c.kind}${c.name ? ` "${c.name}"` : ''}`).join(', ');
+        const want = 'l1 label "A", l2 label "B", l3 labelledby "C", l4 aria "D", l5 placeholder "E", l6 none';
+        if (got !== want || r.orphans.length !== 1) throw new Error(`${got}. Labels with no control: ${r.orphans.length}`);
+        drawLabels(f.g, f.c, r, { width: 320 });
+        return `${got}. Labels with no control: 1`;
+      },
+    },
+    {
+      name: 'The box of a label\'s words, from a Range, follows the picture',
+      why: 'A label is drawn at 0, 0 at full size and then at 100, 60 at half size. The box of its words must move by the same transform.',
+      run: async () => {
+        need();
+        const f = rig(`<label style="${ABS}width:200px;font:20px sans-serif;padding:10px">Name <input size="4"></label>`);
+        await f.paint((g) => g.drawElementImage(f.kids[0], 0, 0, f.kids[0].offsetWidth, f.kids[0].offsetHeight));
+        await sleep(60);
+        const a = textBox(f.c, f.kids[0]);
+        await f.paint((g) => g.drawElementImage(f.kids[0], 100, 60, f.kids[0].offsetWidth / 2, f.kids[0].offsetHeight / 2));
+        await sleep(60);
+        const b = textBox(f.c, f.kids[0]);
+        if (!near(b.x, 100 + a.x / 2) || !near(b.y, 60 + a.y / 2) || !near(b.width, a.width / 2)) throw new Error(`full size ${a.x.toFixed(1)}, ${a.y.toFixed(1)}, ${a.width.toFixed(1)} wide. Half size ${b.x.toFixed(1)}, ${b.y.toFixed(1)}, ${b.width.toFixed(1)} wide`);
+        return `full size: ${a.x.toFixed(1)}, ${a.y.toFixed(1)}, ${a.width.toFixed(1)} px wide. Half size at 100, 60: ${b.x.toFixed(1)}, ${b.y.toFixed(1)}, ${b.width.toFixed(1)} px wide`;
+      },
+    },
+    {
+      name: 'Headings are collected in tree order with their levels, and a skipped level is marked',
+      why: 'h1, h2, h4, a div with role=heading and aria-level 3, a div with role=heading and no level, an h2 with role=presentation, a hidden h3 and an h2 inside aria-hidden. Expected: A 1, B 2, C 4 skipped, D 3, E 2.',
+      run: async () => {
+        need();
+        const f = rig(`<div style="${ABS}width:300px;font:12px sans-serif"><h1>A</h1><h2>B</h2><h4>C</h4><div role="heading" aria-level="3">D</div><div role="heading">E</div><h2 role="presentation">F</h2><h3 hidden>G</h3><div aria-hidden="true"><h2>H</h2></div></div>`);
+        await f.paint((g) => g.drawElementImage(f.kids[0], 0, 0, 300, Math.min(200, f.kids[0].offsetHeight)));
+        const got = collectHeadings(f.c).map((i) => `${i.text} ${i.level}${i.skipped ? ' skipped' : ''}`).join(', ');
+        if (got !== 'A 1, B 2, C 4 skipped, D 3, E 2') throw new Error(got);
+        return got;
+      },
+    },
+    {
+      name: 'A row of the outline is the heading\'s own pixels, and the article keeps its hit box',
+      why: 'An article with a red h2 and a link. The h2 rectangle is drawn at 200, 100 at half size, then the whole article at 10, 20. The row and the heading must both be red, and a point on the link must return the link.',
+      run: async () => {
+        need();
+        const f = rig(`<div style="${ABS}width:150px;background:#eee;font:14px sans-serif"><p style="margin:0;height:30px">text</p><h2 style="margin:0;height:30px;font-size:16px;background:rgb(255,0,0);color:rgb(255,0,0)">Title</h2><a href="#" id="inart" style="display:block;height:30px">link</a></div>`, { hits: true });
+        const art = f.kids[0];
+        await f.paint((g) => g.drawElementImage(art, 0, 0, 150, 90));
+        await sleep(60);
+        const [item] = measureHeadings(art, collectHeadings(art));
+        await f.paint((g) => {
+          g.drawElementImage(art, 0, item.top, 150, 30, 200, 100, 75, 15);
+          g.drawElementImage(art, 10, 20, 150, 90);
+        });
+        await sleep(60);
+        const row = rgba(f, 237, 107), heading = rgba(f, 85, 65), link = at(f, 60, 95), spot = at(f, 237, 107);
+        if (!isRed(...row) || !isRed(...heading)) throw new Error(`row pixel ${row}, heading pixel ${heading}`);
+        if (link?.id !== 'inart') throw new Error(`the point on the link returned ${who(link)}`);
+        return `heading top measured at ${item.top.toFixed(1)} px in the article. Row pixel ${row.slice(0, 3)}, heading pixel ${heading.slice(0, 3)}. The link takes the hit. The point on the row returns the ${who(spot)}`;
+      },
+    },
+    {
+      name: 'Links drawn with globalAlpha 0 take the hit at their rows and leave no pixels',
+      why: 'A nav with two 44 px links is drawn at 200, 10 with globalAlpha 0. Points in each row must return that link, and the canvas must be empty there.',
+      run: async () => {
+        need();
+        const f = rig(`<nav style="${ABS}width:100px"><a href="#" id="r1" style="display:block;height:44px;background:rgb(255,0,0)">one</a><a href="#" id="r2" style="display:block;height:44px;background:rgb(255,0,0)">two</a></nav>`, { hits: true });
+        await f.paint((g) => { g.globalAlpha = 0; g.drawElementImage(f.kids[0], 200, 10, 100, 88); });
+        await sleep(60);
+        const one = at(f, 250, 30), two = at(f, 250, 75), ink = pixelBox(f.g, (r, g, b, a) => a > 0);
+        if (one?.id !== 'r1' || two?.id !== 'r2') throw new Error(`rows returned ${who(one)} and ${who(two)}`);
+        if (ink) throw new Error(`pixels at ${fmt(ink)}`);
+        return 'row 1 returns the first link, row 2 the second. No pixel of the canvas has any alpha';
+      },
+    },
+    {
+      name: 'After a piece of an element is drawn enlarged, a draw with no ink puts the hit box back',
+      why: 'A drawable div with two buttons is drawn at 20, 20. A piece round the first button is then drawn 1.5 times larger, and the div is drawn again at 20, 20 with globalAlpha 0. A point on the second button must return it.',
+      run: async () => {
+        need();
+        const f = rig(`<div style="${ABS}width:200px;height:120px;background:#eee"><button id="p1" style="${ABS}left:10px;top:10px;width:60px;height:30px">a</button><button id="p2" style="${ABS}left:120px;top:80px;width:60px;height:30px">b</button></div>`, { hits: true });
+        const el = f.kids[0];
+        let hitAfterPiece = null;
+        await f.paint((g) => { g.drawElementImage(el, 20, 20, 200, 120); g.drawElementImage(el, 4, 4, 72, 42, 6, 3, 108, 63); });
+        await sleep(60);
+        hitAfterPiece = at(f, 170, 115);
+        await f.paint((g) => { g.drawElementImage(el, 20, 20, 200, 120); g.drawElementImage(el, 4, 4, 72, 42, 6, 3, 108, 63); g.globalAlpha = 0; g.drawElementImage(el, 20, 20, 200, 120); });
+        await sleep(60);
+        const hit = at(f, 170, 115);
+        if (hit?.id !== 'p2') throw new Error(`the point returned ${who(hit)}`);
+        return `with the no-ink draw the point on the second button returns it. Without it the same point returned the ${who(hitAfterPiece)}`;
+      },
+    },
+    {
+      name: 'An edit to a heading raises a paint event, a change of aria-level does not',
+      why: 'A drawable div with an h2 and a div with role=heading. The text of the h2 is changed, then aria-level of the div.',
+      run: async () => {
+        need();
+        const f = rig(`<div style="${ABS}width:200px;background:#eee;font:14px sans-serif"><h2 style="margin:0">Before</h2><div role="heading" aria-level="3">Sub</div></div>`);
+        const draw = (g) => g.drawElementImage(f.kids[0], 0, 0, 200, f.kids[0].offsetHeight);
+        await f.paint(draw);
+        const log = keep(f, draw);
+        await sleep(150);
+        const a = log.paints;
+        f.c.querySelector('h2').textContent = 'After';
+        await sleep(250);
+        const b = log.paints;
+        f.c.querySelector('[role="heading"]').setAttribute('aria-level', '5');
+        await sleep(250);
+        const c = log.paints, got = collectHeadings(f.c).map((i) => `${i.text} ${i.level}${i.skipped ? ' skipped' : ''}`).join(', ');
+        if (b - a < 1) throw new Error('no paint event for the new text');
+        if (got !== 'After 2, Sub 5 skipped') throw new Error(got);
+        return `text: ${b - a} paint event${b - a === 1 ? '' : 's'}. aria-level: ${c - b}. The headings then read: ${got}`;
+      },
+    },
+    {
+      name: 'Scrolling a container that holds a sticky canvas raises no paint event',
+      why: 'A 160 px scroll container holds a sticky drawable canvas and a 240 px spacer. A 600 px child of the canvas must not add to scrollHeight. scrollTop is set to 90 by script.',
+      run: async () => {
+        need();
+        const box = document.createElement('div');
+        box.style.cssText = 'flex:none;width:200px;height:160px;overflow-y:auto;position:relative';
+        box.innerHTML = `<canvas content="drawable" layoutsubtree width="200" height="160" style="position:sticky;top:0;display:block;width:200px;height:160px"><div drawable style="${ABS}width:180px;height:600px;background:linear-gradient(rgb(255,0,0) 0 50%, #06c 50% 100%)"></div></canvas><div style="height:240px"></div>`;
+        testStage().append(box);
+        const c = box.firstElementChild, g = c.getContext('2d'), tall = c.firstElementChild;
+        let paints = 0;
+        const draw = () => { g.reset(); g.drawElementImage(tall, 0, -box.scrollTop, 180, 600); };
+        await new Promise((resolve) => { c.addEventListener('paint', () => { paints++; draw(); resolve(); }, { once: true }); c.requestPaint(); });
+        c.addEventListener('paint', () => { paints++; draw(); });
+        await sleep(150);
+        const before = paints, height = box.scrollHeight;
+        box.scrollTop = 90;
+        await sleep(300);
+        const raised = paints - before, top = c.getBoundingClientRect().top - box.getBoundingClientRect().top;
+        if (height !== 400) throw new Error(`scrollHeight was ${height}`);
+        if (box.scrollTop !== 90 || Math.abs(top) > 1) throw new Error(`scrollTop ${box.scrollTop}, canvas at ${top.toFixed(1)} px in the container`);
+        if (raised !== 0) throw new Error(`${raised} paint events after the scroll`);
+        return `scrollHeight 400 (160 + 240). After scrollTop = 90 the canvas is still at the top of the container and ${raised} paint events were raised`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

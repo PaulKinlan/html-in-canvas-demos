@@ -107,6 +107,14 @@ The partial strip in the map view of the fifth report is explained by the test b
 | Presenting the canvas | not verified: a software adapter loses the device when it presents, so the button reports "the only WebGPU adapter is a software one" in the test browser. `?webgpu=force` skips that rule |
 | On the test phone (Chrome 159, Android), 20:18, WebGPU route: "I faintly see it" | reported, A159, and not conclusive. In that version the strip was 248 and the word 255 before the shader, a 3 percent difference that can be faintly seen with no HDR at all. The strip is now 254, which cannot be told from 255, and the headroom slider gives the comparison: at 1.0 the word is not visible, and it should appear as the slider rises |
 
+Seventh and eighth reports, 20:26 and 20:29, on `/hdr-glow/repro.html`: "1, 2 and 3 have bars", then "5 and 6 have the same bars. 4 has no bars".
+
+| Result | Label |
+|---|---|
+| A plain float16 Display P3 2D canvas shows 4.0 brighter than 1.0 | reported, A159 |
+| A WebGPU `rgba16float` canvas with tone mapping `extended` does too | reported, A159 |
+| A drawable float16 2D canvas does too, drawn with `fillRect()` and through `drawElementImage()` of an element with CSS colours at 4.0 | reported, A159 |
+
 What the page does now: it reads floats back only when "Read values back" is pressed or the map view is chosen, and its live checks wait for a tap. When a float16 context is lost within 2.5 seconds of a readback, the panel moves into a new float16 canvas, and readback and the map view are switched off on that device (`localStorage`). When it is lost with no readback before, the new canvas is 8-bit and the notice says so (`sessionStorage`). "Reset and reload" clears both. Both paths were tested in the test browser with a dispatched `contextlost` event, not with a real loss.
 
 ## Things that bit
@@ -135,15 +143,15 @@ What the page does now: it reads floats back only when "Read values back" is pre
 - Colour and HDR: a float16 Display P3 2D canvas keeps CSS `color()` values above 1.0 through `drawElementImage()` (measured, C157, `/hdr-glow/`).
 - Colour and HDR: a CSS `filter` or `mix-blend-mode` on the element, `ctx.filter`, `lighter`, a shadow on the draw and `drawImage()` of a float canvas clamp to 1.0; `multiply` and fill shadows do not (measured, C157, `/hdr-glow/`).
 - WebGL and WebGPU: element copies do not carry values above 1.0; `texElementSubImage2D()` refuses float textures (measured, C157, `/hdr-glow/`).
-- Colour and HDR: on Chrome 159 on Android a float16 2D canvas showed values above 1.0 at the brightness of white, with tone mapping `standard` and `extended`. Reduced case at `/hdr-glow/repro.html` (reported, A159, `/hdr-glow/`).
+- Colour and HDR: on Chrome 159 on Android, CSS colour values above 1.0 on an element drawn with `drawElementImage()` into a float16 Display P3 2D canvas are shown brighter than white on an HDR screen. The same for a plain float16 2D canvas and a WebGPU `rgba16float` canvas (reported, A159, `/hdr-glow/repro.html`).
 - Colour and HDR: `/hdr-glow/` has a WebGPU `rgba16float` route where a shader raises an 8-bit element upload (shader measured, C157; on screen not verified).
 
 ## Chromium bugs
 
-- Chrome 159 on Android, screen matching `(dynamic-range: high)`: a float16 Display P3 2D canvas that holds 4.0 times white is shown at the brightness of white. It is the same with tone mapping reported as `standard`, with `extended` (chrome://flags "Experimental Web Platform features") and with `dynamic-range-limit: no-limit` on the canvas (reported, A159, `/hdr-glow/`, three reports with the context line in a screenshot). The values are in the canvas: they read back as floats in Chromium 157, and the map view on the phone coloured them. So the 2D canvas has no route to HDR output there, while an `rgba16float` WebGPU canvas has `toneMapping: { mode: 'extended' }` without a flag. Reduced case with no HTML-in-canvas and no site script: `/hdr-glow/repro.html`, which puts a 2D float16 canvas, the same with `dynamic-range-limit: no-limit`, and a WebGPU canvas side by side, each with bars of 1.0 and 4.0. Not yet run on the phone. Whether this is a bug or the expected state of an unshipped feature (2D canvas `toneMapping` is behind the experimental flag) is not known: the report should ask.
+- No bug found in HDR output (2026-11-21 20:29). On the reduced case `/hdr-glow/repro.html` on the test phone (Chrome 159, Android, screen matching `(dynamic-range: high)`), bars of 1.0 and 4.0 were seen in row 1 (plain float16 Display P3 2D canvas), row 2 (the same with `dynamic-range-limit: no-limit`), row 3 (WebGPU `rgba16float`, tone mapping `extended`), row 5 (a `content="drawable"` float16 canvas drawn with `fillRect()`) and row 6 (a drawable float16 canvas whose picture is an element drawn with `drawElementImage()`). Row 4, a CSS white box, showed none (reported, A159; the state of the experimental flag and whether the word in each row could be read were not reported). So CSS colour values above 1.0 on an element reach the screen above standard white through `drawElementImage()`. The earlier reports that the word in the `/hdr-glow/` strip could not be read (15 pixel letters at 4.0 on 1.0, three reports) are therefore put down to the test: thin letters, or how much headroom the screen had at that brightness. The strip on `/hdr-glow/` now has the same bars. Still to confirm on the phone: the bars in the strip on `/hdr-glow/` itself, where the canvas repaints 15 times a second and the reduced case paints once.
 - Chrome 159 on Android: `getImageData(…, { pixelFormat: 'rgba-float16' })` on a float16 Display P3 2D canvas loses every float16 2D context on the page (reported, A159, `/hdr-glow/`). Needs a reduced page, without HTML-in-canvas if it still reproduces, before filing.
 
 ## API requests
 
-- A 2D canvas needs a shipped way to show its float values above 1.0 on an HDR screen (`toneMapping: { mode: 'extended' }` as on WebGPU). Without it, `drawElementImage()` into a float16 canvas keeps HDR CSS colours that no screen shows, and the only HDR route for HTML-in-canvas is WebGPU, where the element upload clamps to 1.0.
+- (Withdrawn 2026-11-21: a request for a shipped HDR route for the 2D canvas. A plain float16 2D canvas showed bars above 1.0 on the test phone.)
 - `texElementSubImage2D()` should accept `RGBA16F` storage, and `drawElementImageToTexture()` should keep values above 1.0 in a float texture, so that GPU routes can receive HDR CSS colours.
