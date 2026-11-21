@@ -43,6 +43,11 @@
   #glslError { font: 12px var(--mono); color: var(--bad); white-space: pre-wrap; min-height: 1.5em; }
   #backends { font: 12px var(--mono); color: var(--muted); }
   #fixtures { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  /* Reference tables keep their columns on a phone: the first two are short names. */
+  table.fxref { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.fxref th, table.fxref td { text-align: left; padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+  table.fxref td:not(:last-child) { width: 1%; white-space: nowrap; }
+  table.fxref code { font-size: 12px; }
   .chip { background: rgb(255, 204, 0); color: #000; padding: 10px; width: 140px; height: 60px; box-sizing: border-box; font: 13px system-ui; }
 </style>
 </head>
@@ -189,6 +194,117 @@
       <li data-code="/lib/effects.js#ripple"><b>A built-in effect for comparison.</b></li>
     </ol>
   </details>
+  <h2 id="own-page">Use fx on your own page</h2>
+  <p>The library is one file, <a href="/lib/fx.js"><code>/lib/fx.js</code></a>, with no dependencies and no build step. Load it as a module from this site, or download it and serve your own copy. It wraps every element that has an <code>fx</code> attribute, including elements added later.</p>
+<pre><code>&lt;script type="module" src="https://html-in-canvas.page/lib/fx.js"&gt;&lt;/script&gt;
+
+&lt;button fx="ripple"&gt;Still a button&lt;/button&gt;</code></pre>
+  <p>Built-in names: <code>ripple</code>, <code>glass</code>, <code>haze</code>, <code>crt</code>, <code>dissolve</code>, <code>curl</code>, <code>tilt</code> and <code>none</code>. In a browser without HTML-in-canvas the library does nothing and the page stays plain HTML. <a href="/shader-css/standalone.html">This stand-alone page</a> loads only that file; view its source for a complete example.</p>
+
+  <h2 id="add-effect">Add your own effect</h2>
+  <p>An effect is a function that returns the colour of one pixel. Write it in GLSL for WebGL and in WGSL for WebGPU, then register both under one name.</p>
+  <ol class="findings">
+    <li><strong>Write the function.</strong> The GLSL signature is <code>vec4 fx(vec2 p)</code> and the WGSL signature is <code>fn fx(p: vec2f) -&gt; vec4f</code>. <code>p</code> is the pixel's position in CSS pixels from the element's top-left corner. <code>tex(p)</code> returns the element's colour at a position, with premultiplied alpha, and transparent outside the element. Return a premultiplied colour.</li>
+    <li><strong>Register it</strong> with <code>defineEffect(name, { glsl, wgsl })</code>. Calling it again with the same name replaces the effect, and elements that use it are redrawn.
+<pre><code>&lt;script type="module"&gt;
+  import { defineEffect } from 'https://html-in-canvas.page/lib/fx.js';
+
+  defineEffect('wobble', {
+    glsl: `vec4 fx(vec2 p) {
+      float dx = sin(p.y * 0.12 + u_time * 4.0) * 5.0 * u_amount;
+      return tex(p + vec2(dx, 0.0));
+    }`,
+    wgsl: `fn fx(p: vec2f) -&gt; vec4f {
+      let dx = sin(p.y * 0.12 + u.time * 4.0) * 5.0 * u.amount;
+      return tex(p + vec2f(dx, 0.0));
+    }`,
+    bleed: 8,
+  });
+&lt;/script&gt;</code></pre>
+    </li>
+    <li><strong>Or declare it in markup,</strong> with no script of your own. Use one <code>&lt;script&gt;</code> element per language, each with <code>data-effect="name"</code>. The <code>type</code> must be one the browser does not run; a type containing <code>wgsl</code> is read as WGSL and any other as GLSL.
+<pre><code>&lt;script type="text/glsl" data-effect="stripes"&gt;
+vec4 fx(vec2 p) {
+  vec4 c = tex(p);
+  float stripe = step(0.5, fract((p.x + p.y) / 16.0));
+  c.rgb *= 1.0 - 0.3 * stripe * u_amount;
+  return c;
+}
+&lt;/script&gt;
+&lt;script type="text/wgsl" data-effect="stripes"&gt;
+fn fx(p: vec2f) -&gt; vec4f {
+  let c = tex(p);
+  let stripe = step(0.5, fract((p.x + p.y) / 16.0));
+  return vec4f(c.rgb * (1.0 - 0.3 * stripe * u.amount), c.a);
+}
+&lt;/script&gt;</code></pre>
+      <code>fx="#id"</code> reads a single <code>&lt;script id&gt;</code>, and <code>fx="url(wobble.frag)"</code> or <code>fx="url(wobble.wgsl)"</code> fetches a file. Both forms hold one language only.
+    </li>
+    <li><strong>Use the name, and set the inputs from CSS.</strong> The four custom properties are registered as numbers, so transitions, animations and <code>:hover</code> change the shader input.
+<pre><code>&lt;div fx="wobble" class="card"&gt;…&lt;/div&gt;
+
+&lt;style&gt;
+  .card { --fx-amount: 0.4; transition: --fx-amount 300ms; }
+  .card:hover { --fx-amount: 1.5; }
+&lt;/style&gt;</code></pre>
+    </li>
+  </ol>
+
+  <h3>Inputs</h3>
+  <p>The same values are available in both languages. GLSL has them as separate uniforms and WGSL as fields of one struct, <code>u</code>.</p>
+  <table class="fxref">
+    <thead><tr><th>GLSL</th><th>WGSL</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td><code>p</code></td><td><code>p</code></td><td>Position of the pixel in CSS px from the element's top-left. It is negative or larger than the size inside the <code>bleed</code> margin.</td></tr>
+      <tr><td><code>tex(p)</code></td><td><code>tex(p)</code></td><td>The element's colour at <code>p</code>, premultiplied. Transparent outside the element.</td></tr>
+      <tr><td><code>u_size</code></td><td><code>u.size</code></td><td>Element width and height in CSS px.</td></tr>
+      <tr><td><code>u_time</code></td><td><code>u.time</code></td><td>Seconds since the library loaded. Stays 0 when the visitor asks for reduced motion.</td></tr>
+      <tr><td><code>u_progress</code></td><td><code>u.progress</code></td><td><code>--fx-progress</code> on the element. Default 0.</td></tr>
+      <tr><td><code>u_amount</code></td><td><code>u.amount</code></td><td><code>--fx-amount</code>. Default 1.</td></tr>
+      <tr><td><code>u_xy</code></td><td><code>u.xy</code></td><td><code>--fx-x</code> and <code>--fx-y</code>. Default 0, 0.</td></tr>
+      <tr><td><code>u_pointer</code></td><td><code>u.pointer</code></td><td>Pointer position in the same px as <code>p</code>. (-10000, -10000) when no pointer is over the element.</td></tr>
+      <tr><td><code>u_hover</code></td><td><code>u.hover</code></td><td>0 to 1. Eases to 1 while a pointer is over the element and back to 0 after.</td></tr>
+      <tr><td><code>u_clicks[i]</code></td><td><code>u.clicks[i]</code></td><td>The last four presses, <code>i</code> from 0 to 3: <code>.xy</code> is the position and <code>.z</code> the age in seconds. <code>.z</code> is -1 for an unused entry. A press is dropped after 2.6 seconds.</td></tr>
+      <tr><td><code>unproject(p)</code></td><td><code>unproject(p)</code></td><td>For an effect with a <code>geometry</code> function: the point of the element drawn at screen position <code>p</code>.</td></tr>
+      <tr><td><code>hash(p)</code><br><code>noise(p)</code><br><code>fbm(p)</code></td><td>the same</td><td>Value noise helpers that return 0 to 1.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Options</h3>
+  <table class="fxref">
+    <thead><tr><th>Option</th><th>Type</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>glsl</code></td><td>string</td><td>The WebGL version of the function.</td></tr>
+      <tr><td><code>wgsl</code></td><td>string</td><td>The WebGPU version of the function.</td></tr>
+      <tr><td><code>animated</code></td><td>boolean</td><td>Redraw every frame. Defaults to true when the source uses <code>u_time</code> or <code>u.time</code>. An effect that is not animated is redrawn when the element repaints or an input changes.</td></tr>
+      <tr><td><code>bleed</code></td><td>number</td><td>CSS px of extra canvas on every side of the element. Set it when the effect draws outside the element's box, for example a displacement or a glow. Default 0. <code>fx-bleed="12"</code> on an element overrides it.</td></tr>
+      <tr><td><code>geometry</code></td><td>function</td><td><code>({ width, height, pointer, hover, progress, amount, x, y }) =&gt; DOMMatrix</code>. Where the element appears on screen. The matrix is given to <code>updateElementGeometry()</code>, so clicks follow the picture, and the shader gets its inverse as <code>unproject(p)</code>. The built-in <code>tilt</code> uses it. Without it the element is hit tested at its layout box.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Which route draws it, and errors</h3>
+  <ul class="findings">
+    <li><strong>Both languages:</strong> the element is drawn with WebGPU where the browser has a usable WebGPU device, and with WebGL elsewhere.</li>
+    <li><strong>GLSL only:</strong> the element is always drawn with WebGL.</li>
+    <li><strong>WGSL only:</strong> the element is shaded on WebGPU. Where the browser falls back to WebGL, it is drawn without the effect.</li>
+    <li><strong>A function that does not compile:</strong> the element is drawn without the effect, and the compiler's message is logged to the console once. It is also on the wrapper: <code>element.closest('fx-surface').error</code>. The wrapper's <code>backend</code> property is <code>'webgpu'</code>, <code>'direct'</code> or <code>'shared'</code>, and <code>gpuNote</code> says why WebGPU is not in use.</li>
+    <li><strong><code>fx-backend="webgpu"</code> or <code>fx-backend="gl"</code></strong> on the element picks a route by hand, which helps when the two versions of a function need comparing.</li>
+    <li><strong>One copy per page.</strong> A second copy of the library on the same page logs a warning and does nothing. Import <code>defineEffect</code> from the same URL as the <code>&lt;script&gt;</code> tag.</li>
+  </ul>
+
+  <details class="show-code">
+    <summary>Show the code <small>a page that uses only /lib/fx.js</small></summary>
+    <ol>
+      <li data-code="/shader-css/standalone.html#include"><b>Load the one file.</b></li>
+      <li data-code="/shader-css/standalone.html#declared"><b>Declare an effect in markup, in both languages.</b></li>
+      <li data-code="/shader-css/standalone.html#define"><b>Define an effect from script, in both languages.</b></li>
+      <li data-code="/shader-css/standalone.html#use"><b>Put the names in <code>fx</code>.</b></li>
+      <li data-code="/shader-css/standalone.html#css"><b>Drive an input from CSS.</b></li>
+      <li data-code="/lib/effects.js#declared"><b>Inside the library: how a name finds its <code>&lt;script data-effect&gt;</code> elements.</b></li>
+      <li data-code="/shader-css/standalone.html"><b>The whole page.</b></li>
+    </ol>
+  </details>
+
   <h2 id="how">How it works</h2>
   <ul class="findings">
     <li><strong>The attribute wraps the element.</strong> A MutationObserver finds <code>[fx]</code> and wraps the element in <code>&lt;fx-surface&gt;</code>, which slots it into a canvas the same size. Remove the attribute and it is unwrapped.</li>
@@ -207,7 +323,7 @@
   // #region page
   import { FxSurface, defineEffect } from '/lib/shader-fx.js';
   // #endregion page
-  import { checkEffectWGSL } from '/lib/effects.js';
+  import { checkEffectWGSL, effects } from '/lib/effects.js';
   import { webgpu } from '/shared/backend.js';
   import { routeSwitch } from '/shared/route-switch.js';
   import { pictureDifference } from '/lib/gpu-util.js';
@@ -573,6 +689,59 @@
           if (!(inv[0] < 20 && inv[2] > 235)) throw new Error(`inverted pixel is ${inv}`);
           if (!bad.s.error || !isYellow(plain)) throw new Error(`broken shader: error=${!!bad.s.error}, pixel ${plain}`);
           return `inverted → ${inv.slice(0, 3)}; broken shader reported an error and drew the element unshaded`;
+        },
+      },
+      {
+        name: 'An effect declared in markup, in both languages',
+        why: 'Two <script data-effect="name"> elements, one GLSL and one WGSL, and no defineEffect() call. WebGL draws the GLSL one; where a WebGPU adapter exists, the WGSL one is drawn off screen and compared.',
+        timeout: 10000,
+        run: async () => {
+          for (const [type, code] of [['text/glsl', 'vec4 fx(vec2 p) { return tex(p).bgra; }'], ['text/wgsl', 'fn fx(p: vec2f) -> vec4f { return tex(p).bgra; }']]) {
+            const el = document.createElement('script');
+            el.type = type;
+            el.dataset.effect = 'test-declared';
+            el.textContent = code;
+            fixtures.append(el);
+          }
+          const gl = await fixture('fx="test-declared" fx-backend="direct"');
+          const p = read(gl.s, 4, 4);
+          const def = effects.get('test-declared');
+          if (!def?.glsl || !def?.wgsl) throw new Error(`registered with glsl: ${!!def?.glsl}, wgsl: ${!!def?.wgsl}`);
+          // rgb(255,204,0) with red and blue swapped is rgb(0,204,255)
+          if (!(p[0] < 20 && p[1] > 185 && p[2] > 235)) throw new Error(`WebGL pixel ${p} (expected about 0,204,255)`);
+          const gpu = await fixture('fx="test-declared" fx-offscreen');
+          for (let i = 0; i < 40 && gpu.s.backend !== 'webgpu' && !gpu.s.gpuNote; i++) await sleep(50);
+          if (gpu.s.backend !== 'webgpu') return `both sources registered from markup; WebGL pixel ${p.slice(0, 3)}. WebGPU not compared here: ${gpu.s.gpuNote || 'it did not start'}`;
+          await sleep(80);
+          const d = pictureDifference(await gl.s.readback(), await gpu.s.readback());
+          if (d.ink < 0.1 || d.mean > 1.5) throw new Error(`WGSL against GLSL: ink ${d.ink.toFixed(2)}, mean difference ${d.mean.toFixed(2)} of 255`);
+          return `both sources registered from markup; WebGL pixel ${p.slice(0, 3)}; WGSL against GLSL mean difference ${d.mean.toFixed(2)} of 255`;
+        },
+      },
+      {
+        name: 'The one-file build, /lib/fx.js, on a page of its own',
+        why: 'The stand-alone example page is loaded in a frame. It includes only /lib/fx.js and uses a built-in effect, one declared in markup and one defined from script. Each must be wrapped and drawn with no error, and no other script may be fetched.',
+        timeout: 12000,
+        run: async () => {
+          const frame = document.createElement('iframe');
+          frame.src = '/shader-css/standalone.html';
+          frame.title = 'Stand-alone fx example';
+          frame.style.cssText = 'width:300px;height:330px;border:1px solid var(--line)';
+          fixtures.append(frame);
+          let rows = [];
+          for (let i = 0; i < 100; i++) {
+            await sleep(100);
+            rows = frame.contentWindow?.__standalone ?? [];
+            if (rows.length === 3 && rows.every((r) => r.backend && r.frames > 0)) break;
+          }
+          if (rows.length !== 3) throw new Error(`the page reported ${rows.length} of 3 elements`);
+          const bad = rows.filter((r) => !r.backend || !(r.frames > 0) || r.error);
+          if (bad.length) throw new Error(bad.map((r) => `fx="${r.name}": ${r.note}, ${r.frames ?? 0} frames`).join('; '));
+          const scripts = frame.contentWindow.performance.getEntriesByType('resource').map((e) => new URL(e.name).pathname).filter((n) => n.endsWith('.js'));
+          if (scripts.join() !== '/lib/fx.js') throw new Error(`scripts fetched: ${scripts.join(', ')}`);
+          const bleed = frame.contentDocument.querySelector('#wobbly').closest('fx-surface').bleed;
+          if (bleed !== 8) throw new Error(`the effect defined after the element was wrapped asked for bleed 8, the canvas has ${bleed}`);
+          return rows.map((r) => `${r.name}: ${r.backend}`).join(', ') + '; one script fetched, /lib/fx.js';
         },
       },
       {
