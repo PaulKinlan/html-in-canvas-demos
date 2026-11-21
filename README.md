@@ -82,6 +82,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/three-form/` | A live form on a laptop screen, a billboard and a curved wall in three.js (WebGL or `?renderer=webgpu`), via `lib/html3d.js` |
 | `/board/` | An infinite zoomable board whose tiles are live notes and iframes |
 | `/xr/` | WebXR panels made of HTML, with controller rays, an on-panel keyboard and a built-in headset emulator (`?emulate=1`) |
+| `/xr-room/` | WebXR panels that use the room: fingertip presses from hand tracking, snapping to detected walls and tables, anchors, depth occlusion and an XR quad layer. Runs in a simulated room and in the emulator; a device is needed for the rest |
 | `/slot-view/` | `<slot-view src name>`: a live piece of another site with no iframe box, consent on the providing side, input forwarded ([protocol](public/slot-view/PROTOCOL.md)) |
 | `/pip/` | `pipElement(el)`: picture-in-picture for any element, moved for real, as a live picture, or as a video |
 | `/video/` | A `<video controls>` with captions as a canvas child under a shader. What is drawn (frames, controls, `::cue`), and what is left out (cross-origin, encrypted) |
