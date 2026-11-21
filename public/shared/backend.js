@@ -51,8 +51,8 @@ export function webgpu({ force = false, compat = false, features = false } = {})
   // it and every WebGL context with it, and a compatibility one fails core-only shaders.
   if (force && compat) return once(`forced-compat${f}`, () => open({ force: true, compat: true, features }));
   if (force) return once(`forced${f}`, () => page().then((gpu) => gpu ?? open({ force: true, features })));
-  if (compat === 'only') return once(`compat-only${f}`, () => open({ compat: true, features }));
-  if (compat) return once(`compat${f}`, () => page().then((gpu) => gpu ?? ((features ? webgpu.featuresReason : webgpu.reason) === NO_ADAPTER ? webgpu({ compat: 'only', features }) : null)));
+  if (compat === 'only') return once(`compat-only${f}`, () => open({ compat: true, features, byName: true }));
+  if (compat) return once(`compat${f}`, () => page().then((gpu) => gpu ?? ((features ? webgpu.featuresReason : webgpu.reason) === NO_ADAPTER ? once(`compat-fallback${f}`, () => open({ compat: true, features })) : null)));
   return page();
 }
 const NO_ADAPTER = 'WebGPU found no graphics adapter';
@@ -68,7 +68,7 @@ function once(key, make) {
   return attempts.get(key);
 }
 
-async function open({ force = false, compat = false, features = false }) {
+async function open({ force = false, compat = false, features = false, byName = false }) {
   const mine = !force && !compat; // only a page's own device reports through webgpu.reason
   const say = (reason) => (features ? (webgpu.featuresReason = reason) : (webgpu.reason = reason));
   const no = (reason) => {
@@ -78,6 +78,11 @@ async function open({ force = false, compat = false, features = false }) {
   };
   try {
     if (!navigator.gpu) return no('this browser has no WebGPU');
+    // A device lost a moment ago is not tried again (see lostBefore()), unless the route was asked for by name.
+    if (!force && !byName) {
+      const before = lostBefore();
+      if (before) return no(before);
+    }
     const adapter = await navigator.gpu.requestAdapter(compat ? { featureLevel: 'compatibility' } : { powerPreference: 'high-performance' });
     if (!adapter) return no(compat ? 'WebGPU found no compatibility mode adapter' : NO_ADAPTER);
     const info = adapter.info ?? {};
@@ -90,6 +95,7 @@ async function open({ force = false, compat = false, features = false }) {
     device.lost.then((e) => {
       gpu.lost = true;
       if (mine) say(`the WebGPU device was lost (${e.message || e.reason})`);
+      if (!force && e.reason !== 'destroyed') rememberLoss(e.message || e.reason || 'no reason given');
       dispatchEvent(new CustomEvent('webgpulost', { detail: e }));
     });
     if (!force) {
@@ -103,6 +109,29 @@ async function open({ force = false, compat = false, features = false }) {
     return gpu;
   } catch (err) {
     return no(`WebGPU failed to start (${err.message})`);
+  }
+}
+
+// A device that was lost on this phone is likely to be lost again on the next
+// page, and a lost device can take the page's WebGL contexts and large 2D
+// canvases with it. So after a loss the tab uses WebGL for ten minutes.
+// ?webgpu=retry forgets the loss.
+const LOSS_KEY = 'webgpu-lost';
+const LOSS_MS = 10 * 60 * 1000;
+function rememberLoss(message) {
+  try { sessionStorage.setItem(LOSS_KEY, JSON.stringify({ at: Date.now(), message })); } catch {}
+}
+function lostBefore() {
+  try {
+    if (new URLSearchParams(location.search).get('webgpu') === 'retry') sessionStorage.removeItem(LOSS_KEY);
+    const loss = JSON.parse(sessionStorage.getItem(LOSS_KEY) ?? 'null');
+    if (!loss) return '';
+    const age = Date.now() - loss.at;
+    if (age > LOSS_MS) { sessionStorage.removeItem(LOSS_KEY); return ''; }
+    const mins = Math.max(1, Math.round(age / 60000));
+    return `the WebGPU device was lost ${mins} min ago in this tab (${loss.message}); add ?webgpu=retry to the address to use WebGPU again`;
+  } catch {
+    return '';
   }
 }
 
@@ -127,13 +156,22 @@ async function selfTest({ device, format }) {
   return '';
 }
 
+// Asked once. The probe's context is given back at once: Chrome on Android
+// keeps 8 WebGL contexts per tab, and a probe left to the garbage collector
+// counts as one of them.
+let hasWebGL2 = null;
 /** True when a WebGL 2 context can be made. */
 export function webgl2() {
+  if (hasWebGL2 !== null) return hasWebGL2;
   try {
-    return !!document.createElement('canvas').getContext('webgl2');
+    // This canvas is never in a page and has no children, so losing its context is safe.
+    const gl = document.createElement('canvas').getContext('webgl2');
+    hasWebGL2 = !!gl;
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
   } catch {
-    return false;
+    hasWebGL2 = false;
   }
+  return hasWebGL2;
 }
 
 /**

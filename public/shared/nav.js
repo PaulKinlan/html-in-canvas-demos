@@ -10,6 +10,15 @@
   window.__siteNav = true;
   var base = (document.currentScript && document.currentScript.src) ? new URL('.', document.currentScript.src).href : '/shared/';
 
+  // /shared/context-guard.js has to run before any page script makes a canvas
+  // context. While the page is still being parsed, document.write() is the one
+  // way to load a script that runs before the scripts after this one, module
+  // scripts included.
+  if (!window.__gfx) {
+    if (document.currentScript && document.readyState === 'loading') document.write('<script src="' + base + 'context-guard.js"><\/script>');
+    else { var cg = document.createElement('script'); cg.src = base + 'context-guard.js'; document.head.appendChild(cg); }
+  }
+
   var css = '\
 #site-nav{position:sticky;top:0;z-index:2147483000;font:14px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1d1c1a;background:rgba(246,244,239,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:1px solid #ddd8cf;}\
 #site-nav *{box-sizing:border-box}\
