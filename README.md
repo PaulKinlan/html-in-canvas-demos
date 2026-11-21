@@ -56,6 +56,8 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/a11y/` | Accessibility audit: API probes, a pattern-by-pattern table (tree, focus order, find, selection, zoom), the same audit run over every demo, and a by-hand checklist |
 | `/capture/` | Any element or a whole page to PNG (up to print quality), video (MediaRecorder or frame-exact WebCodecs) or print with one call |
 | `/perf/` | Performance wall: how many live elements before frames drop; DOM vs 2D canvas vs worker |
+| `/elements/` | Every HTML element, input type and a few attributes inside a drawable canvas: drawn or not, hit testing, real clicks and keys, and one idea per element. `ELEMENTS.md` is the same table as Markdown; `npm run record:elements` re-records it |
+| `/element-ideas/` | 17 ideas from the element catalogue built with the real elements: picker wheel, mixing desk, step sequencer, CRT textarea, in-canvas dialog, anchored popovers, inert, find and camera, MathML, video, image map, cover flow, radial menu, table bar chart, ins and del, editable style, marquee ticker. `npm run check:ideas` drives each with real input |
 | `/transitions/` | `<live-transition>`: shatter, fold, burn, morph or your own fragment shader between two states that both stay live and clickable |
 | `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
@@ -78,6 +80,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
 | `/player-fx/` | One WebGL shader over the native controls and the video frame as two textures from one `<video>`: the play button grows into a lens, the controls refract, melt into and light the picture. Finds the box of each control without script access |
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
+| `/component-kit/` | One drawable custom element written with a scoped registry, manual slot assignment, Reference Target, `using`, Observable and `moveBefore()`, and again without them, with the lines each feature removes |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
