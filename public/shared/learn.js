@@ -83,6 +83,7 @@
 
       // --- devices ---
       '/fold/': { question: 'What can a canvas that draws live DOM do with the posture and the viewport segments of a foldable: place panes on each half, draw one element across the hinge, and keep input working on a tilted half?', result: 'All three work with a simulated fold. A real foldable has not been tried.', first: ['/start/', '/physical/'], api: ['navigator.devicePosture', 'viewport.segments', 'drawElementImage()', 'updateElementGeometry()'] },
+      '/hardware-out/': { question: 'Can ordinary HTML be the interface of a device that is not a browser window: a key pad with a display in each key, a receipt printer, an LED matrix?', result: 'Yes as far as the bytes: three canvases are converted to HID reports, ESC/POS and RGB565, and simulated devices are drawn from them. No real device has been tried.', first: ['/start/', '/capture/'], api: ['drawElementImage()', 'paint', 'event.changedElements', 'WebHID', 'Web Serial'] },
 
       // --- audit ---
       '/a11y/': { question: 'Which accessibility features work for DOM drawn in a canvas, and which techniques on this site break them?', first: ['/start/'], api: ['accessibility tree', 'focus', 'forced-colors'] },

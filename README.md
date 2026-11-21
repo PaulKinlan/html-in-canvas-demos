@@ -51,6 +51,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
 | `/fold/` | Two panes placed by `navigator.devicePosture` and `viewport.segments`, and one element drawn across a hinge, with a fold control that stands in for a foldable (`lib/fold-view.js`) |
+| `/hardware-out/` | HTML buttons as Stream Deck keys (WebHID reports), an element as ESC/POS dots for a receipt printer, a CSS ticker as RGB565 frames for an LED matrix, each with a simulated device drawn from the bytes (`lib/device-out.js`) |
 | `/select/` | `<select picker="wheel">`: a customisable select whose options are drawn by a canvas inside the picker (wheel, fisheye list, radial, 3D carousel, hand of cards, colour grid, helix); a canvas in the button; a canvas inside each option; a select drawn in a canvas |
 | `/datalist/` | `<input list picker="list">`: datalist suggestions drawn one option at a time by a canvas in a popover; datalist options as tick labels of a range input |
 | `/inputs/` | `<input type="time" picker="clock">`, `type="date" picker="calendar"`, `type="color" picker="swatches"`: pickers made of buttons in a canvas; every built-in form control drawn rotated in a canvas |

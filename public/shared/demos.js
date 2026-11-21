@@ -83,6 +83,7 @@ window.DEMOS = [
 
   // --- devices ---
   { group: 'devices', href: '/fold/', title: 'DOM drawn across a fold', blurb: 'Two panes placed by <code>devicePosture</code> and <code>viewport.segments</code>, and one element drawn across the hinge. A fold control stands in for the device: buttons and text fields work on a half drawn at 100°.', tags: ['devicePosture', 'viewport.segments', 'updateElementGeometry'] },
+  { group: 'devices', href: '/hardware-out/', title: 'Live DOM on physical devices', blurb: 'HTML buttons as the keys of a Stream Deck, an element printed by a receipt printer and a CSS ticker on an LED matrix. Each canvas is converted to the bytes its device accepts, and a simulated device is drawn from those bytes.', tags: ['WebHID', 'Web Serial', 'changedElements', 'getImageData'] },
 
   // --- audit ---
   { group: 'audit', href: '/a11y/', title: 'Accessibility audit', blurb: 'Is DOM in a canvas still DOM? Probes of focus, selection, find, zoom and forced colours, a table of how each pattern on this site holds up, the same audit run over every demo, and a short list to try with a screen reader.', tags: ['accessibility tree', 'focus', 'forced-colors'] },

@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live DOM on physical devices</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; align-items: start; }
+  .pair figure { margin: 0; padding: 10px; min-width: 0; }
+  .pair figcaption { font-size: 13px; color: var(--muted); margin-bottom: 8px; min-height: 2.6em; }
+  .hw { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0 4px; }
+  .hw button, .hw select { min-height: 44px; font: inherit; }
+  .hw select { border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); padding: 0 8px; }
+  .bytes { font: 12.5px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; min-height: 3em; margin: 6px 0 0; }
+  .lost:empty { display: none; }
+  .lost { color: var(--bad); font-size: 14px; }
+
+  /* #region deck-css */
+  /* The key pad: 15 ordinary buttons in a grid. The canvas draws each into 72 x 72 pixels. */
+  #deckSrc { display: block; width: min(100%, 360px); aspect-ratio: 5 / 3; touch-action: manipulation; }
+  #keys { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(3, 1fr); width: 100%; height: 100%; }
+  #keys button {
+    all: unset; box-sizing: border-box; display: grid; place-content: center; text-align: center; overflow: hidden;
+    font: 700 13px/1.15 system-ui, sans-serif; color: #fff; background: #20242c; cursor: pointer;
+  }
+  #keys button small { display: block; font: 600 11px var(--mono); opacity: .85; }
+  #keys button b { font-size: 22px; }
+  #keys button.item { background: #1d4f8f; }
+  #keys button.item[data-n]:not([data-n="0"]) { background: #2f7de0; }
+  #keys button[aria-pressed=true] { background: #c2410c; }
+  #keys button.go { background: #15803d; }
+  #keys button.show { background: #000; cursor: default; }
+  #keys button.held { filter: brightness(1.7); }
+  #keys.light button { background: #e7e9ee; color: #111; }
+  #keys.light button.item { background: #bcd7ff; }
+  #keys.light button.show { background: #fff; }
+  #open span { display: inline-block; animation: pulse 1.2s ease-in-out infinite alternate; color: #4ade80; }
+  @keyframes pulse { from { transform: scale(.7); opacity: .4; } to { transform: scale(1.15); opacity: 1; } }
+  /* #endregion deck-css */
+  #deckSim { display: block; width: min(100%, 468px); border-radius: 14px; touch-action: none; cursor: pointer; }
+
+  /* #region receipt-css */
+  /* The receipt is a normal element. It is printed as it looks. */
+  #receiptSrc { display: block; width: min(100%, 384px); height: 420px; background: #fff; }
+  #receipt { position: absolute; left: 0; top: 0; width: 100%; box-sizing: border-box; padding: 14px 16px 18px; background: #fff; color: #000; font: 15px/1.35 ui-monospace, Menlo, Consolas, monospace; }
+  #receipt h3 { margin: 0; text-align: center; font: 800 26px/1.1 system-ui, sans-serif; letter-spacing: .04em; }
+  #receipt .sub { text-align: center; margin: 2px 0 8px; }
+  #receipt table { width: 100%; border-collapse: collapse; }
+  #receipt td { padding: 2px 0; } #receipt td:last-child { text-align: right; }
+  #receipt .rule td { border-top: 2px dashed #000; padding-top: 6px; }
+  #receipt .total td { font: 800 20px system-ui, sans-serif; }
+  #receipt .shade { background: linear-gradient(90deg, #000, #fff); height: 14px; margin: 10px 0 6px; }
+  #receipt label { display: flex; gap: 8px; align-items: baseline; margin-top: 8px; }
+  #receipt input { all: unset; flex: 1; min-width: 0; min-height: 32px; border-bottom: 2px dotted #000; font: inherit; font-weight: 700; }
+  #receipt .thanks { text-align: center; margin-top: 10px; }
+  /* #endregion receipt-css */
+  #paperBox { height: 420px; overflow-y: auto; background: #5b5f66; border-radius: 8px; padding: 0 12px 12px; }
+  #paper { display: block; width: 100%; max-width: 384px; margin: 0 auto; background: #fbfaf5; image-rendering: pixelated; box-shadow: 0 4px 14px #0006; }
+
+  /* #region matrix-css */
+  /* The sign is 64 x 32 pixels. The element is laid out five times larger and drawn small. */
+  #matrixSrc { display: block; width: min(100%, 320px); aspect-ratio: 2 / 1; background: #000; image-rendering: pixelated; }
+  #sign { position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden; background: #000; color: #ffb000; font: 800 78px/1 system-ui, sans-serif; white-space: nowrap; container-type: size; }
+  #sign .top { position: absolute; left: 3cqw; top: 5cqh; font-size: 28cqh; color: #3ddc97; }
+  #sign .run { position: absolute; left: 0; top: 40cqh; font-size: 58cqh; animation: run 9s linear infinite; }
+  @keyframes run { from { transform: translateX(100cqw); } to { transform: translateX(-100%); } }
+  /* #endregion matrix-css */
+  #matrixSim { display: block; width: min(100%, 640px); aspect-ratio: 2 / 1; background: #000; border-radius: 6px; }
+  #message { font: inherit; min-height: 44px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); flex: 1 1 200px; min-width: 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Live DOM on physical devices</h1>
+  <p class="lede">
+    A canvas that draws HTML can also hand its pixels to a device that is not a screen in a browser window. This page asks whether ordinary
+    HTML can be the interface of three such devices: a key pad with a small display in every key, a receipt printer and an LED matrix sign.
+    The three canvases below hold a small shop till. Each is converted to the bytes its device accepts, and a simulated device next to it is
+    drawn from those bytes. Press the keys of the simulated key pad: each press clicks the HTML button it shows.
+  </p>
+
+  <h2 id="deck">A key pad: one HTML button per key</h2>
+  <p>
+    The left canvas holds fifteen <code>&lt;button&gt;</code> elements and draws each into a 72 × 72 pixel square. The <code>paint</code> event
+    lists the buttons that changed. Ten times a second the page compares the pixels of those keys with what it last sent. A key that differs
+    is encoded as a JPEG and split into 1,024-byte HID output reports, the format of a 15-key Stream Deck. The right picture is drawn only from those reports. A press on it produces the input report a
+    device would send, and the page answers that report with <code>click()</code> on the button.
+  </p>
+  <div class="pair">
+    <figure class="stage">
+      <figcaption>The DOM. Fifteen buttons in a canvas, 360 × 216 pixels. They can be pressed here too.</figcaption>
+      <!-- #region deck-markup -->
+      <canvas id="deckSrc" width="360" height="216" content="drawable" layoutsubtree>
+        <div id="keys">
+          <button type="button" class="show" id="clock" drawable><b>00:00</b><small>:00</small></button>
+          <button type="button" class="item" data-item="Flat white" data-price="3.2" data-n="0" drawable>Flat white<small>0</small></button>
+          <button type="button" class="item" data-item="Tea" data-price="2.4" data-n="0" drawable>Tea<small>0</small></button>
+          <button type="button" class="item" data-item="Bun" data-price="2.8" data-n="0" drawable>Bun<small>0</small></button>
+          <button type="button" id="clear" drawable>Clear</button>
+          <button type="button" id="remove" aria-pressed="false" drawable>Remove<small>off</small></button>
+          <button type="button" class="show" id="totalKey" drawable><small>Total</small><b>£0.00</b></button>
+          <button type="button" id="discount" aria-pressed="false" drawable>10% off<small>off</small></button>
+          <button type="button" id="theme" drawable>Light keys</button>
+          <button type="button" class="show" id="open" drawable><span>●</span><small>open</small></button>
+          <button type="button" id="dim" drawable><b>−</b><small>dimmer</small></button>
+          <button type="button" class="show" id="level" drawable><small>Brightness</small><b>80</b></button>
+          <button type="button" id="bright" drawable><b>+</b><small>brighter</small></button>
+          <button type="button" class="go" id="printKey" drawable>Print<small>receipt</small></button>
+          <button type="button" class="go" id="callKey" drawable>Call<small>order 41</small></button>
+        </div>
+      </canvas>
+      <!-- #endregion deck-markup -->
+    </figure>
+    <figure class="stage">
+      <figcaption>Simulated key pad, drawn from the HID reports. Press a key.</figcaption>
+      <canvas id="deckSim" width="468" height="288" role="img" aria-label="Simulated 15-key pad. Each key shows the picture that was sent for it."></canvas>
+    </figure>
+  </div>
+  <p class="lost" id="deckLost"></p>
+  <p class="bytes" id="deckBytes">Nothing sent yet.</p>
+  <div class="hw">
+    <button type="button" id="deckConnect">Connect a Stream Deck (WebHID)</button>
+    <span class="note" id="deckStatus"></span>
+  </div>
+  <details class="show-code">
+    <summary>Show the code <small>HTML buttons to HID reports and back</small></summary>
+    <ol>
+      <li data-code="#deck-markup"><b>Fifteen buttons in a canvas.</b> Each has the <code>drawable</code> attribute so that it can be drawn by itself.</li>
+      <li data-code="#deck-css"><b>The keys are styled with CSS.</b> One has a CSS animation.</li>
+      <li data-code="#deck-draw"><b>Draw each button into its 72 × 72 square</b> when the canvas fires <code>paint</code>, and note which buttons changed.</li>
+      <li data-code="#deck-send"><b>Compare the pixels of those keys, encode each one that differs as a JPEG and send it.</b> The simulated device and a real one get the same calls.</li>
+      <li data-code="/lib/device-out.js#deck"><b>Inside the library: the report layout.</b> <code>Reader</code> is what the simulated device uses to put a key image back together.</li>
+      <li data-code="#deck-input"><b>An input report clicks the button.</b></li>
+      <li data-code="#deck-hid"><b>Connect a real device with WebHID.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="printer">A receipt printer: an element printed as it looks</h2>
+  <p>
+    The receipt is an HTML element with a table, a gradient and a text field. Add items with the key pad above and type a name in the field.
+    "Print" reads the canvas, turns every pixel into one black or white dot, and builds ESC/POS bytes with the <code>GS v 0</code> raster
+    command. The simulated printer on the right parses those bytes and prints the dots it finds in them.
+  </p>
+  <div class="pair">
+    <figure class="stage">
+      <figcaption>The DOM. One element in a canvas that is as wide as the print head has dots.</figcaption>
+      <!-- #region receipt-markup -->
+      <canvas id="receiptSrc" width="384" height="420" content="drawable" layoutsubtree>
+        <article id="receipt" drawable>
+          <h3>CANVAS CAFÉ</h3>
+          <p class="sub">Order <span id="orderNo">41</span> · <time id="when"></time></p>
+          <table><tbody id="lines"></tbody></table>
+          <div class="shade"></div>
+          <label>Name <input id="who" placeholder="type here" enterkeyhint="done" autocomplete="off"></label>
+          <p class="thanks">Thank you</p>
+        </article>
+      </canvas>
+      <!-- #endregion receipt-markup -->
+    </figure>
+    <figure class="stage">
+      <figcaption>Simulated printer, drawn from the ESC/POS bytes.</figcaption>
+      <div id="paperBox"><canvas id="paper" width="384" height="8" role="img" aria-label="Simulated receipt paper"></canvas></div>
+    </figure>
+  </div>
+  <p class="lost" id="receiptLost"></p>
+  <div class="hw">
+    <button type="button" id="print">Print</button>
+    <label>Dots <select id="dither"><option value="diffuse">Error diffusion</option><option value="ordered">Ordered pattern</option><option value="threshold">Threshold</option></select></label>
+    <label>Width <select id="dots"><option value="384">384 dots (58 mm)</option><option value="576">576 dots (80 mm)</option></select></label>
+  </div>
+  <p class="bytes" id="printBytes">Nothing printed yet.</p>
+  <div class="hw">
+    <button type="button" id="printerConnect">Connect a printer (Web Serial)</button>
+    <label>Baud <select id="printerBaud"><option>9600</option><option>19200</option><option>38400</option><option selected>115200</option></select></label>
+    <span class="note" id="printerStatus"></span>
+  </div>
+  <details class="show-code">
+    <summary>Show the code <small>an element to ESC/POS bytes</small></summary>
+    <ol>
+      <li data-code="#receipt-markup"><b>The receipt is one element in a canvas.</b></li>
+      <li data-code="#receipt-css"><b>It is styled for paper: black on white, fixed-width type.</b></li>
+      <li data-code="#receipt-draw"><b>Draw it at one canvas pixel per printer dot.</b></li>
+      <li data-code="#receipt-print"><b>Print: read the pixels, convert, send.</b></li>
+      <li data-code="/lib/device-out.js#dither"><b>Inside the library: grey levels and one bit per dot.</b></li>
+      <li data-code="/lib/device-out.js#escpos"><b>The ESC/POS bytes, and the reader the simulated printer uses.</b></li>
+      <li data-code="#serial"><b>Connect a real printer with Web Serial.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="matrix">An LED matrix: a ticker that is a CSS animation</h2>
+  <p>
+    The sign is an element with a line of text that moves with a CSS <code>@keyframes</code> animation. The canvas draws it into 64 × 32
+    pixels each time the browser repaints it. Each frame is converted to RGB565, two bytes per pixel, and the simulated panel lights one LED
+    per pixel from those bytes. "Call" on the key pad changes the text.
+  </p>
+  <div class="pair">
+    <figure class="stage">
+      <figcaption>The DOM, drawn into 64 × 32 pixels and shown enlarged.</figcaption>
+      <!-- #region matrix-markup -->
+      <canvas id="matrixSrc" width="64" height="32" content="drawable" layoutsubtree>
+        <div id="sign" drawable>
+          <span class="top" id="signTop">ORDER UP</span>
+          <span class="run" id="signRun">Order 40 is ready</span>
+        </div>
+      </canvas>
+      <!-- #endregion matrix-markup -->
+    </figure>
+    <figure class="stage">
+      <figcaption>Simulated 64 × 32 panel, lit from the RGB565 frames.</figcaption>
+      <canvas id="matrixSim" width="640" height="320" role="img" aria-label="Simulated LED matrix"></canvas>
+    </figure>
+  </div>
+  <p class="lost" id="matrixLost"></p>
+  <div class="hw">
+    <input id="message" value="Order 40 is ready" aria-label="Text on the sign" enterkeyhint="done">
+  </div>
+  <p class="bytes" id="matrixBytes">No frame sent yet.</p>
+  <div class="hw">
+    <button type="button" id="matrixConnect">Connect a matrix controller (Web Serial)</button>
+    <label>Baud <select id="matrixBaud"><option>115200</option><option>460800</option><option selected>921600</option></select></label>
+    <span class="note" id="matrixStatus"></span>
+  </div>
+  <details class="show-code">
+    <summary>Show the code <small>a CSS animation to RGB565 frames</small></summary>
+    <ol>
+      <li data-code="#matrix-markup"><b>The sign is an element with two lines of text.</b></li>
+      <li data-code="#matrix-css"><b>The lower line moves with a CSS animation.</b> Sizes are in container units, so the text fits the sign at any size.</li>
+      <li data-code="#matrix-draw"><b>Draw the element into 64 × 32 pixels on every <code>paint</code>, then send a frame.</b></li>
+      <li data-code="/lib/device-out.js#matrix"><b>Inside the library: the frame format and its reader.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="hardware">What needs real hardware</h2>
+  <ul class="findings">
+    <li><strong>Key pad.</strong> A Stream Deck with 15 keys that takes JPEG images (Original V2 or MK.2), on a browser with WebHID. The report layout here follows the open-source drivers and has not been run against a device. Other models use other key sizes and image formats, and the page refuses them.</li>
+    <li><strong>Printer.</strong> A thermal printer that accepts ESC/POS over a serial port: USB serial, or Bluetooth serial, which Chrome also offers through Web Serial. The port must be chosen in the browser's prompt. No printer has been tried.</li>
+    <li><strong>Matrix.</strong> A microcontroller with a HUB75 or similar panel and firmware that reads this page's frame format from its serial port: the bytes <code>H C</code>, width, height, then RGB565 pixels with the low byte first. There is no common protocol for LED matrices, so the firmware has to be written for it. None was written or tried here.</li>
+  </ul>
+
+  <h2 id="checks">Live checks</h2>
+  <p class="note">These run on test elements in a panel at the bottom of the window, not on the three canvases above. They wait for a tap.</p>
+  <table class="results"><tbody id="results"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li><strong>Ordinary HTML works as the interface of all three devices, as far as bytes go.</strong> The buttons, the receipt and the sign are elements with CSS. Nothing in them is written for the device. The conversion code is about 200 lines for the three formats.</li>
+    <li><strong>A grandchild of the canvas with the <code>drawable</code> attribute can be drawn by itself.</strong> The fifteen buttons sit in a grid inside one child of the canvas. Each is drawn with its own <code>drawElementImage()</code> call into a square of a different size than its layout box.</li>
+    <li><strong><code>event.changedElements</code> names the keys to refresh.</strong> A device with fifteen separate displays needs to know which of them changed. The <code>paint</code> event lists the drawable buttons whose rendering was invalidated: a frame of the animated key lists that button only, and a clock tick lists the clock. The list is not a pixel comparison. Setting a button's text to the value it already has puts it on the list, so adding one item listed all three item keys. The page hashes the pixels of each listed key and sends only those that differ from what was last sent.</li>
+    <li><strong>A CSS animation inside a canvas child fires <code>paint</code> on every frame with no script.</strong> The ticker has no timer and no <code>requestPaint()</code>. The page limits the matrix to 30 frames a second and the key pad to 10 updates a second.</li>
+    <li><strong>A physical key press can only be a synthetic click.</strong> The page calls <code>click()</code> on the button. That runs its handlers, but the event is not trusted, there is no <code>:active</code> state and no focus change. The page adds a class while a key is held so that the key picture shows the press.</li>
+    <li><strong>Text for one-bit paper should be styled for it.</strong> The printer has no grey. Anti-aliased text edges become scattered dots under error diffusion and get thinner under a threshold. Heavier type and black on white print cleanly. The gradient bar in the receipt shows what each method does with grey.</li>
+    <li><strong>The printed picture includes the caret.</strong> The name field in the receipt is a real <code>&lt;input&gt;</code>. If it has focus when "Print" is pressed, the blinking caret is in the canvas and can be printed as a vertical line after the name. Placeholder text is printed too. A page that prints forms should blur the field and hide placeholders first.</li>
+    <li><strong>Serial ports are slow for frames.</strong> A 64 × 32 RGB565 frame is 4,100 bytes. At 115,200 baud that is about 2.8 frames a second, and at 921,600 about 22. The page drops frames while the port is busy.</li>
+    <li><strong>Not verified on hardware.</strong> Every result above is from the simulated devices in Chromium 157. The WebHID and Web Serial calls were only checked for existing. Whether a real device accepts these bytes is not known.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported } from '/shared/support.js';
+  import { deck, escpos, matrix } from '/lib/device-out.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const hex = (bytes, n = 16) => Array.from(bytes.subarray(0, n), (b) => b.toString(16).padStart(2, '0')).join(' ') + (bytes.length > n ? ' …' : '');
+  const lostNote = (canvas, note, what) => {
+    canvas.addEventListener('contextlost', () => { note.textContent = `The ${what} canvas lost its 2D context, so nothing is drawn or sent. Reload the page to start it again.`; });
+    canvas.addEventListener('contextrestored', () => { note.textContent = ''; canvas.requestPaint?.(); });
+  };
+
+  // ---- The till: plain DOM code that knows nothing about canvases or devices ----
+  const keys = [...$('keys').children];
+  const items = keys.filter((k) => k.classList.contains('item'));
+  let order = 41, brightness = 80;
+  const money = (n) => `£${n.toFixed(2)}`;
+  function showOrder() {
+    let sum = 0;
+    const rows = [];
+    for (const k of items) {
+      const n = +k.dataset.n, price = +k.dataset.price;
+      k.querySelector('small').textContent = n;
+      if (!n) continue;
+      sum += n * price;
+      rows.push(`<tr><td>${n} × ${k.dataset.item}</td><td>${money(n * price)}</td></tr>`);
+    }
+    const off = $('discount').getAttribute('aria-pressed') === 'true' ? sum * 0.1 : 0;
+    if (off) rows.push(`<tr><td>10% off</td><td>−${money(off)}</td></tr>`);
+    if (!rows.length) rows.push('<tr><td>No items yet</td><td></td></tr>');
+    rows.push(`<tr class="rule total"><td>Total</td><td>${money(sum - off)}</td></tr>`);
+    $('lines').innerHTML = rows.join('');
+    $('totalKey').querySelector('b').textContent = money(sum - off);
+    $('orderNo').textContent = order;
+    $('callKey').querySelector('small').textContent = `order ${order}`;
+  }
+  const toggle = (key) => { const on = key.getAttribute('aria-pressed') !== 'true'; key.setAttribute('aria-pressed', on); key.querySelector('small').textContent = on ? 'on' : 'off'; return on; };
+  for (const k of items) k.onclick = () => { k.dataset.n = Math.max(0, +k.dataset.n + ($('remove').getAttribute('aria-pressed') === 'true' ? -1 : 1)); showOrder(); };
+  $('clear').onclick = () => { for (const k of items) k.dataset.n = 0; showOrder(); };
+  $('remove').onclick = () => toggle($('remove'));
+  $('discount').onclick = () => { toggle($('discount')); showOrder(); };
+  $('theme').onclick = () => { $('theme').textContent = $('keys').classList.toggle('light') ? 'Dark keys' : 'Light keys'; };
+  const setBrightness = (v) => { brightness = Math.max(10, Math.min(100, v)); $('level').querySelector('b').textContent = brightness; deckOut.forEach((d) => d.sendFeatureReport(0x03, deck.brightness(brightness))); };
+  $('dim').onclick = () => setBrightness(brightness - 10);
+  $('bright').onclick = () => setBrightness(brightness + 10);
+  $('printKey').onclick = () => print();
+  $('callKey').onclick = () => { $('message').value = `Order ${order} is ready`; showMessage(); order++; for (const k of items) k.dataset.n = 0; showOrder(); };
+  const showMessage = () => {
+    const text = $('message').value || ' ';
+    $('signRun').textContent = text;
+    $('signRun').style.animationDuration = `${Math.max(5, 3 + text.length * 0.3)}s`;
+  };
+  $('message').oninput = showMessage;
+  const tick = () => {
+    const d = new Date(), two = (n) => String(n).padStart(2, '0');
+    $('clock').querySelector('b').textContent = `${two(d.getHours())}:${two(d.getMinutes())}`;
+    $('clock').querySelector('small').textContent = `:${two(d.getSeconds())}`;
+    const when = d.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    if ($('when').textContent !== when) $('when').textContent = when;
+  };
+  setInterval(tick, 1000);
+
+  // ---- Key pad ------------------------------------------------------------------
+  const deckSrc = $('deckSrc'), deckSim = $('deckSim');
+  /** Everything that receives reports: the simulated device, and a real one once connected. */
+  const deckOut = [];
+  const deckStats = { keys: 0, reports: 0, bytes: 0, same: 0 };
+  let print = () => {};
+
+  // #region deck-input
+  let held = [];
+  /** `view` is the DataView of an input report, from the simulated device or from WebHID. */
+  function deckInput(view) {
+    const down = deck.pressed(view);
+    for (const k of down) if (!held.includes(k)) keys[k].click(); // a key went down: click its button
+    keys.forEach((key, k) => key.classList.toggle('held', down.includes(k)));
+    held = down;
+  }
+  // #endregion deck-input
+
+  if (supported) {
+    const S = deck.size;
+    const ctx = deckSrc.getContext('2d');
+    const place = (k) => [(k % deck.columns) * S, Math.floor(k / deck.columns) * S];
+    const changed = new Set(keys.keys()); // keys to look at: all of them at the start
+    let sending = false;
+    // #region deck-draw
+    deckSrc.addEventListener('paint', (event) => {
+      ctx.reset();
+      keys.forEach((key, k) => ctx.drawElementImage(key, ...place(k), S, S));
+      // changedElements names the buttons whose rendering changed. Only those keys are looked at.
+      for (const el of event.changedElements ?? keys) { const k = keys.indexOf(el); if (k >= 0) changed.add(k); }
+    });
+    // #endregion deck-draw
+    lostNote(deckSrc, $('deckLost'), 'key pad');
+
+    // #region deck-send
+    const sent = new Array(deck.keys).fill(null); // a hash of the pixels last sent for each key
+    const turn = new OffscreenCanvas(S, S), turnCtx = turn.getContext('2d');
+    const hash = (data) => { let h = 2166136261; for (let i = 0; i < data.length; i += 4) h = Math.imul(h ^ data[i] ^ (data[i + 1] << 8) ^ (data[i + 2] << 16), 16777619); return h; };
+
+    async function sendChangedKeys() {
+      if (!changed.size || sending || document.hidden) return;
+      sending = true;
+      const look = [...changed];
+      changed.clear();
+      try {
+        for (const k of look) {
+          const [x, y] = place(k);
+          // An element can be listed as changed and look the same, so compare the pixels with the last ones sent.
+          const h = hash(ctx.getImageData(x, y, S, S).data);
+          if (h === sent[k]) { deckStats.same++; continue; }
+          sent[k] = h;
+          // The device shows key images turned by 180 degrees, so they are stored turned.
+          turnCtx.setTransform(-1, 0, 0, -1, S, S);
+          turnCtx.drawImage(deckSrc, x, y, S, S, 0, 0, S, S);
+          const blob = await turn.convertToBlob({ type: 'image/jpeg', quality: 0.9 });
+          const jpeg = new Uint8Array(await blob.arrayBuffer());
+          const reports = deck.reports(k, jpeg);
+          for (const data of reports) for (const device of deckOut) await device.sendReport(deck.reportId, data);
+          deckStats.keys++; deckStats.reports += reports.length; deckStats.bytes += jpeg.length;
+          $('deckBytes').textContent = `Key ${k}: a ${jpeg.length.toLocaleString()} byte JPEG in ${reports.length} report${reports.length > 1 ? 's' : ''} of ${deck.reportLength} bytes. First report: 02 ${hex(reports[0], 12)}. `
+            + `Since the page opened: ${deckStats.keys} key images in ${deckStats.reports} reports. ${deckStats.same} listed as changed with the same pixels, not sent.`;
+        }
+      } finally { sending = false; }
+    }
+    setInterval(sendChangedKeys, 100);
+    // #endregion deck-send
+
+    // The simulated device. It knows nothing about the DOM: it gets reports and gives reports.
+    const G = 18, cell = S + G;
+    const sim = deckSim.getContext('2d');
+    const keyBox = (k) => [G + (k % deck.columns) * cell, G + Math.floor(k / deck.columns) * cell];
+    const body = () => { sim.fillStyle = '#17181b'; sim.fillRect(0, 0, deckSim.width, deckSim.height); for (let k = 0; k < deck.keys; k++) { sim.fillStyle = '#000'; sim.fillRect(...keyBox(k), S, S); } };
+    body();
+    const reader = new deck.Reader(async (k, jpeg) => {
+      const bitmap = await createImageBitmap(new Blob([jpeg], { type: 'image/jpeg' }));
+      const [x, y] = keyBox(k);
+      sim.save();
+      sim.beginPath(); sim.roundRect(x, y, S, S, 9); sim.clip();
+      sim.translate(x + S, y + S); sim.rotate(Math.PI); // the device turns the stored image
+      sim.drawImage(bitmap, 0, 0);
+      sim.restore();
+      bitmap.close();
+    });
+    deckOut.push({
+      sendReport: (id, data) => reader.sendReport(id, data),
+      sendFeatureReport: (id, data) => { if (id === 0x03 && data[0] === 0x08) deckSim.style.filter = `brightness(${0.25 + 0.75 * data[1] / 100})`; },
+    });
+    const keyAt = (e) => {
+      const box = deckSim.getBoundingClientRect(), scale = deckSim.width / box.width;
+      const x = (e.clientX - box.left) * scale - G / 2, y = (e.clientY - box.top) * scale - G / 2;
+      const col = Math.floor(x / cell), row = Math.floor(y / cell);
+      return col >= 0 && col < deck.columns && row >= 0 && row < 3 ? row * deck.columns + col : -1;
+    };
+    deckSim.addEventListener('pointerdown', (e) => { const k = keyAt(e); if (k >= 0) { deckSim.setPointerCapture(e.pointerId); deckInput(deck.inputReport([k])); } });
+    for (const type of ['pointerup', 'pointercancel']) deckSim.addEventListener(type, () => deckInput(deck.inputReport([])));
+
+    // #region deck-hid
+    $('deckConnect').onclick = async () => {
+      try {
+        const [device] = await navigator.hid.requestDevice({ filters: [{ vendorId: deck.vendorId }] });
+        if (!device) return;
+        if (!deck.productIds.includes(device.productId)) throw new Error(`${device.productName} (product 0x${device.productId.toString(16)}) is not one of the 15-key JPEG models this page knows`);
+        await device.open();
+        device.addEventListener('inputreport', (e) => { if (e.reportId === deck.inputReportId) deckInput(e.data); });
+        deckOut.push(device);
+        await device.sendFeatureReport(0x03, deck.brightness(brightness));
+        sent.fill(null); keys.forEach((_, k) => changed.add(k)); // send every key again
+        $('deckStatus').textContent = `Connected to ${device.productName}.`;
+      } catch (err) { $('deckStatus').textContent = `Not connected: ${err.message}`; }
+    };
+    // #endregion deck-hid
+  }
+  if (!navigator.hid) { $('deckConnect').disabled = true; $('deckStatus').textContent = 'This browser has no WebHID, so only the simulated key pad is used.'; }
+  else $('deckStatus').textContent = 'Not verified with a device.';
+
+  // #region serial
+  async function openSerial(baudRate, status) {
+    try {
+      const port = await navigator.serial.requestPort();
+      await port.open({ baudRate });
+      status.textContent = `Port open at ${baudRate} baud.`;
+      return port.writable.getWriter();
+    } catch (err) { status.textContent = `Not connected: ${err.message}`; return null; }
+  }
+  // #endregion serial
+  for (const name of ['printer', 'matrix']) {
+    if (!navigator.serial) { $(`${name}Connect`).disabled = true; $(`${name}Status`).textContent = `This browser has no Web Serial, so only the simulated ${name} is used.`; }
+    else $(`${name}Status`).textContent = 'Not verified with a device.';
+  }
+
+  // ---- Receipt ------------------------------------------------------------------
+  const receiptSrc = $('receiptSrc'), receipt = $('receipt'), paper = $('paper');
+  let printer = null;
+  $('printerConnect').onclick = async () => { printer = await openSerial(+$('printerBaud').value, $('printerStatus')); };
+  if (supported) {
+    const ctx = receiptSrc.getContext('2d');
+    // #region receipt-draw
+    // The canvas is as tall as the element and has one pixel per printer dot across.
+    const fit = () => {
+      const dots = +$('dots').value;
+      const height = Math.max(8, Math.round(receipt.offsetHeight * dots / receipt.offsetWidth));
+      if (receiptSrc.width !== dots) receiptSrc.width = dots;
+      if (receiptSrc.height !== height) receiptSrc.height = height;
+      receiptSrc.style.height = `${receipt.offsetHeight}px`;
+      receiptSrc.requestPaint();
+    };
+    new ResizeObserver(fit).observe(receipt);
+    $('dots').onchange = fit;
+    receiptSrc.addEventListener('paint', () => {
+      ctx.reset();
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, receiptSrc.width, receiptSrc.height);
+      ctx.drawElementImage(receipt, 0, 0, receiptSrc.width, receiptSrc.height);
+    });
+    // #endregion receipt-draw
+    lostNote(receiptSrc, $('receiptLost'), 'receipt');
+
+    // The simulated printer: parse the bytes, then feed the paper out a few rows per frame.
+    const pctx = paper.getContext('2d');
+    let job = 0;
+    const simPrinter = (bytes) => {
+      const page = escpos.read(bytes);
+      const image = new ImageData(page.width, page.height);
+      for (let i = 0; i < page.bits.length; i++) { const v = page.bits[i] ? 24 : 251; image.data.set([v, v, v - 3, 255], i * 4); }
+      paper.width = page.width;
+      paper.height = page.height + page.feed * 24;
+      paper.style.maxWidth = `${page.width}px`;
+      const mine = ++job;
+      let row = 0;
+      const feed = () => {
+        if (mine !== job) return;
+        const rows = Math.min(28, page.height - row);
+        pctx.putImageData(image, 0, 0, 0, row, page.width, rows);
+        row += rows;
+        $('paperBox').scrollTop = Math.max(0, (row * paper.clientWidth) / paper.width - $('paperBox').clientHeight + 40);
+        if (row < page.height) requestAnimationFrame(feed);
+      };
+      feed();
+      return page;
+    };
+
+    // #region receipt-print
+    print = () => {
+      const image = ctx.getImageData(0, 0, receiptSrc.width, receiptSrc.height);
+      const bytes = escpos.print(image, { dither: $('dither').value });
+      const page = simPrinter(bytes); // the simulated printer reads the same bytes
+      printer?.write(bytes); // a real one, when connected
+      $('printBytes').textContent = `${bytes.length.toLocaleString()} bytes for ${page.width} × ${page.height} dots. Starts: ${hex(bytes, 14)}. Commands: ${page.commands.join(', ')}.`;
+    };
+    // #endregion receipt-print
+    $('print').onclick = () => print();
+  } else {
+    $('print').disabled = true;
+  }
+
+  // ---- Matrix -------------------------------------------------------------------
+  const matrixSrc = $('matrixSrc'), matrixSim = $('matrixSim');
+  let panel = null;
+  $('matrixConnect').onclick = async () => { panel = await openSerial(+$('matrixBaud').value, $('matrixStatus')); };
+  if (supported) {
+    const ctx = matrixSrc.getContext('2d');
+    const sim = matrixSim.getContext('2d');
+    const small = new OffscreenCanvas(64, 32), smallCtx = small.getContext('2d');
+    // A mask with one round hole per LED, drawn over the enlarged frame.
+    const mask = new OffscreenCanvas(640, 320), maskCtx = mask.getContext('2d');
+    maskCtx.fillStyle = '#0b0b0c'; maskCtx.fillRect(0, 0, 640, 320);
+    maskCtx.globalCompositeOperation = 'destination-out';
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 64; x++) { maskCtx.beginPath(); maskCtx.arc(x * 10 + 5, y * 10 + 5, 3.8, 0, 7); maskCtx.fill(); }
+    const simPanel = (bytes) => {
+      smallCtx.putImageData(matrix.read(bytes), 0, 0);
+      sim.imageSmoothingEnabled = false;
+      sim.drawImage(small, 0, 0, 640, 320);
+      sim.drawImage(mask, 0, 0);
+    };
+
+    // #region matrix-draw
+    let frames = 0, last = 0;
+    matrixSrc.addEventListener('paint', () => {
+      ctx.reset();
+      ctx.drawElementImage($('sign'), 0, 0, 64, 32); // laid out at 320 x 160 or so, drawn at 64 x 32
+      const now = performance.now();
+      if (now - last < 33) return; // at most 30 frames a second
+      last = now;
+      const bytes = matrix.frame(ctx.getImageData(0, 0, 64, 32));
+      simPanel(bytes); // the simulated panel reads the same bytes
+      if (panel && panel.desiredSize > 0) panel.write(bytes); // a real one, unless the port is still busy
+      if (++frames % 15 === 1) $('matrixBytes').textContent = `Frame ${frames}: ${bytes.length.toLocaleString()} bytes. Starts: ${hex(bytes, 10)}.`;
+    });
+    // #endregion matrix-draw
+    lostNote(matrixSrc, $('matrixLost'), 'sign');
+  }
+
+  if (!supported) {
+    for (const id of ['deckLost', 'receiptLost', 'matrixLost']) $(id).textContent = 'HTML-in-canvas is not available, so this canvas is empty and nothing is sent.';
+  }
+  showOrder(); showMessage(); tick();
+  window.__hw = { deckInput, deckStats, print: () => print() }; // for tests
+</script>
+<script type="module" src="/hardware-out/checks.js"></script>
+</body>
+</html>
