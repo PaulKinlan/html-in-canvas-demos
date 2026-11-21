@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Media controls and element state</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; max-width: 560px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .idea output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 6em; overflow-wrap: anywhere; margin: 8px 0; white-space: pre-wrap; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button, .idea .controls a.button { min-height: 40px; font: inherit; }
+  .idea .controls a.button { display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; }
+  .idea .controls label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* The elements as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: flex; flex-wrap: wrap; gap: 10px; align-content: start; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .plain-note { margin: 0; flex-basis: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+  .plain-controls media-bar { background: #222; border-radius: 12px; }
+
+  /* #region fx-css */
+  /* The four numbers. Registered, so that a transition can ease them. */
+  @property --fx-amount { syntax: '<number>'; inherits: false; initial-value: 0; }
+  @property --fx-progress { syntax: '<number>'; inherits: false; initial-value: 0; }
+  @property --fx-x { syntax: '<number>'; inherits: false; initial-value: 0; }
+  @property --fx-y { syntax: '<number>'; inherits: false; initial-value: 0; }
+  /* #endregion fx-css */
+
+  /* #region bar-css */
+  #barCanvas { transition: --fx-amount 0.35s ease; }
+  /* The custom state of the controls is the only input of the effect. */
+  #barCanvas:has(media-bar:state(playing)) { --fx-amount: 1; }
+  #barVideo { display: block; width: 320px; height: 180px; margin: 0; object-fit: cover; background: #000; }
+  #barControls { width: 340px; }
+  /* A page styles the parts from outside, as it would style ::-webkit-media-controls-* if those were open. */
+  #barControls::part(play) { background: #ff7a3c; border-color: #ff7a3c; color: #1a0e08; }
+  #barControls:state(muted)::part(mute) { text-decoration: line-through; opacity: 0.8; }
+  /* #endregion bar-css */
+
+  /* #region states-css */
+  #statesCanvas { transition: --fx-amount 0.5s ease, --fx-progress 0.4s ease, --fx-x 0.6s linear, --fx-y 0.3s ease; }
+  /* One rule for each state. The states belong to elements in the canvas, apart from the last. */
+  #states:has(#statesLamp:checked) #statesCanvas { --fx-amount: 1; }
+  #states:has(details:open) #statesCanvas { --fx-progress: 1; }
+  #states:has(:user-invalid) #statesCanvas { --fx-x: 1; }
+  /* The popover is outside the canvas, a sibling of it in the section. */
+  #states:has(:popover-open) #statesCanvas { --fx-y: 1; }
+  #statesCard { box-sizing: border-box; width: 290px; margin: 0; padding: 14px 16px; border-radius: 12px; background: var(--card); color: var(--fg); font: 15px/1.4 system-ui, sans-serif; display: grid; gap: 10px; }
+  #statesCard > * { min-width: 0; }
+  #statesCard label { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+  #statesCard input[type=checkbox] { width: 22px; height: 22px; margin: 0; }
+  #statesCard input[type=email] { flex: 1; min-width: 0; height: 38px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: inherit; }
+  #statesCard input:user-invalid { border-color: var(--bad); }
+  #statesCard summary { min-height: 36px; display: flex; align-items: center; cursor: pointer; }
+  #statesCard details p { margin: 0 0 4px; color: var(--muted); }
+  #statesCard .row { display: flex; gap: 8px; align-items: center; }
+  #statesCard button { min-height: 40px; padding: 0 14px; font: inherit; }
+  #statesPop { max-width: 280px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); }
+  /* #endregion states-css */
+
+  /* #region pseudo-css */
+  #pseudoQuote { box-sizing: border-box; position: relative; width: 320px; margin: 0; padding: 6px 0 6px 64px; color: var(--fg); font: 17px/1.45 Georgia, serif; }
+  /* The mark is a pseudo-element in a box of its own: the first 56 by 56 pixels of the quote. */
+  #pseudoQuote::before { content: '\201C'; position: absolute; left: 0; top: 0; width: 56px; height: 56px; overflow: hidden; font: 700 84px/1 Georgia, serif; color: var(--accent); text-align: center; }
+  #pseudoQuote cite { display: block; margin-top: 6px; font: 14px system-ui, sans-serif; color: var(--muted); }
+  /* #endregion pseudo-css */
+
+  /* The same rules for the fixtures of the live checks. */
+  canvas.check-bar:has(media-bar:state(playing)) { --fx-amount: 1; }
+  .check-states:has(input:checked) canvas { --fx-amount: 1; }
+  .check-states:has(details:open) canvas { --fx-progress: 1; }
+  .check-states:has(:popover-open) canvas { --fx-y: 1; }
+
+  #castPreview { display: block; width: 100%; max-width: 320px; aspect-ratio: 16 / 10; background: #000; border-radius: 8px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Media controls and element state</h1>
+  <p class="lede">
+    Four ideas that came out of <a href="/player-parts/">the parts of the native media player</a>. That page found that a canvas can restyle the
+    native controls and cannot reach any one of them. This page asks what a canvas could do if media controls were ordinary elements with
+    named parts and states, whether the state of any element can drive an effect through CSS alone, whether
+    <code>drawElementImage()</code> takes a pseudo-element or a part, and whether the composed picture can be sent to another screen.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#bar">Controls as a custom element</a><a href="#states">States through :has()</a><a href="#pseudo">A pseudo-element as a picture</a><a href="#cast">Casting the canvas</a>
+  </nav>
+
+  <section class="idea" id="bar">
+    <h2>Media controls as a custom element with parts and states</h2>
+    <p><code>&lt;media-bar&gt;</code> is a mock of customisable media controls: a play button, a timeline, a time and a sound button in an open shadow tree, each with a <code>part</code> name, and custom states for playing and muted. Press Play. The film takes its colour back, because a CSS rule reads <code>media-bar:state(playing)</code>. Then tick the box: the canvas stops using the element's layout and draws each part where it wants it, and each part still takes input where it is drawn.</p>
+    <canvas id="barCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 290px">
+      <!-- #region bar-html -->
+      <video id="barVideo" drawable muted loop playsinline preload="metadata" data-src="/media/clip.webm" aria-label="Test film, 10 seconds"></video>
+      <media-bar id="barControls" for="barVideo" drawable></media-bar>
+      <!-- #endregion bar-html -->
+    </canvas>
+    <div class="controls">
+      <label><input type="checkbox" id="barLift"> Draw each part as its own picture</label>
+    </div>
+    <output class="line" id="barOut"></output>
+    <p class="found">The glass behind the controls is the film drawn a second time with a blur, inside the box of the control. With the box ticked there is no bar: the play button is a part of the shadow tree drawn at more than twice its size in the middle of the film, and the timeline is stretched to the width of the canvas. The component's author made that possible by putting <code>drawable</code> on the parts. A page cannot do it for a part it does not own.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#bar-html"><b>The video and its controls are two <code>drawable</code> children of the canvas.</b></li>
+      <li data-code="/media-state/media-bar.js#element"><b>The custom element: parts, custom states, and <code>drawable</code> on each part when asked.</b></li>
+      <li data-code="#bar-css"><b>The rule that turns the playing state into <code>--fx-amount</code>, and the part styles.</b></li>
+      <li data-code="/media-state/bar.js#bar"><b>Draw the film, the glass and the controls, as one picture or as four.</b></li>
+      <li data-code="/media-state/fx.js#fx"><b>Read the numbers, and ask for frames while a transition runs.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="states">
+    <h2>State pseudo-classes that drive an effect through :has()</h2>
+    <p>Tick Lamp. Open the opening hours. Press Save with the email field empty, or type something that is not an address and leave the field. Press Help. Each of the four changes how the card is drawn, and the script has no listener on any of the four elements: a CSS rule for each state sets a number on the canvas.</p>
+    <canvas id="statesCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 400px">
+      <!-- #region states-html -->
+      <form id="statesCard" drawable>
+        <label><input type="checkbox" id="statesLamp" name="lamp"> Lamp</label>
+        <details><summary>Opening hours</summary><p>Monday to Friday, 9 to 5. Saturday, 10 to 2.</p></details>
+        <label>Email <input type="email" name="email" required autocomplete="off" enterkeyhint="done" aria-label="Email"></label>
+        <div class="row"><button type="submit">Save</button><button type="button" popovertarget="statesPop">Help</button><span id="statesSaved"></span></div>
+      </form>
+      <!-- #endregion states-html -->
+    </canvas>
+    <div id="statesPop" popover>The lamp, the opening hours and the email field are in the canvas. This popover is not: it is a sibling of the canvas. Tap outside it to close it.</div>
+    <output class="line" id="statesOut"></output>
+    <p class="found">The numbers have the names that <a href="/shader-css/">Shader CSS</a> uses for its uniforms. Here a 2D paint handler reads them, so the same rules could drive a shader. A state that belongs to an element outside the canvas works the same way, because <code>:has()</code> is written on an ancestor of both.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#states-html"><b>The form is one <code>drawable</code> child of the canvas.</b></li>
+      <li data-code="#states-css"><b>Four rules, one for each state.</b></li>
+      <li data-code="#fx-css"><b>The four numbers, registered so that they can be eased.</b></li>
+      <li data-code="/media-state/states.js#states"><b>Draw the card from the four numbers.</b></li>
+      <li data-code="/media-state/fx.js#fx"><b>Read the numbers, and ask for frames while a transition runs.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="pseudo">
+    <h2>A pseudo-element as a picture of its own</h2>
+    <p>The proposal under test: <code>drawElementImage()</code> that takes a pseudo-element or a <code>::part()</code>, so that a canvas could draw the quotation mark of this quote apart from its text. The line under the canvas says what the browser did with that call. The drawing shows the way round it, which needs the page to know where the pseudo-element's box is.</p>
+    <canvas id="pseudoCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 300px">
+      <!-- #region pseudo-html -->
+      <blockquote id="pseudoQuote" drawable>The mark at the start of this quote is not an element. It is a <code>::before</code> box. <a href="/player-parts/">The parts of the native player</a> are out of reach in the same way.<cite>From this page</cite></blockquote>
+      <!-- #endregion pseudo-html -->
+    </canvas>
+    <div class="controls">
+      <label><input type="checkbox" id="pseudoLift" checked> Draw the mark apart from the text</label>
+    </div>
+    <output class="line" id="pseudoOut"></output>
+    <p class="found">A part of an open shadow tree is different: it is an element, and the first demo draws four of them. What is missing is a way to name a box that is not an element, or an element in a tree the page cannot open.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#pseudo-html"><b>The quote is one <code>drawable</code> child. Its mark is a <code>::before</code> box.</b></li>
+      <li data-code="/media-state/pseudo.js#ask"><b>Hand the pseudo-element to <code>drawElementImage()</code>.</b></li>
+      <li data-code="/media-state/pseudo.js#pseudo"><b>The way round it: two clipped draws of the whole element.</b></li>
+      <li data-code="#pseudo-css"><b>Styles. The mark has a fixed box.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="cast">
+    <h2>Casting the composed canvas</h2>
+    <p>The first canvas on this page, film and controls together, as a stream for another screen. Three routes are tried. The Remote Playback API is asked to play a <code>&lt;video&gt;</code> that shows the stream. The Presentation API is asked to open a receiver page on a second screen. The third route opens the same receiver page in a tab, which works with one device: press Play in the first demo, open the receiver, and come back here.</p>
+    <video id="castPreview" muted playsinline aria-label="The stream that would be cast"></video>
+    <div class="controls">
+      <button type="button" id="castMake">Make the stream</button>
+      <button type="button" id="castWatch">Remote Playback: look for a device</button>
+      <button type="button" id="castRemote">Remote Playback: prompt</button>
+      <button type="button" id="castAvailable">Presentation: look for a screen</button>
+      <button type="button" id="castPresent">Presentation: start</button>
+      <a class="button" href="/media-state/receiver.html" target="_blank" rel="opener">Open the receiver in a tab</a>
+    </div>
+    <output class="line" id="castOut" style="min-height: 14em"></output>
+    <p class="found">A receiver page gets messages and no media, so the stream travels over WebRTC and the Presentation connection, or the BroadcastChannel, carries only the offer and the answer. The controls in the stream are pixels: the receiver cannot press Play.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/media-state/cast.js#stream"><b>Capture the canvas.</b></li>
+      <li data-code="/media-state/cast.js#remote"><b>Remote Playback API.</b></li>
+      <li data-code="/media-state/cast.js#presentation"><b>Presentation API.</b></li>
+      <li data-code="/media-state/cast.js#send"><b>Send the stream over WebRTC.</b></li>
+      <li data-code="/media-state/cast.js#tab"><b>The receiver in a tab.</b></li>
+      <li data-code="/media-state/receiver.html#receive"><b>The receiver page.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <ul>
+    <li><b>Custom states are selectors.</b> <code>&lt;media-bar&gt;</code> adds and removes names in <code>ElementInternals.states</code> from the video's events. A rule on the canvas, <code>:has(media-bar:state(playing))</code>, sets <code>--fx-amount</code>, and a transition on the canvas eases it.</li>
+    <li><b>The canvas reads the numbers.</b> A change of a custom property raises no <code>paint</code> event. The canvas listens for <code>transitionrun</code> and <code>transitionend</code> on itself and asks for a frame at a time between them. When no transition runs, nothing runs.</li>
+    <li><b>Parts as pictures.</b> <code>drawElementImage()</code> takes any element that has the <code>drawable</code> attribute and is a descendant of the canvas, and an element in an open shadow tree of a canvas child counts. The component sets the attribute on its parts when it has the <code>lift</code> attribute.</li>
+    <li><b>Pseudo-elements.</b> There is no call that takes one, so the mark is drawn by clipping a draw of its whole element to the mark's box.</li>
+    <li><b>Casting.</b> <code>canvas.captureStream()</code> gives a video track of the drawn canvas. The sender adds it to an <code>RTCPeerConnection</code> and exchanges one offer and one answer with the receiver.</li>
+  </ul>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/form-state/kit.js#mount"><b>The paint handler shared by the three canvases.</b></li>
+    <li data-code="/form-state/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/form-state/kit.js#plain"><b>The elements are then shown as plain HTML.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each builds its own small canvas in a corner of the window, and none of them touches the demos above. <code>:user-invalid</code> is not checked here, because it needs real input: the tool script types into the field.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21. Not yet run on a phone.</p>
+  <ul class="findings">
+    <li><b>Media controls built as a custom element can be drawn part by part.</b> An element in an open shadow tree of a canvas child is drawn as its own picture by <code>drawElementImage()</code> when it has the <code>drawable</code> attribute. The play button was drawn at 2.2 times its size and the timeline stretched to 335 px, and a touch on each reached the part where it was drawn: the play part's hit region was more than 55 px tall, and a tap at three quarters of the stretched timeline moved the film to 7.7 s of 10.</li>
+    <li><b>A part without <code>drawable</code> cannot be drawn.</b> The call threw <code>InvalidStateError</code>: descendants passed to <code>drawElementImage()</code> must have the attribute. Only the component's author can add it, so this does not help with the native controls or with a closed tree.</li>
+    <li><b><code>drawElementImage()</code> does not take a pseudo-element.</b> <code>Element.pseudo('::before')</code> returns a <code>CSSPseudoElement</code> in this browser, and passing it threw <code>TypeError</code>. So did a <code>ShadowRoot</code>. The quotation mark is drawn apart by clipping a draw of the whole quote to a box whose place the style sheet fixes. A pseudo-element with no fixed box could not be found this way.</li>
+    <li><b>Custom states work as inputs to an effect.</b> <code>canvas:has(media-bar:state(playing))</code> set <code>--fx-amount</code> to 1 while the fixture video played and back to 0 after pause, with no listener outside the component.</li>
+    <li><b><code>:checked</code>, <code>details:open</code>, <code>:user-invalid</code> and <code>:popover-open</code> each drove a number through <code>:has()</code>.</b> The first three belong to elements drawn in the canvas. The popover is a sibling of the canvas, and its rule is written on their common ancestor. <code>:user-invalid</code> matched after text that is not an address was typed and the field was left, and after Save was pressed with the field empty.</li>
+    <li><b>A transition of a registered custom property raises no <code>paint</code>.</b> It raised one <code>transitionrun</code> and one <code>transitionend</code> on the canvas and 0 paint events in 0.5 s, with the number at 0.44 after 150 ms of 300. The canvas asks for frames between the two events and for none afterwards.</li>
+    <li><b>The composed canvas can be sent as a stream.</b> <code>captureStream()</code> on the drawable canvas gave one video track, and the film with its controls arrived in the receiver page in a second tab at 378 by 288 over WebRTC, with a BroadcastChannel carrying the offer and the answer. The controls in the stream are pixels.</li>
+    <li><b>No cast device was available to the test browser.</b> Remote Playback reported that no device is available for a video that shows the canvas stream, and <code>prompt()</code> was rejected with <code>NotAllowedError</code>. <code>PresentationRequest.getAvailability()</code> gave false and <code>start()</code> was rejected with <code>NotFoundError</code>: no screens found. The Presentation route of the receiver page has not run.</li>
+    <li><b>Not verified:</b> everything on a phone, and both cast routes on a network with a Chromecast or a second screen. Whether Remote Playback offers a device at all for a video whose source is a <code>MediaStream</code> is not known. In one run the frame in the receiver tab showed the glass boxes without the play, time and timeline parts while the sending tab was in the background. In a single tab the stream matched the canvas.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      watch.unobserve(e.target);
+      import(`./${e.target.id}.js`).then((m) => m.default()).catch((err) => console.error(e.target.id, err));
+    }
+  }, { rootMargin: '100px 0px' });
+  if (supported) document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // A fixture canvas on the test stage. It draws every child on each paint and counts the events.
+  async function rig(html, w = 200, h = 80) {
+    if (!supported) throw new Error('this browser has no HTML-in-canvas API');
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, ctx, paints: 0, names: [] };
+    canvas.addEventListener('paint', (event) => {
+      state.paints++;
+      state.names.push([...(event.changedElements ?? [])].map((el) => el.localName).join('+'));
+      ctx.reset();
+      for (const el of canvas.children) try { ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight); } catch {}
+    });
+    canvas.requestPaint();
+    await sleep(400);
+    return state;
+  }
+  // Is any pixel of a rectangle of the canvas not transparent? Read from a drawImage() copy.
+  function inked(canvas, x, y, w, h) {
+    const copy = Object.assign(document.createElement('canvas'), { width: w, height: h }), c2 = copy.getContext('2d');
+    c2.drawImage(canvas, x, y, w, h, 0, 0, w, h);
+    return c2.getImageData(0, 0, w, h).data.some((v, i) => i % 4 === 3 && v > 0);
+  }
+  const attempt = (fn) => { try { fn(); return 'drew'; } catch (e) { return `threw ${e.name}`; } };
+  const BAR = '<video drawable muted playsinline id="checkVideo" style="display:block;width:80px;height:45px"></video><media-bar drawable for="checkVideo" style="width:200px"></media-bar>';
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'drawElementImage() does not take a pseudo-element',
+      why: 'The proposal under test. Element.pseudo("::before") gives a CSSPseudoElement in this browser. The check hands it to drawElementImage(), and a shadow root as well.',
+      run: async () => {
+        const s = await rig('<blockquote drawable style="margin:0">text</blockquote>');
+        const quote = s.canvas.firstElementChild;
+        if (typeof quote.pseudo !== 'function') return 'This browser has no Element.pseudo(), so there is nothing to pass.';
+        const pseudo = attempt(() => s.ctx.drawElementImage(quote.pseudo('::before'), 0, 0, 20, 20));
+        const root = attempt(() => s.ctx.drawElementImage(quote.attachShadow({ mode: 'open' }), 0, 0, 20, 20));
+        if (pseudo === 'drew') return 'drawElementImage() took the CSSPseudoElement. The proposal is implemented in this browser.';
+        return `With a CSSPseudoElement it ${pseudo}. With a ShadowRoot it ${root}.`;
+      },
+    },
+    {
+      name: 'A part in an open shadow tree is drawn as its own picture when it is drawable',
+      why: 'The first demo draws the four parts of <media-bar> apart. The check draws the play button alone into an empty canvas and looks for pixels, then tries a part without the drawable attribute.',
+      run: async () => {
+        await import('./media-bar.js');
+        const s = await rig(BAR);
+        const bar = s.canvas.querySelector('media-bar'), { play, time } = bar.parts;
+        play.setAttribute('drawable', '');
+        await sleep(300);
+        s.ctx.reset();
+        const withAttr = attempt(() => s.ctx.drawElementImage(play, 100, 30, play.offsetWidth, play.offsetHeight));
+        const found = inked(s.canvas, 100, 30, 40, 40), elsewhere = inked(s.canvas, 0, 0, 90, 80);
+        const without = attempt(() => s.ctx.drawElementImage(time, 0, 0, 30, 20));
+        if (withAttr !== 'drew' || !found) throw new Error(`the drawable part ${withAttr}, pixels at its place: ${found}`);
+        return `The drawable part ${withAttr} and left pixels only at its place (pixels elsewhere: ${elsewhere}). A part without the attribute ${without}.`;
+      },
+    },
+    {
+      name: 'A custom state sets a number on the canvas through :has()',
+      why: 'The fixture has the rule canvas:has(media-bar:state(playing)) { --fx-amount: 1 }. The check plays and pauses the fixture video and reads the number each time.',
+      timeout: 9000,
+      run: async () => {
+        await import('./media-bar.js');
+        const s = await rig(BAR);
+        s.canvas.classList.add('check-bar');
+        const video = s.canvas.querySelector('video'), bar = s.canvas.querySelector('media-bar');
+        const read = () => getComputedStyle(s.canvas).getPropertyValue('--fx-amount').trim();
+        const before = read();
+        video.src = '/media/clip.webm';
+        await video.play();
+        await sleep(300);
+        const playing = read(), state = bar.matches(':state(playing)');
+        video.pause();
+        await sleep(300);
+        const after = read();
+        video.removeAttribute('src'); video.load();
+        if (before !== '0' || playing !== '1' || after !== '0') throw new Error(`--fx-amount was ${before}, ${playing} while playing, ${after} after pause`);
+        return `--fx-amount: ${before} before, ${playing} while playing (:state(playing) ${state}), ${after} after pause.`;
+      },
+    },
+    {
+      name: ':checked, details:open and :popover-open each set their number through :has()',
+      why: 'The same three rules as the second demo, on a fixture. The popover is outside the fixture canvas and is shown with showPopover(), which does not move focus. :user-invalid needs real input and is left to the tool script.',
+      run: async () => {
+        const wrap = document.createElement('div');
+        wrap.className = 'check-states';
+        wrap.style.cssText = 'flex:none';
+        testStage().append(wrap);
+        wrap.innerHTML = '<canvas content="drawable" layoutsubtree width="200" height="80" style="width:200px;height:80px"><form drawable style="width:180px"><input type="checkbox"><details><summary>s</summary>d</details></form></canvas><div popover="manual" style="inset:auto;left:0;bottom:0">p</div>';
+        const canvas = wrap.firstElementChild, ctx = canvas.getContext('2d'), form = canvas.firstElementChild, pop = wrap.lastElementChild;
+        canvas.addEventListener('paint', () => { ctx.reset(); try { ctx.drawElementImage(form, 0, 0, form.offsetWidth, form.offsetHeight); } catch {} });
+        canvas.requestPaint();
+        const read = () => ['--fx-amount', '--fx-progress', '--fx-y'].map((n) => getComputedStyle(canvas).getPropertyValue(n).trim()).join(' ');
+        const before = read();
+        form.querySelector('input').checked = true;
+        form.querySelector('details').open = true;
+        pop.showPopover();
+        await sleep(200);
+        const after = read();
+        pop.hidePopover();
+        wrap.remove();
+        if (before !== '0 0 0' || after !== '1 1 1') throw new Error(`numbers were ${before}, then ${after}`);
+        return `--fx-amount, --fx-progress and --fx-y were ${before}, and ${after} with the box ticked, the details open and the popover shown.`;
+      },
+    },
+    {
+      name: 'A transition of a registered custom property raises transition events and no paint event',
+      why: 'The reason the canvas asks for frames itself while a number moves. The fixture canvas gets a 0.3 s transition of --fx-x, and the number is changed with a class. The check counts transitionrun, transitionend and paint.',
+      run: async () => {
+        const s = await rig('<div drawable style="width:60px;height:30px;background:#246"></div>');
+        let run = 0, end = 0;
+        s.canvas.addEventListener('transitionrun', () => run++);
+        s.canvas.addEventListener('transitionend', () => end++);
+        s.canvas.style.transition = '--fx-x 0.3s linear';
+        await sleep(50);
+        const paints = s.paints;
+        s.canvas.style.setProperty('--fx-x', '1');
+        await sleep(150);
+        const mid = Number(getComputedStyle(s.canvas).getPropertyValue('--fx-x'));
+        await sleep(350);
+        if (!run || !end) throw new Error(`transitionrun ${run}, transitionend ${end}`);
+        if (!(mid > 0 && mid < 1)) throw new Error(`the number was ${mid} in the middle of the transition`);
+        return `transitionrun ${run}, transitionend ${end}, the number was ${mid.toFixed(2)} after 150 ms, and ${s.paints - paints} paint events came in that time.`;
+      },
+    },
+    {
+      name: 'A change of custom state raises paint when it changes the picture',
+      why: 'The bar is redrawn when its state changes because the play button gets a new label. The check plays the fixture video and names the elements in the paint events that follow.',
+      timeout: 9000,
+      run: async () => {
+        await import('./media-bar.js');
+        const s = await rig(BAR);
+        const video = s.canvas.querySelector('video');
+        video.src = '/media/clip.webm';
+        s.names.length = 0;
+        await video.play();
+        await sleep(400);
+        video.pause();
+        await sleep(100);
+        const named = s.names.filter((n) => n.includes('media-bar')).length, all = s.names.length;
+        video.removeAttribute('src'); video.load();
+        if (!named) throw new Error(`no paint event named the bar in ${all} events`);
+        return `${named} of ${all} paint events in 0.4 s of play named the bar.`;
+      },
+    },
+    {
+      name: 'The stream of a drawable canvas reaches a second RTCPeerConnection',
+      why: 'The cast demo without the second screen: canvas.captureStream() on a canvas that draws an animated image, sent from one RTCPeerConnection to another in this page. The check waits for the receiving video to have a size.',
+      timeout: 9000,
+      run: async () => {
+        const s = await rig('<img drawable src="/animated-images/clock.gif" width="48" height="48" style="display:block">');
+        const stream = s.canvas.captureStream(15);
+        const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+        a.addEventListener('icecandidate', (e) => e.candidate && b.addIceCandidate(e.candidate));
+        b.addEventListener('icecandidate', (e) => e.candidate && a.addIceCandidate(e.candidate));
+        const video = Object.assign(document.createElement('video'), { muted: true, playsInline: true });
+        b.addEventListener('track', (e) => { video.srcObject = new MediaStream([e.track]); video.play().catch(() => {}); });
+        for (const track of stream.getVideoTracks()) a.addTrack(track, stream);
+        await a.setLocalDescription(await a.createOffer());
+        await b.setRemoteDescription(a.localDescription);
+        await b.setLocalDescription(await b.createAnswer());
+        await a.setRemoteDescription(b.localDescription);
+        const t0 = performance.now();
+        while (!video.videoWidth && performance.now() - t0 < 7000) await sleep(100);
+        const size = `${video.videoWidth} by ${video.videoHeight}`, state = a.connectionState;
+        a.close(); b.close(); stream.getTracks().forEach((t) => t.stop());
+        if (!video.videoWidth) throw new Error(`no frame arrived in 7 s, connection ${state}`);
+        return `The receiving video was ${size} after ${Math.round(performance.now() - t0)} ms. Connection ${state}.`;
+      },
+    },
+    {
+      name: 'What Remote Playback and Presentation say on this device',
+      why: 'A report, not a pass or fail. A video that shows the stream of a canvas is asked for remote playback devices, and a PresentationRequest for the receiver page is asked for screens. No prompt is opened.',
+      timeout: 9000,
+      run: async () => {
+        const s = await rig('<div drawable style="width:60px;height:30px;background:#246"></div>');
+        const video = Object.assign(document.createElement('video'), { muted: true });
+        video.srcObject = s.canvas.captureStream(5);
+        let remote = 'no video.remote';
+        if (video.remote) remote = await Promise.race([
+          new Promise((done) => video.remote.watchAvailability((yes) => done(`a device is ${yes ? 'available' : 'not available'}`)).catch((e) => done(`watchAvailability() failed with ${e.name}`))),
+          sleep(2500).then(() => 'no answer in 2.5 s'),
+        ]);
+        let screen = 'no PresentationRequest';
+        if (typeof PresentationRequest === 'function') screen = await Promise.race([
+          new PresentationRequest(['/media-state/receiver.html']).getAvailability().then((a) => `a screen is ${a.value ? 'available' : 'not available'}`, (e) => `getAvailability() failed with ${e.name}`),
+          sleep(2500).then(() => 'no answer in 2.5 s'),
+        ]);
+        video.srcObject.getTracks().forEach((t) => t.stop());
+        return `Remote Playback for a video of the canvas stream: ${remote}. Presentation: ${screen}.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
