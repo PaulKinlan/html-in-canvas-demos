@@ -42,6 +42,20 @@ The canvas in every row is a 2D context with `colorType: 'float16'` and `colorSp
 | WebGPU: `drawElementImageToTexture()` into `rgba16float` | 1.0 for a CSS value of 3.0 | Measured with the SwiftShader adapter (`--enable-unsafe-webgpu`). With `colorSpace: 'display-p3'` on the destination the colours are converted and still clamped. |
 | `toneMapping: { mode: 'extended' }` on the 2D context | accepted; reported back as `standard` | With `--enable-experimental-web-platform-features` it is reported as `extended`. A string instead of the dictionary throws a TypeError. |
 
+## On the test phone (Chrome 159, Android), 2026-11-21
+
+Reported by the project owner with a screenshot of the first version of the page. Not reproduced in the test browser.
+
+| Observation | Detail |
+|---|---|
+| The visible canvas was white with the context guard's note over it | "This canvas lost its 2D context and the page did not get it back." |
+| The guard's log | 10 2D contexts made, 1 WebGL, 1 WebGPU. 2D losses at 1.4 to 1.6 s, then seven at 3.1 s, seven at 4.6 s, seven at 6.1 s, seven at 7.6 s. |
+| Which canvases | Seven matches the visible canvas plus the six float16 fixtures of the 2D live checks, which were out of the page but still alive. All float16 contexts were lost together. |
+| The interval | 1.5 s, which was the interval of the page's status readback (`getImageData()` with `pixelFormat: 'rgba-float16'`, four 1 by 1 reads). Chrome's own retry of a lost 2D context could give a similar rhythm, so the readback is suspected, not shown, as the cause. |
+| The readback after the first loss | 0.00 for every sample. |
+
+What the page does now: it reads floats back only when "Read values back" is pressed or the map view is chosen (one read, not one per frame), its live checks wait for a tap, and when a float16 context is lost it moves the panel into a new canvas with an 8-bit context and says whether a readback came in the 2.5 seconds before. The loss is remembered for the tab in `sessionStorage`; "Use float16 again" clears it. The fallback was tested in the test browser with a dispatched `contextlost` event, not with a real loss.
+
 ## Things that bit
 
 - A status readout that sampled "the panel background" beside the Deploy button read 0.32 instead of 0.08: the sample point was inside the button's halo. It now samples the bottom corner.
@@ -53,6 +67,7 @@ The canvas in every row is a 2D context with `colorType: 'float16'` and `colorSp
 - Whether values above 1.0 in a 2D canvas reach an HDR screen above standard white in Chrome 157 to 159, and whether `toneMapping: extended` is needed for it. To verify: open `/hdr-glow/` on an HDR phone with "As stored" selected. The white strip holds the word BRIGHTER at headroom times white; if it can be read, the range is shown.
 - The effect of `dynamic-range-limit` on the canvas element. The page has a select for it.
 - `(dynamic-range: high)` on the test phone. The page prints what the screen reports.
+- Why the float16 contexts are lost on the phone: the float readback, the float16 canvas itself, or the GPU process. The notice on the page after the next loss separates the first from the other two.
 - Speed of the repaint (about 15 a second, every frame during a deploy) and of the map view's full readback on a phone.
 
 ## Open ideas
@@ -65,6 +80,10 @@ The canvas in every row is a 2D context with `colorType: 'float16'` and `colorSp
 - Colour and HDR: a float16 Display P3 2D canvas keeps CSS `color()` values above 1.0 through `drawElementImage()` (measured, C157, `/hdr-glow/`).
 - Colour and HDR: a CSS `filter` or `mix-blend-mode` on the element, `ctx.filter`, `lighter`, a shadow on the draw and `drawImage()` of a float canvas clamp to 1.0; `multiply` and fill shadows do not (measured, C157, `/hdr-glow/`).
 - WebGL and WebGPU: element copies do not carry values above 1.0; `texElementSubImage2D()` refuses float textures (measured, C157, `/hdr-glow/`).
+
+## Chromium bugs
+
+- Chrome 159 on Android: float16 Display P3 2D contexts with drawn elements are lost repeatedly (reported, A159, `/hdr-glow/`). Needs a reduced page before filing.
 
 ## API requests
 
