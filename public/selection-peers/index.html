@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Other people's selections</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/lib/selection-article.css">
+<style>
+  #who { list-style: none; padding: 0; margin: 8px 0; font: 12.5px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; }
+  #who i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  #second { display: block; width: 100%; height: 0; border: 0; border-radius: 14px; }
+  #second.open { height: 430px; border: 1px solid var(--line); margin-top: 12px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Other people's selections</h1>
+  <p class="lede">
+    An article drawn by a canvas, with the selections of other readers drawn into it. Two simulated readers select sentences. Select some text yourself, then press “Show a second reader” to get a second copy of the page in a frame: a selection made in either copy appears in the other. A copy open in another tab joins too.
+  </p>
+
+  <div class="screen">
+    <!-- #region markup -->
+    <selection-fx id="demo" effect="peers">
+      <article class="article" data-peers-text>
+        <h3>Reading the same page</h3>
+        <p>When two people read one document, each of them can see what the other has selected. A shared editor does this by sending the <em>start and end</em> of the selection, not the pixels, and each reader's own copy of the page draws the mark.</p>
+        <p>A browser keeps one selection per document, and in Chrome it holds one range. So another reader's selection cannot be a second real selection. It has to be drawn some other way: wrapped in elements, registered as a custom highlight, or painted by a canvas that knows where the text is.</p>
+        <p>Here the canvas draws them. Each reader has a colour, a bar at the end of the selection that is still moving, and a flag with a name. Your own selection is drawn the same way and stays a real selection that can be copied.</p>
+      </article>
+    </selection-fx>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="bar">
+    <button id="frame">Show a second reader</button>
+    <a class="button" href="/selection-peers/" target="_blank" rel="noopener">Open in a new tab</a>
+    <label><input type="checkbox" id="sim" checked> Simulated readers</label>
+    <label>Your name <input type="text" id="name" maxlength="20" value="You"></label>
+  </div>
+  <ul id="who" aria-live="polite"></ul>
+  <iframe id="second" title="A second reader of the same article"></iframe>
+
+  <details class="show-code">
+    <summary>Show the code <small>offsets, the channel and the drawing</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The article inside <code>&lt;selection-fx&gt;</code></b> with the effect named <code>peers</code>.</li>
+      <li data-code="/lib/selection-tools.js#offsets"><b>A selection as two numbers.</b> Character offsets into the article's text, and the way back to a <code>Range</code>.</li>
+      <li data-code="peers.js#room"><b>Send and receive</b> over a <code>BroadcastChannel</code>. A server would relay the same message between people.</li>
+      <li data-code="/lib/selection-tools.js#local"><b>Rectangles of a range</b> in the element's own pixels.</li>
+      <li data-code="peers.js#effect"><b>Draw every reader</b>: rectangles under the text, a bar and a name flag over it.</li>
+      <li data-code="peers.js#bots"><b>The simulated readers.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Each copy of the page listens for <code>selectionchange</code>, converts its selection to a start and an end offset in the article's text and posts them on a <code>BroadcastChannel</code>. A copy that receives offsets builds a <code>Range</code> from them, reads <code>getClientRects()</code> for each text node in it, and draws the rectangles in the canvas before the text and the flag after it. The receiving page's DOM and its own selection do not change. Tabs and frames of one origin share the channel. Between two people the same message would go through a server.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These start when you press the button. They use their own fixtures and their own channel.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in headless Chromium 157 on Linux with a software renderer, 2026-11-21.</p>
+  <ul class="findings" id="findings">
+    <li><strong>A range that is not selected still has rectangles.</strong> <code>Range.getClientRects()</code> works for any range, so a canvas can draw any number of other readers. The receiving document's selection and DOM are not changed (checked below).</li>
+    <li><strong>Offsets into <code>textContent</code> are enough to send a selection</strong> between copies whose text is the same. They survive different line breaks, widths and fonts, because each copy measures its own rectangles. They do not survive an edit of the text.</li>
+    <li><strong>A frame of the same origin is a second reader.</strong> Each document has its own selection, so selecting in the frame does not clear the selection in the page, and both are sent.</li>
+    <li><strong>What the canvas adds over <code>::highlight()</code>:</strong> a Custom Highlight could colour another reader's range with no canvas. It cannot draw the name flag, the bar at the moving end or an animation between two positions.</li>
+  </ul>
+  <p><strong>Not verified:</strong> selecting by touch in the page and in the frame on a phone, and two phones through a server (this page has no server, only a channel inside one browser).</p>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import '/lib/selection-fx.js';
+  import { offsetsOf, rangeAt, whenReady, countPixels, snapshot } from '/lib/selection-tools.js';
+  import { join, bots, COLOURS } from './peers.js';
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const el = $('demo'), article = el.querySelector('article');
+
+  // ---- the visible demo
+  function list(peers) {
+    const text = article.textContent;
+    $('who').replaceChildren(...[...peers.values()].filter((p) => p.end > p.start).map((p) => {
+      const li = document.createElement('li');
+      const dot = document.createElement('i');
+      dot.style.background = p.color;
+      const quote = text.slice(p.start, p.end);
+      li.append(dot, `${p.name}: “${quote.length > 48 ? quote.slice(0, 46) + '…' : quote}” (${p.start} to ${p.end})`);
+      return li;
+    }));
+  }
+  const room = join(el, article, { name: 'You', color: COLOURS[0], onchange: list });
+  const sim = bots(el, article, room.changed);
+  if (supported) sim.start();
+  $('sim').addEventListener('change', (e) => (e.target.checked ? sim.start() : sim.stop()));
+  $('name').addEventListener('input', (e) => room.rename(e.target.value || 'You'));
+  $('frame').addEventListener('click', () => {
+    const f = $('second');
+    if (f.classList.toggle('open')) { f.src = 'pane.html'; $('frame').textContent = 'Hide the second reader'; }
+    else { f.removeAttribute('src'); f.srcdoc = ''; $('frame').textContent = 'Show a second reader'; }
+  });
+
+  // ------------------------------------------------------------ live checks
+  const settle = (ms = 150) => new Promise((r) => requestAnimationFrame(() => setTimeout(r, ms)));
+  async function fixture() {
+    const f = document.createElement('selection-fx');
+    f.setAttribute('effect', 'peers');
+    f.style.cssText = 'width:300px;font:20px/30px monospace;color:#000;background:#fff;--selection-fx-bg:#fff';
+    f.innerHTML = '<p style="margin:0" data-peers-text>ABCD <em>EFGH</em> IJKL MNOP QRST UVWX second line of text</p>';
+    f.peers = new Map();
+    testStage().append(f);
+    await whenReady(f);
+    return f;
+  }
+  const tests = [
+    {
+      name: 'A range becomes two offsets and the same range again',
+      why: 'The range starts inside an inline element and ends in the text after it.',
+      run: async () => {
+        const f = await fixture();
+        try {
+          const p = f.querySelector('p');
+          const range = new Range();
+          range.setStart(p.querySelector('em').firstChild, 2);
+          range.setEnd(p.lastChild, 5);
+          const o = offsetsOf(p, range);
+          const back = rangeAt(p, o.start, o.end);
+          if (back.toString() !== range.toString() || o.start !== 7) throw new Error(`offsets ${o.start} to ${o.end} gave “${back}” for “${range}”`);
+          return `“${range}” is ${o.start} to ${o.end}`;
+        } finally { f.dispose(); }
+      },
+    },
+    {
+      name: 'Another reader\'s range is drawn, with no change to the DOM or the selection',
+      why: 'A peer with a magenta colour over characters 5 to 14. Magenta pixels must appear in the canvas. The fixture must have the same HTML and the document the same selection as before.',
+      run: async () => {
+        const f = await fixture();
+        try {
+          const html = f.innerHTML, before = getSelection().rangeCount + ':' + getSelection().toString();
+          const clean = countPixels(snapshot(f), (r, g, b) => r > 150 && g < 190 && b > 150 && r - g > 40);
+          f.peers.set('x', { name: 'Check', color: 'rgb(255, 0, 255)', start: 5, end: 14 });
+          await settle();
+          const n = countPixels(snapshot(f), (r, g, b) => r > 150 && g < 190 && b > 150 && r - g > 40);
+          const after = getSelection().rangeCount + ':' + getSelection().toString();
+          if (n < 200 || clean > 0) throw new Error(`${n} magenta pixels with the peer, ${clean} without`);
+          if (f.innerHTML !== html || after !== before) throw new Error('the DOM or the selection changed');
+          return `${n} magenta pixels, 0 before; ${f.peers.get('x').rects.length} rectangle(s); HTML and selection unchanged`;
+        } finally { f.dispose(); }
+      },
+    },
+    {
+      name: 'Offsets posted on a BroadcastChannel reach a second copy and are drawn there',
+      why: 'A second channel object with the same name stands in for another tab.',
+      run: async () => {
+        const f = await fixture();
+        const name = 'selection-peers-check-' + Math.random().toString(36).slice(2);
+        const here = join(f, f.querySelector('p'), { room: name, name: 'A', color: COLOURS[0] });
+        const other = new BroadcastChannel(name);
+        try {
+          const t0 = performance.now();
+          other.postMessage({ type: 'selection', id: 'other', name: 'B', color: 'rgb(255, 0, 255)', start: 0, end: 4 });
+          for (let i = 0; i < 40 && !f.peers.has('other'); i++) await new Promise((r) => setTimeout(r, 25));
+          if (!f.peers.has('other')) throw new Error('no message arrived in 1 s');
+          const ms = performance.now() - t0;
+          await settle();
+          snapshot(f);
+          const r = f.peers.get('other').rects?.[0];
+          if (!r || Math.abs(r.w - 48) > 3) throw new Error(`rectangle ${r ? r.w.toFixed(1) : 'missing'} px wide, expected 4 characters of 12 px`);
+          return `arrived in ${ms.toFixed(0)} ms, drawn ${r.w.toFixed(1)} px wide for 4 characters`;
+        } finally { other.close(); here.leave(); f.dispose(); }
+      },
+    },
+    stillDrawn(() => [
+      { name: 'the article', ink: async () => (!el.live ? null : inkFraction(snapshot(el))), rescue: () => el.fallBackToPlain('the canvas was blank after the checks') },
+    ]),
+  ];
+  runTests($('tests'), supported ? tests : []);
+</script>
+</body>
+</html>

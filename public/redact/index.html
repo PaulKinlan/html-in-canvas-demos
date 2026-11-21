@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Redacting selected text</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/lib/selection-article.css">
+<style>
+  #leaks td:first-child { font-weight: 600; }
+  #leaks td { font-size: 13.5px; }
+  #leaks code { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Redacting selected text</h1>
+  <p class="lede">
+    A letter drawn by a canvas. Select part of it and press “Redact selection”, or let the page find the numbers and the email address. The canvas covers those ranges with a bar, large pixels, a blur or changing letters. The table under the letter shows where the covered text can still be read.
+  </p>
+
+  <div class="bar" id="styles" role="group" aria-label="Redaction style">
+    <button data-style="bar">Bar</button>
+    <button data-style="pixels">Pixels</button>
+    <button data-style="blur">Blur</button>
+    <button data-style="scramble">Changing letters</button>
+  </div>
+
+  <div class="screen">
+    <!-- #region markup -->
+    <selection-fx id="demo" effect="redact">
+      <article class="article">
+        <h3>Notice of a refund</h3>
+        <p>Dear Ms Okafor, we charged account 4417 2203 9951 twice on 3 March. The second payment of 1,240.00 was a mistake and has been returned.</p>
+        <p>If the money has not arrived within five working days, write to billing@example.com or call 020 7946 0321 and quote reference RF-88213.</p>
+        <p>We are sorry for the trouble. Nothing else on the account has changed.</p>
+      </article>
+    </selection-fx>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="bar" id="controls">
+    <button id="redact">Redact selection</button>
+    <button id="find">Find numbers and email</button>
+    <button id="clear">Clear</button>
+    <button id="png">Save PNG</button>
+  </div>
+  <div class="bar">
+    <label><input type="checkbox" id="copy"> Copy gives █ for redacted text</label>
+    <button id="remove">Remove the text from the DOM</button>
+  </div>
+  <div class="readout" id="readout" role="status">Nothing is redacted.</div>
+
+  <h2>Where the redacted text can still be read</h2>
+  <table class="results"><tbody id="leaks"></tbody></table>
+
+  <details class="show-code">
+    <summary>Show the code <small>ranges, the four styles, copy and removal</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The letter inside <code>&lt;selection-fx&gt;</code></b> with the effect named <code>redact</code>.</li>
+      <li data-code="redact.js#ranges"><b>Keep the redacted ranges</b> as offsets and in a Custom Highlight that has no style, which the element measures.</li>
+      <li data-code="redact.js#bar"><b>Bar.</b> A filled rectangle over each line of each range.</li>
+      <li data-code="redact.js#pixels"><b>Pixels.</b> The canvas copied into large cells.</li>
+      <li data-code="redact.js#blur"><b>Blur.</b> The element drawn again through <code>ctx.filter</code> and a clip.</li>
+      <li data-code="redact.js#scramble"><b>Changing letters.</b></li>
+      <li data-code="redact.js#copy"><b>Copy.</b> Replace redacted characters in the clipboard text.</li>
+      <li data-code="redact.js#remove"><b>Remove the text</b> from the DOM.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    “Redact selection” stores the selection as two character offsets and adds a <code>Range</code> for it to a CSS Custom Highlight with no <code>::highlight()</code> rule. The element reads the rectangles of that Highlight's ranges and the effect draws over them after it has drawn the text. The drawing is only pixels. The characters stay in the DOM, so anything that reads the DOM still gets them: copy, <code>textContent</code>, find-in-page, a screen reader. “Remove the text from the DOM” replaces each redacted character with a block character, after which the canvas bar covers blocks.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These start when you press the button. They use their own fixture.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in headless Chromium 157 on Linux with a software renderer, 2026-11-21.</p>
+  <ul class="findings">
+    <li><strong>A bar drawn after the element covers every pixel of the range</strong> in the canvas and in a PNG made from it (checked below, pixel by pixel).</li>
+    <li><strong>The canvas hides nothing from the DOM.</strong> After a redaction, <code>textContent</code>, <code>Range.toString()</code> and copy return the covered text. A canvas redaction is only safe as an exported picture, or together with removing the text.</li>
+    <li><strong>Pixels and blur are made from the text's own pixels</strong>, so they keep some information about it: length, word gaps and rough letter shapes. The bar keeps only the length. Changing letters keeps the length and the font.</li>
+    <li><strong><code>ctx.filter</code> applies to <code>drawElementImage()</code>.</strong> The blur style is the element drawn a second time through a <code>blur()</code> filter and a clip.</li>
+    <li><strong>A canvas can be the source of its own <code>drawImage()</code></strong> after <code>drawElementImage()</code>. The pixel style reads the part of the canvas it is about to replace. The canvas is not tainted by same-origin element content, so PNG export works. The page reads pixels only from a <code>drawImage()</code> copy of the canvas.</li>
+    <li><strong>Replacing characters in the DOM changes line breaks</strong> when the block character is wider than the letters it replaces. The offsets stay valid because the number of characters does not change.</li>
+  </ul>
+  <p><strong>Not verified:</strong> what find-in-page and TalkBack report for a redacted range (both read the DOM, so the expected answer is the original text until it is removed), and selecting by touch on a phone.</p>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import '/lib/selection-fx.js';
+  import { rangeAt, copyText, whenReady, countPixels, snapshot } from '/lib/selection-tools.js';
+  import { attach } from './redact.js';
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const el = $('demo'), article = el.querySelector('article');
+  const PATTERN = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+|[A-Z]{2}-\d+|\d[\d ,.]*\d/g;
+  const original = article.textContent;
+
+  // ---- the visible demo
+  function leaks(items) {
+    const rows = [];
+    if (items.length) {
+      const first = items[0];
+      const was = original.slice(first.start, first.end), now = article.textContent.slice(first.start, first.end);
+      const all = copyText(article, 0, article.textContent.length, $('copy').checked ? items : []);
+      const copied = all.includes(was);
+      rows.push(['The canvas and a PNG made from it', $('styles').querySelector('[aria-pressed=true]').dataset.style === 'bar' ? 'covered by the bar' : 'changed, made from the text\'s own pixels or font', '']);
+      rows.push(['textContent of the article', now === was ? `still “${now}”` : `now “${now}”`, now === was ? 'fail' : 'pass']);
+      rows.push(['Copy of the whole letter', copied ? `contains “${was}”` : `does not contain “${was}”`, copied ? 'fail' : 'pass']);
+      rows.push(['Find-in-page, screen readers', now === was ? 'read the DOM, so expected to find it (not verified)' : 'read the DOM, which no longer has it', '']);
+    }
+    $('leaks').replaceChildren(...rows.map(([a, b, c]) => {
+      const tr = document.createElement('tr');
+      tr.insertCell().textContent = a;
+      const td = tr.insertCell();
+      td.textContent = b;
+      if (c) td.className = `status ${c}`;
+      return tr;
+    }));
+    $('readout').textContent = items.length ? `${items.length} redacted range(s), ${items.reduce((n, it) => n + it.end - it.start, 0)} characters.` : 'Nothing is redacted.';
+  }
+  const redact = attach(el, article, { onchange: leaks });
+  function setStyle(name) {
+    redact.style(name);
+    for (const b of $('styles').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.style === name));
+    leaks(redact.items);
+  }
+  $('styles').addEventListener('click', (e) => { const s = e.target.closest('button')?.dataset.style; if (s) setStyle(s); });
+  for (const b of document.querySelectorAll('.bar button')) b.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the selection
+  setStyle('bar');
+  $('redact').addEventListener('click', () => {
+    const s = getSelection();
+    if (!s.rangeCount || s.isCollapsed || !redact.add(s.getRangeAt(0))) { $('readout').textContent = 'Select some of the letter first.'; return; }
+    s.removeAllRanges();
+  });
+  $('find').addEventListener('click', () => { const n = redact.addMatches(PATTERN); if (!n) $('readout').textContent = 'No numbers or email address found.'; });
+  $('clear').addEventListener('click', () => redact.clear());
+  $('copy').addEventListener('change', (e) => { el.redactCopy = e.target.checked; leaks(redact.items); });
+  $('remove').addEventListener('click', () => {
+    const n = redact.removeText();
+    $('readout').textContent = `${n} characters replaced in the DOM. Reload the page to get the letter back.`;
+  });
+  $('png').addEventListener('click', async () => {
+    if (!el.live) { $('readout').textContent = 'The letter is shown as plain HTML, so there is no canvas to save.'; return; }
+    const blob = await redact.png('#fbf8f1');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'redacted.png';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    $('readout').textContent = `Saved redacted.png, ${(blob.size / 1024).toFixed(0)} kB.`;
+  });
+  // Start with something redacted, so the page shows what it does before any selection.
+  if (supported) redact.addMatches(/4417 2203 9951|billing@example\.com/g);
+
+  // ------------------------------------------------------------ live checks
+  const settle = (ms = 150) => new Promise((r) => requestAnimationFrame(() => setTimeout(r, ms)));
+  async function fixture() {
+    const f = document.createElement('selection-fx');
+    f.setAttribute('effect', 'redact');
+    f.style.cssText = 'width:300px;font:20px/30px monospace;color:#000;--selection-fx-bg:#fff';
+    f.innerHTML = '<p style="margin:0">ABCD SECRETWORD IJKL MNOP second line of text</p>';
+    testStage().append(f);
+    await whenReady(f);
+    const p = f.querySelector('p');
+    const r = attach(f, p);
+    return { f, p, r };
+  }
+  // Pixels of two pictures that differ, inside and outside a rectangle given in element px.
+  function differ(a, b, f, rect) {
+    const s = f.scale;
+    const x0 = (rect.x - 4 + f.bleed) * s, x1 = (rect.x + rect.w + 4 + f.bleed) * s, y0 = (rect.y - 1 + f.bleed) * s, y1 = (rect.y + rect.h + 1 + f.bleed) * s; // the styles reach 1.5 px past the text
+    let inside = 0, outside = 0;
+    for (let y = 0, i = 0; y < a.height; y++) for (let x = 0; x < a.width; x++, i += 4) {
+      const d = Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2]) + Math.abs(a.data[i + 3] - b.data[i + 3]);
+      if (d < 24) continue;
+      if (x >= x0 - 1 && x <= x1 + 1 && y >= y0 - 1 && y <= y1 + 1) inside++; else outside++;
+    }
+    return { inside, outside };
+  }
+  const tests = [
+    {
+      name: 'A bar covers every pixel of the redacted range, and the DOM still has the text',
+      why: 'Characters 5 to 15 (“SECRETWORD”) of a fixture. Every canvas pixel inside the range\'s rectangle must be the text colour.',
+      run: async () => {
+        const { f, p, r } = await fixture();
+        try {
+          r.add(rangeAt(p, 5, 15));
+          await settle();
+          const image = snapshot(f);
+          const m = f.marked[0], s = f.scale;
+          if (!m) throw new Error('no rectangle for the range');
+          const x0 = Math.ceil((m.x + f.bleed) * s), x1 = Math.floor((m.x + m.w + f.bleed) * s), y0 = Math.ceil((m.y + f.bleed) * s) + 1, y1 = Math.floor((m.y + m.h + f.bleed) * s) - 1;
+          const open = countPixels(image, (rr, g, b, a, x, y) => x >= x0 && x < x1 && y >= y0 && y < y1 && !(a > 250 && rr < 8 && g < 8 && b < 8));
+          if (open) throw new Error(`${open} pixels inside the rectangle are not the bar colour`);
+          const still = p.textContent.slice(5, 15);
+          if (still !== 'SECRETWORD') throw new Error(`the DOM has “${still}”`);
+          return `${(x1 - x0) * (y1 - y0)} pixels, all the bar colour; textContent still has “${still}”`;
+        } finally { r.dispose(); f.dispose(); }
+      },
+    },
+    {
+      name: 'Pixels, blur and changing letters change the range and nothing outside it',
+      why: 'Each style is compared with the picture before the redaction.',
+      run: async () => {
+        const { f, p, r } = await fixture();
+        try {
+          const clean = snapshot(f);
+          r.add(rangeAt(p, 5, 15));
+          await settle();
+          const out = [];
+          for (const style of ['pixels', 'blur', 'scramble']) {
+            r.style(style);
+            await settle();
+            const d = differ(clean, snapshot(f), f, f.marked[0]);
+            if (d.inside < 200 || d.outside > 0) throw new Error(`${style}: ${d.inside} pixels changed inside, ${d.outside} outside`);
+            out.push(`${style} ${d.inside}`);
+          }
+          return `pixels changed inside the range: ${out.join(', ')}; outside: 0`;
+        } finally { r.dispose(); f.dispose(); }
+      },
+    },
+    {
+      name: 'Copy text with redacted characters replaced',
+      why: 'copyText() is what the copy handler puts on the clipboard.',
+      run: async () => {
+        const { f, p, r } = await fixture();
+        try {
+          r.add(rangeAt(p, 5, 15));
+          const text = copyText(p, 0, 20, r.items);
+          if (text !== 'ABCD ██████████ IJKL') throw new Error(`got “${text}”`);
+          return `“${text}”`;
+        } finally { r.dispose(); f.dispose(); }
+      },
+    },
+    {
+      name: 'Removing the text from the DOM keeps the offsets and the bar',
+      why: 'After removal the DOM must not contain the word, the text must have the same length, and the range must still have a rectangle.',
+      run: async () => {
+        const { f, p, r } = await fixture();
+        try {
+          r.add(rangeAt(p, 5, 15));
+          await settle();
+          const before = f.marked[0].w, length = p.textContent.length;
+          const n = r.removeText();
+          await settle();
+          snapshot(f);
+          const after = f.marked.reduce((a, m) => a + m.w, 0);
+          if (p.textContent.includes('SECRET') || p.textContent.length !== length || !f.marked.length) throw new Error(`text is “${p.textContent}”`);
+          return `${n} characters replaced; range was ${before.toFixed(0)} px wide, now ${after.toFixed(0)} px in ${f.marked.length} line(s)`;
+        } finally { r.dispose(); f.dispose(); }
+      },
+    },
+    stillDrawn(() => [
+      { name: 'the letter', ink: async () => (!el.live ? null : inkFraction(snapshot(el))), rescue: () => el.fallBackToPlain('the canvas was blank after the checks') },
+    ]),
+  ];
+  runTests($('tests'), supported ? tests : []);
+</script>
+</body>
+</html>
