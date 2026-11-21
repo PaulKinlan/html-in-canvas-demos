@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Does a demo page hold still while it loads?
 //
-// Opens every page in public/shared/demos.js the way a mid-range Android phone
+// Opens every page that has a page.json (see tools/site/pages.mjs) the way a mid-range Android phone
 // would (412 px wide, real device scale factor 2.625, touch, CPU slowed 4x),
 // touches nothing, and records what moved on its own from navigation until the
 // page's live checks finish, plus a few seconds, plus a change of viewport
@@ -20,8 +20,9 @@
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 let root = path.resolve(here, '../../public');
@@ -59,8 +60,32 @@ const LIMITS = {
   resizeFlashes: 0,    // the same while the viewport height changes
   resizeClears: 6,     // backing-store writes to one visible canvas while the viewport height changes twice (a loop writes far more)
   resizeShift: 0.02,   // layout shift while the viewport height changes
+  glContexts: 8,       // most WebGL contexts alive at once; Chrome on Android keeps 8 per tab and takes the oldest away
+  lostCanvases: 0,     // visible canvases that lost their context and were not recovered (the guard's note was shown)
 };
-const allow = JSON.parse(await readFile(path.join(here, 'allow.json'), 'utf8').catch(() => '{}'));
+// The list of pages and each page's known exceptions come from the page.json
+// files of the checkout being measured. Its own build script is run first, so
+// the generated menu (public/shared/pages.js) exists and is current. A checkout
+// from before the page files (one that still has shared/demos.js) is measured
+// with its own lists.
+const site = { hrefs: [], allow: {} };
+{
+  const checkout = path.dirname(root);
+  const build = path.join(checkout, 'tools/site/build.mjs');
+  if (await readFile(build).then(() => true, () => false)) {
+    execFileSync(process.execPath, [build], { stdio: ['ignore', 'ignore', 'inherit'] });
+    const { readPages } = await import(pathToFileURL(path.join(checkout, 'tools/site/pages.mjs')));
+    const { menu, pages } = await readPages(root);
+    site.hrefs = menu.map((p) => p.href);
+    for (const p of Object.values(pages)) if (p.jank) site.allow[p.href] = p.jank;
+  } else {
+    const old = {};
+    new Function('window', await readFile(path.join(root, 'shared/demos.js'), 'utf8'))(old);
+    site.hrefs = old.DEMOS.map((d) => d.href);
+    site.allow = JSON.parse(await readFile(path.join(checkout, 'tools/jank/allow.json'), 'utf8').catch(() => '{}'));
+  }
+}
+const allow = site.allow;
 
 // ---------------------------------------------------------------- server
 const MIME = { html: 'text/html; charset=utf-8', js: 'text/javascript', mjs: 'text/javascript', css: 'text/css', json: 'application/json', svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', wasm: 'application/wasm', webm: 'video/webm', mp4: 'video/mp4', woff2: 'font/woff2' };
@@ -308,6 +333,8 @@ function summarise(r) {
     resizeClears: Math.max(0, ...visibleResizes.map((c) => c.phases.viewport || 0)),
     resizeShift: +sum(j.shifts.filter((x) => x.phase === 'viewport'), (x) => x.value).toFixed(3),
     resizeFlashes: flashes(fvp),
+    glContexts: j.gfx?.peak ?? 0,
+    lostCanvases: j.gfx?.noted ?? 0,
     longTasks: j.longTasks.length,
     longTaskMs: sum(j.longTasks, (x) => x.ms),
     layouts: r.trace?.layouts ?? r.metrics.layouts,
@@ -328,6 +355,7 @@ function summarise(r) {
     blankAtEnd: lastLoad ? lastLoad.blank.map((c) => c.id) : [],
     resized: visibleResizes.filter((c) => c.writes > 2).map((c) => `${c.canvas} in ${c.host}: ${c.writes} writes (${c.same} unchanged) by ${Object.keys(c.by).slice(0, 2).join(', ')}`),
     forcedBy: r.trace?.forcedBy ?? {},
+    contexts: j.gfx?.summary ?? '',
   };
   const ok = allow[r.href] ?? {};
   r.problems = [];
@@ -345,9 +373,7 @@ function summarise(r) {
 // ---------------------------------------------------------------- run
 const servers = opt.base ? [] : [await serve(8001), await serve(8002)];
 const base = opt.base ?? 'http://localhost:8001';
-const demos = {};
-new Function('window', await readFile(path.join(root, 'shared/demos.js'), 'utf8'))(demos);
-const pages = opt.pages.length ? opt.pages : ['/', ...demos.DEMOS.map((d) => d.href)];
+const pages = opt.pages.length ? opt.pages : ['/', ...site.hrefs];
 
 const helperBrowser = await chromium.launch();
 const results = [];
@@ -361,7 +387,7 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, pages.length) }, async
     results[i] = r;
     const m = r.summary;
     const flag = r.problems.length ? 'FAIL' : 'ok  ';
-    console.log(`${flag} ${pages[i].padEnd(22)} ${m ? `cls ${m.cls} scroll ${m.scrollPx}px focus ${m.focusMoves} overlay ${m.overlaySamples} blank ${m.blankFrames}/${m.blankAtEnd} changes ${m.bigChanges} flashes ${m.flashes}+${m.resizeFlashes} resize ${m.resizeClears}/${m.resizeShift} forced ${m.forcedLayouts} long ${m.longTaskMs}ms  [${Math.round(m.loadMs / 1000)}s, checks ${m.checks}]` : ''}`);
+    console.log(`${flag} ${pages[i].padEnd(22)} ${m ? `cls ${m.cls} scroll ${m.scrollPx}px focus ${m.focusMoves} overlay ${m.overlaySamples} blank ${m.blankFrames}/${m.blankAtEnd} changes ${m.bigChanges} flashes ${m.flashes}+${m.resizeFlashes} resize ${m.resizeClears}/${m.resizeShift} gl ${m.glContexts}/${m.lostCanvases} forced ${m.forcedLayouts} long ${m.longTaskMs}ms  [${Math.round(m.loadMs / 1000)}s, checks ${m.checks}]` : ''}`);
     for (const p of r.problems) console.log(`       - ${p}`);
     for (const p of r.allowed ?? []) console.log(`       (allowed) ${p}`);
   }

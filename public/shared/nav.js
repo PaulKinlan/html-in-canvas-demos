@@ -1,6 +1,7 @@
 // Shared top menu. Add to any page with one tag, straight after <body>:
 //   <script src="/shared/nav.js"></script>
-// The list of demos lives in /shared/demos.js.
+// The list of demos is /shared/pages.js, which `npm run build` writes from the
+// page.json file beside each page.
 //
 // Plain script (not a module) with its own styles, so it works on every page
 // and in every browser regardless of what else the page loads or whether the
@@ -9,6 +10,15 @@
   if (window.__siteNav) return;
   window.__siteNav = true;
   var base = (document.currentScript && document.currentScript.src) ? new URL('.', document.currentScript.src).href : '/shared/';
+
+  // /shared/context-guard.js has to run before any page script makes a canvas
+  // context. While the page is still being parsed, document.write() is the one
+  // way to load a script that runs before the scripts after this one, module
+  // scripts included.
+  if (!window.__gfx) {
+    if (document.currentScript && document.readyState === 'loading') document.write('<script src="' + base + 'context-guard.js"><\/script>');
+    else { var cg = document.createElement('script'); cg.src = base + 'context-guard.js'; document.head.appendChild(cg); }
+  }
 
   var css = '\
 #site-nav{position:sticky;top:0;z-index:2147483000;font:14px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1d1c1a;background:rgba(246,244,239,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:1px solid #ddd8cf;}\
@@ -164,9 +174,12 @@ html.page-loading body>:not(#site-nav){opacity:0}\
   if (window.DEMOS) { start(); learnBox(); }
   else {
     var s = document.createElement('script');
-    s.src = base + 'demos.js';
+    s.src = base + 'pages.js';
     s.onload = function () { start(); learnBox(); };
-    s.onerror = function () { start(); learnBox(); }; // still show the bar with a Home link
+    s.onerror = function () { // still show the bar with a Home link
+      console.error('/shared/pages.js is missing. It is generated: run `npm run build`.');
+      start(); learnBox();
+    };
     document.head.appendChild(s);
   }
 })();
