@@ -38,6 +38,19 @@
 //   8. Keeps a record of the visit in sessionStorage. If the tab dies (a white
 //      page), the next page loaded in that tab shows the record in a bar at
 //      the bottom with a Copy button.
+//   9. Sends reports to /api/reports (src/reports.js): a lost context, a
+//      stopped loop, a script error, a rejected promise, an intervention or
+//      deprecation the browser reports, and a tab that died (found by the
+//      next page load). Reports are filed by the origin of the page, so
+//      production and each preview stay apart. Read them with
+//      `npm run reports`. Nothing is sent from localhost.
+//  10. Holds drawing after a crash. A page loaded within ten minutes of the
+//      same page dying in the same tab starts with its `paint` events
+//      stopped and a bar that says so, with a "Draw anyway" button. Without
+//      this a page that kills the tab kills it again on every reload.
+//  11. Counts snapshots. captureElementImage() returns a picture that holds
+//      GPU memory until close() is called on it. The guard counts the ones
+//      that are open and reports a page that keeps more than 24.
 //
 // Rules for pages, checked by `npm run check:gfx` (static) and
 // `npm run check:jank` (measured): docs/graphics-rules.md.
@@ -57,6 +70,10 @@
 //               to give a context back. Do not call loseContext().
 //   memory()    { bytes, canvases, largest, removed }: the estimate of point 5
 //   budget      { canvasPx, bytes }: the limits the estimate is compared with
+//   report(type, message, body)   send one report (point 9)
+//   reports     what was sent or queued on this page: { type, message }
+//   snapshots   { made, open, peak }: captureElementImage() pictures (point 11)
+//   held        true while drawing is held after a crash (point 10)
 //   reads       counts of readbacks; reads.timed is true after point 6
 //   halted      true after point 7
 //   summary()   one line for a bug report
@@ -97,6 +114,10 @@
     peakDevices: 0,
     over: null,
     halted: false,
+    held: false,
+    reports: [],
+    snapshots: { made: 0, open: 0, peak: 0 },
+    report: send,
     reads: { calls: 0, unasked: 0, unaskedSeconds: 0, largestUnasked: 0, timed: false, by: {}, recent: [] },
     active: function () { prune(); return gl.size; },
     release: release,
@@ -200,6 +221,7 @@
       if (!G.over && (after.bytes > BUDGET.bytes || after.largest > BUDGET.canvasPx)) {
         G.over = { t: now(), bytes: after.bytes, largest: after.largest };
         console.warn('context-guard: the canvases on this page are estimated at ' + mb(after.bytes) + ' MB (budget ' + mb(BUDGET.bytes) + ' MB) and the largest has ' + mp(after.largest) + ' megapixels (budget ' + mp(BUDGET.canvasPx) + '). A phone can lose every canvas at that size.');
+        send('over-budget', 'canvases estimated at ' + mb(after.bytes) + ' MB, largest ' + mp(after.largest) + ' megapixels', { summary: summary() });
       }
     }
     record();
@@ -234,6 +256,7 @@
     if (second !== lastSecond) { lastSecond = second; R.unaskedSeconds++; }
     if (R.unaskedSeconds >= 4 && !R.timed) {
       R.timed = true;
+      send('timed-readback', kind + ' from a GPU canvas in four different seconds with no tap', { summary: summary() });
       console.warn('context-guard: this page reads pixels back from a GPU canvas on a timer or in a frame loop (' + kind + '). Read back on a tap, or from a 2D canvas made with willReadFrequently.');
     }
   }
@@ -376,6 +399,8 @@
       G.lost.push({ type: entry.type, t: now(), connected: canvas.isConnected, w: canvas.width, h: canvas.height, why: (e && e.statusMessage) || '', float: entry.float, mb: +mb(m.bytes), reads: before.slice(-3) });
       prune();
       record();
+      send('context-lost', (entry.float ? 'float16 ' : '') + label(entry.type) + ' context lost' + (canvas.isConnected ? '' : ' (canvas not in the page)'),
+        { w: canvas.width, h: canvas.height, id: canvas.id || '', why: (e && e.statusMessage) || '', reads: before.slice(-3), summary: summary() }, true);
       entry.losses.push(t);
       while (entry.losses.length && t - entry.losses[0] > 30000) entry.losses.shift();
       if (entry.losses.length >= 3 && canvas.isConnected) halt(canvas, entry);
@@ -405,6 +430,7 @@
     G.halted = true;
     addEventListener('paint', function (e) { e.stopImmediatePropagation(); }, true);
     unnote(entry);
+    send('draw-stopped', label(entry.type) + ' context lost ' + entry.losses.length + ' times in 30 s; paint events stopped', { summary: summary() }, true);
     note(canvas, entry, 'lost its ' + label(entry.type) + ' context ' + entry.losses.length + ' times in ' + Math.round((entry.losses[entry.losses.length - 1] - entry.losses[0]) / 1000) + ' seconds. Drawing on this page has been stopped so that the tab does not crash', true);
     record();
   }
@@ -445,9 +471,119 @@
     });
     return 'Contexts made: ' + (parts.join(', ') || 'none') + '. WebGL alive: ' + G.active() + ' of ' + GL_LIMIT + ' (peak ' + G.peak + ', ' + G.released + ' given back). ' +
       'Canvas memory, estimated: ' + mb(m.bytes) + ' MB in ' + m.canvases + ' canvases (peak ' + mb(G.peakBytes) + ' MB, budget ' + mb(BUDGET.bytes) + ' MB), largest ' + mp(m.largest) + ' megapixels, ' + mb(m.removed) + ' MB in removed canvases, ' + G.freed + ' freed. ' +
+      (G.snapshots.made ? 'Snapshots: ' + G.snapshots.made + ' made, ' + G.snapshots.open + ' open (peak ' + G.snapshots.peak + '). ' : '') +
       'Readbacks: ' + R.calls + ', ' + R.unasked + ' unasked' + (R.timed ? ' (on a timer)' : '') + '. ' +
       'Lost: ' + (groups.length > 8 ? (groups.length - 8) + ' earlier; ' : '') + (shown.join('; ') || 'none') + (G.halted ? '. Drawing stopped by the guard' : '') + '.';
   }
+
+  // ----------------------------------------------------------------- reports
+  // One endpoint for every copy of the site. A preview is static and has no
+  // Worker, so it posts to the production host. window.__gfxReportTo lets a
+  // test name another URL; an empty string turns sending off.
+  var REPORT_URL = window.__gfxReportTo !== undefined ? window.__gfxReportTo
+    : /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) || location.protocol === 'file:' ? '' : 'https://html-in-canvas.page/api/reports';
+  var VISIT = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  var queue = [], flushing = 0, perKey = {};
+  var inFrame = false;
+  try { inFrame = window.top !== window; } catch (e) { inFrame = true; }
+
+  // At most 80 reports for one page load, and 3 with the same type and message.
+  function send(type, message, body, now_, url) {
+    try {
+      message = String(message == null ? '' : message).slice(0, 600);
+      var key = type + '|' + message;
+      perKey[key] = (perKey[key] || 0) + 1;
+      if (perKey[key] > 3 || G.reports.length >= 80) return;
+      G.reports.push({ type: type, message: message });
+      queue.push({ type: type, url: url || location.origin + location.pathname + location.search.slice(0, 80), source: 'guard', message: message, body: body || {}, visit: VISIT, frame: inFrame, t: Date.now() });
+      if (now_) flush();
+      else if (!flushing) flushing = setTimeout(flush, 1000);
+    } catch (e) {}
+  }
+  function flush() {
+    clearTimeout(flushing);
+    flushing = 0;
+    if (!queue.length) return;
+    var batch = queue.splice(0, 25), t = Date.now();
+    batch.forEach(function (r) { r.age = t - r.t; delete r.t; });
+    if (!REPORT_URL) return;
+    try {
+      // text/plain needs no preflight, so the report leaves in one request
+      // even when the tab is about to go.
+      var text = JSON.stringify(batch);
+      if (navigator.sendBeacon && navigator.sendBeacon(REPORT_URL, new Blob([text], { type: 'text/plain' }))) return;
+      fetch(REPORT_URL, { method: 'POST', body: text, keepalive: true, mode: 'no-cors', credentials: 'omit' }).catch(function () {});
+    } catch (e) {}
+  }
+  addEventListener('pagehide', flush);
+  document.addEventListener('visibilitychange', function () { if (document.hidden) flush(); });
+
+  var short = function (stack) { return String(stack || '').replace(new RegExp(location.origin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '').split('\n').slice(0, 6).join('\n').slice(0, 900); };
+  addEventListener('error', function (e) {
+    if (!e || e.target !== window && e.target) return; // a resource that failed to load is not a script error
+    send('error', e.message || 'error', { at: String(e.filename || '').replace(location.origin, '') + ':' + e.lineno + ':' + e.colno, stack: short(e.error && e.error.stack) });
+  });
+  addEventListener('unhandledrejection', function (e) {
+    var r = e && e.reason;
+    send('unhandledrejection', (r && (r.name ? r.name + ': ' : '') + (r.message || '')) || String(r), { stack: short(r && r.stack) });
+  });
+  try {
+    if (window.ReportingObserver) {
+      new ReportingObserver(function (list) {
+        list.forEach(function (r) {
+          var b = {};
+          try { b = r.body && r.body.toJSON ? r.body.toJSON() : {}; } catch (e) {}
+          send(r.type, b.message || b.id || r.type, b);
+        });
+      }, { types: ['intervention', 'deprecation'], buffered: true }).observe();
+    }
+  } catch (e) {}
+
+  // --------------------------------------------------------------- snapshots
+  // captureElementImage() returns an ElementImage. It holds a picture on the
+  // GPU until close() is called or it is collected, and a page with no
+  // allocation pressure in script may not be collected for a long time.
+  (function () {
+    var S = G.snapshots, proto = HTMLCanvasElement.prototype, original = proto.captureElementImage;
+    if (!original) return;
+    var collected = window.FinalizationRegistry ? new FinalizationRegistry(function (state) { if (!state.closed) { state.closed = true; S.open--; } }) : null;
+    // A picture transferred to a worker or a port is no longer held here:
+    // the receiver closes it.
+    var states = new WeakMap();
+    var handOver = function (proto) {
+      var post = proto && proto.postMessage;
+      if (!post) return;
+      proto.postMessage = function (message, second, third) {
+        try {
+          var list = Array.isArray(second) ? second : second && second.transfer ? second.transfer : Array.isArray(third) ? third : null;
+          if (list) for (var k = 0; k < list.length; k++) { var st = states.get(list[k]); if (st && !st.closed) { st.closed = true; S.open--; S.sent = (S.sent || 0) + 1; } }
+        } catch (e) {}
+        return post.apply(this, arguments);
+      };
+    };
+    handOver(window.Worker && Worker.prototype);
+    handOver(window.MessagePort && MessagePort.prototype);
+    handOver(window.Window && Window.prototype);
+    proto.captureElementImage = function () {
+      var image = original.apply(this, arguments);
+      try {
+        if (image && typeof image.close === 'function') {
+          var state = { closed: false }, close = image.close;
+          image.close = function () { if (!state.closed) { state.closed = true; S.open--; } return close.apply(this, arguments); };
+          S.made++;
+          if (++S.open > S.peak) S.peak = S.open;
+          states.set(image, state);
+          if (collected) collected.register(image, state);
+          if (S.open === 25 && !S.warned) {
+            S.warned = true;
+            console.warn('context-guard: 25 captureElementImage() pictures are open on this page. Call close() on each when it has been drawn for the last time.');
+            send('snapshots-open', '25 captureElementImage() pictures open and not closed', { summary: summary() });
+          }
+        }
+      } catch (e) {}
+      return image;
+    };
+  })();
 
   // ------------------------------------------------------------ visit record
   // sessionStorage belongs to the tab and outlives a crashed page. The record
@@ -459,14 +595,24 @@
   function record(state) {
     if (!store) return;
     try {
-      var text = JSON.stringify({ href: location.pathname, at: Date.now(), state: state || (document.hidden ? 'closed' : 'open'), lost: G.lost.length, summary: summary() });
+      var text = JSON.stringify({ href: location.pathname, at: Date.now(), state: state || (document.hidden ? 'closed' : 'open'), lost: G.lost.length, died: died, summary: summary() });
       if (text.replace(/"at":\d+/, '') === lastRecord.replace(/"at":\d+/, '')) return;
       lastRecord = text;
       store.setItem(KEY, text);
     } catch (e) {}
   }
-  var previous = null;
+  var previous = null, died = 0;
   try { previous = store && JSON.parse(store.getItem(KEY) || 'null'); } catch (e) {}
+  // The page before this one died while it was showing, a short time ago.
+  var afterCrash = !!(previous && previous.state === 'open' && Date.now() - previous.at < 30 * 60000);
+  if (afterCrash) {
+    send('tab-died', 'the page stopped without closing (a crashed or killed tab); found by the next page load', { summary: previous.summary, secondsAgo: Math.round((Date.now() - previous.at) / 1000), times: (previous.died || 0) + 1, next: location.pathname }, true, location.origin + previous.href);
+    // The same page again within ten minutes: hold its drawing.
+    if (previous.href === location.pathname && Date.now() - previous.at < 10 * 60000 && !window.__gfxNoHold) {
+      died = (previous.died || 0) + 1;
+      hold();
+    }
+  }
   if (store) {
     addEventListener('pagehide', function () { record('closed'); });
     document.addEventListener('visibilitychange', function () { record(); });
@@ -475,6 +621,23 @@
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { report(previous); });
       else report(previous);
     }
+  }
+
+  // Point 10. `paint` events are stopped in the capture phase on the window,
+  // before any handler of the page. "Draw anyway" lets them through and asks
+  // every drawable canvas for a paint.
+  function stopPaint(e) { e.stopImmediatePropagation(); }
+  function hold() {
+    G.held = true;
+    addEventListener('paint', stopPaint, true);
+  }
+  function unhold() {
+    if (!G.held) return;
+    G.held = false;
+    removeEventListener('paint', stopPaint, true);
+    send('draw-anyway', 'drawing started by hand after the page died ' + died + ' time' + (died === 1 ? '' : 's'), {}, true);
+    var list = document.querySelectorAll('canvas');
+    for (var k = 0; k < list.length; k++) { try { if (list[k].requestPaint) list[k].requestPaint(); } catch (e) {} }
   }
 
   // A bar fixed to the bottom of the window. It covers the page and moves nothing.
@@ -488,7 +651,9 @@
     var text = document.createElement('span');
     text.style.cssText = 'flex:1 1 180px;min-width:0';
     text.textContent = crashed
-      ? 'The page before this one in this tab (' + p.href + ') stopped without closing. That is what a crashed tab leaves behind.'
+      ? (G.held
+        ? 'This page stopped without closing ' + Math.max(1, Math.round((Date.now() - p.at) / 1000)) + ' seconds ago' + (died > 1 ? ' (' + died + ' times in a row)' : '') + ', which is what a crashed tab leaves behind. Its canvases are not being drawn, so that it does not happen again on every reload.' + (REPORT_URL ? ' A report was sent.' : '')
+        : 'The page before this one in this tab (' + p.href + ') stopped without closing. That is what a crashed tab leaves behind.' + (REPORT_URL ? ' A report was sent.' : ''))
       : 'The page before this one in this tab (' + p.href + ') lost a canvas context ' + p.lost + ' time' + (p.lost === 1 ? '' : 's') + '.';
     var detail = document.createElement('small');
     detail.style.cssText = 'flex:1 1 100%;opacity:.75;font-size:11px;overflow-wrap:anywhere';
@@ -505,7 +670,9 @@
       var all = text.textContent + ' ' + p.summary + ' ' + navigator.userAgent;
       try { navigator.clipboard.writeText(all).then(function () { copy.textContent = 'Copied'; }, function () { copy.textContent = 'Could not copy'; }); } catch (e) { copy.textContent = 'Could not copy'; }
     });
-    bar.append(text, copy, button('Dismiss', function () { bar.remove(); }), detail);
+    bar.append(text);
+    if (G.held) bar.append(button('Draw anyway', function () { unhold(); bar.remove(); }));
+    bar.append(copy, button('Dismiss', function () { bar.remove(); }), detail);
     document.body.appendChild(bar);
   }
 

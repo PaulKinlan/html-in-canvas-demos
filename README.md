@@ -123,6 +123,8 @@ For a new demo page:
 
 ## A canvas must not stay lost
 
+Crashes, lost contexts and script errors from every copy of the site are stored by `/api/reports` and printed by `npm run reports`: see [docs/crash-reports.md](docs/crash-reports.md).
+
 The rules that keep a phone from losing canvases, and the two checks that enforce them (`npm run check:gfx`, which `npm run build` runs, and the graphics limits of `npm run check:jank`), are in [docs/graphics-rules.md](docs/graphics-rules.md). This section describes the guard from pull request 63.
 
 A browser can take a canvas's context away: the GPU process restarts, memory is short, a WebGPU device is lost, or the page holds too many WebGL contexts. Chrome on Android keeps 8 WebGL contexts alive per tab, frames included (16 on desktop). Making a ninth takes the oldest away, which is usually the demo at the top of the page.

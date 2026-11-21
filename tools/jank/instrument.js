@@ -147,7 +147,7 @@
     J.gfx = g ? { peak: g.peak, noted: g.noted, released: g.released, made: g.made.length, summary: g.summary(),
       peakBytes: g.peakBytes ?? 0, peakCanvasPx: g.peakCanvasPx ?? 0, removedBytes: mem.removed, canvases: mem.canvases, devices: g.peakDevices ?? 0,
       reads: reads.calls ?? 0, unasked: reads.unasked ?? 0, unaskedSeconds: reads.unaskedSeconds ?? 0, largestUnasked: reads.largestUnasked ?? 0, timed: !!reads.timed, readsBy: reads.by ?? {},
-      lost: g.lost.length, halted: !!g.halted } : null;
+      lost: g.lost.length, halted: !!g.halted, snapshotsOpen: g.snapshots?.open ?? 0, snapshotsPeak: g.snapshots?.peak ?? 0 } : null;
     const { collect, inViewport, sample, ...data } = J;
     return data;
   };

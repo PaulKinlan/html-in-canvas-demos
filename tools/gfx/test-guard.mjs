@@ -18,9 +18,16 @@ let chromium;
 try { ({ chromium } = require('playwright')); } catch { ({ chromium } = require(require.resolve('playwright', { paths: [process.cwd(), '/usr/lib/node_modules', '/usr/local/lib/node_modules', '/opt/node22/lib/node_modules'] }))); }
 
 const guard = await readFile(path.resolve(here, '../../public/shared/context-guard.js'), 'utf8');
+const collected = [];
 const server = createServer((req, res) => {
+  if (req.method === 'POST') {
+    let text = '';
+    req.on('data', (d) => (text += d));
+    req.on('end', () => { try { collected.push(...JSON.parse(text)); } catch {} res.writeHead(204); res.end(); });
+    return;
+  }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(`<!doctype html><title>guard</title><body style="margin:0;background:#fff"><script>${req.url.includes('small') ? 'window.__gfxBudget = { canvasPx: 1e6, bytes: 6e6 };' : ''}window.__gfxNoTaps = true;</script><script>${guard}</script><div id="stage"></div>`);
+  res.end(`<!doctype html><title>guard</title><body style="margin:0;background:#fff"><script>${req.url.includes('small') ? 'window.__gfxBudget = { canvasPx: 1e6, bytes: 6e6 };' : ''}window.__gfxNoTaps = true;${req.url.includes('report') ? "window.__gfxReportTo = '/collect';" : ''}</script><script>${guard}</script><div id="stage"></div>`);
 });
 await new Promise((r) => server.listen(8013, '127.0.0.1', r));
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] });
@@ -186,6 +193,72 @@ await test('The record of a page that never closed is shown on the next load', '
   const text = result.value;
   must(/stopped without closing/.test(text) && /1\.0 MB in 1 canvases/.test(text), text);
   return text.slice(0, 120);
+});
+
+await test('A lost context, a script error and a rejected promise are sent as reports', '/?report', async (page) => {
+  collected.length = 0;
+  await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 300; c.height = 200; document.getElementById('stage').append(c);
+    // gfx-allow: lose-context a plain canvas in a test page, to make a real contextlost event
+    c.getContext('webgl').getExtension('WEBGL_lose_context').loseContext();
+    setTimeout(() => { throw new Error('thrown by the test'); }, 0);
+    Promise.reject(new TypeError('rejected by the test'));
+    window.__gfx.report('trial', 'a report made by the page', { n: 1 });
+    await new Promise((r) => setTimeout(r, 1600));
+  });
+  const types = collected.map((r) => r.type);
+  for (const t of ['context-lost', 'error', 'unhandledrejection', 'trial']) must(types.includes(t), `no ${t} report in ${types.join(', ') || 'nothing'}`);
+  const lost = collected.find((r) => r.type === 'context-lost');
+  must(lost.source === 'guard' && /^http:\/\/127\.0\.0\.1:8013\//.test(lost.url) && /Contexts made: 1 WebGL/.test(lost.body.summary) && lost.visit, JSON.stringify(lost).slice(0, 200));
+  must(/thrown by the test/.test(collected.find((r) => r.type === 'error').message), 'the error report has no message');
+  return `${collected.length} reports: ${types.join(', ')}`;
+});
+
+await test('Snapshots that are not closed are counted, and close() takes one off', '/', async (page) => {
+  const out = await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', ''); c.width = 200; c.height = 100;
+    const el = document.createElement('div'); el.setAttribute('drawable', ''); el.textContent = 'x'; c.append(el); document.getElementById('stage').append(c);
+    if (!c.captureElementImage) return 'none';
+    const ctx = c.getContext('2d');
+    await new Promise((r) => { c.onpaint = () => { ctx.drawElementImage(el, 0, 0, 50, 20); r(); }; c.requestPaint(); });
+    const kept = []; for (let i = 0; i < 26; i++) kept.push(c.captureElementImage(el));
+    kept[0].close(); kept[0].close();
+    return JSON.stringify(window.__gfx.snapshots) + ' ' + window.__gfx.reports.map((r) => r.type).join(',');
+  });
+  if (out === 'none') return 'captureElementImage() is not in this browser: not run';
+  must(/"made":26,"open":25,"peak":26/.test(out) && /snapshots-open/.test(out), out);
+  return out;
+});
+
+await test('A page that died holds its paint events on the next load until "Draw anyway", and reports the death', '/?report', async (page) => {
+  collected.length = 0;
+  const cdp = await page.context().newCDPSession(page);
+  await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 500; c.height = 500; document.getElementById('stage').append(c); c.getContext('2d');
+    await new Promise((r) => setTimeout(r, 700));
+  });
+  cdp.send('Page.crash').catch(() => {});
+  await new Promise((r) => setTimeout(r, 800));
+  await cdp.send('Page.navigate', { url: 'http://127.0.0.1:8013/?report' });
+  await new Promise((r) => setTimeout(r, 1500));
+  const run = async (expression) => (await cdp.send('Runtime.evaluate', { expression, awaitPromise: true })).result.value;
+  const paints = `(async () => {
+    let c = document.querySelector('#stage canvas');
+    if (!c) { c = document.createElement('canvas'); c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', ''); c.width = 100; c.height = 50; c.getContext('2d'); document.getElementById('stage').append(c); window.n = 0; c.addEventListener('paint', () => window.n++); }
+    if (!c.requestPaint) return -1;
+    c.requestPaint(); await new Promise((r) => setTimeout(r, 300)); return window.n; })()`;
+  const held = await run('window.__gfx.held');
+  const before = await run(paints);
+  const text = await run("document.querySelector('.context-visit-report')?.textContent ?? 'no bar'");
+  await run("[...document.querySelectorAll('.context-visit-report button')].find((b) => b.textContent === 'Draw anyway')?.click()");
+  const after = await run(paints);
+  await new Promise((r) => setTimeout(r, 300));
+  must(held === true && /are not being drawn/.test(text), `held ${held}; bar: ${text}`);
+  if (before !== -1) must(before === 0 && after > 0, `paint events before "Draw anyway": ${before}, after: ${after}`);
+  const died = collected.find((r) => r.type === 'tab-died');
+  must(died && died.body.times === 1 && /1\.0 MB in 1 canvases/.test(died.body.summary), `tab-died report: ${JSON.stringify(died)}`);
+  must(collected.some((r) => r.type === 'draw-anyway'), 'no draw-anyway report');
+  return `held; ${before} paint events while held, ${after} after "Draw anyway"; reports: ${collected.map((r) => r.type).join(', ')}`;
 });
 
 await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 3000))]);

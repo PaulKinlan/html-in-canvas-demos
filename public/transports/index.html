@@ -91,6 +91,7 @@
 
   // #region source
   /** A drawable canvas with one yellow element, painted and (optionally) drawn. */
+  const taken = [];
   async function source({ draw = true, type = '2d', keepLive = false } = {}) {
     const c = document.createElement('canvas');
     c.setAttribute('content', 'drawable');
@@ -111,7 +112,8 @@
       const id = setInterval(() => { ctx.reset(); ctx.drawElementImage(el, 0, 0, W, H); ctx.fillStyle = `rgb(${n++ % 255},0,0)`; ctx.fillRect(W - 2, H - 2, 2, 2); }, 50);
       c.stop = () => clearInterval(id);
     }
-    return { c, el, ctx, gl, snap: () => c.captureElementImage(el) };
+    // Every snapshot a route takes is closed when the route ends: an open one holds a picture on the GPU.
+    return { c, el, ctx, gl, snap: () => { const image = c.captureElementImage(el); taken.push(image); return image; } };
   }
   // #endregion source
 
@@ -691,6 +693,7 @@
           state = err.skip ? 'skip' : 'fail';
           detail = err.skip ? err.message : `${err.name}: ${err.message}`;
         }
+        for (const image of taken.splice(0)) { try { image.close(); } catch {} }
         tally[state]++;
         status.className = 'status ' + state;
         status.textContent = { pass: '✓ works', fail: '✗ fails', skip: '– n/a' }[state];

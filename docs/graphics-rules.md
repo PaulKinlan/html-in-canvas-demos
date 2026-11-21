@@ -20,7 +20,7 @@ Three things check them:
 | `/instruments/` (pull request 72) | Broken-picture icon in the first canvas, then a white tab, then an empty canvas after a reload. | No record: the page was white before a note could be read. The page has no WebGL. It ran its live checks on load, with fixtures that draw elements into `willReadFrequently` canvases. Cause not identified. |
 | `/scoped-transitions/` (pull request 70) | Broken-picture icon in a 2D canvas. | No record. Cause not identified. |
 
-Not verified: that the float readback is the cause on `/hdr-glow/` and not only at the same times. To verify: open the page from pull request 75 on the phone, where the readback happens only when a button is pressed. If the canvas is lost with no press, the readback is not the cause.
+Reported from the phone on 2026-11-21, after pull request 75 removed the timer: the canvas stayed until "Map of values above 1.0" was chosen, which reads the whole float canvas once, and the page's message then said the context was lost right after that readback, 5.3 s after load. So a float readback made by a tap also loses the canvas there. One occurrence. The `float` and `float-copy` trials on `/canvas-loss/` repeat it alone.
 
 Not verified: what loses the canvases on `/instruments/` and `/scoped-transitions/`. The guard now writes a record that survives a white tab (see "The record" below). The text of that record from the phone is what will identify the cause.
 
@@ -31,7 +31,7 @@ Not verified: what loses the canvases on `/instruments/` and `/scoped-transition
 | `lose-context` | Call `WEBGL_lose_context.loseContext()`. On a drawable canvas in the page, on one removed in the same task, and on one with an iframe child, it has crashed the renderer in Chromium 157. | Remove the canvas, then call `window.__gfx?.retire(canvas)`. The guard gives the context back a moment after the canvas has left the page. To test a fallback, dispatch a `webglcontextlost` or `contextlost` event on the canvas. |
 | `own-device` | Call `adapter.requestDevice()`. Every call makes another WebGPU device. | `webgpu()` from `/shared/backend.js` for the page. `checkDevice()` from the same file for a live check. |
 | `webgl-context` | Call `getContext('webgl')` or `getContext('webgl2')`. Chrome on Android keeps 8 WebGL contexts per tab and takes the oldest away when a ninth is made. | `new ElementGL(canvas, …)` from `/lib/element-gl.js`: one canvas and one context for the page, which draws every element. |
-| `float-readback` | Call `getImageData()` with `pixelFormat: 'rgba-float16'`. | Only on a tap, and with the exception comment below. |
+| `float-readback` | Call `getImageData()` with `pixelFormat: 'rgba-float16'`. | Not on a canvas that is shown. On the test phone one call on a tap lost the canvas. A page whose evidence is the float values may read once on a tap, with the exception comment below, if it replaces the canvas after a loss and does not read again on that device (`/hdr-glow/` does this from pull request 82). Copying with `drawImage()` into a second float16 canvas clamps to 1.0 in Chromium 157 (`findings/hdr-glow.md`), so a copy cannot carry values above 1.0. |
 | `timed-readback` | Call `getImageData()`, `readPixels()` or `mapAsync()` in the callback of `setInterval()` or `requestAnimationFrame()`. | Read back on a tap. For pixels that are needed often, copy the canvas with `drawImage()` into a second, plain 2D canvas (not a drawable one) made with `willReadFrequently: true`, and read from the copy. That canvas is kept in ordinary memory. |
 
 An exception is a comment at the call, on the same line or the line above, with the reason:
@@ -58,6 +58,7 @@ The page is opened at 412 CSS pixels wide with a device scale factor of 2.625, a
 | `removedMB` | 8 | Memory, at the end, in canvases that were taken out of the page and not freed. |
 | `timedReadbacks` | 2 | Different seconds in which pixels were read back from a GPU canvas with no tap and no live check running. One measurement at load and one after a resize make 2. A timer or a frame loop makes more. |
 | `unaskedReadbackMP` | 0.5 | Megapixels of the largest such readback. |
+| `openSnapshots` | 8 | `captureElementImage()` pictures still open at the end: made, not closed and not collected. Each holds a picture on the GPU. Added after `/flip-clock/` and `/split-flap/` (pull request 80) were found to take one every second or on every change and never close it. Not verified: that this is what lost their canvases on the phone. |
 | `lostContexts` | 0 | Contexts of any kind that were lost. |
 | `lostCanvases` | 0 | Visible canvases that showed the guard's note. |
 
@@ -105,15 +106,23 @@ Every branch from before this change also fails `check:gfx` in the files this ch
 
 The guard writes one line to `sessionStorage` under `gfx-visit` while a page is showing: the path, the time, and the summary above. `pagehide` and a hidden tab mark it closed. A page that loads in the same tab and finds an open record, or a record with losses, shows it in a bar at the bottom of the window with Copy and Dismiss buttons. A tab that went white and was reloaded shows what the page before held and lost. Tested with `Page.crash` in the test browser. Not verified on the phone: whether `sessionStorage` keeps the last write when the renderer is killed there.
 
+### Reports and the hold after a crash
+
+The guard sends each loss, each stopped loop, script errors and a tab that died to `/api/reports`, filed by origin and page. `npm run reports` prints them. A page loaded within ten minutes of the same page dying in the same tab starts with its `paint` events held and a bar with "Draw anyway". Both are described in [crash-reports.md](crash-reports.md).
+
+`/canvas-loss/` runs seventeen 2D operations one at a time (a paint on every frame, `ctx.reset()`, a draw at alpha 0, shadow, filter, source-rectangle draws, resizing, twelve canvases, a nested drawable, `willReadFrequently` fixtures, GPU readbacks, snapshots never closed, a float readback) and reports which one loses a canvas or the tab. It is the way to identify the cause on the phone for the pages with only 2D canvases. Results are in `findings/canvas-loss.md`.
+
 ## Not verified, needs the phone
 
-- That the float readback is what loses the canvases on `/hdr-glow/` (see above).
+- That a float readback from a `willReadFrequently` copy does not lose the canvas (`/canvas-loss/`, trial `float-copy`).
 - The cause on `/instruments/` and `/scoped-transitions/`. Send the text of the note or of the bar.
 - That 96 MB and 4 megapixels are low enough. They were chosen from what the pages use, not from a measured loss.
 - That stopping `paint` events after three losses keeps the tab alive.
 - That setting a removed 2D canvas to 0 by 0 frees its GPU memory at once on Android.
 
 ## Open work
+
+- `/time-scrubber/` keeps more than 100 `captureElementImage()` pictures open as its rewind buffer (116 measured at the test size, recorded as an exception). Not verified on the phone: how much GPU memory that is and whether it loses the canvas. `/offscreen/` and `/transports/` were found by the same count: `/offscreen/` transfers its pictures to a worker, which the guard now counts as handed over, and `/transports/` now closes the 15 it left open.
 
 - `tools/gfx/known.json`: ten libraries make one WebGL context per element. Moving them to one shared context would take `/shader-css/` and `/slot-effects/` from 7 and 8 contexts to 1.
 - `/hdr-glow/` still has its own WebGPU device in one live check. `checkDevice()` replaces it.
