@@ -1,5 +1,7 @@
 # Lost canvas contexts
 
+The rules that came out of this and of the losses reported later the same day, with the checks that enforce them, are in [graphics-rules.md](graphics-rules.md). This file is the record of the first investigation (pull request 63).
+
 Measured on 2026-11-21 in headless Chromium 157, emulating a phone (412 px wide, device scale factor 2.625). The report that started this was a white canvas with Chrome's broken-picture icon on `/selection/` on an Android phone (Chrome 159), and "crashy" video pages. The loss on the phone could not be reproduced here, so its cause is not known. This file records what was measured, what was changed and what is left to confirm on the phone.
 
 ## What was measured

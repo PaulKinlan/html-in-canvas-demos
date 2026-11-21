@@ -547,7 +547,6 @@ export class LiveTransition extends HTMLElement {
     if (before === after || !this.#canvas || !this.#backend || !SUPPORTED) return;
     if (this.#anim) this.#finish(true);
     this.#dropGPU();
-    this.#gl?.getExtension('WEBGL_lose_context')?.loseContext();
     this.#swapCanvas();
     this.#custom.clear();
     this.#startBackend();
@@ -564,6 +563,8 @@ export class LiveTransition extends HTMLElement {
     const old = this.#canvas, canvas = old.cloneNode(false);
     canvas.append(...old.childNodes);
     old.replaceWith(canvas);
+    // The old canvas gives its context back once it is out of the page (/shared/context-guard.js).
+    globalThis.__gfx?.retire(old);
     this.#canvas = canvas;
     for (const l of this.#layers) { l.tex = null; l.tw = l.th = 0; l.fresh = false; l.gpu?.destroy(); l.gpu = null; }
     this.#wireCanvas();

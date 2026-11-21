@@ -1,0 +1,101 @@
+# Graphics rules: what a page must not do to the GPU
+
+Written 2026-11-21, after canvases were lost and tabs went white on the test phone (Chrome 159, Android) on `/hdr-glow/`, `/instruments/` and `/scoped-transitions/`. The test browser (headless Chromium 157, software rendering) does not lose a context in any of these cases. So the rules are not checked by waiting for a loss. They are checked in the source, and by counting what a page does.
+
+Three things check them:
+
+| Check | What it is | When it runs |
+|---|---|---|
+| `npm run check:gfx` | `tools/gfx/check.mjs` reads the source of every page and library for the calls in the first table below. | In `npm run build`, through `tools/gfx/site-build.mjs`. The build is the install step of Workers Builds, so a page that breaks a rule gets no preview and no deploy. |
+| `npm run check:jank` | Opens each page as a phone, touches nothing, and reads the counts that `/shared/context-guard.js` keeps. | By hand, for every page you change. |
+| `/shared/context-guard.js` | Runs on every page for every visitor. It frees canvases, warns in the console, stops a loop of losses and keeps a record for the next page load. | Always. |
+
+`node tools/gfx/test-guard.mjs` tests the guard itself.
+
+## What was seen on the phone
+
+| Page | Report | What the record shows |
+|---|---|---|
+| `/hdr-glow/` | White canvas with the guard's note. | Seven 2D contexts lost together at 1.4 to 1.6 s, 3.1 s, 4.6 s, 6.1 s and 7.6 s. The page read four float pixels back with `getImageData()` every 1.5 s. In the test browser those readbacks happen at 1.56 s, 3.10 s, 4.63 s and 6.16 s after load. The times agree to within 0.1 s. All accelerated 2D canvases being lost at once means the GPU process, or its connection to the page, was lost each time. |
+| `/instruments/` (pull request 72) | Broken-picture icon in the first canvas, then a white tab, then an empty canvas after a reload. | No record: the page was white before a note could be read. The page has no WebGL. It ran its live checks on load, with fixtures that draw elements into `willReadFrequently` canvases. Cause not identified. |
+| `/scoped-transitions/` (pull request 70) | Broken-picture icon in a 2D canvas. | No record. Cause not identified. |
+
+Not verified: that the float readback is the cause on `/hdr-glow/` and not only at the same times. To verify: open the page from pull request 75 on the phone, where the readback happens only when a button is pressed. If the canvas is lost with no press, the readback is not the cause.
+
+Not verified: what loses the canvases on `/instruments/` and `/scoped-transitions/`. The guard now writes a record that survives a white tab (see "The record" below). The text of that record from the phone is what will identify the cause.
+
+## Rules checked in the source (`npm run check:gfx`)
+
+| Rule | A page must not | Do this |
+|---|---|---|
+| `lose-context` | Call `WEBGL_lose_context.loseContext()`. On a drawable canvas in the page, on one removed in the same task, and on one with an iframe child, it has crashed the renderer in Chromium 157. | Remove the canvas, then call `window.__gfx?.retire(canvas)`. The guard gives the context back a moment after the canvas has left the page. To test a fallback, dispatch a `webglcontextlost` or `contextlost` event on the canvas. |
+| `own-device` | Call `adapter.requestDevice()`. Every call makes another WebGPU device. | `webgpu()` from `/shared/backend.js` for the page. `checkDevice()` from the same file for a live check. |
+| `webgl-context` | Call `getContext('webgl')` or `getContext('webgl2')`. Chrome on Android keeps 8 WebGL contexts per tab and takes the oldest away when a ninth is made. | `new ElementGL(canvas, …)` from `/lib/element-gl.js`: one canvas and one context for the page, which draws every element. |
+| `float-readback` | Call `getImageData()` with `pixelFormat: 'rgba-float16'`. | Only on a tap, and with the exception comment below. |
+| `timed-readback` | Call `getImageData()`, `readPixels()` or `mapAsync()` in the callback of `setInterval()` or `requestAnimationFrame()`. | Read back on a tap. For pixels that are needed often, copy the canvas with `drawImage()` into a second, plain 2D canvas (not a drawable one) made with `willReadFrequently: true`, and read from the copy. That canvas is kept in ordinary memory. |
+
+An exception is a comment at the call, on the same line or the line above, with the reason:
+
+```js
+// gfx-allow: own-device a compatibility device is made to read its limits and destroyed below
+const device = await adapter.requestDevice();
+```
+
+`tools/gfx/known.json` lists the files that broke a rule before 2026-11-21, each with a reason. It is a list of work to do, not a place for new pages. The check fails when an entry is no longer needed.
+
+The check for `timed-readback` only sees a readback written inside the callback. A loop that reaches a readback through a function call or a flag (as `/hdr-glow/` did) is found by the measured check below.
+
+## Rules that are measured (`npm run check:jank`)
+
+The page is opened at 412 CSS pixels wide with a device scale factor of 2.625, and nothing touches it. The limits:
+
+| Metric | Limit | What it counts |
+|---|---|---|
+| `glContexts` | 3 | Most WebGL contexts alive at once: the page's own, one check fixture, one probe. |
+| `gpuDevices` | 1 | WebGPU devices alive at once. |
+| `canvasMB` | 96 | Most memory in all canvases at once, as the guard estimates it. |
+| `canvasMP` | 4 | Megapixels of the largest canvas. A canvas 412 CSS pixels wide reaches this at 1,410 CSS pixels tall. |
+| `removedMB` | 8 | Memory, at the end, in canvases that were taken out of the page and not freed. |
+| `timedReadbacks` | 2 | Different seconds in which pixels were read back from a GPU canvas with no tap and no live check running. One measurement at load and one after a resize make 2. A timer or a frame loop makes more. |
+| `unaskedReadbackMP` | 0.5 | Megapixels of the largest such readback. |
+| `lostContexts` | 0 | Contexts of any kind that were lost. |
+| `lostCanvases` | 0 | Visible canvases that showed the guard's note. |
+
+The memory estimate is width times height times bytes per pixel times buffers. A 2D canvas has one buffer of 4 bytes per pixel, or 8 for `colorType: 'float16'`. A WebGL or WebGPU canvas has two buffers, or four with antialiasing. The numbers 96 MB and 4 megapixels are a choice that every page on main met on 2026-11-21 after the homepage was changed. They are not limits read from Chrome. On a real device the guard scales them by the screen: one canvas may hold 1.25 screens of pixels (at least 4 megapixels) and all canvases 24 screens of bytes (at least 96 MB).
+
+A known exception goes in the `jank` field of the page's `page.json`, with a `max` and a `why`.
+
+Measured on main on 2026-11-21 (Chromium 157, headless), before and after this change:
+
+| Page | Before | After |
+|---|---|---|
+| `/` (homepage) | 222 MB in 9 canvases, the largest 9.2 megapixels (1,081 by 8,490 device pixels) | 17 MB, the largest 2.8 megapixels. Each group is drawn by canvases of at most four cards, and a canvas more than one screen away is 0 by 0. |
+| `/hdr-glow/` | Readbacks in 3 of the 4 seconds after its checks | The same on main. Pull request 75 removes the timer. |
+| `/shader-css/`, `/slot-effects/` | 7 and 8 WebGL contexts | The same, recorded as exceptions. Each effect element still has its own context when WebGPU is not used. |
+| Every other page | At most 60 MB, 3.8 megapixels, 3 WebGL contexts | The same. |
+
+## What the guard does at run time
+
+- Counts WebGL contexts and frees those of removed canvases before the limit is reached (from pull request 63).
+- `window.__gfx.retire(canvasOrElement)` marks canvases as finished with. Once such a canvas has been out of the page for 0.2 s, a WebGL context is given back and any other canvas is set to 0 by 0. `runTests()` in `/shared/support.js` retires every check fixture, and `swapCanvas()` in `/lib/surface.js` retires the canvas it replaces.
+- Over the budget, it frees every canvas that was removed from the page 2 s ago or more, and warns in the console if the page is still over.
+- Logs readbacks. A readback from a GPU canvas with no tap in the last 5 s (`navigator.userActivation.isActive`) and no live check running (`window.__checkState === 'running'`) is unasked. Unasked readbacks in four different seconds give a console warning.
+- A canvas that loses its context three times in 30 s is being lost by what the page draws. The guard stops `paint` events on the page with a capture listener on the window, and puts a note over the canvas. Without this, the page redrew after every restore and lost the context again, about every 1.5 s on `/hdr-glow/`.
+- The note over a lost canvas now also gives the memory estimate, the readback counts, and for each loss the readbacks in the second before it. Losses at the same moment are one entry ("7 2D at 3.1 s").
+
+### The record
+
+The guard writes one line to `sessionStorage` under `gfx-visit` while a page is showing: the path, the time, and the summary above. `pagehide` and a hidden tab mark it closed. A page that loads in the same tab and finds an open record, or a record with losses, shows it in a bar at the bottom of the window with Copy and Dismiss buttons. A tab that went white and was reloaded shows what the page before held and lost. Tested with `Page.crash` in the test browser. Not verified on the phone: whether `sessionStorage` keeps the last write when the renderer is killed there.
+
+## Not verified, needs the phone
+
+- That the float readback is what loses the canvases on `/hdr-glow/` (see above).
+- The cause on `/instruments/` and `/scoped-transitions/`. Send the text of the note or of the bar.
+- That 96 MB and 4 megapixels are low enough. They were chosen from what the pages use, not from a measured loss.
+- That stopping `paint` events after three losses keeps the tab alive.
+- That setting a removed 2D canvas to 0 by 0 frees its GPU memory at once on Android.
+
+## Open work
+
+- `tools/gfx/known.json`: ten libraries make one WebGL context per element. Moving them to one shared context would take `/shader-css/` and `/slot-effects/` from 7 and 8 contexts to 1.
+- `/hdr-glow/` still has its own WebGPU device in one live check. `checkDevice()` replaces it.

@@ -22,6 +22,25 @@
 //      still on a lost WebGPU device, 1.5 seconds after the loss. A library
 //      that recovers by itself replaces or restores the canvas inside that
 //      time and no note appears.
+//   5. Estimates the memory of every canvas that has a context (width x height
+//      x bytes per pixel x buffers) and compares it with a budget sized for a
+//      phone. Over the budget it frees canvases that were removed from the
+//      page, and warns in the console.
+//   6. Logs every readback (getImageData, readPixels, mapAsync, toDataURL,
+//      toBlob). A readback from a GPU canvas that no tap asked for and no
+//      live check made is "unasked". Unasked readbacks in four different
+//      seconds mean a timer or a frame loop is reading back, which is the
+//      pattern that matched the losses on /hdr-glow/ on the test phone.
+//   7. Stops a loop of losses. A canvas that loses its context three times in
+//      30 seconds is being lost by what the page draws. The guard then stops
+//      `paint` events on the page and says so, so that the tab is not taken
+//      down with the GPU process.
+//   8. Keeps a record of the visit in sessionStorage. If the tab dies (a white
+//      page), the next page loaded in that tab shows the record in a bar at
+//      the bottom with a Copy button.
+//
+// Rules for pages, checked by `npm run check:gfx` (static) and
+// `npm run check:jank` (measured): docs/graphics-rules.md.
 //
 // window.__gfx:
 //   made        every context made: { type, t, where }
@@ -31,6 +50,15 @@
 //   noted       how many notes (point 4) were shown
 //   release(x)  take the WebGL context of every removed canvas under x (a
 //               canvas or an element), or of every removed canvas
+//   retire(x)   say that the canvases under x (a canvas or an element) are
+//               finished with. Each is freed once it has been out of the page
+//               for a moment: a WebGL context is given back, any other canvas
+//               is set to 0 by 0. This is the one way for a page or a library
+//               to give a context back. Do not call loseContext().
+//   memory()    { bytes, canvases, largest, removed }: the estimate of point 5
+//   budget      { canvasPx, bytes }: the limits the estimate is compared with
+//   reads       counts of readbacks; reads.timed is true after point 6
+//   halted      true after point 7
 //   summary()   one line for a bug report
 (function () {
   if (window.__gfx || typeof HTMLCanvasElement === 'undefined') return;
@@ -45,16 +73,35 @@
   // Canvases with a WebGL context that has not been lost or released.
   var gl = new Set();
   var gpuCanvases = new Set();
+  // Every canvas that has a context, for the memory estimate.
+  var all = new Set();
+
+  // The budget is a choice, not a limit read from the browser: one canvas may
+  // hold about one phone screen of pixels, and all canvases together about 24
+  // phone screens of bytes. window.__gfxBudget lets a test set it.
+  var screenPx = 0;
+  try { screenPx = Math.round(screen.width * screen.height * devicePixelRatio * devicePixelRatio); } catch (e) {}
+  var BUDGET = window.__gfxBudget || { canvasPx: Math.max(4e6, Math.round(screenPx * 1.25)), bytes: Math.max(96e6, screenPx * 24) };
 
   var G = (window.__gfx = {
     limit: GL_LIMIT,
+    budget: BUDGET,
     made: [],
     lost: [],
     released: 0,
+    freed: 0,
     noted: 0,
     peak: 0,
+    peakBytes: 0,
+    peakCanvasPx: 0,
+    peakDevices: 0,
+    over: null,
+    halted: false,
+    reads: { calls: 0, unasked: 0, unaskedSeconds: 0, largestUnasked: 0, timed: false, by: {}, recent: [] },
     active: function () { prune(); return gl.size; },
     release: release,
+    retire: retire,
+    memory: memory,
     summary: summary,
   });
 
@@ -70,6 +117,165 @@
     });
   }
 
+  // ------------------------------------------------------------ memory
+  // Bytes a canvas is estimated to hold. A 2D canvas has one buffer, a WebGL
+  // or WebGPU canvas a front and a back buffer, antialiasing two more. A
+  // float16 canvas has 8 bytes per pixel. A 2D canvas made with
+  // willReadFrequently is kept in ordinary memory, not on the GPU, and is
+  // counted the same way.
+  function bytesOf(c, i) {
+    if (!i || i.freed || (i.lost && isGL(i.type))) return 0;
+    var buffers = i.type === 'webgpu' || isGL(i.type) ? (i.antialias ? 4 : 2) : 1;
+    return c.width * c.height * (i.float ? 8 : 4) * buffers;
+  }
+
+  function memory() {
+    var m = { bytes: 0, canvases: 0, largest: 0, removed: 0 };
+    all.forEach(function (ref) {
+      var c = ref.deref();
+      if (!c) { all.delete(ref); return; }
+      var i = info.get(c), b = bytesOf(c, i);
+      if (!b) return;
+      m.canvases++;
+      m.bytes += b;
+      if (c.width * c.height > m.largest) m.largest = c.width * c.height;
+      if (i.where === 'canvas') {
+        if (c.isConnected) { i.wasConnected = true; i.goneAt = 0; }
+        else if (i.wasConnected) { if (!i.goneAt) i.goneAt = performance.now(); m.removed += b; }
+      }
+    });
+    if (m.bytes > G.peakBytes) G.peakBytes = m.bytes;
+    if (m.largest > G.peakCanvasPx) G.peakCanvasPx = m.largest;
+    return m;
+  }
+
+  // Free one canvas that is out of the page: a WebGL context is given back
+  // (see drop() for the conditions), any other canvas is set to 0 by 0, which
+  // frees its buffer at once and cannot crash.
+  function free(c) {
+    var i = info.get(c);
+    if (!i || i.freed || i.where !== 'canvas' || c.isConnected || !i.goneAt) return false;
+    if (isGL(i.type)) { if (!drop(c)) return false; i.freed = true; return true; }
+    if (i.type === 'webgpu') { try { i.ctx.unconfigure(); } catch (e) {} }
+    try { c.width = 0; c.height = 0; } catch (e) { return false; }
+    i.freed = true;
+    G.freed++;
+    return true;
+  }
+
+  function retire(root) {
+    if (!root) return;
+    all.forEach(function (ref) {
+      var c = ref.deref();
+      if (c && (c === root || composedContains(root, c))) info.get(c).retired = true;
+    });
+    tick();
+  }
+
+  // Twice a second while any canvas has a context: free retired canvases that
+  // have been out of the page since an earlier tick, compare the estimate with
+  // the budget, and write the visit record.
+  var ticking = 0;
+  function tick() { if (!ticking) ticking = setInterval(onTick, 500); }
+  function onTick() {
+    if (document.hidden) return;
+    prune();
+    var m = memory();
+    var t = performance.now();
+    all.forEach(function (ref) {
+      var c = ref.deref();
+      if (!c) return;
+      var i = info.get(c);
+      if (i.retired && !i.freed && i.goneAt && t - i.goneAt > 200) free(c);
+    });
+    if (m.bytes > BUDGET.bytes || m.largest > BUDGET.canvasPx) {
+      // Over the budget: free what was removed from the page two seconds ago or more.
+      all.forEach(function (ref) {
+        var c = ref.deref();
+        if (!c) return;
+        var i = info.get(c);
+        if (!i.freed && i.goneAt && t - i.goneAt > 2000) free(c);
+      });
+      var after = memory();
+      if (!G.over && (after.bytes > BUDGET.bytes || after.largest > BUDGET.canvasPx)) {
+        G.over = { t: now(), bytes: after.bytes, largest: after.largest };
+        console.warn('context-guard: the canvases on this page are estimated at ' + mb(after.bytes) + ' MB (budget ' + mb(BUDGET.bytes) + ' MB) and the largest has ' + mp(after.largest) + ' megapixels (budget ' + mp(BUDGET.canvasPx) + '). A phone can lose every canvas at that size.');
+      }
+    }
+    record();
+    if (!all.size) { clearInterval(ticking); ticking = 0; }
+  }
+  function mb(n) { return (n / 1e6).toFixed(n < 1e7 ? 1 : 0); }
+  function mp(n) { return (n / 1e6).toFixed(1); }
+
+  // ------------------------------------------------------------ readbacks
+  function asked() {
+    // window.__gfxNoTaps: a test harness whose own calls count as taps says so, and no tap is believed.
+    try { if (!window.__gfxNoTaps && navigator.userActivation && navigator.userActivation.isActive) return true; } catch (e) {}
+    return window.__checkState === 'running' || !!window.__gfxAsked;
+  }
+  var lastSecond = -1;
+  function read(kind, px, gpu) {
+    var R = G.reads, t = performance.now();
+    R.calls++;
+    var unasked = gpu && !asked();
+    R.recent.push({ kind: kind, px: px, t: Math.round(t), unasked: unasked });
+    if (R.recent.length > 24) R.recent.shift();
+    if (!unasked) return;
+    R.unasked++;
+    if (px > R.largestUnasked) R.largestUnasked = px;
+    if (R.unasked <= 40) {
+      // Where from, for the report of check:jank.
+      var at = '';
+      try { at = (new Error().stack.split('\n')[3] || '').replace(/^\s*at\s+/, '').replace(location.origin, ''); } catch (e) {}
+      R.by[kind + ' ' + at] = (R.by[kind + ' ' + at] || 0) + 1;
+    }
+    var second = Math.floor(t / 1000);
+    if (second !== lastSecond) { lastSecond = second; R.unaskedSeconds++; }
+    if (R.unaskedSeconds >= 4 && !R.timed) {
+      R.timed = true;
+      console.warn('context-guard: this page reads pixels back from a GPU canvas on a timer or in a frame loop (' + kind + '). Read back on a tap, or from a 2D canvas made with willReadFrequently.');
+    }
+  }
+  function onCPU(canvas) { var i = canvas && info.get(canvas); return !!(i && i.cpu); }
+  function patch(proto, name, describe) {
+    if (!proto || !proto[name]) return;
+    var original = proto[name];
+    proto[name] = function () {
+      try { var d = describe.apply(this, arguments); read(name, d[0], d[1]); } catch (e) {}
+      return original.apply(this, arguments);
+    };
+  }
+  function patchReads() {
+    var g = window;
+    var image = function (x, y, w, h, settings) { var px = Math.abs(w * h) || 0; return [settings && settings.pixelFormat === 'rgba-float16' ? px * 2 : px, !onCPU(this.canvas)]; };
+    if (g.CanvasRenderingContext2D) patch(CanvasRenderingContext2D.prototype, 'getImageData', image);
+    if (g.OffscreenCanvasRenderingContext2D) patch(OffscreenCanvasRenderingContext2D.prototype, 'getImageData', image);
+    var pixels = function (x, y, w, h) { return [Math.abs(w * h) || 0, true]; };
+    if (g.WebGLRenderingContext) patch(WebGLRenderingContext.prototype, 'readPixels', pixels);
+    if (g.WebGL2RenderingContext) patch(WebGL2RenderingContext.prototype, 'readPixels', pixels);
+    if (g.GPUBuffer) patch(GPUBuffer.prototype, 'mapAsync', function () { return [Math.round((this.size || 0) / 4), true]; });
+    var whole = function () { return [this.width * this.height, !onCPU(this)]; };
+    patch(HTMLCanvasElement.prototype, 'toDataURL', whole);
+    patch(HTMLCanvasElement.prototype, 'toBlob', whole);
+    if (g.OffscreenCanvas) patch(OffscreenCanvas.prototype, 'convertToBlob', whole);
+    // One WebGPU device for the page: count the devices asked for.
+    if (g.GPUAdapter) {
+      var request = GPUAdapter.prototype.requestDevice;
+      GPUAdapter.prototype.requestDevice = function () {
+        G.devices = (G.devices || 0) + 1;
+        var p = request.apply(this, arguments);
+        p.then(function (device) {
+          liveDevices++;
+          if (liveDevices > G.peakDevices) G.peakDevices = liveDevices;
+          device.lost.then(function () { liveDevices--; });
+        }, function () {});
+        return p;
+      };
+    }
+  }
+  var liveDevices = 0;
+
   // loseContext() has crashed the renderer in Chromium 157 when the canvas is
   // a drawable one still in the page, when the canvas is removed in the same
   // task, and when the canvas has an iframe child. So a context is only taken
@@ -77,7 +283,9 @@
   // different task) and has no iframe inside it.
   function drop(canvas) {
     var i = info.get(canvas);
-    if (!i || i.lost || !isGL(i.type) || canvas.isConnected || !i.goneAt) return false;
+    if (!i || i.lost || !isGL(i.type) || canvas.isConnected) return false;
+    // A bare canvas that was never in the page (a probe) can be given back at once.
+    if (!i.goneAt && (i.wasConnected || canvas.firstChild)) return false;
     try { if (canvas.querySelector('iframe')) return false; } catch (e) { return false; }
     i.lost = true;
     i.released = true;
@@ -90,7 +298,8 @@
     var n = 0;
     gl.forEach(function (ref) {
       var c = ref.deref();
-      if (c && (!root || c === root || composedContains(root, c)) && drop(c)) n++;
+      if (!c || (root ? c !== root && !composedContains(root, c) : !info.get(c).goneAt)) return;
+      if (drop(c)) n++;
     });
     prune();
     return n;
@@ -132,8 +341,13 @@
       if (!known && isGL(type)) sweep();
       var ctx = original.apply(this, arguments);
       if (!ctx || known) return ctx;
-      var entry = { type: type, ctx: ctx, wasConnected: !!this.isConnected, goneAt: 0, lost: false, note: null };
+      var attrs = arguments[1] || {};
+      var entry = { type: type, ctx: ctx, where: where, wasConnected: !!this.isConnected, goneAt: 0, lost: false, note: null, losses: [],
+        float: attrs.colorType === 'float16', cpu: type === '2d' && attrs.willReadFrequently === true, antialias: isGL(type) && attrs.antialias !== false };
+      try { if (entry.float && ctx.getContextAttributes && ctx.getContextAttributes().colorType !== 'float16') entry.float = false; } catch (e) {}
       info.set(this, entry);
+      all.add(new WeakRef(this));
+      tick();
       G.made.push({ type: type, t: now(), where: where });
       if (isGL(type)) {
         gl.add(new WeakRef(this));
@@ -154,13 +368,23 @@
   function listen(canvas, entry) {
     var onLost = function (e) {
       if (entry.released) return;
+      if (e && e.isTrusted === false) return; // a page testing its own fallback
       entry.lost = true;
-      G.lost.push({ type: entry.type, t: now(), connected: canvas.isConnected, w: canvas.width, h: canvas.height, why: (e && e.statusMessage) || '' });
+      var t = performance.now(), m = memory();
+      // What was read back in the second before, and how much the canvases held.
+      var before = G.reads.recent.filter(function (r) { return t - r.t < 1000; }).map(function (r) { return r.kind + ' ' + r.px + ' px ' + Math.round(t - r.t) + ' ms before'; });
+      G.lost.push({ type: entry.type, t: now(), connected: canvas.isConnected, w: canvas.width, h: canvas.height, why: (e && e.statusMessage) || '', float: entry.float, mb: +mb(m.bytes), reads: before.slice(-3) });
       prune();
-      setTimeout(function () { if (entry.lost) note(canvas, entry, 'lost its ' + label(entry.type) + ' context'); }, 1500);
+      record();
+      entry.losses.push(t);
+      while (entry.losses.length && t - entry.losses[0] > 30000) entry.losses.shift();
+      if (entry.losses.length >= 3 && canvas.isConnected) halt(canvas, entry);
+      setTimeout(function () { if (entry.lost && !G.halted) note(canvas, entry, 'lost its ' + label(entry.type) + ' context and the page did not get it back'); }, 1500);
     };
-    var onRestored = function () {
+    var onRestored = function (e) {
+      if (e && e.isTrusted === false) return;
       entry.lost = false;
+      if (G.halted) return;
       unnote(entry);
       if (isGL(entry.type)) { gl.add(new WeakRef(canvas)); watch(); return; }
       // A restored 2D canvas is empty. Pages draw in a paint handler, so ask for one.
@@ -170,6 +394,19 @@
     canvas.addEventListener('contextlost', onLost);
     canvas.addEventListener('webglcontextrestored', onRestored);
     canvas.addEventListener('contextrestored', onRestored);
+  }
+
+  // Three losses of one canvas in 30 seconds: each redraw is losing the
+  // context again. On the test phone such a loop ended with a white tab.
+  // Stop every paint handler on the page (a listener in the capture phase on
+  // the window runs before the page's own) and say what happened.
+  function halt(canvas, entry) {
+    if (G.halted) return;
+    G.halted = true;
+    addEventListener('paint', function (e) { e.stopImmediatePropagation(); }, true);
+    unnote(entry);
+    note(canvas, entry, 'lost its ' + label(entry.type) + ' context ' + entry.losses.length + ' times in ' + Math.round((entry.losses[entry.losses.length - 1] - entry.losses[0]) / 1000) + ' seconds. Drawing on this page has been stopped so that the tab does not crash', true);
+    record();
   }
 
   function label(type) { return isGL(type) ? 'WebGL' : type === 'webgpu' ? 'WebGPU' : type === 'bitmaprenderer' ? 'bitmap' : '2D'; }
@@ -185,7 +422,7 @@
         var c = ref.deref();
         if (!c) { gpuCanvases.delete(ref); return; }
         var i = info.get(c);
-        if (c.isConnected) note(c, i, 'is on a WebGPU device that was lost');
+        if (c.isConnected) note(c, i, 'is on a WebGPU device that was lost and the page did not get it back');
       });
     }, 1500);
   });
@@ -194,8 +431,82 @@
     var by = {};
     for (var k = 0; k < G.made.length; k++) by[label(G.made[k].type)] = (by[label(G.made[k].type)] || 0) + 1;
     var parts = Object.keys(by).map(function (key) { return by[key] + ' ' + key; });
-    return 'Contexts made: ' + (parts.join(', ') || 'none') + '. WebGL alive: ' + G.active() + ' of ' + GL_LIMIT + ' (peak ' + G.peak + ', ' + G.released + ' given back). Lost: ' +
-      (G.lost.map(function (l) { return label(l.type === 'webgpu-device' ? 'webgpu' : l.type) + (l.type === 'webgpu-device' ? ' device' : '') + ' at ' + (l.t / 1000).toFixed(1) + ' s' + (l.why ? ' (' + l.why + ')' : ''); }).join('; ') || 'none') + '.';
+    var m = memory(), R = G.reads;
+    // Losses at the same moment are one line: "7 2D at 3.1 s".
+    var groups = [];
+    G.lost.forEach(function (l) {
+      var name = (l.float ? 'float16 ' : '') + label(l.type === 'webgpu-device' ? 'webgpu' : l.type) + (l.type === 'webgpu-device' ? ' device' : '');
+      var last = groups[groups.length - 1];
+      if (last && last.name === name && Math.abs(last.t - l.t) < 250) { last.n++; return; }
+      groups.push({ name: name, t: l.t, n: 1, why: l.why, mb: l.mb, reads: l.reads || [] });
+    });
+    var shown = groups.slice(-8).map(function (g) {
+      return (g.n > 1 ? g.n + ' ' : '') + g.name + ' at ' + (g.t / 1000).toFixed(1) + ' s' + (g.why ? ' (' + g.why + ')' : '') + (g.reads.length ? ' after ' + g.reads.join(', ') : '');
+    });
+    return 'Contexts made: ' + (parts.join(', ') || 'none') + '. WebGL alive: ' + G.active() + ' of ' + GL_LIMIT + ' (peak ' + G.peak + ', ' + G.released + ' given back). ' +
+      'Canvas memory, estimated: ' + mb(m.bytes) + ' MB in ' + m.canvases + ' canvases (peak ' + mb(G.peakBytes) + ' MB, budget ' + mb(BUDGET.bytes) + ' MB), largest ' + mp(m.largest) + ' megapixels, ' + mb(m.removed) + ' MB in removed canvases, ' + G.freed + ' freed. ' +
+      'Readbacks: ' + R.calls + ', ' + R.unasked + ' unasked' + (R.timed ? ' (on a timer)' : '') + '. ' +
+      'Lost: ' + (groups.length > 8 ? (groups.length - 8) + ' earlier; ' : '') + (shown.join('; ') || 'none') + (G.halted ? '. Drawing stopped by the guard' : '') + '.';
+  }
+
+  // ------------------------------------------------------------ visit record
+  // sessionStorage belongs to the tab and outlives a crashed page. The record
+  // says "open" while the page is showing. A page loaded in the same tab that
+  // finds an "open" record follows a page that never closed.
+  var KEY = 'gfx-visit', lastRecord = '';
+  var store = null;
+  try { store = window.top === window ? sessionStorage : null; } catch (e) {}
+  function record(state) {
+    if (!store) return;
+    try {
+      var text = JSON.stringify({ href: location.pathname, at: Date.now(), state: state || (document.hidden ? 'closed' : 'open'), lost: G.lost.length, summary: summary() });
+      if (text.replace(/"at":\d+/, '') === lastRecord.replace(/"at":\d+/, '')) return;
+      lastRecord = text;
+      store.setItem(KEY, text);
+    } catch (e) {}
+  }
+  var previous = null;
+  try { previous = store && JSON.parse(store.getItem(KEY) || 'null'); } catch (e) {}
+  if (store) {
+    addEventListener('pagehide', function () { record('closed'); });
+    document.addEventListener('visibilitychange', function () { record(); });
+    record();
+    if (previous && (previous.state === 'open' || previous.lost) && Date.now() - previous.at < 30 * 60000) {
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { report(previous); });
+      else report(previous);
+    }
+  }
+
+  // A bar fixed to the bottom of the window. It covers the page and moves nothing.
+  function report(p) {
+    if (!document.body) return;
+    var crashed = p.state === 'open';
+    var bar = document.createElement('div');
+    bar.className = 'context-visit-report';
+    bar.setAttribute('role', 'status');
+    bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147482500;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;max-height:45vh;overflow:auto;padding:8px 10px;background:#10131af2;color:#e8ebf2;font:13px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;';
+    var text = document.createElement('span');
+    text.style.cssText = 'flex:1 1 180px;min-width:0';
+    text.textContent = crashed
+      ? 'The page before this one in this tab (' + p.href + ') stopped without closing. That is what a crashed tab leaves behind.'
+      : 'The page before this one in this tab (' + p.href + ') lost a canvas context ' + p.lost + ' time' + (p.lost === 1 ? '' : 's') + '.';
+    var detail = document.createElement('small');
+    detail.style.cssText = 'flex:1 1 100%;opacity:.75;font-size:11px;overflow-wrap:anywhere';
+    detail.textContent = p.summary;
+    var button = function (name, fn) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = name;
+      b.style.cssText = 'font:inherit;min-height:36px;padding:6px 12px;border-radius:8px;border:1px solid #ffffff40;background:transparent;color:inherit;cursor:pointer;';
+      b.addEventListener('click', fn);
+      return b;
+    };
+    var copy = button('Copy', function () {
+      var all = text.textContent + ' ' + p.summary + ' ' + navigator.userAgent;
+      try { navigator.clipboard.writeText(all).then(function () { copy.textContent = 'Copied'; }, function () { copy.textContent = 'Could not copy'; }); } catch (e) { copy.textContent = 'Could not copy'; }
+    });
+    bar.append(text, copy, button('Dismiss', function () { bar.remove(); }), detail);
+    document.body.appendChild(bar);
   }
 
   // ---------------------------------------------------------------- the note
@@ -227,8 +538,9 @@
     return false;
   }
 
-  function note(canvas, entry, what) {
-    if (!entry || entry.note || !visible(canvas) || !document.body || saysSo(canvas)) return;
+  function note(canvas, entry, what, always) {
+    if (!entry || entry.note || !document.body) return;
+    if (!always && (!visible(canvas) || saysSo(canvas))) return;
     G.noted++;
     var box = document.createElement('div');
     box.className = 'context-lost-note';
@@ -236,7 +548,7 @@
     box.style.cssText = 'position:absolute;z-index:2147482000;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;background:#10131af2;color:#e8ebf2;font:13px/1.35 system-ui,-apple-system,"Segoe UI",sans-serif;border-radius:0 0 8px 8px;';
     var text = document.createElement('span');
     text.style.cssText = 'flex:1 1 180px;min-width:0';
-    text.textContent = 'This canvas ' + what + ' and the page did not get it back.';
+    text.textContent = 'This canvas ' + what + '.';
     var button = document.createElement('button');
     button.type = 'button';
     button.textContent = 'Reload the page';
@@ -266,7 +578,7 @@
   function place() {
     notes.forEach(function (entry) {
       var c = entry.note.canvas;
-      var back = entry.type !== 'webgpu' && entry.ctx.isContextLost && !entry.ctx.isContextLost();
+      var back = !G.halted && entry.type !== 'webgpu' && entry.ctx.isContextLost && !entry.ctx.isContextLost();
       if (!c.isConnected || back) { if (back) entry.lost = false; unnote(entry); return; }
       var r = c.getBoundingClientRect();
       var s = entry.note.box.style;
@@ -276,6 +588,7 @@
     });
   }
 
+  patchReads();
   wrap(HTMLCanvasElement.prototype, 'canvas');
   if (typeof OffscreenCanvas !== 'undefined') wrap(OffscreenCanvas.prototype, 'offscreen');
 })();

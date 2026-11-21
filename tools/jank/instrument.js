@@ -5,6 +5,9 @@
 (() => {
   // Count WebGL contexts the way Chrome on Android does (/shared/context-guard.js reads this).
   window.__gfxLimit = 8;
+  // This harness never touches the page, but its evaluate() calls count as user activation. Tell the guard,
+  // so a readback it sees is counted as one nobody asked for.
+  window.__gfxNoTaps = true;
   if (window.top !== window || window.__jank) return;
   const t0 = performance.now();
   const now = () => Math.round(performance.now() - t0);
@@ -139,7 +142,12 @@
     J.revealedAt = revealedAt === null ? null : Math.round(revealedAt);
     // Canvas contexts, counted by /shared/context-guard.js.
     const g = window.__gfx;
-    J.gfx = g ? { peak: g.peak, noted: g.noted, released: g.released, made: g.made.length, summary: g.summary() } : null;
+    // A checkout measured with --root may have the guard from before it estimated memory and logged readbacks.
+    const mem = g?.memory ? g.memory() : { removed: 0, canvases: 0 }, reads = g?.reads ?? {};
+    J.gfx = g ? { peak: g.peak, noted: g.noted, released: g.released, made: g.made.length, summary: g.summary(),
+      peakBytes: g.peakBytes ?? 0, peakCanvasPx: g.peakCanvasPx ?? 0, removedBytes: mem.removed, canvases: mem.canvases, devices: g.peakDevices ?? 0,
+      reads: reads.calls ?? 0, unasked: reads.unasked ?? 0, unaskedSeconds: reads.unaskedSeconds ?? 0, largestUnasked: reads.largestUnasked ?? 0, timed: !!reads.timed, readsBy: reads.by ?? {},
+      lost: g.lost.length, halted: !!g.halted } : null;
     const { collect, inViewport, sample, ...data } = J;
     return data;
   };

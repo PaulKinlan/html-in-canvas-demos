@@ -215,6 +215,9 @@ export async function runTests(tbody, tests, { when = null } = {}) {
     if (stage) {
       const pics = fixturePictures(stage);
       if (pics.length) { const div = document.createElement('div'); div.append(...pics); rows[i].querySelector('.detail').append(div); }
+      // The fixtures are finished with. /shared/context-guard.js frees their canvases a moment after they
+      // have left the page: a removed canvas keeps its memory and its WebGL context until garbage collection.
+      for (const fixture of stage.children) window.__gfx?.retire(fixture);
       stage.replaceChildren();
     }
   }

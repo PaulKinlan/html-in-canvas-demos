@@ -123,6 +123,8 @@ For a new demo page:
 
 ## A canvas must not stay lost
 
+The rules that keep a phone from losing canvases, and the two checks that enforce them (`npm run check:gfx`, which `npm run build` runs, and the graphics limits of `npm run check:jank`), are in [docs/graphics-rules.md](docs/graphics-rules.md). This section describes the guard from pull request 63.
+
 A browser can take a canvas's context away: the GPU process restarts, memory is short, a WebGPU device is lost, or the page holds too many WebGL contexts. Chrome on Android keeps 8 WebGL contexts alive per tab, frames included (16 on desktop). Making a ninth takes the oldest away, which is usually the demo at the top of the page.
 
 `public/shared/context-guard.js` handles this on every page. `nav.js` loads it before any page script, so a page does nothing to get it. It:
@@ -136,7 +138,7 @@ A browser can take a canvas's context away: the GPU process restarts, memory is 
 
 For a new page or library:
 
-- Keep at most 8 WebGL contexts alive, counting the visible demo and one check fixture. `npm run check:jank` fails a page above that (`glContexts`) and a page that shows the guard's note (`lostCanvases`).
+- Keep at most 3 WebGL contexts alive, counting the visible demo and one check fixture (the limit was 8 until 2026-11-21). `npm run check:jank` fails a page above that (`glContexts`) and a page that shows the guard's note (`lostCanvases`).
 - Do not make a WebGL context to test for support. Use `webgl2()` from `shared/backend.js`, which asks once and gives the context back.
 - A canvas made for a check is removed from the page when the check ends. The guard frees its context if the limit is near. Do not call `WEBGL_lose_context.loseContext()` yourself to free a context: threads have seen it crash the renderer in Chromium 157 on a drawable canvas still in the page, on one removed in the same task, and on one with an iframe child.
 - Handle the loss in the library when a better answer than the note exists: listen for `webglcontextlost` (WebGL), `contextlost` (2D) and the window event `webgpulost` (WebGPU, sent by `shared/backend.js`), then move the content to a new canvas or show it as plain HTML. `SurfaceElement` in `lib/surface.js` shows plain HTML for both canvas events when its subclass does nothing.
