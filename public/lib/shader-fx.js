@@ -229,6 +229,7 @@ export class FxSurface extends SurfaceElement {
 
   connected() {
     FxSurface.instances.add(this);
+    queueMicrotask(() => this.#syncBleed()); // after adopt() has marked the surface as adopted
     this.addEventListener('pointermove', this.#onMove);
     this.addEventListener('pointerleave', this.#onLeave);
     this.addEventListener('pointerdown', this.#onDown);
@@ -265,6 +266,7 @@ export class FxSurface extends SurfaceElement {
   effectChanged() {
     this.#signature = '';
     this.#error = null;
+    this.#syncBleed();
     // The backend attribute may have changed too: a different kind of context needs a different canvas.
     const want = this.#want;
     const kind = KINDS.includes(want) ? want : null;
@@ -275,6 +277,18 @@ export class FxSurface extends SurfaceElement {
   }
   #wanted = null;
   #noWGSL = false;
+
+  // The effect may have been defined, or swapped, after the element was
+  // wrapped: give the canvas the room around the element that it asks for.
+  #syncBleed() {
+    if (!this.adopted || !this.live || this.target.hasAttribute('fx-bleed')) return;
+    const bleed = effects.get(this.effectName)?.bleed ?? 0;
+    if (bleed === this.bleed) return;
+    this.bleed = bleed;
+    this.setAttribute('bleed', bleed);
+    this.canvas.style.setProperty('--surface-bleed', bleed + 'px');
+    this.contentDirty = true;
+  }
 
   #restart() {
     if (this.backend === 'direct') {
@@ -509,7 +523,11 @@ export class FxSurface extends SurfaceElement {
   }
 }
 
-if (!customElements.get('fx-surface')) customElements.define('fx-surface', FxSurface);
+// Two copies of this library on one page (say /lib/fx.js and /lib/shader-fx.js)
+// would both try to wrap every [fx] element. The first one to load does the work.
+const firstCopy = !customElements.get('fx-surface');
+if (firstCopy) customElements.define('fx-surface', FxSurface);
+else console.warn('fx: the library is already loaded on this page. This second copy does nothing, and effects defined through it are not used.');
 
 // ---- the attribute: wrap anything that says fx="…" ----------------------
 
@@ -534,7 +552,7 @@ function scan(root) {
   for (const el of root.querySelectorAll('[fx]')) adopt(el);
 }
 
-if (typeof document !== 'undefined') {
+if (typeof document !== 'undefined' && firstCopy) {
   const start = () => {
     scan(document);
     new MutationObserver((records) => {

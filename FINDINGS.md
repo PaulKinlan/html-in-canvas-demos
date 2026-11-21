@@ -151,6 +151,13 @@ Things that bit:
 - **Lost or blank canvases say so.** Surfaces fall back to plain HTML with a short note when a 2D or WebGL context does not come back; the portal source swaps in a fresh canvas up to three times, then shows plain HTML and inert copies. Every page ends with a check that the visible demos still have pixels, and switches a blank one to plain HTML.
 - **`fx-backend` on an adopted element was ignored**, because the wrapper connects before the element is moved into it. It only showed once fixtures stopped piling up (the page used to hit the direct-context limit by accident).
 
+### The fx attribute as a library (`/lib/fx.js`)
+
+- **`shader-fx.js` could not be loaded from another site.** `/lib/*` is served with `Access-Control-Allow-Origin: *`, but the module imports `/shared/backend.js`, which is not. `/lib/fx.js` is the same code joined into one file by `tools/bundle/fx.mjs`, so one request under `/lib/` is the whole library.
+- **A module script that runs after the document is parsed wraps elements at once**, before a later module on the page has called `defineEffect()`. An effect defined afterwards was drawn, but with the `bleed` of the effect that was missing (0). The surface now takes its bleed from the effect each time the effect changes.
+- **A second copy of the library on a page** would wrap every `[fx]` element a second time with a class that is not registered. The second copy now logs a warning and does nothing.
+- **An effect with only WGSL** used to fail its GLSL compile with an empty source. It now gets the pass-through GLSL, so WebGL draws the element unshaded.
+
 ### Named effects and shader slots (`/slot-effects/`)
 
 `<canvas-slot effect="tilt">` extends the existing element: without the attribute nothing changes. 15 live checks.
