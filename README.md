@@ -60,6 +60,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
+| `/scroll-fx/` | Scroll-driven animations, a `scroll-state()` query and a timeline trigger as shader inputs: blocks burn in, unroll and melt with the scroll and blur by its speed, with no scroll listener |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
 | `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
 | `/embed/` | Cross-origin cards the host distorts and restyles without DOM access |
