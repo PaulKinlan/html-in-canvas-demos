@@ -39,7 +39,7 @@ fn sd(p: vec2f, box: vec4f, r: f32) -> f32 {
 @fragment fn fs(in: V) -> @location(0) vec4f {
   var c = textureSample(tex, smp, in.uv);          // the element, at most 1.0, premultiplied
   let p = in.uv * u.size;
-  let white = smoothstep(0.985, 1.0, min(c.r, min(c.g, c.b)));
+  let white = smoothstep(0.997, 0.9995, min(c.r, min(c.g, c.b)));   // 255 of 255, and not 254
   var halo = vec3f(0.0);
   for (var i = 0; i < i32(u.sweep.z); i++) {
     let it = u.items[i];
