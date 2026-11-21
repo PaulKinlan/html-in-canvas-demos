@@ -122,7 +122,8 @@ export function createBridge({ source, form, route = 'canvas-copy', onStats = ()
   // uploads a source with gl.texImage2D(..., source), which does not take an element, so that
   // one call is replaced by texElementSubImage2D(). This stands in for an engine change.
   function adopt(canvas) {
-    const gl = canvas.getContext('webgl2'); // the context CanvasKit made, if it is on this canvas
+    // gfx-allow: webgl-context this returns the context CanvasKit already made on Flutter's canvas, it makes none
+    const gl = canvas.getContext('webgl2');
     if (!gl) throw new Error('Flutter\'s canvas on the page has no WebGL context. It is a bitmaprenderer canvas fed from an OffscreenCanvas, and an element cannot be a child of an OffscreenCanvas.');
     if (!gl.texElementSubImage2D) throw new Error('texElementSubImage2D() is missing');
     canvas.setAttribute('content', 'drawable');

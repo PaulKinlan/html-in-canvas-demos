@@ -115,6 +115,7 @@ function drawnPixel(fx, x, y) {
     const read = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     const out = new Uint8Array(4);
+    // gfx-allow: timed-readback one pixel, once per live check after a tap; Godot's framebuffer is cleared after the frame, so it can only be read in the frame callback
     gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, was);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, read);

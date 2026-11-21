@@ -146,15 +146,18 @@ async function until(test, timeout = 3000) {
 let nudge = 0;
 function flutterPixel(win, fd, canvas, x, y) {
   fd.control('opacity', (nudge ^= 1) ? 0.999 : 1);
-  return new Promise((resolve) => win.requestAnimationFrame(() => {
+  // The copy of one pixel is made in the frame callback, while Flutter's canvas holds the picture.
+  // The readback is from the plain 1 by 1 canvas, after the callback.
+  const ctx = await new Promise((resolve) => win.requestAnimationFrame(() => {
     const c = win.document.createElement('canvas');
     c.width = c.height = 1;
-    const ctx = c.getContext('2d', { willReadFrequently: true });
+    const copy = c.getContext('2d', { willReadFrequently: true });
     const r = canvas.getBoundingClientRect();
     const sx = (x - r.x) * canvas.width / r.width, sy = (y - r.y) * canvas.height / r.height;
-    ctx.drawImage(canvas, sx, sy, 1, 1, 0, 0, 1, 1);
-    resolve([...ctx.getImageData(0, 0, 1, 1).data]);
+    copy.drawImage(canvas, sx, sy, 1, 1, 0, 0, 1, 1);
+    resolve(copy);
   }));
+  return [...ctx.getImageData(0, 0, 1, 1).data];
 }
 // Paint the form magenta, wait for Flutter, and look for magenta on Flutter's canvas.
 async function seesForm({ win, fd, canvas, form }) {
@@ -214,6 +217,7 @@ const tests = [
       const d = win.describeFlutter();
       if (!canvas) throw new Error('Flutter made no canvas');
       const root = canvas.getRootNode();
+      // gfx-allow: webgl-context asks which context Flutter's canvas already has, it makes none on a canvas that has one
       const context = canvas.getContext('bitmaprenderer') ? 'a bitmaprenderer context' : canvas.getContext('webgl2') ? 'a WebGL2 context' : 'an unknown context';
       return `renderer ${d.renderer}; ${d.canvases.length} canvas, ${root instanceof win.ShadowRoot ? `in the shadow root of <${root.host.localName}>` : 'in the light DOM'}, with ${context}`;
     },
@@ -356,6 +360,7 @@ const tests = [
     timeout: TIME,
     run: async () => {
       const { win, fd, canvas, form } = await fixture('in-canvas');
+      // gfx-allow: webgl-context returns the context Flutter already made on its canvas
       if (!canvas.getContext('webgl2')) throw new Error('Flutter\'s canvas has no WebGL2 context');
       if (form.parentNode !== canvas) throw new Error('the form is not in Flutter\'s canvas');
       return `<${form.localName}> is a child of Flutter's canvas (${canvas.width}×${canvas.height}, WebGL2, content="${canvas.getAttribute('content')}") in the shadow root of <${canvas.getRootNode().host?.localName}>`;
@@ -427,6 +432,7 @@ function probeInFlutterCanvas(win, canvas) {
     attempt('2D canvas', () => { const c = doc.createElement('canvas'); c.getContext('2d').drawElementImage(image, 0, 0, 120, 30); });
     attempt('OffscreenCanvas 2D', () => new win.OffscreenCanvas(120, 30).getContext('2d').drawElementImage(image, 0, 0, 120, 30));
     attempt('OffscreenCanvas WebGL2', () => {
+      // gfx-allow: webgl-context one 120 by 30 context in a live check fixture, to record that an ElementImage is refused by another context
       const gl = new win.OffscreenCanvas(120, 30).getContext('webgl2');
       gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 120, 30);

@@ -306,7 +306,7 @@ export async function startGodot({ canvas, form, route = 'gl', stopEvents = true
     onExit: (code) => onError?.(`Godot exited with code ${code}`),
   });
   await withWasm(wasm.body, () => engine.startGame());
-  // The same context object Godot made: getContext() returns the existing one.
+  // gfx-allow: webgl-context the same context object Godot made, getContext() returns the existing one
   gl = canvas.getContext('webgl2');
   if (!gl) throw new Error('Godot started without a WebGL2 context');
   // #endregion start
