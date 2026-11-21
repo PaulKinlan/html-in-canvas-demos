@@ -93,6 +93,7 @@ export class LiveCard extends HTMLElement {
   #origin = '*';
   #hasTexture = false;
   #flat = 0;
+  #looked = 0; // blank checks since the last new connection; they stop once a picture has been seen
   #noticeWhy = null;
 
   constructor() {
@@ -120,15 +121,22 @@ export class LiveCard extends HTMLElement {
       e.preventDefault(); // allows it to be restored
       cancelAnimationFrame(this.#raf);
       this.#hasTexture = false;
+      this.#looked = 0;
       this.#notice('The browser took this card\'s graphics away. It will come back when there is room, or try again.');
     });
     c.addEventListener('webglcontextrestored', () => this.refresh());
     root.querySelector('.notice button').addEventListener('click', () => this.refresh());
     document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && this.isConnected && this.#link && this.refresh());
-    // Once a second: is what we are showing one flat colour? Then say so and ask again.
+    // Once a second after a connection, until a picture has been seen or nine looks have found none: is
+    // what we are showing one flat colour? Then say so and ask again. The look reads pixels back from the
+    // GPU, so it must not go on for the life of the page: a readback on a timer lost canvases on a phone.
     setInterval(() => {
       if (!this.isConnected || !this.#hasTexture || document.visibilityState !== 'visible' || this.#gl?.isContextLost()) return;
-      this.#flat = this.isBlank() ? this.#flat + 1 : 0;
+      if (this.#looked < 0 || this.#looked >= 9) return;
+      this.#looked++;
+      const blank = this.isBlank();
+      if (!blank) this.#looked = -1; // seen: no more looks until the next connection
+      this.#flat = blank ? this.#flat + 1 : 0;
       if (this.#flat === 3) {
         this.#notice('This card is arriving blank. Asking the other site for it again.');
         this.#link?.send({ t: 'hello', frames: 'bitmap' });
@@ -216,6 +224,7 @@ export class LiveCard extends HTMLElement {
       this.#uniforms = {};
     }
     this.#hasTexture = false;
+    this.#looked = 0;
     this.#link?.send({ t: 'hello', frames: 'bitmap' });
   }
 

@@ -204,6 +204,9 @@ export class SurfaceElement extends HTMLElement {
     canvas.append(...old.childNodes);
     this.#canvasRO?.unobserve(old);
     old.replaceWith(canvas);
+    // The old canvas gives its context back once it is out of the page (/shared/context-guard.js).
+    // Never with loseContext(): on a drawable canvas that has crashed the renderer.
+    globalThis.__gfx?.retire(old);
     this.canvas = canvas;
     this.ctx = null;
     this.#painted = false;

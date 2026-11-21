@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>A DOM form on a quad in a Godot 4 scene</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/godot-dom/ui.css">
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A DOM form on a quad in a Godot 4 scene</h1>
+  <p class="lede">
+    Godot is a game engine. Its web export draws everything into one WebGL canvas, so a login form or a chat box has to be rebuilt from engine controls,
+    and on a phone the keyboard only opens for a real <code>&lt;input&gt;</code>. Here the form is a real <code>&lt;form&gt;</code> inside Godot's canvas.
+    The browser paints it into a texture that Godot puts on a quad in a 3D scene. Load the engine, then type in the fields, press Sign in and send a chat line.
+    A press outside the form goes to Godot and recolours the orbiting objects.
+  </p>
+
+  <div class="gd-stage" id="stage">
+    <!-- #region markup -->
+    <!-- Godot is given this canvas to draw into. The form is its child, so the browser can
+         paint the form for this canvas and hit test it there. -->
+    <canvas id="godot" content="drawable" layoutsubtree tabindex="-1" aria-label="Godot scene with a sign-in form">
+      <form class="gd-form" id="form" drawable autocomplete="off" novalidate>
+        <div class="band">Sign in</div>
+        <label>Email <input name="email" type="email" inputmode="email" placeholder="you@example.com"></label>
+        <label>Password <input name="password" type="password"></label>
+        <button type="submit">Sign in</button>
+        <div data-log aria-live="polite"><div>form: not signed in</div></div>
+        <div class="chat">
+          <label>Chat <textarea name="chat" rows="2" placeholder="Say something"></textarea></label>
+          <button type="button" data-send>Send</button>
+        </div>
+      </form>
+    </canvas>
+    <!-- #endregion markup -->
+    <p class="gd-msg" id="msg">
+      <button type="button" id="load">Load the Godot app (10.4 MB)</button>
+      <span>Godot 4.7.2, Compatibility renderer (WebGL2), single-threaded. It is not loaded until you ask.</span>
+    </p>
+  </div>
+  <div class="row gd-routes">
+    <span>Route to the texture</span>
+    <span class="seg" role="group" aria-label="Route to the texture">
+      <button type="button" data-route="gl" aria-pressed="true" disabled>GL.textures</button>
+      <button type="button" data-route="hook" aria-pressed="false" disabled>createTexture hook</button>
+      <button type="button" data-route="pixels" aria-pressed="false" disabled>readPixels</button>
+    </span>
+    <span class="note" id="hud" aria-live="off"></span>
+  </div>
+  <p class="note">
+    The yellow line above the form is a Godot <code>Label3D</code>, drawn with Godot's own font. It changes when the form reports a sign-in or a chat line.
+    The three small objects orbit the panel and pass in front of the form and behind it. The panel sways less while a field has focus.
+  </p>
+  <details class="show-code">
+    <summary>Show the code <small>a DOM form as a Godot texture</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Put the form inside the canvas Godot renders into.</b></li>
+      <li data-code="/godot-dom/ui.css#form-css" data-lang="css"><b>Style it like any other form.</b> It is opaque, because the quad's shader does not blend.</li>
+      <li data-code="/godot-dom/main.js#load"><b>Start the engine when the reader asks.</b></li>
+      <li data-code="/godot-dom/bridge.js#wasm"><b>Fetch the engine.</b> The 39.5 MB <code>index.wasm</code> is stored as a 10.1 MB gzip file and inflated in the page.</li>
+      <li data-code="/godot-dom/bridge.js#start"><b>Start Godot on the canvas</b> with the engine's own <code>Engine</code> loader and no HTML shell.</li>
+      <li data-code="/godot-dom/app/src/main.gd#quad" data-lang="js"><b>GDScript: a quad with an unshaded material.</b></li>
+      <li data-code="/godot-dom/app/src/main.gd#texture" data-lang="js"><b>GDScript: make a texture and find the WebGLTexture behind it.</b> <code>texture_get_native_handle()</code> gives the GL name; <code>GL.textures</code> is reached with <code>JavaScriptBridge.eval()</code> inside the engine's module.</li>
+      <li data-code="/godot-dom/bridge.js#interface"><b>JavaScript: the object GDScript calls.</b></li>
+      <li data-code="/godot-dom/bridge.js#paint"><b>JavaScript: note each <code>paint</code> event.</b></li>
+      <li data-code="/godot-dom/app/src/main.gd#frame" data-lang="js"><b>GDScript: each frame, upload if the form was repainted.</b></li>
+      <li data-code="/godot-dom/bridge.js#upload"><b>JavaScript: <code>texElementSubImage2D()</code> into Godot's texture.</b></li>
+      <li data-code="/godot-dom/app/src/main.gd#place" data-lang="js"><b>GDScript: project the quad's corners to the screen.</b></li>
+      <li data-code="/godot-dom/bridge.js#matrix"><b>JavaScript: four corners to one perspective matrix.</b></li>
+      <li data-code="/godot-dom/bridge.js#place"><b>JavaScript: <code>updateElementGeometry()</code>.</b></li>
+      <li data-code="/godot-dom/bridge.js#events"><b>JavaScript: keep Godot from handling events the form received.</b></li>
+      <li data-code="/godot-dom/app/src/main.gd#events" data-lang="js"><b>GDScript: hear from the form, and Godot's own input.</b></li>
+      <li data-code="/godot-dom/bridge.js#read-pixels"><b>The route without Emscripten internals, JavaScript side.</b></li>
+      <li data-code="/godot-dom/app/src/main.gd#pixels" data-lang="js"><b>The same route, GDScript side.</b></li>
+      <li data-code="/godot-dom/app/src/main.gd#probes" data-lang="js"><b>GDScript: which ways reach <code>GL</code>.</b></li>
+      <li data-code="/godot-dom/app/src/main.gd" data-lang="js"><b>All of main.gd.</b></li>
+      <li data-code="/godot-dom/bridge.js"><b>All of bridge.js.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The page gives Godot a canvas that already holds the form (<code>content="drawable"</code>, <code>layoutsubtree</code>, and <code>drawable</code> on the form). Godot makes its WebGL2 context on that canvas.</li>
+    <li>GDScript makes an <code>ImageTexture</code> of the size <code>getElementImageDefaultSize()</code> reports and asks <code>RenderingServer.texture_get_native_handle()</code> for its GL texture name. Emscripten maps names to <code>WebGLTexture</code> objects in <code>GL.textures</code>.</li>
+    <li>After each <code>paint</code> event, GDScript's <code>_process()</code> calls the bridge, which binds that texture and calls <code>gl.texElementSubImage2D()</code>, then puts Godot's binding back.</li>
+    <li>Each frame GDScript projects the quad's four corners with <code>Camera3D.unproject_position()</code>. The bridge turns them into a homography and passes it to <code>canvas.updateElementGeometry()</code>.</li>
+    <li>The form stops mouse, touch and key events from bubbling to the canvas, where Godot listens.</li>
+    <li>The route buttons switch how the texture is reached while the scene runs. "createTexture hook" records the texture Godot creates between two calls. "readPixels" uploads into a texture the page owns, reads it back with <code>readPixels()</code> and gives Godot the bytes.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">The checks start a second copy of the Godot app in a small frame, so they do not touch the one above. They download the engine (10.4 MB) if it is not cached and take several seconds.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in headless Chromium 157 on 2026-11-21 with Godot 4.7.2 and software WebGL2, at 1× and at a 2.625 device scale with touch. Nothing here was run on a phone.</p>
+  <ul class="findings">
+    <li><strong>A stock Godot 4.7.2 web export drew a live DOM form on a quad.</strong> No engine change, no GDExtension and no custom export template. The scene is one GDScript file.</li>
+    <li><strong><code>GL.textures</code> is reachable from GDScript and not from the page.</strong> <code>JavaScriptBridge.eval(code, false)</code> runs a direct <code>eval</code> inside the engine's module function, where Emscripten's <code>GL</code> is a local variable. The same expression with <code>use_global_execution_context</code> true finds no <code>GL</code>. <code>get_interface("GL")</code> and <code>get_interface("Module")</code> return null, and the page's <code>Engine</code> object does not expose <code>GL</code> either.</li>
+    <li><strong><code>RenderingServer.texture_get_native_handle()</code> gave a usable GL name.</strong> <code>texElementSubImage2D()</code> wrote into the texture Godot had allocated with its own <code>glTexImage2D</code>. Row 0 of the element image is the top of the form, which is also Godot's convention, so there is no flip.</li>
+    <li><strong>The texture can be found without Emscripten.</strong> Godot creates exactly one WebGL texture while <code>ImageTexture.create_from_image()</code> runs, so a wrapper around <code>gl.createTexture</code> for the length of that call identifies it.</li>
+    <li><strong>The read-back route works and costs a <code>readPixels()</code> per repaint.</strong> It needs neither <code>GL.textures</code> nor a hook: <code>JavaScriptBridge.js_buffer_to_packed_byte_array()</code> turns the page's <code>Uint8Array</code> into an <code>Image</code>. The live checks report the time each route spent in its upload call on this device.</li>
+    <li><strong>The browser's GL can build the mip chain.</strong> The <code>Image</code> is created with mipmaps so that Godot samples with a mipmap filter, and the bridge calls <code>generateMipmap()</code> after each upload.</li>
+    <li><strong>One perspective matrix placed the hit box on the swaying quad.</strong> The check compares the box the browser reports for the form with the corners Godot projected.</li>
+    <li><strong>Godot's mouse handler takes focus.</strong> Its <code>mousedown</code> listener on the canvas calls <code>canvas.focus()</code>. A press on a field bubbles to the canvas. Without <code>stopPropagation()</code> at the form, focus was on the canvas after the click and typed text did not reach the field. Godot also listens for <code>mouseup</code> and <code>paste</code> on the window.</li>
+    <li><strong>Godot does not know the form is there and the browser does not know what Godot draws over it.</strong> An orbiting object that passes in front of a field hides it, and a press on that spot still reaches the field. Hit testing follows the geometry only.</li>
+    <li><strong>The wasm file is over Cloudflare's 25 MiB limit for one static asset.</strong> <code>index.wasm</code> is 39.5 MB. It is stored as <code>index.wasm.gz</code> (10.1 MB), inflated with <code>DecompressionStream</code>, and handed to the engine by answering its <code>fetch()</code> with a <code>Response</code> of type <code>application/wasm</code>, which still compiles while streaming.</li>
+    <li><strong><code>get_interface()</code> on a missing name prints an engine error</strong> to the console as well as returning null.</li>
+    <li><strong>Not verified on a phone:</strong> the on-screen keyboard, IME composition, autofill, password managers, touch selection handles, screen readers, frame rate on a real GPU and the deployed site. The live checks run on the device that opens the page.</li>
+  </ul>
+</main>
+<script type="module" src="/godot-dom/main.js"></script>
+</body>
+</html>
