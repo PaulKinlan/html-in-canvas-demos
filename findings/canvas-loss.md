@@ -47,6 +47,25 @@ Changes that follow from it: the guard answers `getImageData()` on a drawable ca
 
 The run before it, at 20:01 UTC, was the page from before pull request 84 deployed: `wrf` lost 10 contexts, the first 6 ms after the read.
 
+### Third run on production, 20:20 UTC on 2026-11-21 (Chrome 159, Android 10), a page load for each trial
+
+Reported through `/api/reports` with the guard of pull request 93. All 21 trials ran.
+
+| Trial | Result |
+|---|---|
+| `once`, `loop`, `reset`, `alpha0`, `shadow`, `filter`, `pieces`, `resize`, `twelve`, `nested` | no loss, 240 to 242 paints in 4 s |
+| `gpu-read` (direct reads, guard bypassed) | lost: 12 events, first 5 ms after the second read, 109 paints |
+| `gpu-read-guarded` (the same calls through the guard) | no loss, 12 of 12 reads answered from a copy, 216 paints |
+| `copy-read` | no loss, 12 copies read |
+| `snapshots` | no loss, 60 pictures kept open |
+| `wrf-guarded`, `fixtures-guarded` | no loss; the context reports `willReadFrequently` false; 12 of 12 fixtures had a drawn pixel |
+| `float-copy`, `float` | no loss; read 1.00, 0.20, 0.10, 1.00 |
+| `wrf` (guard bypassed) | lost: 10 events, first 9 ms after the read |
+| `fixtures` (guard bypassed, freed) | lost: 11 events, 6 of 12 fixtures had a drawn pixel |
+| `fixtures-kept` (guard bypassed, not freed) | lost: 86 events, 5 of 12 fixtures had a drawn pixel |
+
+So both guard fixes hold on the phone, and one float16 read of a canvas that drew no element loses nothing there. The tab did not die in any trial. No `crash` or `tab-died` report arrived.
+
 ## Reports
 
 | Question | Result |
