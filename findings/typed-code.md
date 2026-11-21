@@ -16,7 +16,7 @@ Idea built: "Code that types itself" from `public/elements/ideas.js` (rank 2, te
 ## Things that bit
 
 - The demo text is `reveal.toString()`, the function that draws the block. Lines had to stay under 46 characters to fit a 412 px screen without wrapping.
-- The last `drawElementImage()` call decides the hit region. After the glow and wrong-key pieces, a draw of the whole block at alpha 0 puts it back.
+- The last `drawElementImage()` call decides the hit region. After the glow and wrong-key pieces, `updateElementGeometry()` for the whole block puts it back.
 - A newline has no box. The caret takes the right edge of the previous character there.
 - Highlight ranges are registered once on shared `Highlight` objects. Fixtures add their own ranges to the same objects.
 

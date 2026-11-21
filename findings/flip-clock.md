@@ -15,6 +15,8 @@ Idea built: "Flip clock from a time element" from `public/elements/ideas.js` (ra
 
 ## Things that bit
 
+- The first version took a snapshot every second and never closed one. `ElementImage.close()` exists, and the clock now closes the previous snapshot before taking the next. Paul reported a crashed canvas on the phone before this change. Whether the unclosed snapshots were the cause is not verified.
+
 - A non-inherited registered property is not visible to the element's `::after`. A first test that used `--flip` for the opacity of a pseudo-element measured nothing, because the pseudo-element read the initial value. The test was removed.
 - `fill: 'forwards'` keeps `--flip` at 1 after the animation, so the last paint draws the settled clock. Without it the value falls back to the initial value. The initial value is 1 for the same reason.
 - The old text is compared with the new text by index, so only the digits that differ flip. A time zone change flips most of them.

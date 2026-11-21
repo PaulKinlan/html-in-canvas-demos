@@ -15,9 +15,11 @@ Idea built: "Split-flap output" from `public/elements/ideas.js` (rank 2, forms).
 | A drum (a line of every flap character) as a drawable nested in the section | measured: characters outside the window have no picture | See `findings/keycaps.md`. The drums are direct children of the canvas. |
 | Box of a character with `letter-spacing` | measured: the spacing is inside the box, after the glyph | A 12 px glyph with 10 px spacing has a 22 px box with ink from 1 to 10.5 px. Cards are shifted left by half the spacing. |
 | Does the page stop asking for frames when the flaps settle? | measured: yes | 0 `requestAnimationFrame()` calls in the 300 ms after settling. |
-| Does a point on a drawn character hit test to the output? | measured: yes | After the pieces are drawn, a draw of the section at alpha 0 puts the hit region back. |
+| Does a point on a drawn character hit test to the output? | measured: yes | After the pieces are drawn, `updateElementGeometry()` puts the hit region back. |
 
 ## Things that bit
+
+- An `ElementImage` has a `close()` method and holds memory until it is called. The first version took a new snapshot at every settled paint and closed none. The board now closes the old snapshot before it takes a new one. A closed snapshot throws `InvalidStateError` when drawn.
 
 - The live text shows the new value at once, so a card that is still flipping is drawn again over the section's picture.
 - A drum in the board's own colour made the yellow row flip in white. There is one drum per output style.

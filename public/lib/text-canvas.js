@@ -12,10 +12,19 @@ let missed = false;
 // The returned object counts what happened: paints, frames (requestAnimationFrame calls) and requests.
 export function mount(canvas, paint) {
   const ctx = canvas.getContext('2d');
-  const api = { ctx, canvas, paints: 0, frames: 0, requests: 0, visible: false, request };
+  const api = { ctx, canvas, paints: 0, frames: 0, requests: 0, visible: false, lost: false, request };
   let queued = 0, retries = 0;
-  function request() { api.requests++; canvas.requestPaint?.(); }
+  function request() { if (api.lost) return; api.requests++; canvas.requestPaint?.(); }
+  // A 2D context can be lost on a phone. Stop drawing at the first loss and show the content as plain
+  // HTML, so the page never keeps drawing into a canvas that the browser has taken away.
+  canvas.addEventListener('contextlost', (event) => {
+    if (!event.isTrusted || api.lost) return;
+    api.lost = true;
+    cancelAnimationFrame(queued);
+    plain(canvas, 'The canvas lost its drawing context, so the content is shown as plain HTML. Reload the page to draw it again.');
+  });
   canvas.addEventListener('paint', (event) => {
+    if (api.lost) return;
     api.paints++;
     const dpr = canvas.width / canvas.clientWidth || 1;
     ctx.reset();
@@ -57,12 +66,11 @@ export function piece(ctx, source, sx, sy, sw, sh, dx, dy, dw = sw, dh = sh) {
 
 // The last draw of an element decides where its hit region and its client rects are. After drawing
 // pieces, call home() so that clicks, selection and getClientRects() match the layout position again.
-// A draw with alpha 0 moves the hit region and leaves the pixels alone.
+// It sets the geometry without drawing anything.
 export function home(ctx, el, x = 0, y = 0) {
-  ctx.save();
-  ctx.globalAlpha = 0;
-  draw(ctx, el, x, y);
-  ctx.restore();
+  const canvas = ctx.canvas, dpr = canvas.width / canvas.clientWidth || 1;
+  const at = new DOMMatrix().scale(1 / dpr).multiply(ctx.getTransform()).translate(x, y);
+  try { canvas.updateElementGeometry(el, { canvasTransform: at }); } catch {}
 }
 // #endregion draw
 
@@ -144,6 +152,7 @@ export function plain(canvas, note = 'This browser does not draw elements into a
   box.className = 'plain-html';
   const p = document.createElement('p');
   p.className = 'note';
+  p.setAttribute('role', 'alert');
   p.textContent = note;
   box.append(p, ...canvas.children);
   canvas.parentElement?.classList.add('is-plain');
@@ -177,9 +186,11 @@ export async function fixtureCanvas(stage, html, width = 300, height = 120) {
   stage.append(canvas);
   canvas.width = Math.round(width * devicePixelRatio);
   canvas.height = Math.round(height * devicePixelRatio);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const ctx = canvas.getContext('2d');
   // A page's own code may resize the canvas (mount() does), so the scale is read when it is used.
   const scale = () => canvas.width / width;
+  // Pixels are never read from the drawable canvas itself. It is copied to a plain canvas first.
+  const copy = document.createElement('canvas'), reader = copy.getContext('2d', { willReadFrequently: true });
   const fx = {
     canvas, ctx, paints: 0, el: canvas.firstElementChild,
     paint: () => new Promise((resolve) => { canvas.addEventListener('paint', resolve, { once: true }); canvas.requestPaint(); }),
@@ -188,8 +199,12 @@ export async function fixtureCanvas(stage, html, width = 300, height = 120) {
     start: () => { ctx.reset(); ctx.scale(scale(), scale()); },
     // Count pixels in a CSS-pixel rectangle that pass a test on (r, g, b, a).
     count: (x, y, w, h, test = (r, g, b, a) => a > 24) => {
-      const k = scale();
-      const d = ctx.getImageData(Math.round(x * k), Math.round(y * k), Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k))).data;
+      const k = scale(), sx = Math.round(x * k), sy = Math.round(y * k), sw = Math.max(1, Math.round(w * k)), sh = Math.max(1, Math.round(h * k));
+      if (copy.width < sw) copy.width = sw;
+      if (copy.height < sh) copy.height = sh;
+      reader.clearRect(0, 0, copy.width, copy.height);
+      reader.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      const d = reader.getImageData(0, 0, sw, sh).data;
       let n = 0;
       for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) n++;
       return n;

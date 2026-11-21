@@ -9,7 +9,7 @@ Idea built: "Keycaps from kbd" from `public/elements/ideas.js` (rank 1, text).
 | Route | Result | Notes |
 |---|---|---|
 | Every `<kbd>` has `drawable`, inside a `drawable` section, and is drawn with its own `drawElementImage()` call | measured: works in a small canvas, fails on the page | The nested kbd is left out of the section's picture (0 pixels in its box) and draws alone (183 pixels). On the page, the 12 keys that were below the bottom edge of an 860 px window at load had empty pictures. Scrolling them into the window did not paint them, and `drawElementImage()` did not throw. |
-| The section is the only drawable. Each legend is the kbd's box copied from the section's picture with the nine-argument `drawElementImage()` | measured: works, used by the page | 43 keys, one section draw plus 43 piece draws per frame. A final draw at alpha 0 puts the section's hit region back. |
+| The section is the only drawable. Each legend is the kbd's box copied from the section's picture with the nine-argument `drawElementImage()` | measured: works, used by the page | 43 keys, one section draw plus 43 piece draws per frame. A final `updateElementGeometry()` puts the section's hit region back. |
 
 ## The picture of a nested drawable
 

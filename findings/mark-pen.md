@@ -21,6 +21,17 @@ Idea built: "Marker-pen highlight" from `public/elements/ideas.js` (rank 1, text
 - On a phone a tap on a button can clear the selection before `click` runs. The page keeps the last non-empty range from `selectionchange`.
 - Strokes come from a random generator seeded per mark, so a stroke keeps its shape across frames and edits.
 
+## Changes after a crash report from the phone
+
+Paul reported a crashed canvas on Chrome 159 for Android on 2026-11-21 (page not named). The cause is not known and cannot be reproduced in the test browser. All five text pages were changed together:
+
+- Live checks wait for a tap (`<meta name="checks" content="tap">`).
+- Check fixtures no longer ask for `willReadFrequently` on a drawable canvas. Pixels are read from a `drawImage()` copy.
+- `home()` sets the hit region with `updateElementGeometry()` and no longer draws the element at alpha 0.
+- No `shadowBlur` anywhere in the five pages.
+- `/flip-clock/` and `/split-flap/` close each `ElementImage` snapshot before taking the next.
+- On the first trusted `contextlost` event, `mount()` stops drawing and shows the content as plain HTML with a note.
+
 ## Not verified
 
 - Chrome 159 for Android: long-press selection inside the drawn article, the selection handles, and Highlight selection after a tap on the button. To verify: select two words, press the button.
