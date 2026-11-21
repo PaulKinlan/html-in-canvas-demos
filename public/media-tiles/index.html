@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video, image and chart tiles</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .idea output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 6em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button, .idea .controls select { min-height: 40px; font: inherit; }
+  .idea .controls button[aria-pressed="true"] { border-color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg); }
+  .idea .controls label { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; font-size: 14px; }
+  .idea .controls input[type=range] { width: 180px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* #region plain-css */
+  /* The elements as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: flex; flex-wrap: wrap; gap: 10px; align-content: start; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .plain-note { margin: 0; flex-basis: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+  .plain-controls video, .plain-controls img { max-width: 100%; height: auto; }
+  /* #endregion plain-css */
+
+  /* #region wall-css */
+  #wallVideo { display: block; width: 352px; height: 198px; margin: 0; background: #000; }
+  /* #endregion wall-css */
+
+  /* #region caption-css */
+  #capFigure { margin: 0; width: 348px; }
+  #capImg { display: block; width: 348px; height: 196px; }
+  /* The caption has no background of its own: the canvas draws a blurred piece of the image behind it. */
+  #capText { box-sizing: border-box; width: 300px; margin: 0; padding: 8px 12px; border-radius: 8px; color: #fff; font: 14px/1.35 system-ui, sans-serif; }
+  #capText a { color: #ffd9a0; }
+  .plain-controls #capText { color: var(--fg); padding: 8px 0; }
+  .plain-controls #capText a { color: var(--accent); }
+  /* #endregion caption-css */
+
+  /* #region sizes-css */
+  #resImg { display: block; width: 160px; height: 90px; }
+  /* #endregion sizes-css */
+
+  /* #region svg-css */
+  #svgBox { box-sizing: border-box; width: 320px; height: 230px; border-radius: 14px; background: #fdfcf8; overflow: hidden; }
+  #svgBox svg { display: block; font: 12px system-ui, sans-serif; }
+  #svgBox .title { font-weight: 600; font-size: 14px; fill: #1d1c1a; }
+  #svgBox .grid line { stroke: #ddd8cf; stroke-width: 1; }
+  #svgBox .day { fill: #6b6760; text-anchor: middle; }
+  /* A bar's height is a transform of its rect, so a new value is animated by a CSS transition. */
+  #svgBox .bar rect { fill: #3a56d4; transform-box: fill-box; transform-origin: 50% 100%; transform: scaleY(var(--v)); transition: transform 0.6s cubic-bezier(.3, 1.4, .5, 1), fill 0.15s; cursor: pointer; }
+  #svgBox .bar text { fill: #1d1c1a; text-anchor: middle; font-weight: 600; transform: translateY(calc((1 - var(--v)) * 140px)); transition: transform 0.6s cubic-bezier(.3, 1.4, .5, 1); pointer-events: none; }
+  /* The hover and focus styles are the chart's own. The canvas does not draw them. */
+  #svgBox .bar:hover rect, #svgBox .bar:focus-visible rect { fill: #d2491f; }
+  #svgBox .bar.on rect { fill: #1f7a3a; }
+  #svgBox .bar { outline: none; }
+  #svgBox .trend { fill: none; stroke: #e0a100; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 2 9; animation: svg-march 1.2s linear infinite; pointer-events: none; }
+  @keyframes svg-march { to { stroke-dashoffset: -22; } }
+  /* #endregion svg-css */
+
+  /* #region export-css */
+  #expFigure { box-sizing: border-box; width: 348px; margin: 0; padding: 14px; border-radius: 12px; background: #fff; color: #1d1c1a; display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; align-items: center; font: 14px/1.3 system-ui, sans-serif; }
+  /* contain: paint is needed here. Without it, Chromium 157 draws the inner canvas's content shifted up and
+     left by the canvas's offset inside the figure (14 px here) when the figure is drawn by the outer canvas. */
+  #expChart { display: block; width: 150px; height: 150px; contain: paint; }
+  #expLegend { list-style: none; margin: 0; padding: 0; }
+  #expLegend label { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; }
+  #expLegend input { width: 18px; height: 18px; margin: 0; flex: none; }
+  #expLegend i { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  #expLegend b { margin-left: auto; font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+  #expFigure figcaption { grid-column: 1 / -1; color: #6b6760; font-size: 13px; }
+  #expShot { display: block; max-width: 100%; max-height: 150px; border: 1px solid var(--line); border-radius: 8px; }
+  .shot-box { height: 160px; margin: 8px 0; display: flex; align-items: center; }
+  /* #endregion export-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Video, image and chart tiles</h1>
+  <p class="lede">
+    Five media ideas from the <a href="/elements/">element catalogue</a>: a <code>&lt;video&gt;</code> drawn as a wall of tiles, a
+    <code>&lt;figure&gt;</code> whose image goes through an effect while its caption does not, a <code>&lt;picture&gt;</code> whose file is
+    chosen by the size the canvas draws it at, an SVG chart drawn turned and tilted with its hover styles and links working, and a
+    script-drawn chart exported with its HTML legend as one PNG. The question is whether each media element keeps its own behaviour
+    (controls, <code>srcset</code>, <code>:hover</code>, links, checkboxes) when a canvas draws it in pieces, at another size or under a transform.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#wall">Video wall</a><a href="#caption">Figure with a live caption</a><a href="#sizes">Resolution by drawn size</a><a href="#chart">SVG chart, tilted</a><a href="#export">Chart and legend as one picture</a>
+  </nav>
+
+  <section class="idea" id="wall">
+    <h2>Video wall</h2>
+    <p>One <code>&lt;video controls&gt;</code> element, drawn as a grid of tiles that drift apart. Move a pointer over the wall or tap it: the tiles close up, and the video's own controls can be used. Four seconds after the last touch the tiles drift again.</p>
+    <canvas id="wallCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 300px">
+      <video id="wallVideo" drawable controls playsinline muted loop preload="auto" data-src="/media/clip.webm" aria-label="Test clip: a zoom into the Mandelbrot set"></video>
+    </canvas>
+    <div class="controls">
+      <button type="button" id="wallPlay">Play</button>
+      <button type="button" id="wallApart" aria-pressed="true">Close up</button>
+      <button type="button" id="wallBurst">Push apart</button>
+      <label>Grid <select id="wallGrid"><option>3 by 2</option><option selected>4 by 3</option><option>6 by 4</option><option>8 by 5</option></select></label>
+    </div>
+    <output class="line" id="wallOut"></output>
+    <p class="found">Every tile is a source rectangle of the same element, drawn in the same paint handler, so all tiles hold the same video frame. Each such draw moves the video's hit region to that tile. A last draw of the whole video inside an empty clip puts the region back on the closed wall, which is where the controls answer.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/media-tiles/wall.js#wall"><b>Draw one video as tiles, each with its own transform.</b></li>
+      <li data-code="/media-tiles/wall.js#wall-touch"><b>Close the wall while it is used.</b></li>
+      <li data-code="#wall-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="caption">
+    <h2>Figure with a live caption</h2>
+    <p>A <code>&lt;figure&gt;</code> with an <code>&lt;img&gt;</code> and a <code>&lt;figcaption&gt;</code>. The buttons choose what the canvas does to the image. The caption is drawn on top with no effect: its words can be selected and edited, and its link can be followed.</p>
+    <canvas id="capCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 220px">
+      <!-- #region caption-html -->
+      <figure id="capFigure">
+        <img id="capImg" drawable src="/media-tiles/img/hills.webp" width="960" height="540" alt="A drawn sunset: a sun over five ranges of hills and a lake">
+        <figcaption id="capText" drawable><span contenteditable="plaintext-only" spellcheck="false">Sunset over the lake.</span> <a href="/media-tiles/img/hills.webp">Image file</a></figcaption>
+      </figure>
+      <!-- #endregion caption-html -->
+    </canvas>
+    <div class="controls">
+      <button type="button" data-cap="ripple" aria-pressed="true">Ripple</button><button type="button" data-cap="duotone" aria-pressed="false">Duotone</button><button type="button" data-cap="dots" aria-pressed="false">Dots</button><button type="button" data-cap="slats" aria-pressed="false">Slats</button>
+    </div>
+    <output class="line" id="capOut"></output>
+    <p class="found">The figure itself is not drawn. Its two children carry the <code>drawable</code> attribute, so each has its own picture and its own hit region. The dark panel behind the caption is a third draw of the image, clipped to the caption's box and blurred with <code>ctx.filter</code>.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#caption-html"><b>A figure whose image and caption are each <code>drawable</code>.</b></li>
+      <li data-code="/media-tiles/caption.js#caption"><b>Four effects on the image, then the caption with one plain draw.</b></li>
+      <li data-code="#caption-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="sizes">
+    <h2>Resolution chosen by drawn size</h2>
+    <p>A <code>&lt;picture&gt;</code> with four files, 160 to 1280 pixels wide. Each file has its width written in its top left corner. Move the slider or walk up to the picture: the page writes the drawn width into <code>sizes</code>, and the browser picks the file. The loupe in the corner enlarges the part round the sun, from the same element.</p>
+    <canvas id="resCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 300px">
+      <!-- #region sizes-html -->
+      <picture id="resPicture">
+        <source type="image/webp" sizes="90px" srcset="/media-tiles/img/hills-160.webp 160w, /media-tiles/img/hills-320.webp 320w, /media-tiles/img/hills-640.webp 640w, /media-tiles/img/hills-1280.webp 1280w">
+        <img id="resImg" drawable sizes="90px" srcset="/media-tiles/img/hills-160.jpg 160w, /media-tiles/img/hills-320.jpg 320w, /media-tiles/img/hills-640.jpg 640w, /media-tiles/img/hills-1280.jpg 1280w" src="/media-tiles/img/hills-160.jpg" width="160" height="90" alt="The same drawn sunset, with the width of the file in its corner">
+      </picture>
+      <!-- #endregion sizes-html -->
+    </canvas>
+    <div class="controls">
+      <label>Drawn width <input type="range" id="resWidth" min="0" max="1000" value="230" aria-label="Drawn width"></label>
+      <button type="button" id="resNear">Walk up</button><button type="button" id="resFar">Step back</button>
+      <label><input type="checkbox" id="resDuring" checked> Set <code>sizes</code> during the walk</label>
+      <button type="button" id="resAgain">Start again with new URLs</button>
+    </div>
+    <output class="line" id="resOut"></output>
+    <p class="found">The image is laid out at 160 CSS pixels and is never laid out again. Only <code>sizes</code> changes. The browser goes up through the files as the picture grows and keeps the largest one when it shrinks again. With the box unticked, <code>sizes</code> is written once when the walk ends, and only one file is fetched for it.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#sizes-html"><b>A <code>&lt;picture&gt;</code> with width descriptors.</b></li>
+      <li data-code="/media-tiles/sizes.js#sizes"><b>Write the drawn width into <code>sizes</code> and draw the image at that width.</b></li>
+      <li data-code="/media-tiles/sizes.js#sizes-log"><b>List the files that were fetched.</b></li>
+      <li data-code="/media-tiles/sizes.js#sizes-again"><b>New URLs, to watch the choice from the start.</b></li>
+      <li data-code="#sizes-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="chart">
+    <h2>SVG chart as a live texture</h2>
+    <p>An inline <code>&lt;svg&gt;</code> bar chart, drawn as a thick sheet that sways. Each bar is a link with a hover style. Point at a bar with a mouse, or tap one: the bar changes colour through its own CSS, and the canvas adds a label that it reads from the chart. Drag sideways to turn the sheet.</p>
+    <canvas id="svgCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 330px">
+      <!-- #region svg-html -->
+      <div id="svgBox" drawable>
+        <svg viewBox="0 0 320 230" width="320" height="230" role="group" aria-label="Visits by day">
+          <text class="title" x="16" y="24">Visits by day</text>
+          <g class="grid"><line x1="30" x2="308" y1="190" y2="190"/><line x1="30" x2="308" y1="143" y2="143"/><line x1="30" x2="308" y1="97" y2="97"/><line x1="30" x2="308" y1="50" y2="50"/></g>
+          <a class="bar" href="#bar=mon" data-key="mon" data-name="Mon" data-value="42" style="--v:0.42" aria-label="Mon">
+            <rect x="38" y="50" width="34" height="140" rx="4"/><text x="55" y="42">42</text>
+          </a>
+          <a class="bar" href="#bar=tue" data-key="tue" data-name="Tue" data-value="68" style="--v:0.68" aria-label="Tue">
+            <rect x="83" y="50" width="34" height="140" rx="4"/><text x="100" y="42">68</text>
+          </a>
+          <a class="bar" href="#bar=wed" data-key="wed" data-name="Wed" data-value="55" style="--v:0.55" aria-label="Wed">
+            <rect x="128" y="50" width="34" height="140" rx="4"/><text x="145" y="42">55</text>
+          </a>
+          <a class="bar" href="#bar=thu" data-key="thu" data-name="Thu" data-value="90" style="--v:0.9" aria-label="Thu">
+            <rect x="173" y="50" width="34" height="140" rx="4"/><text x="190" y="42">90</text>
+          </a>
+          <a class="bar" href="#bar=fri" data-key="fri" data-name="Fri" data-value="73" style="--v:0.73" aria-label="Fri">
+            <rect x="218" y="50" width="34" height="140" rx="4"/><text x="235" y="42">73</text>
+          </a>
+          <a class="bar" href="#bar=sat" data-key="sat" data-name="Sat" data-value="31" style="--v:0.31" aria-label="Sat">
+            <rect x="263" y="50" width="34" height="140" rx="4"/><text x="280" y="42">31</text>
+          </a>
+          <polyline class="trend" points="55,135 100,118 145,122 190,93 235,80 280,101"/>
+          <g><text class="day" x="55" y="208">Mon</text><text class="day" x="100" y="208">Tue</text><text class="day" x="145" y="208">Wed</text><text class="day" x="190" y="208">Thu</text><text class="day" x="235" y="208">Fri</text><text class="day" x="280" y="208">Sat</text></g>
+        </svg>
+      </div>
+      <!-- #endregion svg-html -->
+    </canvas>
+    <div class="controls">
+      <label>Tilt <input type="range" id="svgTilt" min="0" max="70" value="48" aria-label="Tilt in degrees"></label>
+      <button type="button" id="svgData">New values</button>
+    </div>
+    <output class="line" id="svgOut"></output>
+    <p class="found">A 2D context has affine transforms only, so the sheet is drawn in an orthographic view: a turn, then a squash. That is one matrix, and <code>drawElementImage()</code> gives the same matrix to the hit region. A perspective view would need a mesh of triangles, and the hit region would then follow only the last triangle.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#svg-html"><b>The chart: bars are <code>&lt;a&gt;</code> elements around a <code>&lt;rect&gt;</code>.</b></li>
+      <li data-code="/media-tiles/chart.js#svg"><b>Draw the chart turned and tilted, and read <code>:hover</code> in the paint handler.</b></li>
+      <li data-code="/media-tiles/chart.js#svg-touch"><b>A tap follows the bar's link.</b></li>
+      <li data-code="#svg-css"><b>Styles: hover, the bar transition and the animated line.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="export">
+    <h2>Chart and legend exported as one picture</h2>
+    <p>A ring chart drawn by script into a plain <code>&lt;canvas&gt;</code>, beside an HTML legend of checkboxes, in one <code>&lt;figure&gt;</code>. Untick a row to remove its slice. The outer canvas draws the figure, and one <code>toBlob()</code> call on it gives the chart, the legend and the caption as a PNG.</p>
+    <canvas id="expCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 290px">
+      <!-- #region export-html -->
+      <figure id="expFigure" drawable>
+        <canvas id="expChart" role="img" aria-label="Ring chart of visits by source"></canvas>
+        <ul id="expLegend">
+          <li><label><input type="checkbox" checked value="420" data-colour="#3a56d4"><i style="background:#3a56d4"></i>Search<b></b></label></li>
+          <li><label><input type="checkbox" checked value="260" data-colour="#e63946"><i style="background:#e63946"></i>Links<b></b></label></li>
+          <li><label><input type="checkbox" checked value="180" data-colour="#f4b400"><i style="background:#f4b400"></i>Direct<b></b></label></li>
+          <li><label><input type="checkbox" checked value="140" data-colour="#2a9d8f"><i style="background:#2a9d8f"></i>Feeds<b></b></label></li>
+        </ul>
+        <figcaption>Visits by source, one week. Untick a source to leave it out.</figcaption>
+      </figure>
+      <!-- #endregion export-html -->
+    </canvas>
+    <div class="controls">
+      <button type="button" id="expSave">Save as PNG</button><button type="button" id="expCopy">Copy</button><button type="button" id="expShare">Share</button>
+    </div>
+    <div class="shot-box"><img id="expShot" hidden alt=""></div>
+    <output class="line" id="expOut"></output>
+    <p class="found">The inner canvas is not a drawable canvas. It is content of the figure, like an image, and it is in the figure's picture. The export reads the outer canvas once, on the tap. The picture under the buttons is the exported file.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#export-html"><b>A figure with a plain canvas, a list of checkboxes and a caption.</b></li>
+      <li data-code="/media-tiles/export.js#export-chart"><b>Draw the ring into the inner canvas.</b></li>
+      <li data-code="/media-tiles/export.js#export"><b>Draw the figure in the outer canvas and export it with one call.</b></li>
+      <li data-code="/media-tiles/export.js#export-buttons"><b>Save, copy and share the PNG.</b></li>
+      <li data-code="#export-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>Each demo is one 2D drawable canvas with one media element in it. The <code>paint</code> handler draws the element with <code>drawElementImage()</code>, and reads what it needs from the element at that moment.</p>
+  <ul>
+    <li><b>Media raises <code>paint</code> by itself.</b> A playing video raises it for each frame, a newly loaded image file raises it once, a CSS animation or transition inside an SVG raises it for each frame, and so does a redraw of a canvas inside a figure. The handlers ask for extra frames only for their own motion.</li>
+    <li><b>Pieces come from the nine-argument form.</b> <code>drawElementImage(el, sx, sy, sw, sh, dx, dy, dw, dh)</code> copies a source rectangle given in CSS pixels of the element. The wall's tiles and the ripple's rows are such pieces.</li>
+    <li><b>The last draw decides where input goes.</b> After pieces, the handler draws the whole element once more inside an empty clip. That adds no pixels and puts the hit region where the controls should answer.</li>
+    <li><b>A picture is rastered at the size it is drawn.</b> An element laid out small and drawn large is sharp, so the layout size of an image does not limit its drawn size. The file it shows does, which is what <code>sizes</code> is for.</li>
+  </ul>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="/media-tiles/kit.js#mount"><b>The paint loop and the draw helpers shared by the five demos.</b></li>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/media-tiles/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/media-tiles/kit.js#plain"><b>The elements are then shown as plain HTML.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window, and none of them touches the demos above. Pixels are read from a <code>drawImage()</code> copy, not from the drawable canvas.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21, at 412 px wide with a mouse and emulated touch, at device pixel ratio 1 and 2.625. Not yet run on a phone.</p>
+  <ul class="findings">
+    <li><b>All five elements kept their own behaviour.</b> The video's controls, the caption's link and editable text, the file choice of <code>srcset</code>, the chart's <code>:hover</code> style and links, and the legend's checkboxes worked while the canvas drew the element in pieces, at another size or under a turn and a squash.</li>
+    <li><b>Pieces of one video drawn in one paint handler hold the same frame.</b> Two copies of one source rectangle differed by 0.00 per channel on average at device pixel ratio 1 and by at most 0.10 at 2.625, while samples 110 ms apart differed by about 11. A playing 30 fps clip raised about 30 paint events a second with no <code>requestPaint()</code>.</li>
+    <li><b>The hit region follows the last draw, so the wall ends with a whole draw in an empty clip.</b> After that draw the video was found at all four corners of the closed wall's box and not at the last tile. With the wall closed and the video paused there were 0 paint events in 0.7 s.</li>
+    <li><b>A touch tap on the closed wall showed the video's own controls</b> (emulated touch). It did not pause the clip. The page's Pause button calls <code>pause()</code>.</li>
+    <li><b>An <code>&lt;img&gt;</code> and a <code>&lt;figcaption&gt;</code> are drawn separately when each is <code>drawable</code> and the figure is not.</b> The image went through <code>grayscale(1)</code> and the caption beside it stayed white. The link in the caption was found at its drawn place, and typing into the caption changed its text in the canvas.</li>
+    <li><b>Blends and masks reach only what is already on the canvas.</b> Each effect is drawn first on the empty canvas (<code>multiply</code>, <code>lighten</code>, <code>destination-in</code> with a dot pattern), the background is added behind with <code>destination-over</code>, and the caption is drawn last.</li>
+    <li><b>An element's picture is rastered at the size it is drawn.</b> A box laid out 20 px wide and drawn 320 px wide had 0 grey pixels across its black and white edge. A bitmap copy of the 20 px draw, scaled the same way, had 13. So the image is laid out once at 160 px and drawn at any width.</li>
+    <li><b>Writing <code>sizes</code> is enough to change the file.</b> From <code>sizes="20px"</code> to <code>"700px"</code> the browser went from the 160w file to the 1280w file and raised <code>paint</code> when it loaded, with no load listener. The required width is <code>sizes</code> times the device pixel ratio: 91 px picked 160w at ratio 1 and 320w at 2.625.</li>
+    <li><b>The file does not go back down.</b> After the 1280w file had loaded, <code>sizes="20px"</code> left <code>currentSrc</code> at 1280w, and so did a fresh copy of the <code>&lt;picture&gt;</code> element. Candidates with new URLs started from the small file again.</li>
+    <li><b>Writing <code>sizes</code> during a walk fetches every file on the way.</b> 160w, 320w, 640w and 1280w were fetched for one walk from 91 to 1400 px. With <code>sizes</code> written once at the end, only the first file and 1280w were fetched.</li>
+    <li><b>A turn and a squash are one affine matrix, and the hit region gets the same matrix.</b> The middle of a bar landed at 200.6, 90.8 under the matrix, <code>elementFromPoint()</code> returned the <code>&lt;rect&gt;</code> inside its link there, and <code>getBoundingClientRect()</code> of the <code>&lt;rect&gt;</code> gave 200.6, 90.8. The label the canvas draws over a bar is placed from that box.</li>
+    <li><b><code>:hover</code> on an SVG shape works under the transform and can be read in the paint handler.</b> A mouse over the Thu bar turned its pixel to the hover colour (210, 73, 31), and <code>querySelector('a.bar:hover')</code> in the handler returned it. A tap on a bar followed its <code>href</code>: <code>location.hash</code> became <code>#bar=tue</code> and the page did not scroll.</li>
+    <li><b>CSS animations and transitions inside the SVG raise <code>paint</code>.</b> 30 paint events in 0.5 s for an animated <code>stroke-dashoffset</code>, 19 for a 0.3 s transition of a bar's transform, 0 for a still SVG.</li>
+    <li><b>A plain canvas inside a drawable figure is in the figure's picture, and redrawing it raises <code>paint</code> on the outer canvas.</b> So does unticking a checkbox from script. The export demo has no change listener: the paint handler reads the checkboxes.</li>
+    <li><b>The inner canvas's content is drawn at the wrong place unless the canvas has <code>contain: paint</code>.</b> With 20 px of padding round it, a canvas with a red stripe at its left edge was drawn with the stripe missing and the blue part starting at 20 px, where 30 px was expected: the content is shifted by the padding and cut by the canvas's box. With <code>contain: paint</code> or a transform on the inner canvas it was drawn at the right place. A CSS background on the same canvas was not shifted.</li>
+    <li><b>One <code>toBlob()</code> call on the outer canvas gave a PNG with the inner canvas and the HTML in it.</b> The canvas was not tainted. At device pixel ratio 1 the demo's PNG was 378 by 288 px and 31 kB, and <code>toBlob()</code> took 18 ms in the test browser.</li>
+    <li><b>A lost context shows every element as plain HTML.</b> One dispatched <code>contextlost</code> event on one canvas stopped all five and left five boxes with the video, the figure, the picture, the chart and the legend in them.</li>
+    <li><b>Not verified:</b> everything on a phone. In particular the speed of 12 to 40 video draws per frame, the native controls and the fullscreen button by touch, the on-screen keyboard over the caption, the file choice at the phone's pixel ratio (the line under the picture reports it), a touch drag on the chart, and Copy and Share for the PNG.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  // A demo's script is loaded and started the first time its section comes near the screen.
+  const modules = { wall: 'wall', caption: 'caption', sizes: 'sizes', chart: 'chart', export: 'export' };
+  const started = new Set();
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting || started.has(e.target.id)) continue;
+      started.add(e.target.id);
+      watch.unobserve(e.target);
+      import(`./${modules[e.target.id]}.js`).then((m) => m.default()).catch((err) => { console.error(e.target.id, err); window.__gfx?.report?.('error', `/media-tiles/ ${e.target.id}: ${err.message}`); });
+    }
+  }, { rootMargin: '100px 0px' });
+  if (supported) document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const need = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+  // A fixture canvas on the test stage. paint(ctx, canvas, event) runs on every paint event.
+  async function rig(html, paint, w = 240, h = 120, ready = null) {
+    need();
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    if (ready) await ready(canvas);
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, ctx, paints: 0, error: null };
+    canvas.addEventListener('paint', (event) => {
+      state.paints++;
+      ctx.reset();
+      try { paint(ctx, canvas, event); state.error = null; } catch (e) { state.error = e; }
+    });
+    state.frame = async () => { const n = state.paints; canvas.requestPaint(); for (let i = 0; i < 80 && state.paints === n; i++) await sleep(25); await sleep(40); };
+    for (let i = 0; i < 12; i++) { await state.frame(); if (state.paints && !state.error) break; }
+    if (state.error) throw state.error;
+    await sleep(120);
+    return state;
+  }
+  // Pixels are read from a small copy made with drawImage(), never from the drawable canvas itself.
+  // The copy is a plain canvas kept in ordinary memory (willReadFrequently), which a drawable canvas must not be.
+  const copy = document.createElement('canvas');
+  const read = (source, x, y, w = 1, h = 1) => {
+    copy.width = w; copy.height = h;
+    const c2 = copy.getContext('2d', { willReadFrequently: true });
+    c2.drawImage(source.canvas ?? source, x, y, w, h, 0, 0, w, h);
+    return c2.getImageData(0, 0, w, h).data;
+  };
+  const draw = (ctx, el, x = 0, y = 0) => ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
+  const q = (state, sel) => state.canvas.querySelector(sel);
+  // Change something, wait, and count the paint events that followed with no requestPaint().
+  const after = async (state, change, ms = 350) => { const n = state.paints; await change(); await sleep(ms); return state.paints - n; };
+  const rgb = (d) => `${d[0]},${d[1]},${d[2]}`;
+  // A flat PNG made on a plain canvas, for an <img> in a fixture.
+  const flat = (colour, w = 40, h = 30) => { const c = Object.assign(document.createElement('canvas'), { width: w, height: h }); const g = c.getContext('2d'); g.fillStyle = colour; g.fillRect(0, 0, w, h); return c.toDataURL(); };
+  const loaded = (canvas) => Promise.all([...canvas.querySelectorAll('img')].map((i) => i.decode().catch(() => {})));
+  const clip = (ctx, fn) => { ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 0, 0); ctx.clip(); fn(); ctx.restore(); };
+  // A playing 160 by 90 video on a fixture. The clip is fetched as a blob.
+  async function videoRig(paint) {
+    need();
+    const blob = await (await fetch('/media/clip.webm')).blob();
+    const url = URL.createObjectURL(blob);
+    const s = await rig('<video drawable muted loop playsinline style="display:block;width:160px;height:90px;margin:0"></video>', paint, 360, 100, async (canvas) => {
+      const v = canvas.querySelector('video');
+      v.src = url;
+      await new Promise((ok, no) => { v.addEventListener('loadeddata', ok, { once: true }); v.addEventListener('error', () => no(new Error('the clip did not load')), { once: true }); });
+      await v.play();
+    });
+    s.url = url;
+    return s;
+  }
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'Two pieces of a playing video drawn in one paint handler hold the same frame',
+      why: 'The wall draws one video 12 or more times per paint. The check draws the same source rectangle at two places while the clip plays, copies both and compares every pixel, six times. Two pieces of one frame must differ far less than two frames do. It also counts the paint events the video raises with no requestPaint().',
+      run: async () => {
+        const s = await videoRig((ctx, c) => { const v = c.querySelector('video'); ctx.drawElementImage(v, 40, 20, 80, 45, 0, 0, 80, 45); ctx.drawElementImage(v, 40, 20, 80, 45, 200, 40, 80, 45); });
+        const n = s.paints;
+        // "within" is the mean difference between the two pieces of one sample. "between" is the mean
+        // difference between one piece and the same piece in the sample before, 110 ms earlier.
+        let within = 0, between = 0, worst = 0, before = null;
+        for (let i = 0; i < 6; i++) {
+          await sleep(110);
+          const a = read(s, 0, 0, 80, 45).slice(), b = read(s, 200, 40, 80, 45);
+          let w = 0, t = 0;
+          for (let j = 0; j < a.length; j++) { const d = Math.abs(a[j] - b[j]); w += d; worst = Math.max(worst, d); if (before) t += Math.abs(a[j] - before[j]); }
+          within = Math.max(within, w / a.length);
+          if (before) between += t / a.length / 5;
+          before = a;
+        }
+        const events = s.paints - n;
+        q(s, 'video').pause(); URL.revokeObjectURL(s.url);
+        if (!events) throw new Error('the playing video raised no paint event');
+        if (between < 0.5) throw new Error('the picture did not change between samples');
+        if (within > 1.5 || within > between / 4) throw new Error(`the two pieces differ by ${within.toFixed(2)} per channel on average (largest ${worst}); samples 110 ms apart differ by ${between.toFixed(2)}`);
+        return `${events} paint events in 0.66 s with no requestPaint(). Mean difference per channel between the two pieces: at most ${within.toFixed(2)} (largest single difference ${worst}). Between samples 110 ms apart: ${between.toFixed(2)}.`;
+      },
+    },
+    {
+      name: 'After source-rectangle draws, a whole draw in an empty clip puts the hit region back on the whole video',
+      why: 'The wall ends each paint with that draw so the controls answer on the closed wall. The check draws one quarter of a video at 200,40, then the whole video at 10,5 inside an empty clip. The video must be found across its whole box at 10,5 and not at the quarter.',
+      run: async () => {
+        const s = await videoRig((ctx, c) => { const v = c.querySelector('video'); ctx.drawElementImage(v, 0, 0, 80, 45, 200, 40, 80, 45); clip(ctx, () => draw(ctx, v, 10, 5)); });
+        const v = q(s, 'video'), cb = s.canvas.getBoundingClientRect();
+        const at = (x, y) => document.elementFromPoint(cb.left + x, cb.top + y);
+        const corners = [[14, 9], [166, 9], [14, 91], [166, 91]].map(([x, y]) => at(x, y) === v);
+        const quarter = at(240, 60) === v, alpha = read(s, 60, 50)[3], drawn = read(s, 240, 60)[3];
+        v.pause(); URL.revokeObjectURL(s.url);
+        if (corners.includes(false)) throw new Error(`the video was found at ${corners.filter(Boolean).length} of 4 corners of the clipped draw`);
+        if (quarter) throw new Error('the video is still found at the piece');
+        if (alpha > 4 || drawn < 200) throw new Error(`alpha at the clipped draw ${alpha}, at the piece ${drawn}`);
+        return `elementFromPoint() returns the video at all 4 corners of the box at 10,5, where no pixel was drawn (alpha ${alpha}), and not at the piece (alpha ${drawn}).`;
+      },
+    },
+    {
+      name: 'An img and a figcaption in a figure that is not drawn each have their own picture',
+      why: 'The caption demo draws the image through a filter and the caption with none. The figure has no drawable attribute. The image is flat red and is drawn through grayscale(1). The caption has a white background and a link, and is drawn at another place.',
+      run: async () => {
+        const s = await rig(`<figure style="margin:0;width:120px"><img drawable src="${flat('#e00000', 120, 60)}" style="display:block;width:120px;height:60px"><figcaption drawable style="width:120px;background:#fff;color:#000;font:14px/20px system-ui">Text <a href="#none">link</a></figcaption></figure>`, (ctx, c) => {
+          ctx.filter = 'grayscale(1)'; draw(ctx, c.querySelector('img'), 0, 0);
+          ctx.filter = 'none'; draw(ctx, c.querySelector('figcaption'), 120, 90);
+        }, 240, 120, loaded);
+        const image = read(s, 60, 30), cap = read(s, 236, 100), link = q(s, 'a'), cb = s.canvas.getBoundingClientRect();
+        if (image[3] < 250 || Math.abs(image[0] - image[1]) > 3 || Math.abs(image[1] - image[2]) > 3) throw new Error(`the image pixel is ${rgb(image)}, alpha ${image[3]}`);
+        if (cap[0] < 250 || cap[1] < 250 || cap[2] < 250) throw new Error(`the caption background is ${rgb(cap)}`);
+        const lr = link.getBoundingClientRect();
+        const hit = document.elementFromPoint(lr.left + lr.width / 2, lr.top + lr.height / 2);
+        if (hit !== link) throw new Error(`elementFromPoint at the drawn link returned <${hit?.localName}>`);
+        if (lr.top - cb.top < 88) throw new Error(`the link is reported ${(lr.top - cb.top).toFixed(0)} px down, drawn at 90`);
+        return `Image pixel ${rgb(image)} (grey), caption background ${rgb(cap)}. The link in the caption is found at its drawn place, ${(lr.left - cb.left).toFixed(0)},${(lr.top - cb.top).toFixed(0)}.`;
+      },
+    },
+    {
+      name: 'An element laid out 20 px wide and drawn 320 px wide is rastered at the drawn size',
+      why: 'The resolution demo lays the image out once and draws it at any width. A box that is black on its left half and white on its right is drawn 16 times larger. If the picture were a 20 px bitmap, the edge would be a band of grey about 16 px wide. A plain canvas copy scaled the same way is measured beside it.',
+      run: async () => {
+        const s = await rig('<div drawable style="width:20px;height:20px;background:linear-gradient(90deg,#000 50%,#fff 50%)"></div>', (ctx, c) => { const d = c.querySelector('div'); ctx.drawElementImage(d, 0, 0, 20, 20); ctx.drawElementImage(d, 0, 30, 320, 80); }, 320, 120);
+        const band = (data) => { let n = 0; for (let i = 0; i < data.length; i += 4) if (data[i] > 24 && data[i] < 231) n++; return n; };
+        const element = band(read(s, 0, 70, 320, 1));
+        // The same enlargement of a bitmap: the 20 px draw, copied and scaled 16 times by drawImage().
+        const big = Object.assign(document.createElement('canvas'), { width: 320, height: 1 });
+        big.getContext('2d').drawImage(s.canvas, 0, 10, 20, 1, 0, 0, 320, 1);
+        const bitmap = band(read(big, 0, 0, 320, 1));
+        if (element > 3) throw new Error(`the edge of the element drawn large is ${element} px of grey (bitmap copy: ${bitmap})`);
+        return `Grey pixels across the edge: ${element} for the element drawn at 320 px, ${bitmap} for a bitmap copy of the 20 px draw scaled to 320 px.`;
+      },
+    },
+    {
+      name: 'Writing sizes makes the browser fetch a larger file and raises paint. A smaller sizes does not go back',
+      why: 'The resolution demo only writes sizes. The fixture has its own URLs, so nothing is cached. sizes goes from 20px to 700px and back to 20px, and the check reads currentSrc and the paint count after each.',
+      run: async () => {
+        const v = `check${Date.now()}`;
+        const set = (ext) => [160, 320, 640, 1280].map((n) => `/media-tiles/img/hills-${n}.${ext}?v=${v} ${n}w`).join(', ');
+        const s = await rig(`<picture><source type="image/webp" sizes="20px" srcset="${set('webp')}"><img drawable sizes="20px" srcset="${set('jpg')}" style="display:block;width:160px;height:90px"></picture>`, (ctx, c) => draw(ctx, c.querySelector('img'), 10, 10), 240, 120, loaded);
+        const img = q(s, 'img'), file = () => Number(img.currentSrc.match(/hills-(\d+)/)?.[1] ?? 0);
+        const size = (px) => { for (const el of img.parentNode.children) el.sizes = px; };
+        const first = file();
+        const up = await after(s, () => size('700px'), 1200);
+        const second = file();
+        const down = await after(s, () => size('20px'), 700);
+        const third = file();
+        if (!first) throw new Error('no file was picked');
+        if (second <= first) throw new Error(`currentSrc stayed at ${second}w after sizes="700px" (was ${first}w)`);
+        if (!up) throw new Error('no paint event after the larger file loaded');
+        return `sizes="20px" picked ${first}w at devicePixelRatio ${+devicePixelRatio.toFixed(3)}. sizes="700px" picked ${second}w and raised ${up} paint event(s). Back at sizes="20px" currentSrc is ${third}w (${down} paint events).`;
+      },
+    },
+    {
+      name: 'A link around a shape in an SVG is found at its drawn place when the chart is turned and squashed',
+      why: 'The chart is drawn under the matrix of a turn of 0.5 rad and a squash to 0.6. The check works out where the middle of one bar lands under that matrix, and expects the link there from elementFromPoint(), the bar\'s colour in the pixel, and the same place from getBoundingClientRect().',
+      run: async () => {
+        const cos = Math.cos(0.5), sin = Math.sin(0.5), sq = 0.6;
+        const m = new DOMMatrix([cos, sin * sq, -sin, cos * sq, 150, 40]);
+        const s = await rig('<div drawable style="width:120px;height:100px;background:#fff"><svg width="120" height="100" style="display:block"><a href="#none"><rect x="70" y="20" width="30" height="60" fill="#0000c8"/></a></svg></div>', (ctx, c) => { ctx.setTransform(m); draw(ctx, c.querySelector('div'), 0, 0); }, 300, 160);
+        const link = q(s, 'a'), cb = s.canvas.getBoundingClientRect();
+        const p = m.transformPoint(new DOMPoint(85, 50));
+        const hit = document.elementFromPoint(cb.left + p.x, cb.top + p.y);
+        const px = read(s, Math.round(p.x), Math.round(p.y));
+        const r = q(s, 'rect').getBoundingClientRect(), mid = [r.left + r.width / 2 - cb.left, r.top + r.height / 2 - cb.top];
+        const flatPlace = document.elementFromPoint(cb.left + 85, cb.top + 50);
+        if (hit?.closest?.('a') !== link) throw new Error(`elementFromPoint at ${p.x.toFixed(0)},${p.y.toFixed(0)} returned <${hit?.localName}>`);
+        if (!(px[2] > 150 && px[0] < 60)) throw new Error(`the pixel there is ${rgb(px)}`);
+        if (Math.hypot(mid[0] - p.x, mid[1] - p.y) > 2) throw new Error(`getBoundingClientRect() puts the bar at ${mid.map((n) => n.toFixed(1))}, the matrix at ${p.x.toFixed(1)},${p.y.toFixed(1)}`);
+        if (flatPlace?.closest?.('a') === link) throw new Error('the link is also found where it would be with no transform');
+        return `The bar's middle lands at ${p.x.toFixed(1)},${p.y.toFixed(1)}. elementFromPoint() returns <${hit.localName}> inside the link there, the pixel is ${rgb(px)}, and getBoundingClientRect() gives ${mid.map((n) => n.toFixed(1)).join(',')}.`;
+      },
+    },
+    {
+      name: 'A CSS animation and a CSS transition inside an SVG raise paint with no frame loop',
+      why: 'The chart\'s dashed line moves by a CSS animation and its bars change height by a transition. Paint events are counted for 0.5 s on a still SVG, on one with an animated stroke-dashoffset, and after a class change that starts a 0.3 s transition of a transform.',
+      run: async () => {
+        const svg = (extra, rect = '') => `<div drawable style="width:100px;height:50px;background:#fff"><svg width="100" height="50" style="display:block"><line x1="5" y1="25" x2="95" y2="25" stroke="#000" stroke-width="4" stroke-dasharray="4 6" style="${extra}"/>${rect}</svg></div>`;
+        const style = document.createElement('style');
+        style.textContent = '@keyframes check-march { to { stroke-dashoffset: -20; } } .check-bar { transform-box: fill-box; transform-origin: 50% 100%; transition: transform 0.3s; } .check-bar.tall { transform: scaleY(3); }';
+        document.head.append(style);
+        try {
+          const still = await rig(svg(''), (ctx, c) => draw(ctx, c.querySelector('div'), 0, 0), 120, 60);
+          const a = await after(still, () => {}, 500);
+          const moving = await rig(svg('animation: check-march 1s linear infinite'), (ctx, c) => draw(ctx, c.querySelector('div'), 0, 0), 120, 60);
+          const b = await after(moving, () => {}, 500);
+          const bar = await rig(svg('', '<rect class="check-bar" x="40" y="35" width="20" height="10" fill="#c00"/>'), (ctx, c) => draw(ctx, c.querySelector('div'), 0, 0), 120, 60);
+          const c2 = await after(bar, () => q(bar, 'rect').classList.add('tall'), 500);
+          const top = read(bar, 50, 22);
+          if (a > 1) throw new Error(`the still SVG raised ${a} paint events`);
+          if (b < 5) throw new Error(`the animated line raised ${b} paint events in 0.5 s`);
+          if (c2 < 3 || top[0] < 150) throw new Error(`the transition raised ${c2} paint events and the pixel above the bar is ${rgb(top)}`);
+          return `Paint events in 0.5 s: ${a} for a still SVG, ${b} for an animated stroke-dashoffset, ${c2} for a 0.3 s transition of a bar, which ended ${rgb(top)} at its new height.`;
+        } finally { style.remove(); }
+      },
+    },
+    {
+      name: 'A plain canvas inside a drawable figure is in the figure\'s picture, and redrawing it raises paint',
+      why: 'The export demo draws its chart into a canvas that is a child of the figure. The inner canvas is filled blue, then green with no requestPaint() on the outer canvas. A checkbox in the same figure is then unticked from script.',
+      run: async () => {
+        const s = await rig('<figure drawable style="margin:0;width:200px;height:80px;background:#fff;display:flex;gap:10px;align-items:center"><canvas width="60" height="60" style="width:60px;height:60px"></canvas><input type="checkbox" checked style="width:30px;height:30px;margin:0"></figure>', (ctx, c) => draw(ctx, c.querySelector('figure'), 10, 10), 240, 120, (canvas) => { const g = canvas.querySelector('canvas').getContext('2d'); g.fillStyle = '#0000d0'; g.fillRect(0, 0, 60, 60); });
+        const inner = q(s, 'canvas'), g = inner.getContext('2d');
+        const blue = read(s, 40, 50);
+        const n = await after(s, () => { g.fillStyle = '#00b000'; g.fillRect(0, 0, 60, 60); });
+        const green = read(s, 40, 50);
+        const ticked = read(s, 80, 35, 30, 30).reduce((a, v) => a + v, 0);
+        const m = await after(s, () => { q(s, 'input').checked = false; });
+        const clear = read(s, 80, 35, 30, 30).reduce((a, v) => a + v, 0);
+        if (!(blue[2] > 180 && blue[0] < 40)) throw new Error(`the inner canvas pixel is ${rgb(blue)}`);
+        if (!n || !(green[1] > 150 && green[2] < 40)) throw new Error(`after the inner canvas was redrawn: ${n} paint events, pixel ${rgb(green)}`);
+        if (!m || ticked === clear) throw new Error(`after the checkbox was unticked: ${m} paint events, picture ${ticked === clear ? 'unchanged' : 'changed'}`);
+        return `Inner canvas pixel ${rgb(blue)}, then ${rgb(green)} after a redraw that raised ${n} paint event(s). Unticking the checkbox from script raised ${m} and changed its picture.`;
+      },
+    },
+    {
+      name: 'Where the content of an inner canvas is drawn when it has padding round it',
+      why: 'The ring chart sits 14 px inside its figure. Two figures with 20 px of padding each hold a canvas with a red stripe down its left edge and blue elsewhere. One canvas has contain: paint. The check reads one row of the outer canvas and reports where the red and the blue start for each.',
+      run: async () => {
+        const fig = (style) => `<figure drawable style="box-sizing:border-box;margin:0;width:140px;height:100px;padding:20px;background:#fff"><canvas width="60" height="60" style="display:block;width:60px;height:60px;${style}"></canvas></figure>`;
+        const s = await rig(fig('') + fig('contain:paint'), (ctx, c) => { const [a, b] = c.querySelectorAll('figure'); draw(ctx, a, 0, 0); draw(ctx, b, 150, 0); }, 300, 110, (canvas) => {
+          for (const inner of canvas.querySelectorAll('canvas')) { const g = inner.getContext('2d'); g.fillStyle = '#0000d0'; g.fillRect(0, 0, 60, 60); g.fillStyle = '#e00000'; g.fillRect(0, 0, 10, 60); }
+        });
+        const row = read(s, 0, 50, 300, 1);
+        const span = (from, test) => { let a = -1, b = -1; for (let i = from; i < from + 140; i++) { const d = row.subarray(i * 4, i * 4 + 4); if (test(d)) { if (a < 0) a = i - from; b = i - from; } } return a < 0 ? 'none' : `${a} to ${b}`; };
+        const red = (d) => d[0] > 180 && d[2] < 60 && d[1] < 60, blue = (d) => d[2] > 160 && d[0] < 60;
+        const plain = { red: span(0, red), blue: span(0, blue) }, held = { red: span(150, red), blue: span(150, blue) };
+        if (!held.red.startsWith('20 to') && !held.red.startsWith('21 to')) throw new Error(`with contain: paint the red stripe is at ${held.red} and the blue at ${held.blue} (expected red from 20, blue from 30 to 79)`);
+        const right = plain.red.startsWith('20 to') || plain.red.startsWith('21 to');
+        return `Expected: red 20 to 29, blue 30 to 79. With contain: paint: red ${held.red}, blue ${held.blue}. With no containment: red ${plain.red}, blue ${plain.blue}${right ? '' : ', so the content is shifted left by the padding and cut by the canvas box'}.`;
+      },
+    },
+    {
+      name: 'toBlob() on the outer canvas gives one PNG that holds the inner canvas and the HTML',
+      why: 'The export is one call. The outer canvas holds a figure with a blue inner canvas and a red HTML swatch. The PNG is decoded with createImageBitmap() and both colours are looked for at the places they were drawn.',
+      run: async () => {
+        const s = await rig('<figure drawable style="margin:0;width:200px;height:80px;background:#fff;display:flex;gap:10px;align-items:center"><canvas width="60" height="60" style="width:60px;height:60px"></canvas><i style="width:40px;height:40px;background:#e00000"></i></figure>', (ctx, c) => draw(ctx, c.querySelector('figure'), 10, 10), 240, 120, (canvas) => { const g = canvas.querySelector('canvas').getContext('2d'); g.fillStyle = '#0000d0'; g.fillRect(0, 0, 60, 60); });
+        const t0 = performance.now();
+        const blob = await new Promise((ok, no) => { try { s.canvas.toBlob((b) => (b ? ok(b) : no(new Error('toBlob() gave nothing'))), 'image/png'); } catch (e) { no(e); } });
+        const ms = performance.now() - t0;
+        const bitmap = await createImageBitmap(blob);
+        const png = Object.assign(document.createElement('canvas'), { width: bitmap.width, height: bitmap.height });
+        png.getContext('2d').drawImage(bitmap, 0, 0); bitmap.close();
+        const chart = read(png, 40, 50), swatch = read(png, 100, 50), outside = read(png, 230, 110);
+        if (blob.type !== 'image/png' || png.width !== 240) throw new Error(`the file is ${blob.type}, ${png.width} px wide`);
+        if (!(chart[2] > 180 && chart[0] < 40)) throw new Error(`the inner canvas is ${rgb(chart)} in the PNG`);
+        if (!(swatch[0] > 180 && swatch[2] < 40)) throw new Error(`the HTML swatch is ${rgb(swatch)} in the PNG`);
+        return `PNG ${png.width} by ${png.height}, ${blob.size} bytes, ${ms.toFixed(0)} ms. Inner canvas ${rgb(chart)}, HTML swatch ${rgb(swatch)}, alpha ${outside[3]} outside the figure. The canvas was not tainted.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
