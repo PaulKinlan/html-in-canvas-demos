@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>An accessibility tree for a Dear ImGui app</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/toolkit-aria/ui.css">
+<meta name="checks" content="tap">
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>An accessibility tree for a Dear ImGui app</h1>
+  <p class="lede">
+    Dear ImGui draws its button, checkbox, slider and text field as pixels, so a browser sees one canvas and nothing inside it.
+    Here every ImGui widget also has a real element inside the canvas: a <code>&lt;button&gt;</code>, an <code>&lt;input type="checkbox"&gt;</code>,
+    an <code>&lt;input type="range"&gt;</code>, an <code>&lt;input type="text"&gt;</code>. The elements are never drawn.
+    <code>updateElementGeometry()</code> puts each one at the rectangle ImGui reports for its widget.
+    Use the app by touch or mouse, or press Tab and use Space, Enter and the arrow keys. Tap the text field to type.
+    Turn on the outlines to see where the browser believes each element is.
+  </p>
+
+  <div class="aria-stage" id="stage">
+    <!-- #region markup -->
+    <canvas id="aria-app" content="drawable" layoutsubtree role="group" aria-label="Document settings, drawn by Dear ImGui"></canvas>
+    <!-- #endregion markup -->
+    <div class="aria-outline" id="outline" hidden></div>
+    <p class="stage-msg" id="msg" role="status">Starting the ImGui app (0.4 MB of WebAssembly)…</p>
+  </div>
+  <div class="aria-controls">
+    <label><input type="checkbox" id="show-outline"> Outline the accessibility nodes</label>
+    <label><input type="checkbox" id="draw-focused"> Draw the focused text field from its DOM node</label>
+  </div>
+  <p class="note" id="state" style="min-height:4.5em">The app has not started.</p>
+  <details class="show-code">
+    <summary>Show the code <small>one DOM node per ImGui widget</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The canvas starts empty.</b> <code>layoutsubtree</code> gives its children layout boxes. The app adds the children.</li>
+      <li data-code="/toolkit-aria/app/main.cpp#app" data-lang="js"><b>C++: the app.</b> Each widget is an ImGui call inside a wrapper: <code>AButton()</code> is <code>ImGui::Button()</code> followed by <code>A11y("button", label)</code>.</li>
+      <li data-code="/toolkit-aria/app/main.cpp#a11y" data-lang="js"><b>C++: the report.</b> <code>A11y()</code> reads the id and rectangle of the item ImGui has just submitted and the window's clip rectangle. The wrappers apply changes that came from the DOM before they call ImGui.</li>
+      <li data-code="/toolkit-aria/app/main.cpp#node" data-lang="js"><b>JavaScript inside the C++ file: one node per widget.</b> Create it if it is new, keep DOM order equal to ImGui order, write the name and state, then place it.</li>
+      <li data-code="/toolkit-aria/app/main.cpp#end" data-lang="js"><b>After the last widget.</b> Remove the nodes of widgets that were not submitted and clear Chromium's hit-test cache.</li>
+      <li data-code="/toolkit-aria/app/main.cpp#init" data-lang="js"><b>Events.</b> A node's <code>click</code>, <code>input</code> and <code>focus</code> go to ImGui. Pointer events go to ImGui from the canvas, except a press on the text field.</li>
+      <li data-code="/toolkit-aria/app/main.cpp#exports" data-lang="js"><b>C++: what the page calls.</b></li>
+      <li data-code="/toolkit-aria/app/main.cpp#text" data-lang="js"><b>C++: the text field.</b> The node holds the text while it has focus. ImGui draws the buffer and the node's caret, or the node's own image.</li>
+      <li data-code="/toolkit-aria/app/main.cpp#focus-image" data-lang="js"><b>The focused node as a texture.</b> Used only when the second checkbox is on.</li>
+      <li data-code="/toolkit-aria/app/main.cpp#loop" data-lang="js"><b>C++: the frame function.</b> It draws only when something asked for frames.</li>
+      <li data-code="/toolkit-aria/main.js#outline"><b>The outlines.</b> <code>getBoundingClientRect()</code> of each node, drawn as a div over the canvas.</li>
+      <li data-code="/toolkit-aria/start.js#start"><b>Start the module.</b></li>
+      <li data-code="/toolkit-aria/ui.css#node-css" data-lang="css"><b>CSS for the nodes.</b></li>
+      <li data-code="/toolkit-aria/app/main.cpp" data-lang="js"><b>All of main.cpp.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li><strong>ImGui to DOM.</strong> The app calls <code>A11y(role, label, state)</code> after each widget. It reads the rectangle and id of the last item from ImGui (<code>g.LastItemData</code>) and the clip rectangle of the window, and calls the page. The page keeps one element per ImGui id, writes <code>checked</code>, <code>value</code>, <code>aria-valuetext</code>, <code>aria-expanded</code> or the status text when they changed, sets the element's CSS size to the widget's size, and calls <code>updateElementGeometry(el, { canvasTransform, canvasClip })</code> when the rectangle changed.</li>
+    <li><strong>DOM to ImGui.</strong> A <code>click</code> whose <code>pointerType</code> is empty (Enter, Space, <code>click()</code>, assistive technology) presses the ImGui button through ImGui's keyboard activation ids, or sets the checkbox. An <code>input</code> event on the range node sets the slider. An <code>input</code> event on the text node copies its value into the <code>InputText</code> buffer. A <code>focus</code> event makes the widget ImGui's focused item, and ImGui draws its focus ring when the node matches <code>:focus-visible</code>.</li>
+    <li><strong>Pointer.</strong> A press lands on a node, because the browser hit tests the nodes. A capture listener on the canvas sends every pointer event to ImGui, so ImGui handles the press, the drag and the hover itself. The <code>click</code> that follows on the node has a <code>pointerType</code> and is ignored. The text field is the exception: its press is not sent to ImGui, so the browser focuses the node, raises the keyboard and places the caret.</li>
+    <li><strong>Tab order.</strong> The nodes are in the canvas in the order ImGui submitted the widgets, so the browser's Tab order is ImGui's layout order. The page sends ImGui no keys at all.</li>
+    <li><strong>Nothing is drawn from the DOM</strong> unless the second checkbox is on. Then the text node is uploaded with <code>texElementSubImage2D()</code> while it has focus and ImGui draws it as an image in the text field's frame.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">The checks load a second copy of the app in a small frame, so they do not touch or focus the one above.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>Yes: an undrawn element in the canvas gives an ImGui widget a role, a name, a state and a box.</strong> Measured in headless Chromium 157 on 2026-11-21. The accessibility tree read through the DevTools protocol has a group with a textbox "Title", a checkbox "Autosave" (checked), a slider "Volume" (value, minimum 0, maximum 100), a button "Save", a status node and a button "Advanced" (expanded false), in that order. <code>getBoundingClientRect()</code> of all 14 nodes equals the rectangle ImGui reported, with a difference of 0 CSS px.</li>
+    <li><strong>The element does not have to be drawn.</strong> No call draws a node and no texture is uploaded. <code>updateElementGeometry()</code> works on an element that is only laid out. The node's CSS width and height set the size of the box, and <code>canvasTransform</code> sets its place.</li>
+    <li><strong>Hit testing follows.</strong> <code>elementFromPoint()</code> at each visible widget returns its node. A press therefore lands on the node, and the page forwards it to ImGui from a capture listener on the canvas.</li>
+    <li><strong><code>canvasClip</code> cuts the hit box but not the reported box.</strong> With the ImGui window's clip rectangle as <code>canvasClip</code>, the part of a row that is scrolled under the title bar is not hit. <code>getBoundingClientRect()</code> still returns the whole row, and returns positions outside the canvas for rows that are scrolled out. The outlines on this page show that.</li>
+    <li><strong>A scrolled-out widget keeps its node.</strong> ImGui still submits it, so it still has a rectangle. Tab reaches it, and the <code>focus</code> event makes ImGui scroll it into view with <code>ScrollToItem()</code>. A widget that ImGui stops submitting (inside a closed header) loses its node on that frame. If that node had focus, focus goes to <code>&lt;body&gt;</code>.</li>
+    <li><strong>Tab order is DOM order.</strong> Tab from the page heading went through Title, Autosave, Volume, Save, Advanced and the eight checkboxes in ImGui's order, then on to the controls under the canvas. Space toggled the checkbox, the arrow keys moved the slider and Enter pressed Save. ImGui received no key events.</li>
+    <li><strong>ImGui accepts a press from outside through its keyboard activation ids.</strong> Setting <code>NavActivateId</code>, <code>NavActivateDownId</code> and <code>NavActivatePressedId</code> to the widget's id before the widget is submitted makes <code>ImGui::Button()</code> return true and <code>CollapsingHeader()</code> toggle. These are fields from <code>imgui_internal.h</code>. The checkbox, slider and text field are set by writing to the variable the widget draws.</li>
+    <li><strong>ImGui draws the focus ring.</strong> A <code>focus</code> event calls <code>SetFocusID()</code> for the widget and sets <code>NavCursorVisible</code> to what <code>:focus-visible</code> says for the node. ImGui only keeps the ring when <code>ImGuiConfigFlags_NavEnableKeyboard</code> is set.</li>
+    <li><strong>The text field works on the DOM node's input.</strong> ImGui's own <code>InputText()</code> takes characters only from key events, which is why it raised no phone keyboard on <a href="/imgui-dom/">the earlier page</a>. Here the node has focus and takes the typing, and its value is copied into the ImGui buffer on every <code>input</code> event. ImGui draws the text, and a caret and selection at the node's <code>selectionStart</code> and <code>selectionEnd</code>.</li>
+    <li><strong>A click in the text needs the two fonts to agree.</strong> The browser places the caret with the node's own text layout. ImGui's font drew "Quarterly report" 128 px wide and the node's monospace font laid it out 144.5 px wide, so a click landed on the wrong letter. The page sets <code>letter-spacing</code> on the node so that the widths match. With two fixed-pitch fonts a mouse drag from x 40 to x 120 then selected letters 3 to 13, which is where ImGui drew them. With a proportional font this would be approximate.</li>
+    <li><strong>Drawing the focused node is the alternative.</strong> With the second checkbox on, the text node is uploaded with <code>texElementSubImage2D()</code> while it has focus and ImGui draws that image in the frame, so the caret, the selection and the letters are the browser's. The live check counted 0 uploads before focus, 2 while focused and 0 after blur.</li>
+    <li><strong>Fallback content is not enough.</strong> The same elements as plain children of a canvas without <code>layoutsubtree</code> are in the accessibility tree with the same roles and names and take focus, and Space, Enter and the arrow keys work on them. But every box is 0 by 0 at 0, 0, <code>getClientRects()</code> is empty, <code>elementFromPoint()</code> returns the canvas, and typing into the focused text input changed nothing. Measured in Chromium 157 with the API turned off.</li>
+    <li><strong>Frames only on demand.</strong> 0 ImGui frames and 0 geometry calls during 30 idle animation frames. Geometry is sent only for a node whose rectangle changed.</li>
+    <li><strong>Not verified with a screen reader.</strong> TalkBack, VoiceOver, NVDA and JAWS were not run. The bounds a screen reader receives were not read directly: the DevTools protocol gives the accessibility tree without bounds, and the boxes above come from the DOM. Whether a screen reader's activate gesture arrives as a <code>click</code> with an empty <code>pointerType</code>, and whether touch exploration finds the nodes, needs a phone.</li>
+  </ul>
+  <p class="note">
+    This page follows <a href="/imgui-dom/">DOM elements in a Dear ImGui app</a>, which shows real elements as ImGui images. Here the direction is reversed: ImGui's own widgets get elements.
+    Source: <a href="https://github.com/PaulKinlan/html-in-canvas-demos/tree/main/native/toolkit-aria">native/toolkit-aria</a>. Dear ImGui is MIT licensed.
+  </p>
+</main>
+<script type="module" src="/toolkit-aria/main.js"></script>
+</body>
+</html>

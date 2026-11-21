@@ -112,6 +112,17 @@ async function open({ force = false, compat = false, features = false, byName = 
   }
 }
 
+/**
+ * The device for a live check that needs WebGPU: the page's shared device, or,
+ * where the only adapter is a software one (the test browser), the forced
+ * attempt, which is also made once and shared. A check must not call
+ * adapter.requestDevice() itself: every call makes another device, and
+ * `npm run check:gfx` fails on it.
+ */
+export async function checkDevice() {
+  return (await webgpu()) ?? (await webgpu({ force: true }));
+}
+
 // A device that was lost on this phone is likely to be lost again on the next
 // page, and a lost device can take the page's WebGL contexts and large 2D
 // canvases with it. So after a loss the tab uses WebGL for ten minutes.
@@ -165,9 +176,14 @@ export function webgl2() {
   if (hasWebGL2 !== null) return hasWebGL2;
   try {
     // This canvas is never in a page and has no children, so losing its context is safe.
-    const gl = document.createElement('canvas').getContext('webgl2');
+    const probe = document.createElement('canvas');
+    // gfx-allow: webgl-context one probe per page load, given back below
+    const gl = probe.getContext('webgl2');
     hasWebGL2 = !!gl;
-    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    // The guard gives the context back and does not count it as a loss.
+    if (globalThis.__gfx) globalThis.__gfx.release(probe);
+    // gfx-allow: lose-context only where the guard is not loaded (lib/fx.js on another site); the probe canvas was never in a page and has no children
+    else gl?.getExtension('WEBGL_lose_context')?.loseContext();
   } catch {
     hasWebGL2 = false;
   }

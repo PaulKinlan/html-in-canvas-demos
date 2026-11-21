@@ -62,6 +62,11 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A WebAssembly program can block on `paint` through JSPI and draw in the microtask after the listener. | measured | C157 | `/wasm-ui/` | A WebAssembly loop on the paint event |
 | `canvas.when('paint')` (Observable) delivers the same events as `addEventListener('paint')`. `ElementImage` has `close()` and no `[Symbol.dispose]`, so `using` needs a wrapper. | measured | C157 | `/component-kit/` | Newer DOM features in a drawable custom element |
 | Scroll-driven animations, `scroll-state()` and `timeline-trigger` set registered custom properties on canvas children. | measured | C157 | `/scroll-fx/` | Effects driven by CSS, the tilt sensor and text measured by CSS |
+| A drawable element inside another drawable element is recorded only where its drawn position is inside the canvas and the window when it repaints. The rest is transparent, nothing throws, and the hole stays until it repaints fully in view. A drawable element whose ancestors are not drawable is always whole. | measured | C157 | `/minimap/` | Live minimap |
+| A change to a custom property alone raises no `paint` event. | measured | C157 | `/css-uniforms/` | Shader uniforms from CSS |
+| A CSS height transition on `::details-content` raises a `paint` event for each frame. | measured | C157 | `/accordion/` | Accordion from `<details>` |
+| `content="drawable"` on a canvas with a `bitmaprenderer` context gives `paint` events and geometry, with no way to draw the element. | measured | C157 | `/flutter-dom/` | A DOM form inside a Flutter web app |
+| A `<tr drawable>` in a table that is a canvas child keeps table layout and can be drawn on its own at any position. A `<td drawable>` with no background is drawn as text on transparent pixels. | measured | C157 | `/sort-table/`, `/heat-map/` | Sortable table; Heat map over table cells |
 
 ### drawElementImage() in a 2D context
 
@@ -78,6 +83,9 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A `drawable` descendant can be passed to `drawElementImage()` by itself. It is then left out of its drawable ancestor's picture (a third test, agreeing with the video test). | measured | C157 | `/translate-lens/` | Language models, voice and input |
 | About 7 µs of script per call. More than about 100 clipped draws a frame is slow (85 draws 2 ms, 136 draws 140 ms). 1,000 draws of text each at its own angle take about 1.5 s. | measured, software rendering | C157 | `/perf/`, `/lens/`, `/particles/` | Performance; UI primitives; Transitions and motion |
 | Pixels of drawn DOM can be read back (`getImageData`, `createImageBitmap`, `toDataURL`). The canvas is not tainted. | measured | C157 | `/offscreen/` | ElementImage and OffscreenCanvas |
+| A float16 Display P3 2D canvas keeps CSS `color()` values above 1.0 through `drawElementImage()`. A CSS `filter` or `mix-blend-mode` on the element, `ctx.filter`, `lighter`, a shadow on the draw and `drawImage()` of a float canvas clamp to 1.0. | measured | C157 | `/hdr-glow/` | HDR interface |
+| An element moved in the DOM can be drawn in the same task, with its old picture. | measured | C157 | `/sort-table/` | Sortable table |
+| A nested drawable content element of a closed `<details>` throws "No cached paint record". Its open picture is available only as a snapshot taken while it was open. | measured | C157 | `/accordion/` | Accordion from `<details>` |
 
 ### Hit testing and updateElementGeometry()
 
@@ -108,6 +116,12 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `getBoundingClientRect()` on a canvas child that is drawn moved or scaled reports the drawn box. `offsetTop` and `offsetLeft` report layout. | measured | C157 | `/translate-lens/`, `/focus-nav/` | Language models, voice and input; Controller, keyboard and haptic navigation |
 | A draw with `globalAlpha = 0`, or one clipped away completely, still moves the element's hit region. | measured | C157 | `/element-ideas/` | Every HTML element |
 | Focusing an element whose hit region was moved far away scrolls the page towards that place. | measured | C157 | `/element-ideas/` | Every HTML element |
+| An element in a `layoutsubtree` canvas that is never drawn gets its box from `updateElementGeometry()` alone. Role, name, state, hit testing, Tab order and focus then work. | measured | C157 | `/toolkit-aria/` | An accessibility tree for a Dear ImGui app |
+| `canvasClip` cuts the hit box. `getBoundingClientRect()` ignores it. | measured | C157 | `/toolkit-aria/` | An accessibility tree for a Dear ImGui app |
+| `canvasTransform` accepts a 4×4 matrix with perspective, and hit testing follows it. | measured | C157 | `/flutter-dom/` | A DOM form inside a Flutter web app |
+| Where two elements drawn by a 2D canvas overlap, the one drawn last is hit, in either document order. | measured | C157 | `/tab-fan/` | Tab switcher of live pages |
+| The browser does not scroll a scroll container in a canvas for wheel or touch unless the container itself is drawable and has a hit region. A `wheel` listener on such a container is treated as passive. | measured | C157 | `/minimap/` | Live minimap |
+| Drawing a canvas child at its view transition group box retargets the group, so it does not move, unless `updateElementGeometry()` puts the hit box back after each draw. | measured | C157 | `/scoped-transitions/` | Transitions and motion, View transitions drawn by a canvas |
 
 ### ElementImage, workers and OffscreenCanvas
 
@@ -122,6 +136,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A snapshot keeps drawing after its element changes or is removed and after the canvas is resized. It has `close()` and no other member: no text, no selection. | measured | C157 | `/time-scrubber/` | Transitions and motion |
 | Holding 600 snapshots costs about 0.014 ms per capture, against 0.26 ms and 33 MB for the same frames as ImageBitmaps. | measured, software rendering | C157 | `/time-scrubber/` | Transitions and motion |
 | An `ElementImage` cannot follow a navigation. | measured | C157 | `/view-transitions/` | View Transitions API |
+| An `ElementImage` is refused by every canvas other than the one it was captured from, including an `OffscreenCanvas` ("The source was captured from a different canvas"). `createImageBitmap()` accepts neither an `ElementImage` nor an element. | measured | C157 | `/flutter-dom/` | A DOM form inside a Flutter web app |
+| An `ElementImage` taken before a DOM change, or before its element moved, still draws afterwards and serves as the old state of a transition drawn by the canvas. | measured | C157 | `/scoped-transitions/`, `/sort-table/` | Transitions and motion; Sortable table |
 
 ### WebGL: texElementSubImage2D()
 
@@ -138,6 +154,9 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A WebGL canvas losing its context fires `webglcontextlost`, not `contextlost`. | measured | C157 | `/selection/` | Text selection |
 | `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas that holds an element texture crashed the tab in two check fixtures. A smaller case did not crash. | measured | C157 | `/selection/`, `/player-fx/` | Text selection; Video and sound |
 | An animated transparent WebGL canvas with drawable children became a solid white block on the phone. | reported | A159 | `/particles/` | Transitions and motion |
+| `texElementSubImage2D()` refuses float textures. Element copies on WebGL and WebGPU do not carry values above 1.0. | measured | C157 | `/hdr-glow/` | HDR interface |
+| A foreign engine's texture can be found without engine internals by wrapping `gl.createTexture` for the length of the engine call that creates it. | measured | C157 | `/godot-dom/` | A DOM form in a Godot 4 web export |
+| Dear ImGui's OpenGL backend needs straight alpha for an element texture. egui and Qt Quick need premultiplied alpha. | measured | C157 | `/imgui-dom/`, `/native-ui/` | Dear ImGui with DOM elements |
 
 ### WebGPU: drawElementImageToTexture()
 
@@ -184,6 +203,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `corner-shape`, `border-shape` and `clip-path: shape()` are in the element's alpha, and hit testing follows them. | measured | C157 | `/shape-ui/` | Effects driven by CSS, the tilt sensor and text measured by CSS |
 | `text-fit`, `text-box-trim` and `sideways-lr` size a canvas child, which is drawn at that size. | measured | C157 | `/text-labels/` | Effects driven by CSS, the tilt sensor and text measured by CSS |
 | A custom highlight and a script-set `:focus-visible` outline are in the texture. | measured | C157 | `/voice/`, `/focus-nav/` | Language models, voice and input; Controller, keyboard and haptic navigation |
+| Registered custom properties, including values from `attr()`, `if()`, `sibling-index()`, `random()`, `progress()`, `@function`, transitions and view timelines, can be read each frame and set as shader uniforms. | measured | C157 | `/css-uniforms/` | Shader uniforms from CSS |
+| A displayed, editable `<style>` element inside a drawn element is drawn and stays live. | measured | C157 | `/css-uniforms/` | Shader uniforms from CSS |
 
 ### Slots and shadow DOM
 
@@ -216,6 +237,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A frame sent with `Document-Isolation-Policy` gets `SharedArrayBuffer` while the page around it stays non-isolated. | measured | C157 | `/transports-2/` | Transport lab 2: newer transport APIs |
 | `frame-sizing: content-height` parses and does not size an iframe. `window.requestResize()` throws `NotAllowedError`. | measured | C157, C153 | `/iframe-tiles/` | Iframes as tiles |
 | Element Capture, a frozen tab, and WebTransport against a real server. | not verified | | `/transports-2/` | Transport lab 2: newer transport APIs |
+| A same-origin iframe drawn rotated and scaled takes taps and typing at the drawn position, and changes in its document raise the canvas's `paint` event. | measured | C157 | `/tab-fan/` | Tab switcher of live pages |
 
 ### Accessibility, focus and selection
 
@@ -229,6 +251,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | Screen reader output, IME candidate windows, the find bar, OS magnifiers. | not verified | | `/a11y/` section C | Accessibility |
 | `allow="focus-without-user-activation 'none'"` stops an iframe tile taking focus in C153 and not in C157. | measured | C153, C157 | `/iframe-tiles/` | Iframes as tiles |
 | `focusgroup="toolbar wrap"` moves focus in DOM order through buttons drawn by a shader. With `reading-flow: grid-rows`, arrows and Tab follow the drawn order. | measured, real key events from a test script | C157 | `/focus-nav/` | Controller, keyboard and haptic navigation |
+| Canvas children without `layoutsubtree` (fallback content) are in the accessibility tree and focusable and have no boxes. A text input among them cannot be typed in. | measured | C157 | `/toolkit-aria/` | An accessibility tree for a Dear ImGui app |
+| Any screen reader on the toolkit accessibility tree. | not verified | | `/toolkit-aria/` | An accessibility tree for a Dear ImGui app |
 
 ### Form controls and pickers
 
@@ -262,6 +286,9 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `element.startViewTransition()` on a `drawable` child of a drawable canvas crashes the renderer. | measured | C157 | `/view-transitions/crash.html` | View Transitions API |
 | A `navigate` listener with `precommitHandler` can append the new view as a canvas child and blend both live views with a shader. `sourceElement` gives the transition origin. | measured | C157 | `/nav-shader/` | Navigations drawn by a shader |
 | A snapshot from `captureElementImage()` still draws after its element was removed. | measured | C157 | `/nav-shader/` | Navigations drawn by a shader |
+| A transition scoped to a canvas works as a set of CSS-timed clocks for 2D and WebGL drawing. The canvas needs `view-transition-name: none`. | measured | C157 | `/scoped-transitions/` | Transitions and motion, View transitions drawn by a canvas |
+| `view-transition-scope: all` on a canvas is needed to start a canvas-scoped transition while a transition on an ancestor is running. Without it the inner one is rejected with "Snapshot capture failed". | measured | C157 | `/scoped-transitions/` | Transitions and motion, View transitions drawn by a canvas |
+| `view-transition-class` on canvases is matched by `::view-transition-group(.class)` in a scoped transition. | measured | C157 | `/scoped-transitions/` | Transitions and motion, View transitions drawn by a canvas |
 
 ### Capture and export
 
@@ -289,6 +316,11 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A real foldable, a real Stream Deck, printer or LED matrix, and an installed app window. | not verified | | `/fold/`, `/hardware-out/`, `/window-chrome/` | Devices |
 | A fingertip position works as a pointer on a panel, and a panel snaps to a plane, in a simulated room and in the IWER headset emulator. | measured, simulated and emulated | C157 | `/xr-room/` | 3D and spatial, Panels in a real room |
 | Real hand joints, detected planes, depth occlusion and a quad layer filled with `texElementSubImage2D()`. | not verified | | `/xr-room/` | 3D and spatial, Panels in a real room |
+| Dear ImGui shows a DOM element with one `ImGui::ImageWithBg()` call, and `FindHoveredWindowEx()` gives occlusion. It takes a press from outside through `NavActivateId`. | measured | C157 | `/imgui-dom/`, `/toolkit-aria/` | Dear ImGui with DOM elements; An accessibility tree for a Dear ImGui app |
+| Flutter web shows a live DOM form through `createImageFromTextureSource()` from a 2D drawable canvas. With `canvasKitForceMultiSurfaceRasterizer` and `texImage2D()` replaced by `texElementSubImage2D()`, the element lives in Flutter's own canvas. | measured | C157 | `/flutter-dom/`, `/flutter-dom/?design=in-canvas` | A DOM form inside a Flutter web app |
+| A Qt Widgets raster window draws DOM fields after each `putImageData()` flush. | measured | C157 | `/qt-widgets-dom/` | Qt Widgets with DOM elements |
+| A stock Godot 4.7.2 web export takes a DOM element as a texture through `texture_get_native_handle()` and Emscripten's `GL.textures`. Godot's `mousedown` handler calls `canvas.focus()`, so events have to be stopped at the element. | measured | C157 | `/godot-dom/` | A DOM form in a Godot 4 web export |
+| The four toolkit pages on a phone: keyboard, IME, native pickers, frame rate. | not verified | | `/imgui-dom/`, `/flutter-dom/`, `/qt-widgets-dom/`, `/godot-dom/` | their files in `findings/` |
 
 ### Phones and lost contexts
 
@@ -303,6 +335,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `dvh` on a canvas stage resizes it each time the URL bar moves. Assigning `canvas.width` clears the canvas even when the value is unchanged. | measured | C157 | `/board/` | Pages that hold still |
 | An opacity effect around a drawable canvas inside an iframe that is itself drawn into a canvas crashes the tab. | measured | C157 | `/board/` | Pages that hold still |
 | A guard on every page (PR #63) counts contexts and puts a note with a Reload button over a canvas that stays lost. `check:jank` limits a page to 8 live WebGL contexts and 0 lost canvases. Whether this ends the white boxes on the phone has not been reported. | measured in C157; not verified on A159 | C157 | every page | Pages that hold still |
+| On the phone the float16 Display P3 2D contexts of `/hdr-glow/` were lost every 1.5 s, the interval of the page's float readback. PR #75 made the readback a button and added an 8-bit fallback. Which of the readback, the float canvas or the GPU process causes the loss is not known. | reported | A159 | `/hdr-glow/` | HDR interface |
+| On the phone a 2D canvas of `/scoped-transitions/` showed white with the broken-picture icon. Killing the GPU process in the test browser loses all thirteen contexts and all come back within 2.5 s. | reported; recovery measured | A159, C157 | `/scoped-transitions/` | Transitions and motion, View transitions drawn by a canvas |
 
 ## Chromium bugs worth filing
 
@@ -334,6 +368,9 @@ Crashes and behaviour that looks wrong, each with where to reproduce it. All wer
 | 22 | Possible: a drawable element whose hit box was outside the canvas keeps an empty picture after the hit box returns, until something else repaints it. | `/carousel/` | Not reduced to a small page yet. |
 | 23 | `<geolocation>` in a canvas reports `isValid` false with reason `intersection_occluded_or_distorted`, even drawn over its own box with no transform. | `/protected/` | May be intended. |
 | 24 | A touch drag on `<input type="range">` drawn rotated 90 degrees is not followed. A mouse drag is, and a slider drawn at 17 degrees drags by touch. | `/element-ideas/`, touch emulation | Needs a check on a real phone before it is reported. |
+| 25 | A drawable element nested in another drawable element gets a cut or empty paint record when it repaints partly outside the canvas or the window, and the record is not refreshed when it comes into view. | Live check on `/minimap/` | Possibly the same as bug 22. That is inferred, not tested. |
+| 26 | A scroll container that is a non-drawable child of a drawable canvas does not take user scrolls from its drawn descendants, and a `wheel` listener on it does not make wheel events cancelable. | `/minimap/` | |
+| 27 | Reported from Chrome 159 on Android: float16 Display P3 2D contexts with drawn elements are lost repeatedly. | `/hdr-glow/` | Needs a reduced page before filing. |
 
 Further cases of bugs 2 and 5. On `/iframe-tiles/`, removing an iframe canvas child inside `paint` or a microtask of it crashes the tab, and so does `loseContext()` there when the canvas has an iframe child; leaving the event with `setTimeout(0)` first avoids both. On `/protected/`, `loseContext()` on a drawable canvas that is then removed crashes the tab: at once when both happen in one task, and after a 150 ms wait too when the canvas has an iframe child.
 
@@ -347,6 +384,9 @@ Drawing:
 - Draw one element into more than one canvas, or draw an `ElementImage` into a second canvas. It would make cross-document reprojection possible without pixels. (Summary; ElementImage and OffscreenCanvas)
 - `drawElementImage()` taking a pseudo-element or a `::part()`, so one part of a closed shadow tree (for example one media control) can be drawn. (Video and sound, Further experiments)
 - A way to read a view transition's old snapshot into a canvas or texture. (View Transitions API)
+- A way to use an `ElementImage` outside its canvas, for example `createImageBitmap(elementImage)` or drawing it into an `OffscreenCanvas`. A framework that renders off screen and presents bitmaps, such as Flutter's default rasterizer, cannot use element images without it. (A DOM form inside a Flutter web app)
+- `texElementSubImage2D()` accepting `RGBA16F` storage, and `drawElementImageToTexture()` keeping values above 1.0 in a float texture, so GPU routes receive HDR CSS colours. (HDR interface)
+- A way to ask for the whole picture of an element whatever is clipped or off screen, or a documented rule for when a paint record is cut. (Live minimap)
 - A way for top-layer content (a popover, a dialog, a select's picker) to be in a canvas's picture, or for a picker's content to keep painting for a moment after it closes. (Customisable select)
 
 Hit testing and input:
