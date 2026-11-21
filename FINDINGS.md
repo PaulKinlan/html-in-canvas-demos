@@ -826,36 +826,6 @@ Tested in headless Chromium 157 at 1× and at a 2.625 device scale with touch. e
 
 Not verified: a real phone, IME composition, where native pickers open for a rotated field, screen readers, Qt Widgets (2D canvas, `putImageData`).
 
-## Recent platform features on drawn elements (`/chrome-apis/`)
-
-`/chrome-apis/` lists the 678 features that chromestatus.com records for Chrome 130 to 160 with an idea for 359 of them and a ranked plan of 28 demos; the same content is `docs/chrome-apis-plan.md`. `/chrome-apis/probes.html` holds 27 probes, each of which draws one small element with one feature on and reads the result back. `npm run record:probes` runs them with real mouse and keyboard input in the two Chromium builds installed beside Playwright: the 157 headless shell and the 153 full browser with the `canvas-draw-element` flag.
-
-| Experiment | Result | Why |
-|---|---|---|
-| `corner-shape`, `border-shape`, `clip-path: shape()`, gap decorations, `text-fit` on a drawn element | works | All are applied in the element picture; outlines arrive as alpha. |
-| `::scroll-marker` and `::scroll-button()` of a scroller inside a canvas | works | The pseudo-elements are in the picture, and a real click on a drawn marker scrolled the list. |
-| `scroll-state(stuck)` query, and a scroll-driven animation, inside a drawn element | works | Both restyle the element and raise `paint` with no `requestPaint()`. |
-| `streamAppendHTML()` into a drawn element | works (157) | One `paint` event per chunk. The method is missing in 153. |
-| CSS `random()` | stable (157) | The same value on two paints, so a per-element seed does not flicker. Missing in 153. |
-| An element outside the canvas anchored to a canvas child | follows the drawn position in 157 | Drawn at 100,50, the anchored element moved by 100,50. In 153 it stays at the layout box. |
-| `interestfor` on a drawn button | opens on hover in 157 | Hover at the drawn position opened the hint. Failed in 153. |
-| `highlightsFromPoint()` and `OpaqueRange` rects on an element drawn away from its box | use the drawn position in 157 | In 153 both use the layout box. |
-| `command` and `commandfor` on a drawn button | works | A click opened a popover that lives outside the canvas. |
-| A popover that is a descendant of a drawn element | not in the picture | It is shown in the top layer at its own position and hit tested there. |
-| `focusgroup` arrow keys between drawn buttons | works | |
-| `caret-shape: block` with `caret-animation: manual` | works | 215 caret pixels in the picture against 24 for a bar. |
-| `interactivity: inert` on a drawn element | works | Still drawn; `elementFromPoint()` skips it. |
-| Element Timing for text and an image inside a canvas | reported | Entries carry `renderTime` and `presentationTime`. |
-| Display P3 and values above 1.0 in a `float16` canvas | kept | `color(display-p3 1 0 0)` read back as 1, 0, 0; `color(srgb-linear 4 4 4)` read back as 1.82. |
-| `:visited` colour in a picture that script can read | drawn as unvisited | Measured in 153 with a profile that keeps history: 921 visited-colour pixels on screen, 0 in the canvas. |
-| `<geolocation>`, `<usermedia>`, `<camera>`, `<microphone>` as canvas children | drawn, not valid | `<geolocation>` reports `isValid` false, reason `intersection_occluded_or_distorted`. |
-
-Things that bit:
-
-- The two installed builds are different versions. The headless shell is 157 and behaves as if experimental web platform features were on; the full browser is 153 and needs the flag. Four results differ between them, and all four are about where the browser thinks a drawn element is. Chrome 159 on a phone has not been compared with either.
-- The headless shell keeps no history, so `:visited` never matches there. The probe reports that it could not tell, and the 153 run is the one that counts.
-- A fixture that sits below a 200 px `overflow: hidden` box is clipped out of screenshots. The comparison link for the `:visited` probe was invisible until the box was made taller.
-
 ## Text selection (/selection/, lib/selection-fx.js)
 
 Measured in headless Chromium 157 (Linux, software renderer) on 2026-11-21. The page's live checks repeat the rows that do not need focus.
@@ -892,3 +862,45 @@ Measured in headless Chromium 157 (Linux, software renderer) on 2026-11-21. The 
 | WebGPU on screen, and shader speed on a phone | not verified | The software adapter cannot present a WebGPU canvas. |
 
 How `<selection-fx>` uses this: one `::selection` rule hides the browser's highlight inside the element, `selectionchange` triggers a measurement of one Range per text node, and the rectangles go to a 2D effect directly or to a shader as a mask texture (red: selected, green: selected in the last 1.2 s, blue: selected and blurred by 10 px). The element's geometry stays at its layout position, so the caret and hit testing do not follow what an effect draws.
+## Recent platform features on drawn elements (`/chrome-apis/`)
+
+`/chrome-apis/` lists the 678 features that chromestatus.com records for Chrome 130 to 160 with an idea for 359 of them and a ranked plan of 28 demos; the same content is `docs/chrome-apis-plan.md`. `/chrome-apis/probes.html` holds 27 probes, each of which draws one small element with one feature on and reads the result back. `npm run record:probes` runs them with real mouse and keyboard input in the two Chromium builds installed beside Playwright: the 157 headless shell and the 153 full browser with the `canvas-draw-element` flag.
+
+| Experiment | Result | Why |
+|---|---|---|
+| `corner-shape`, `border-shape`, `clip-path: shape()`, gap decorations, `text-fit` on a drawn element | works | All are applied in the element picture; outlines arrive as alpha. |
+| `::scroll-marker` and `::scroll-button()` of a scroller inside a canvas | works | The pseudo-elements are in the picture, and a real click on a drawn marker scrolled the list. |
+| `scroll-state(stuck)` query, and a scroll-driven animation, inside a drawn element | works | Both restyle the element and raise `paint` with no `requestPaint()`. |
+| `streamAppendHTML()` into a drawn element | works (157) | One `paint` event per chunk. The method is missing in 153. |
+| CSS `random()` | stable (157) | The same value on two paints, so a per-element seed does not flicker. Missing in 153. |
+| An element outside the canvas anchored to a canvas child | follows the drawn position in 157 | Drawn at 100,50, the anchored element moved by 100,50. In 153 it stays at the layout box. |
+| `interestfor` on a drawn button | opens on hover in 157 | Hover at the drawn position opened the hint. Failed in 153. |
+| `highlightsFromPoint()` and `OpaqueRange` rects on an element drawn away from its box | use the drawn position in 157 | In 153 both use the layout box. |
+| `command` and `commandfor` on a drawn button | works | A click opened a popover that lives outside the canvas. |
+| A popover that is a descendant of a drawn element | not in the picture | It is shown in the top layer at its own position and hit tested there. |
+| `focusgroup` arrow keys between drawn buttons | works | |
+| `caret-shape: block` with `caret-animation: manual` | works | 215 caret pixels in the picture against 24 for a bar. |
+| `interactivity: inert` on a drawn element | works | Still drawn; `elementFromPoint()` skips it. |
+| Element Timing for text and an image inside a canvas | reported | Entries carry `renderTime` and `presentationTime`. |
+| Display P3 and values above 1.0 in a `float16` canvas | kept | `color(display-p3 1 0 0)` read back as 1, 0, 0; `color(srgb-linear 4 4 4)` read back as 1.82. |
+| `:visited` colour in a picture that script can read | drawn as unvisited | Measured in 153 with a profile that keeps history: 921 visited-colour pixels on screen, 0 in the canvas. |
+| `<geolocation>`, `<usermedia>`, `<camera>`, `<microphone>` as canvas children | drawn, not valid | `<geolocation>` reports `isValid` false, reason `intersection_occluded_or_distorted`. |
+
+Things that bit:
+
+- The two installed builds are different versions. The headless shell is 157 and behaves as if experimental web platform features were on; the full browser is 153 and needs the flag. Four results differ between them, and all four are about where the browser thinks a drawn element is. Chrome 159 on a phone has not been compared with either.
+- The headless shell keeps no history, so `:visited` never matches there. The probe reports that it could not tell, and the 153 run is the one that counts.
+- A fixture that sits below a 200 px `overflow: hidden` box is clipped out of screenshots. The comparison link for the `:visited` probe was invisible until the box was made taller.
+
+## Streamed HTML (`/stream/`, `lib/element-gl.js`)
+
+Measured in Chromium 157 (headless shell). Not yet run on the test phone.
+
+| Question | Result | Notes |
+|---|---|---|
+| `streamAppendHTML()` into a drawable canvas child | works | The writer accepts chunks that split a tag. Where the method is missing the page streams through `document.write()` on a second document whose container is moved into the page. |
+| Paint event per chunk | yes | One `paint` event for each chunk that changed the picture, with no call to `requestPaint()`. |
+| Which blocks are new | from a MutationObserver | `changedElements` names the drawable element, not the blocks inside it. The page records the time each block was added or last changed and passes up to 16 rectangles to the shader. |
+| Effect on new blocks only | works | One fragment shader pass over the element's texture. Older blocks are drawn unchanged. |
+| Selection, links and buttons during the effect | work | The quad covers the element's layout box, so `updateElementGeometry()` with an identity matrix is enough. Without that call a WebGL canvas has no hit box for the child and `elementFromPoint()` returns the canvas. |
+| Lost WebGL context | handled | The element is moved out of the canvas and shown as plain HTML with a message. It goes back when the context returns. |
