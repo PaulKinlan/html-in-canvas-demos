@@ -19,6 +19,8 @@ const STRIP = 8; // length of one strip along the surface, CSS px
 const BEZEL = 10;
 const BEND = 16; // the surface turns over this distance next to the hinge
 const BAR = 68; // height of the controls pane when it is a bar
+const PITCH = 38 * (Math.PI / 180); // the eye looks down on the device by this much
+const MIN_ANGLE = 60; // the smallest fold angle the picture can show: below it the first half hides the second
 
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const ease = (x) => 1 - Math.pow(1 - x, 3);
@@ -149,14 +151,19 @@ export class FoldView {
       const L = m.axis === 'horizontal' ? m.H : m.W;
       m.h0 = (L - state.hinge) / 2; m.h1 = (L + state.hinge) / 2;
       m.fold = true;
-      m.angle = state.angle;
+      m.angle = Math.max(MIN_ANGLE, state.angle);
       // The Device Posture API reports 'folded' for a laptop or book shape and 'continuous' for flat.
       m.posture = state.angle < 150 ? 'folded' : 'continuous';
     }
     m.L = m.axis === 'horizontal' ? m.H : m.W; // length across the fold
     m.C = m.axis === 'horizontal' ? m.W : m.H; // length beside the fold
     m.gap = m.h1 - m.h0;
-    m.alpha = ((180 - m.angle) / 2) * (Math.PI / 180); // each half turns this far towards the eye
+    // How far each half is turned towards the eye. In the picture of a device the
+    // second half never moves: it lies at the pitch of the eye, and the first half
+    // swings up from it. So the controls stay where they are at every angle.
+    const fold = (180 - m.angle) * (Math.PI / 180);
+    m.alpha = fold / 2;
+    m.tilt = m.source === 'device' ? { [-1]: fold / 2, 1: fold / 2 } : { [-1]: fold - PITCH, 1: PITCH };
     m.separate = m.fold && m.posture === 'folded' && !state.span;
     m.cutShift = m.fold && state.cut && !m.separate ? m.gap : 0;
 
@@ -277,10 +284,10 @@ export class FoldView {
     // Bands are snapped to whole pixels so that neighbours neither overlap nor leave a gap.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     for (const s of m.strips) {
-      const tilt = Math.sin(s.tilt);
+      const tilt = Math.max(0, Math.sin(s.tilt));
       const crease = m.gap < 1 ? Math.max(0, 1 - s.d / 14) * Math.sin(m.alpha) * 0.3 : 0;
       const dark = (s.half < 0 ? 0.3 : 0) * tilt + crease;
-      const light = (s.half > 0 ? 0.1 : 0) * tilt;
+      const light = m.source === 'device' && s.half > 0 ? 0.1 * tilt : 0;
       if (dark < 0.004 && light < 0.004) continue;
       ctx.fillStyle = dark > light ? `rgb(0 0 0 / ${dark.toFixed(3)})` : `rgb(255 255 255 / ${light.toFixed(3)})`;
       const p0 = Math.round(s.p0 * dpr), p1 = Math.round(s.p1 * dpr);
@@ -368,7 +375,7 @@ export class FoldView {
     const [t, c] = m.axis === 'horizontal' ? [y, x] : [x, y];
     const half = t <= m.h0 ? -1 : 1;
     const d = Math.max(0, half < 0 ? m.h0 - t : t - m.h1);
-    const { along, z } = at(m.profile, d);
+    const { along, z } = at(m.profiles[half], d);
     const s = 1 / (1 - z / PERSPECTIVE);
     const p = m.cA + half * m.k * s * (m.gap / 2 + along);
     const q = m.cC + m.k * s * (c - m.C / 2);
@@ -428,42 +435,46 @@ function at(profile, d) {
 }
 
 function strips(m) {
-  const flat = Math.abs(m.alpha) < 0.004;
-  const lenA = m.h0, lenB = m.L - m.h1, longest = Math.max(lenA, lenB, 1);
-  const steps = flat ? 1 : Math.ceil(longest / STRIP);
-  m.profile = walk(longest, m.alpha, steps);
+  const flat = Math.abs(m.tilt[-1]) < 0.004 && Math.abs(m.tilt[1]) < 0.004;
+  const lens = { [-1]: m.h0, 1: m.L - m.h1 };
+  const steps = (half) => (flat ? 1 : Math.max(1, Math.ceil(lens[half] / STRIP)));
+  m.profiles = { [-1]: walk(Math.max(lens[-1], 1), m.tilt[-1], steps(-1)), 1: walk(Math.max(lens[1], 1), m.tilt[1], steps(1)) };
   const scale = (p) => 1 / (1 - p.z / PERSPECTIVE);
 
   if (m.source === 'device') {
     m.k = 1; m.cA = (m.h0 + m.h1) / 2; m.cC = m.C / 2;
   } else {
-    // Fit the picture of the folded device into the canvas.
-    const end = m.profile[steps], sEnd = scale(end);
-    const halfAlong = sEnd * (m.gap / 2 + end.along) + m.bezel * sEnd, halfCross = sEnd * (m.C / 2 + m.bezel);
-    const roomAlong = (m.axis === 'horizontal' ? m.ch : m.cw) / 2 - 4, roomCross = (m.axis === 'horizontal' ? m.cw : m.ch) / 2 - 4;
-    m.k = Math.min(1, roomAlong / halfAlong, roomCross / halfCross);
-    m.cA = (m.axis === 'horizontal' ? m.ch : m.cw) / 2;
-    m.cC = (m.axis === 'horizontal' ? m.cw : m.ch) / 2;
+    // Fit the picture into the canvas once, for every angle the slider can reach,
+    // so that neither the size nor the place of the hinge changes while it folds.
+    const reach = (len, tilt) => { const end = walk(len, tilt, 8)[8], sc = scale(end); return { along: sc * (m.gap / 2 + end.along + m.bezel), cross: sc * (m.C / 2 + m.bezel) }; };
+    const second = reach(lens[1], PITCH);
+    let first = 0, cross = second.cross;
+    for (let angle = MIN_ANGLE; angle <= 180; angle += 15) {
+      const r = reach(lens[-1], (180 - angle) * (Math.PI / 180) - PITCH);
+      first = Math.max(first, r.along); cross = Math.max(cross, r.cross);
+    }
+    const roomAlong = (m.axis === 'horizontal' ? m.ch : m.cw) - 8, roomCross = (m.axis === 'horizontal' ? m.cw : m.ch) - 8;
+    m.k = Math.min(1, roomAlong / (first + second.along), roomCross / (2 * cross));
+    m.cA = (roomAlong + 8 - m.k * (first + second.along)) / 2 + m.k * first; // where the hinge is drawn
+    m.cC = (roomCross + 8) / 2;
   }
 
   const out = [];
   for (const half of [-1, 1]) {
-    const len = half < 0 ? lenA : lenB;
+    const len = lens[half], profile = m.profiles[half];
     if (len < 1) continue;
-    for (let i = 0; i < steps; i++) {
-      const a = m.profile[i], b = m.profile[i + 1];
-      if (a.d >= len) break;
-      const dB = Math.min(b.d, len), f = (dB - a.d) / (b.d - a.d);
-      const end = { along: lerp(a.along, b.along, f), z: lerp(a.z, b.z, f) };
-      const pa = m.k * scale(a) * (m.gap / 2 + a.along), pb = m.k * scale(end) * (m.gap / 2 + end.along);
+    for (let i = 0; i + 1 < profile.length; i++) {
+      const a = profile[i], b = profile[i + 1];
+      const pa = m.k * scale(a) * (m.gap / 2 + a.along), pb = m.k * scale(b) * (m.gap / 2 + b.along);
+      if (pb - pa < 0.02) continue; // seen edge on: nothing to draw
       const s = {
-        half, d: (a.d + dB) / 2, tilt: (a.tilt + b.tilt) / 2,
-        sc: m.k * (scale(a) + scale(end)) / 2, // scale beside the fold
-        scA: m.k * scale(half > 0 ? a : end), scB: m.k * scale(half > 0 ? end : a), // the same at each end
-        first: half < 0 && dB >= len, last: half > 0 && dB >= len,
+        half, d: (a.d + b.d) / 2, tilt: (a.tilt + b.tilt) / 2,
+        sc: m.k * (scale(a) + scale(b)) / 2, // scale beside the fold
+        scA: m.k * scale(half > 0 ? a : b), scB: m.k * scale(half > 0 ? b : a), // the same at each end
+        first: half < 0 && i + 2 === profile.length, last: half > 0 && i + 2 === profile.length,
       };
-      if (half > 0) { s.tA = m.h1 + a.d; s.tB = m.h1 + dB; s.p0 = m.cA + pa; s.p1 = m.cA + pb; }
-      else { s.tA = m.h0 - dB; s.tB = m.h0 - a.d; s.p0 = m.cA - pb; s.p1 = m.cA - pa; }
+      if (half > 0) { s.tA = m.h1 + a.d; s.tB = m.h1 + b.d; s.p0 = m.cA + pa; s.p1 = m.cA + pb; }
+      else { s.tA = m.h0 - b.d; s.tB = m.h0 - a.d; s.p0 = m.cA - pb; s.p1 = m.cA - pa; }
       s.m = (s.p1 - s.p0) / (s.tB - s.tA); // scale across the fold
       out.push(s);
     }
@@ -477,8 +488,8 @@ function strips(m) {
 // It is exact where the half is flat, which is everywhere past the bend.
 function planeMatrix(m, half) {
   const r = Math.min(BEND, half < 0 ? m.h0 : m.L - m.h1);
-  const { along: Ar, z: Zr } = at(m.profile, r);
-  const cos = Math.cos(m.alpha), sin = Math.sin(m.alpha);
+  const { along: Ar, z: Zr } = at(m.profiles[half], r);
+  const cos = Math.cos(m.tilt[half]), sin = Math.sin(m.tilt[half]);
   const edge = half < 0 ? m.h0 : m.h1; // where this half meets the hinge
   // With t the position across the fold: Y = Y0 + cos * t and w = W0 + Wt * t.
   const Y0 = half * (m.gap / 2 + Ar - r * cos) - cos * edge;
