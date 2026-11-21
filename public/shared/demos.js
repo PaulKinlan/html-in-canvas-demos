@@ -23,6 +23,7 @@ window.DEMO_GROUPS = [
   ['slots', 'Experiments: slots'],
   ['primitives', 'Experiments: UI primitives'],
   ['motion', 'Experiments: transitions and motion'],
+  ['media', 'Experiments: video and sound'],
   ['3d', 'Experiments: 3D and shaders'],
   ['audit', 'Measurements: accessibility, capture and performance'],
   ['start', 'Learn the API'],
@@ -64,6 +65,12 @@ window.DEMOS = [
   { group: 'motion', href: '/view-transitions/', title: 'View Transitions API with HTML-in-canvas', blurb: 'A canvas that draws HTML inside <code>startViewTransition()</code>: which element can carry a name, a shader in place of the cross-fade, and a transition between two documents.', tags: ['startViewTransition', 'view-transition-name', '@view-transition'] },
   { group: 'motion', href: '/time-scrubber/', title: 'Time scrubber', blurb: 'A ring buffer of DOM frames. Scrub the interface back in time, leave motion trails, and restore a past moment, form values included.', tags: ['ElementImage', 'changedElements'] },
   { group: 'motion', href: '/particles/', title: 'Typography as particles', blurb: 'Text explodes into glyph particles and reassembles while staying selectable, searchable, linked and editable. No spans.', tags: ['Range rects', 'WebGL instancing'] },
+
+  // --- media ---
+  { group: 'media', href: '/video/', title: 'A <video> element inside a canvas', blurb: 'A playing video with its native controls and captions, drawn through a fragment shader. The controls still work. Cross-origin and encrypted video are left out of the picture.', tags: ['<video>', '::cue', 'requestVideoFrameCallback', 'EME'] },
+  { group: 'media', href: '/overlay/', title: 'HTML overlays on video', blurb: 'A caption bar, a poll and a ticker in HTML over a video, in one canvas. Record it with sound, export it frame by frame with WebCodecs, or send it over WebRTC as a camera.', tags: ['MediaRecorder', 'WebCodecs', 'captureStream', 'WebRTC'] },
+  { group: 'media', href: '/audio/', title: 'Sound driving DOM', blurb: 'An <code>AnalyserNode</code> writes four band levels to CSS custom properties. A shader that draws a working audio player card reads them as uniforms.', tags: ['Web Audio', '<audio>', '@property', 'WebGPU'] },
+  { group: 'media', href: '/player-parts/', title: 'Parts of the native media player', blurb: 'The controls of <code>&lt;video&gt;</code> are a closed shadow tree. Restyle them with pseudo-elements, let <code>:paused</code> and <code>:seeking</code> drive a shader through CSS, and draw the controls as a layer apart from the picture.', tags: ['::-webkit-media-controls', ':paused', ':has()', 'drawImage(video)'] },
 
   // --- 3d ---
   { group: '3d', href: '/three-form/', title: 'A form in a three.js scene', blurb: 'A laptop screen, a far-away billboard and a curved wall, each showing a live HTML document you can type in, tab through and select. WebGL or WebGPU.', tags: ['three.js', 'texElementSubImage2D', 'updateElementGeometry'] },
