@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live minimap of a page</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  /* #region styles */
+  #canvas { display: block; width: 100%; max-width: 560px; height: 480px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+  /* The scroller is a real scroll container. It leaves 68 px on the right for the minimap. */
+  #scroller { position: relative; width: calc(100% - 68px); height: 100%; overflow-y: auto; scrollbar-width: none; padding: 10px; display: flex; flex-direction: column; gap: 10px;
+    font: 15px/1.45 system-ui, sans-serif; color: var(--fg); overscroll-behavior: contain; touch-action: none; }
+  #scroller[drawable] { touch-action: auto; }
+  #scroller article { flex: none; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  #scroller h2 { margin: 0 0 6px; font-size: 18px; }
+  #scroller p { margin: 0 0 8px; }
+  #scroller textarea { width: 100%; height: 86px; font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); }
+  #scroller button, #scroller input { font: inherit; min-height: 38px; }
+  #scroller .photo { height: 120px; border-radius: 8px; background: linear-gradient(135deg, #2a9d8f, #e9a03b 60%, #c8553d); }
+  #scroller .log { margin: 0; padding: 8px; min-height: 40px; border-radius: 8px; background: #14161c; color: #9fe3b0; font: 12px/1.5 var(--mono); white-space: pre-wrap; }
+  #scroller .bars { display: flex; align-items: end; gap: 6px; height: 90px; }
+  #scroller .bars i { flex: 1; border-radius: 4px 4px 0 0; background: var(--accent); height: 30%; transition: height .5s; }
+  /* The rail takes pointer input for the minimap strip. It is drawn as the strip's background. */
+  #rail { position: absolute; left: 0; top: 0; width: 68px; height: 480px; background: color-mix(in srgb, var(--fg) 7%, var(--bg)); touch-action: none; cursor: grab; }
+  #rail:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+  /* #endregion styles */
+  .tools { display: flex; gap: 10px 16px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .tools button, .tools select { min-height: 40px; font: inherit; max-width: 100%; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 2.6em; margin: 6px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Live minimap of a page</h1>
+  <p class="lede">
+    A scrolling column of articles inside a canvas. Each <code>&lt;article&gt;</code> is drawn twice: at full size in the reading area, and at about a sixth of its size in the strip on the right.
+    The strip is drawn from the same live elements, so typing in the note, running the build or adding an article changes it at once.
+    Scroll the column by touch or wheel. Drag or tap in the strip to move the view. <b>Overview</b> flies every article out to a grid, and a tap on one flies back to it.
+  </p>
+  <p id="support"></p>
+
+  <!-- #region markup -->
+  <canvas id="canvas" content="drawable" layoutsubtree>
+    <div id="scroller" tabindex="-1">
+      <article drawable><h2>Release notes</h2><p>Version 4.2 moves the editor into a worker and cuts first load by a third.</p><div class="photo"></div></article>
+      <article drawable><h2>Your note</h2><p>Type here and watch the strip.</p><textarea id="note" aria-label="Note">Ship on Thursday.</textarea></article>
+      <article drawable><h2>Build</h2><p><button type="button" id="build">Run the build</button></p><pre class="log" id="log">idle</pre></article>
+      <article drawable><h2>Traffic</h2><div class="bars" id="bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><p><button type="button" id="refresh">New numbers</button></p></article>
+      <article drawable><h2>Theme</h2><p><label>Card colour <input type="color" id="tint" value="#fff3d6"></label></p><p>The colour applies to this article. The strip shows it too.</p></article>
+      <article drawable><h2>Changelog</h2><p>4.1 added offline drafts. 4.0 replaced the sync engine. 3.9 was the last version with the old toolbar.</p><p>3.8 fixed pasted tables. 3.7 added comments.</p></article>
+    </div>
+    <div id="rail" drawable role="scrollbar" aria-controls="scroller" aria-orientation="vertical" aria-label="Minimap" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"></div>
+  </canvas>
+  <!-- #endregion markup -->
+  <p id="status">&nbsp;</p>
+
+  <div class="tools">
+    <button type="button" id="overview" aria-pressed="false">Overview</button>
+    <button type="button" id="add">Add an article</button>
+    <button type="button" id="remove">Remove the last one</button>
+    <label>Scroll container <select id="route"><option value="script">not drawable, the page scrolls it</option><option value="native">drawable, the browser scrolls it</option></select></label>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>two draws per article, the rail, the overview</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> A scroll container, articles with <code>drawable</code> inside it, and an empty rail element for the strip.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Draw every article small in the strip, then draw the ones in view at full size. The last draw of an element decides where its input goes.</li>
+      <li data-code="#scroll"><b>Scrolling.</b> The browser does not scroll a container that is not drawable, so the page turns wheel and touch input into <code>scrollTop</code>.</li>
+      <li data-code="#rail"><b>The rail.</b> Pointer and key input on the strip sets <code>scrollTop</code>.</li>
+      <li data-code="#overview"><b>Overview.</b> A tap on an article in the grid scrolls to it.</li>
+      <li data-code="/lib/stage-2d.js#mount"><b>The paint loop, <code>put()</code>, <code>hitOnly()</code> and <code>park()</code>.</b></li>
+      <li data-code="#styles"><b>Styles.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>Every article has <code>drawable</code>. The scroll container around them is laid out and scrolls, and has no picture. The picture of an article is the whole article, also when it is scrolled out of view. That is what lets the strip show the full page.</p>
+  <p>On each <code>paint</code> event the canvas draws the rail, then every article at the strip's scale, then a frame for the part in view. After that it draws the articles that are in view at full size, at <code>offsetTop - scrollTop</code>, clipped to the reading area.
+    An element's hit region is where it was drawn last, so articles in view take input in the reading area. An article out of view was last drawn in the strip. Its hit region is shrunk to a point with <code>updateElementGeometry()</code>, so the strip's input goes to the rail.</p>
+  <p><b>Scrolling has two routes, and the menu under the demo switches between them.</b></p>
+  <p>Route 1, the default: the scroll container is not drawable. Chromium then does not scroll it for a wheel or a touch drag. The input goes to the page. The events still reach the container, because they bubble from the article that was hit.
+    The page sets <code>scrollTop</code> from the wheel delta and from touch movement, keeps moving after the finger lifts, and passes what is left over to the page when the container is at an end. Page Up and Page Down scroll it without help.</p>
+  <p>Route 2: the scroll container has <code>drawable</code> too and is drawn with no alpha, which gives it a hit region. The browser scrolls it. The cost is in the pictures. An article is now a drawable element inside a drawable element, and Chromium records only the part of it that is inside the container's box at that moment.
+    An article that changes while it is half out of view loses the hidden half in the strip, and the hole stays until the article changes again while fully in view. Switch to this route, scroll an article half out, press "New numbers" and look at the strip.</p>
+  <p>The rail is an empty element with <code>touch-action: none</code>, <code>role="scrollbar"</code> and a tab stop. Its hit region covers the strip. A drag on it sets <code>scrollTop</code>. Arrow keys, Page Up and Page Down work when it has focus.</p>
+  <p>The minimap covers the articles in this canvas only. An element can be drawn only into the canvas it is inside, so a minimap of the whole document would need the whole document inside one canvas.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own small scroll containers in the corner of the window.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>In Chromium 157 a <code>drawable</code> article inside a scroll container that is not drawable keeps a whole picture wherever it is scrolled to, and when part of the canvas is outside the window. Changes to an article that is out of view show in the strip.</li>
+    <li>The browser does not scroll that container for a wheel or a touch drag on a drawn article. The page scrolls instead. <code>will-change</code>, a transform, <code>contain: paint</code> and <code>overflow: scroll</code> on the container made no difference. Keyboard scrolling and <code>scrollTop</code> work.</li>
+    <li>A <code>wheel</code> listener on that container is treated as passive: the event is not cancelable and the page scrolls too. The same listener on the canvas can call <code>preventDefault()</code>. <code>touch-action: none</code> on the container does stop the page panning.</li>
+    <li>With <code>drawable</code> on the container as well, wheel and touch scroll it natively once it has a hit region. Its own picture leaves the articles out.</li>
+    <li>On that route an article's picture is cut to what was inside the container's box, and inside the window, when the article was last painted. The missing part is transparent, <code>drawElementImage()</code> does not throw, and scrolling or <code>requestPaint()</code> does not bring it back. A style change on the article while it is fully in view does. This is the reason the page defaults to route 1.</li>
+    <li>An article that was last drawn in the strip takes taps in the strip. The page parks it with <code>updateElementGeometry()</code> at a scale of 0.001.</li>
+    <li><code>touch-action</code> is per element: <code>none</code> on the rail and on the scripted scroll container, the default on the native one.</li>
+    <li>Not verified: how the scripted touch scrolling feels on a phone next to native scrolling, and the on-screen keyboard over the note field.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage, nextPaint, withTimeout } from '/shared/support.js';
+  import { mount, put, hitOnly, park, supported, lerp, clamp, smooth, reducedMotion, inkIn, fixtureCanvas } from '/lib/stage-2d.js';
+  banner();
+
+  const canvas = document.getElementById('canvas');
+  const scroller = document.getElementById('scroller');
+  const rail = document.getElementById('rail');
+  const status = document.getElementById('status');
+  const overviewButton = document.getElementById('overview');
+  const RAIL = 68, INSET = 6;
+  let overview = false, zoom = 0, zoomFrom = 0, zoomT0 = -1e9;   // zoom: 0 reading, 1 overview
+  let map = { scale: 0.1, top: 0, offset: 0 };
+
+  // Where each article goes in the overview grid: two columns, each article in the shorter one.
+  function gridPlaces(articles, width, height) {
+    const gap = 10, colW = (width - gap * 3) / 2;
+    const scale = colW / articles[0].offsetWidth;
+    const cols = [gap, gap];
+    const places = articles.map((a) => {
+      const c = cols[0] <= cols[1] ? 0 : 1;
+      const place = { x: gap + c * (colW + gap), y: cols[c] };
+      cols[c] += a.offsetHeight * scale + gap;
+      return place;
+    });
+    const fit = Math.min(1, height / Math.max(...cols));
+    return { scale: scale * fit, places: places.map((p) => ({ x: p.x * fit + (width - width * fit) / 2, y: p.y * fit })) };
+  }
+
+  // #region paint
+  const stage = mount(canvas, (ctx, w, h, now) => {
+    const articles = [...scroller.children];
+    const viewW = w - RAIL, top = scroller.scrollTop, total = scroller.scrollHeight;
+    const p = reducedMotion() ? 1 : clamp((now - zoomT0) / 520);
+    zoom = lerp(zoomFrom, overview ? 1 : 0, smooth(p));
+
+    // 1. The strip. The rail is its background and takes its input.
+    const mx = viewW;
+    put(ctx, rail, mx, 0, RAIL, h);
+    const scale = (RAIL - INSET * 2) / scroller.clientWidth;
+    const mapH = total * scale, room = h - INSET * 2;
+    // A page longer than the strip slides inside it, as the thumb of a scroll bar would.
+    const offset = mapH > room ? (top / Math.max(1, total - h)) * (mapH - room) : 0;
+    map = { scale, top: INSET - offset, x: mx + INSET };
+    for (const a of articles) put(ctx, a, map.x + a.offsetLeft * scale, map.top + a.offsetTop * scale, a.offsetWidth * scale, a.offsetHeight * scale);
+    ctx.fillStyle = 'rgb(210 73 31 / .16)'; ctx.strokeStyle = 'rgb(210 73 31 / .9)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(mx + 2, map.top + top * scale, RAIL - 4, h * scale, 5); ctx.fill(); ctx.stroke();
+
+    // 2. Only on the "drawable" route: the scroll container gets a hit region and no pixels, so the browser scrolls it.
+    if (scroller.hasAttribute('drawable')) hitOnly(ctx, scroller, 0, 0, viewW, h);
+
+    // 3. The reading area. Articles in view are drawn last, so their input is here.
+    const grid = zoom > 0 ? gridPlaces(articles, viewW, h) : null;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, viewW, h); ctx.clip();
+    articles.forEach((a, i) => {
+      const x = lerp(a.offsetLeft, grid?.places[i].x ?? 0, zoom), y = lerp(a.offsetTop - top, grid?.places[i].y ?? 0, zoom), k = lerp(1, grid?.scale ?? 1, zoom);
+      const ah = a.offsetHeight * k;
+      if (y > h || y + ah < 0) { park(canvas, a, viewW / 2, h / 2); return; }      // out of view: take it out of hit testing
+      if (zoom > 0) { ctx.shadowColor = 'rgb(0 0 0 / .25)'; ctx.shadowBlur = 14 * zoom; ctx.shadowOffsetY = 4 * zoom; }
+      put(ctx, a, x, y, a.offsetWidth * k, ah);
+    });
+    ctx.restore();
+    rail.setAttribute('aria-valuenow', Math.round((top / Math.max(1, total - h)) * 100));
+    return p < 1;
+  });
+  // #endregion paint
+
+  scroller.addEventListener('scroll', () => stage.request(), { passive: true });
+
+  // #region scroll
+  // The scroll container is not drawable, so the browser does not scroll it for a wheel or a touch drag:
+  // both go to the page. The events still arrive here, because they bubble from the article that was hit.
+  const byScript = () => !scroller.hasAttribute('drawable');
+  function scrollChained(dy, chain = true) {
+    const before = scroller.scrollTop;
+    scroller.scrollTop += dy;
+    const rest = dy - (scroller.scrollTop - before);
+    if (chain && Math.abs(rest) > 0.5) window.scrollBy(0, rest);      // at either end, hand the rest to the page
+    return Math.abs(rest) < 0.5;
+  }
+  // The wheel listener is on the canvas. On the container, which is not painted, Chromium treats it as
+  // passive: the event is not cancelable and the page scrolls as well.
+  canvas.addEventListener('wheel', (e) => {
+    if (!byScript() || e.ctrlKey || !scroller.contains(e.target)) return;
+    e.preventDefault();
+    scrollChained(e.deltaMode === 1 ? e.deltaY * 18 : e.deltaY);
+  }, { passive: false });
+  let drag = null, speed = 0, coasting = 0;
+  scroller.addEventListener('pointerdown', (e) => {
+    cancelAnimationFrame(coasting);
+    if (byScript() && e.pointerType !== 'mouse') { drag = { id: e.pointerId, y: e.clientY, t: e.timeStamp, moved: 0 }; speed = 0; }
+  });
+  scroller.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dy = drag.y - e.clientY, dt = Math.max(1, e.timeStamp - drag.t);
+    drag.moved += Math.abs(dy);
+    if (drag.moved > 6) { scrollChained(dy); speed = 0.6 * speed + 0.4 * (dy / dt); }
+    drag.y = e.clientY; drag.t = e.timeStamp;
+  });
+  const release = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const moved = drag.moved > 6;
+    drag = null;
+    if (!moved) return;
+    // A drag is not a tap: drop the click that follows it.
+    const stop = (c) => { c.preventDefault(); c.stopPropagation(); };
+    scroller.addEventListener('click', stop, { capture: true, once: true });
+    setTimeout(() => scroller.removeEventListener('click', stop, true), 80);
+    let last = performance.now();
+    const coast = (now) => {                                          // keep going and slow down
+      const dt = Math.min(40, now - last); last = now;
+      const room = scrollChained(speed * dt, false);
+      speed *= 0.95 ** (dt / 16);
+      if (room && Math.abs(speed) > 0.03 && !reducedMotion()) coasting = requestAnimationFrame(coast);
+    };
+    coasting = requestAnimationFrame(coast);
+  };
+  scroller.addEventListener('pointerup', release);
+  scroller.addEventListener('pointercancel', release);
+  // #endregion scroll
+
+  // #region rail
+  function scrollToPointer(e) {
+    const y = e.clientY - canvas.getBoundingClientRect().top - canvas.clientTop;
+    scroller.scrollTop = (y - map.top) / map.scale - scroller.clientHeight / 2;      // centre the view on the pointer
+  }
+  rail.addEventListener('pointerdown', (e) => { rail.setPointerCapture(e.pointerId); if (overview) setOverview(false); scrollToPointer(e); });
+  rail.addEventListener('pointermove', (e) => { if (rail.hasPointerCapture(e.pointerId)) scrollToPointer(e); });
+  rail.addEventListener('keydown', (e) => {
+    const step = { ArrowDown: 60, ArrowUp: -60, PageDown: scroller.clientHeight * 0.9, PageUp: -scroller.clientHeight * 0.9, Home: -1e6, End: 1e6 }[e.key];
+    if (step) { e.preventDefault(); scroller.scrollBy(0, step); }
+  });
+  // #endregion rail
+
+  // #region overview
+  function setOverview(on) {
+    zoomFrom = zoom; zoomT0 = performance.now(); overview = on;
+    overviewButton.setAttribute('aria-pressed', on);
+    status.textContent = on ? 'Overview: tap an article to go to it.' : `Reading. ${scroller.children.length} articles, ${scroller.scrollHeight} px of page in a ${canvas.clientHeight} px canvas.`;
+    stage.request();
+  }
+  overviewButton.addEventListener('click', () => setOverview(!overview));
+  // In the overview a tap on an article is a choice of article, not a press on what is inside it.
+  scroller.addEventListener('click', (e) => {
+    if (!overview) return;
+    const a = e.target.closest('article');
+    e.preventDefault(); e.stopPropagation();
+    if (a) scroller.scrollTop = a.offsetTop - 10;
+    setOverview(false);
+  }, true);
+  // #endregion overview
+
+  // The page changes: each of these changes an article, and the strip follows.
+  const log = document.getElementById('log');
+  let building = 0;
+  document.getElementById('build').addEventListener('click', () => {
+    clearInterval(building);
+    const lines = ['$ npm run build', 'read 70 page files', 'bundle lib/fx.js', 'write shared/pages.js', 'check 5 new pages', 'done in 1.9 s'];
+    let i = 0; log.textContent = '';
+    building = setInterval(() => { log.textContent += (i ? '\n' : '') + lines[i++]; if (i === lines.length) clearInterval(building); }, 450);
+  });
+  const bars = [...document.getElementById('bars').children];
+  const newNumbers = () => bars.forEach((b) => { b.style.height = `${15 + Math.random() * 85}%`; });
+  document.getElementById('refresh').addEventListener('click', newNumbers);
+  bars.forEach((b, i) => { b.style.height = `${[40, 65, 30, 80, 55, 95, 70][i]}%`; });
+  document.getElementById('tint').addEventListener('input', (e) => { e.target.closest('article').style.background = e.target.value; e.target.closest('article').style.color = '#1d1c1a'; });
+  let added = 0;
+  document.getElementById('add').addEventListener('click', () => {
+    const a = document.createElement('article');
+    a.setAttribute('drawable', '');
+    a.innerHTML = `<h2>Added article ${++added}</h2><p>Added at ${new Date().toLocaleTimeString()}.</p><div class="photo" style="filter:hue-rotate(${added * 70}deg)"></div>`;
+    scroller.append(a);
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: reducedMotion() ? 'auto' : 'smooth' });
+    setOverview(overview);
+  });
+  document.getElementById('remove').addEventListener('click', () => { if (scroller.children.length > 2) scroller.lastElementChild.remove(); setOverview(overview); });
+  document.getElementById('route').addEventListener('change', (e) => {
+    scroller.toggleAttribute('drawable', e.target.value === 'native');
+    status.textContent = e.target.value === 'native'
+      ? 'The scroll container is drawable. The browser scrolls it. An article that changes while part of it is outside the reading area loses that part in the strip.'
+      : 'The scroll container is not drawable. Wheel and touch drags are turned into scrollTop by the page.';
+    stage.request();
+  });
+  window.__minimap = { canvas, scroller, rail, get map() { return map; } };
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const HTML = (outer = '') => `<div class="s" ${outer} style="position:relative;width:200px;height:200px;overflow-y:auto;scrollbar-width:none;background:#fc0">
+    <article drawable style="height:150px;background:#246;margin:0 10px">one <button>b</button></article>
+    <article drawable style="height:150px;background:#462;margin:0 10px">two</article>
+    <article drawable style="height:150px;background:#624;margin:0 10px">three</article></div>`;
+  async function fixture(outer) {
+    const f = fixtureCanvas(testStage(), HTML(outer));
+    await nextPaint(f.cv);
+    f.s = f.cv.querySelector('.s'); f.arts = [...f.s.children];
+    return f;
+  }
+  // Scroll so the first article is half out of view and draw it there. Change it so it repaints. Then draw it
+  // whole and read its top and bottom.
+  async function halfOut(outer) {
+    const f = await fixture(outer);
+    f.s.scrollTop = 75; await nextPaint(f.cv);
+    f.ctx.drawElementImage(f.arts[0], 10, -75, 180, 150);              // where the page would draw it: half above the canvas
+    f.arts[0].style.background = '#a0f'; await nextPaint(f.cv); await nextPaint(f.cv);
+    f.ctx.reset(); f.ctx.drawElementImage(f.arts[0], 0, 0, 180, 150);
+    return { top: f.ctx.getImageData(90, 20, 1, 1).data[3], bottom: f.ctx.getImageData(90, 130, 1, 1).data[3] };
+  }
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const tests = [
+    { name: 'An article scrolled out of view keeps its whole picture', expect: 'pass', why: 'scrollTop = 300 in a 200 px container, then drawElementImage() of the first article, which is fully out of view',
+      run: async () => {
+        const f = await fixture();
+        f.s.scrollTop = 300; await nextPaint(f.cv);
+        f.ctx.reset(); f.ctx.drawElementImage(f.arts[0], 0, 0, 180, 150);
+        const ink = inkIn(f.ctx, 0, 0, 180, 150);
+        return need(ink > 0.95, `scrollTop ${f.s.scrollTop}. ${Math.round(ink * 100)}% of the article's box has ink.`);
+      } },
+    { name: 'An article that repaints while half out of view keeps its whole picture (container not drawable)', expect: 'pass', why: 'scrollTop = 75, draw the first article half above the canvas, change its background, then draw it whole and read the alpha of its hidden top and its visible bottom',
+      run: async () => { const r = await halfOut(''); return need(r.top === 255 && r.bottom === 255, `Alpha ${r.top} in the hidden half, ${r.bottom} in the visible half.`); } },
+    { name: 'The same with drawable on the scroll container', expect: 'fail', why: 'The article is now a drawable element inside a drawable element',
+      run: async () => { const r = await halfOut('drawable'); return need(r.top === 255 && r.bottom === 255, `Alpha ${r.top} in the hidden half, ${r.bottom} in the visible half: the hidden half was not recorded.`); } },
+    { name: "A drawable scroll container's picture leaves out its drawable articles", expect: 'pass', why: 'drawElementImage(container) and read a pixel where the first article is',
+      run: async () => {
+        const f = await fixture('drawable');
+        f.ctx.reset(); f.ctx.drawElementImage(f.s, 0, 0, 200, 200);
+        const px = [...f.ctx.getImageData(100, 60, 1, 1).data].slice(0, 3);
+        return need(px[0] > 200 && px[1] > 150, `Pixel at the article is ${px}: the container's background.`);
+      } },
+    { name: 'An article drawn at a sixth of its size is hit at the small copy', expect: 'pass', why: 'drawElementImage(article, 250, 20, w / 6, h / 6), then elementFromPoint() there',
+      run: async () => {
+        const f = await fixture(), a = f.arts[1];
+        f.ctx.reset(); f.ctx.drawElementImage(a, 250, 20, 30, 25); a.toggleAttribute('data-moved');
+        const c = f.cv.getBoundingClientRect();
+        const hit = document.elementFromPoint(c.left + 265, c.top + 32);
+        return need(hit === a, hit === a ? 'elementFromPoint() returns the article.' : `Returned ${hit?.localName ?? 'nothing'}.`);
+      } },
+    { name: 'After updateElementGeometry() at scale 0.001 the small copy is not hit', expect: 'pass', why: 'The same draw, then park the article and hit test the same point',
+      run: async () => {
+        const f = await fixture(), a = f.arts[1];
+        f.ctx.reset(); f.ctx.drawElementImage(a, 250, 20, 30, 25);
+        park(f.cv, a, 100, 100); a.toggleAttribute('data-moved');
+        const c = f.cv.getBoundingClientRect();
+        const hit = document.elementFromPoint(c.left + 265, c.top + 32);
+        return need(hit === f.cv, hit === f.cv ? 'elementFromPoint() returns the canvas.' : `Returned ${hit?.localName ?? 'nothing'}.`);
+      } },
+    { name: 'Scrolling a drawable container by script raises a paint event', expect: 'pass', why: 'scrollTop = 120 with no requestPaint(). Wait 400 ms for a paint event.',
+      run: async () => {
+        const f = await fixture('drawable');
+        await new Promise((r) => setTimeout(r, 120));
+        let paints = 0; f.cv.addEventListener('paint', () => paints++);
+        f.s.scrollTop = 120;
+        await new Promise((r) => setTimeout(r, 400));
+        return need(paints > 0, paints ? `${paints} paint events.` : 'No paint event.');
+      } },
+    { name: 'A scroll event arrives when the container in the canvas is scrolled', expect: 'pass', why: 'scrollTop = 120, wait for the scroll event',
+      run: async () => {
+        const f = await fixture();
+        const got = new Promise((r) => f.s.addEventListener('scroll', r, { once: true }));
+        f.s.scrollTop = 120;
+        await withTimeout(got, 1500);
+        return `scroll event received, scrollTop ${f.s.scrollTop}.`;
+      } },
+    { name: 'The minimap above still has a picture', expect: 'pass', why: 'Read the strip of the visible canvas after the fixtures came and went',
+      run: async () => {
+        if (stage.plain || canvas.dataset.plain) return 'Shown as plain HTML.';
+        const ink = inkIn(stage.ctx, canvas.clientWidth - RAIL, 0, RAIL, canvas.clientHeight);
+        return need(ink > 0.5, `${Math.round(ink * 100)}% of the strip has ink.`);
+      } },
+  ];
+  runTests(document.getElementById('tests'), supported ? tests : []);
+</script>
+</body>
+</html>

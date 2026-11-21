@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
 <title>HDR interface: elements brighter than white</title>
 <link rel="stylesheet" href="/shared/style.css">
 <style>
@@ -98,6 +99,8 @@
       <label><input type="radio" name="view" value="map"> Map of values above 1.0</label>
     </fieldset>
     <label><code>dynamic-range-limit</code> <select id="limit"><option>no-limit</option><option>constrained</option><option>standard</option></select></label>
+    <button id="read" type="button">Read values back</button>
+    <button id="retry" type="button" disabled>Use float16 again</button>
   </div>
   <p id="screen">&nbsp;</p>
 
@@ -108,6 +111,7 @@
       <li data-code="#hdr-css"><b>The CSS route.</b> Colours whose components are multiplied by a custom property.</li>
       <li data-code="#markup"><b>The markup.</b> <code>data-glow</code> marks the two elements that the canvas raises.</li>
       <li data-code="#paint"><b>On <code>paint</code>.</b> Draw the panel, raise the marked elements, then apply the chosen view.</li>
+      <li data-code="#fallback"><b>The fallback.</b> If the float context is lost, the panel moves to a new canvas with an 8-bit context.</li>
       <li data-code="#glow"><b>The canvas route.</b> A <code>multiply</code> fill over the element's box and a halo from a canvas shadow.</li>
     </ol>
   </details>
@@ -125,7 +129,7 @@
     "As stored" when the screen reports <code>dynamic-range: high</code> and "Exposed down" otherwise.</p>
 
   <h2>Live checks</h2>
-  <p>These run on their own small canvases in the corner of the window. Rows marked as expected failures record what the API clamps or refuses in the browser that wrote this page.</p>
+  <p>These run on their own small canvases in the corner of the window. They wait for a tap, because they read float pixels back and open a WebGL and a WebGPU context, and the float canvas was lost on the test phone. Rows marked as expected failures record what the API clamps or refuses in the browser that wrote this page.</p>
   <table class="results"><tbody id="tests"></tbody></table>
 
   <h2>Findings</h2>
@@ -140,6 +144,7 @@
     <li>WebGL and WebGPU do not receive the values. <code>texElementSubImage2D()</code> raises <code>INVALID_OPERATION</code> for an RGBA16F texture, and <code>drawElementImageToTexture()</code> into an
       <code>rgba16float</code> texture stores 1.0 for a CSS value of 3.0. On those routes a shader has to decide which pixels to raise.</li>
     <li><code>toneMapping: { mode: 'extended' }</code> is accepted by the 2D context and reported back as <code>standard</code> in Chromium 157 without the experimental features flag. The line under the controls prints what this browser reports.</li>
+    <li>On Chrome 159 on an Android phone the float16 2D contexts on this page were lost about every 1.5 seconds, the visible canvas and the check fixtures together. The first version of the page read float pixels back on that interval. The page now reads back only when asked, and moves the panel to an 8-bit canvas if the float context is lost; the notice then says whether a readback came just before.</li>
     <li>Not verified: whether the values reach the screen above standard white. The test browser has no HDR output. The white strip in the demo answers it on the device that opens the page.</li>
   </ul>
 </main>
@@ -149,11 +154,13 @@
   banner();
 
   const stage = document.getElementById('stage');
-  const canvas = document.getElementById('canvas');
+  let canvas = document.getElementById('canvas');
   const ui = document.getElementById('ui');
   const status = document.getElementById('status'), notice = document.getElementById('notice'), screenLine = document.getElementById('screen');
   const slider = document.getElementById('headroom'), sliderOut = document.getElementById('headroom-out'), limit = document.getElementById('limit');
   const deploy = document.getElementById('deploy'), badge = document.getElementById('badge'), fill = document.getElementById('fill');
+  const retry = document.getElementById('retry'), readButton = document.getElementById('read');
+  let sizes = null;
   const say = (text) => { notice.hidden = false; notice.textContent = text; };
 
   // #region context
@@ -164,10 +171,50 @@
     try { return target.getContext('2d', { ...FLOAT, toneMapping: { mode: 'extended' } }); }
     catch { return target.getContext('2d', FLOAT); }
   }
-  const ctx = supported ? floatContext(canvas) : null;
-  const attrs = ctx?.getContextAttributes?.() ?? {};
-  const isFloat = attrs.colorType === 'float16';
   // #endregion context
+
+  // #region fallback
+  // On the test phone (Chrome 159, Android) the float16 context was lost again and again. When that happens
+  // the page moves the panel into a new canvas with an ordinary 8-bit context, and remembers it for this tab.
+  const LOST_KEY = 'hdr-glow-float-lost';
+  const recall = () => { try { return sessionStorage.getItem(LOST_KEY); } catch { return null; } };
+  let ctx = null, attrs = {}, isFloat = false, lastRead = -1e9;
+  function useCanvas(target, float) {
+    canvas = target;
+    ctx = float ? floatContext(target) : target.getContext('2d');
+    attrs = ctx?.getContextAttributes?.() ?? {};
+    isFloat = attrs.colorType === 'float16';
+    target.addEventListener('paint', onPaint);
+    target.addEventListener('contextlost', onLost);
+    target.addEventListener('contextrestored', () => { if (!recall()) notice.hidden = true; target.requestPaint(); });
+  }
+  function onLost() {
+    if (!isFloat || document.hidden) { say('The canvas lost its context. It is drawn again when the browser gives it back.'); return; }
+    const when = window.__checkState === 'running' ? 'while the live checks were running'
+      : performance.now() - lastRead < 2500 ? 'right after a float readback with getImageData()'
+      : 'with no readback in the 2.5 seconds before';
+    const reason = `${when}, ${(performance.now() / 1000).toFixed(1)} s after load`;
+    try { sessionStorage.setItem(LOST_KEY, reason); } catch { /* private mode */ }
+    const next = document.createElement('canvas');
+    next.id = 'canvas'; next.setAttribute('content', 'drawable'); next.setAttribute('layoutsubtree', '');
+    const old = canvas;
+    sizes?.unobserve(old);
+    old.before(next);
+    if (next.moveBefore) next.moveBefore(ui, null); else next.append(ui);
+    old.remove();
+    useCanvas(next, false);
+    eightBit(reason);
+    sizes?.observe(next, { box: 'device-pixel-content-box' });
+  }
+  function eightBit(reason) {
+    ui.style.setProperty('--headroom', 1);
+    slider.disabled = true; retry.disabled = false; readButton.disabled = true;
+    readout = 'The canvas is 8-bit, so there are no float pixels to read.';
+    for (const input of document.querySelectorAll('input[name="view"]')) input.disabled = true;
+    describeScreen();
+    say(`The float16 canvas lost its context on this device (${reason}). The panel is now in an 8-bit canvas, where every value is clamped to 1.0. "Use float16 again" reloads the page with the float canvas.`);
+  }
+  // #endregion fallback
 
   const high = matchMedia('(dynamic-range: high)'), wide = matchMedia('(color-gamut: p3)');
   let headroom = +slider.value;
@@ -177,7 +224,6 @@
     screenLine.textContent = `Screen: dynamic-range ${high.matches ? 'high' : 'standard'}, colour gamut ${wide.matches ? 'p3 or wider' : 'srgb'}. ` +
       (ctx ? `Context: ${attrs.colorType ?? 'unorm8'}, ${attrs.colorSpace ?? 'srgb'}, tone mapping ${attrs.toneMapping?.mode ?? 'not reported'}.` : 'No canvas context.');
   }
-  describeScreen();
   high.addEventListener('change', describeScreen);
 
   if (!supported) {
@@ -185,8 +231,6 @@
     stage.classList.add('plain');
     stage.append(ui);
     say('This browser cannot draw elements into a canvas, so the panel is shown as plain HTML and nothing is raised above 1.0.');
-  } else if (!isFloat) {
-    say('This browser did not give the canvas 16-bit float pixels. The panel is drawn, and every value is clamped to 1.0.');
   }
 
   // The elements the canvas raises, with their place in the panel and their colour. Their layout does not change.
@@ -198,7 +242,7 @@
   const placeIn = (el) => { let x = 0, y = 0; for (let n = el; n && n !== ui; n = n.offsetParent) { x += n.offsetLeft; y += n.offsetTop; } return { x, y, w: el.offsetWidth, h: el.offsetHeight }; };
   const grey = (v) => `color(display-p3 ${v} ${v} ${v})`;
 
-  let sweepStart = -1e9, busy = false, wantProbe = true, paints = 0, readout = '';
+  let sweepStart = -1e9, busy = false, wantProbe = false, paints = 0, readout = 'Press "Read values back" to read float pixels from the canvas.';
   let map = null, mapAt = 0;
   const SWEEP = 900;
 
@@ -226,7 +270,7 @@
   // #endregion glow
 
   // #region paint
-  canvas.addEventListener('paint', () => {
+  function onPaint() {
     if (!ctx) return;
     const w = canvas.clientWidth, h = canvas.clientHeight, dpr = canvas.width / w, now = performance.now();
     paints++;
@@ -251,7 +295,7 @@
         ctx.globalCompositeOperation = 'source-over';
       }
     }
-    if (wantProbe) { wantProbe = false; probe(dpr); }
+    if (wantProbe && isFloat) { wantProbe = false; probe(dpr); }
 
     if (!isFloat) return;
     if (view === 'exposed' && headroom > 1) {
@@ -259,24 +303,26 @@
       ctx.globalCompositeOperation = 'multiply';
       ctx.fillStyle = grey(1 / headroom); ctx.fillRect(0, 0, w, h);
     } else if (view === 'map') {
-      if (!map || now - mapAt > 240 || map.width !== canvas.width) { map = falseColour(); mapAt = now; }
+      // One readback when the view is chosen or the headroom changes, not one per frame.
+      if (!map || map.width !== canvas.width) map = falseColour();
       if (map) ctx.putImageData(map, 0, 0);
     }
-  });
+  }
   // #endregion paint
 
   // Read three pixels back as floats: what the canvas holds before the view is applied.
   function probe(dpr) {
+    lastRead = performance.now();
     try {
       const at = (el, dx) => { const p = placeIn(el); return [...ctx.getImageData(Math.round((p.x + dx) * dpr), Math.round((p.y + p.h / 2) * dpr), 1, 1, { pixelFormat: 'rgba-float16' }).data]; };
       const max = (v) => Math.max(v[0], v[1], v[2]).toFixed(2);
       readout = `Read back: badge ${max(at(badge, 4))}, Deploy button ${max(at(deploy, 6))}, dot ${max(at(glowing[0].el, 6))}, panel background ${max([...ctx.getImageData(4, canvas.height - 4, 1, 1, { pixelFormat: 'rgba-float16' }).data])}.`;
     } catch (e) { readout = `Float readback failed: ${e.message}`; }
-    status.textContent = `${readout} ${paints} paint events.`;
   }
 
   // Colour every pixel by how far it is above 1.0.
   function falseColour() {
+    lastRead = performance.now();
     try {
       const src = ctx.getImageData(0, 0, canvas.width, canvas.height, { pixelFormat: 'rgba-float16' }).data;
       const out = new ImageData(canvas.width, canvas.height), d = out.data, span = Math.max(headroom - 1, 0.01);
@@ -290,28 +336,37 @@
     } catch (e) { say(`The map needs getImageData() with pixelFormat 'rgba-float16': ${e.message}`); return null; }
   }
 
+  // Start: the float canvas, or the 8-bit one if the float context was lost earlier in this tab.
+  if (supported) {
+    const lostBefore = recall();
+    useCanvas(canvas, !lostBefore);
+    if (lostBefore) eightBit(lostBefore);
+    else if (!isFloat) say('This browser did not give the canvas 16-bit float pixels. The panel is drawn, and every value is clamped to 1.0.');
+  }
+  describeScreen();
+  if (!isFloat) readButton.disabled = true;
+
   if (ctx) {
-    new ResizeObserver(([entry]) => {
-      const box = entry.devicePixelContentBoxSize?.[0];
-      const w = box ? box.inlineSize : Math.round(canvas.clientWidth * devicePixelRatio), h = box ? box.blockSize : Math.round(canvas.clientHeight * devicePixelRatio);
-      if (canvas.width !== w) canvas.width = w;
-      if (canvas.height !== h) canvas.height = h;
-      canvas.requestPaint();
-    }).observe(canvas, { box: 'device-pixel-content-box' });
-    canvas.addEventListener('contextlost', () => say('The canvas lost its context. It is drawn again when the browser gives it back.'));
-    canvas.addEventListener('contextrestored', () => { notice.hidden = true; canvas.requestPaint(); });
+    sizes = new ResizeObserver(([entry]) => {
+      const box = entry.devicePixelContentBoxSize?.[0], target = entry.target;
+      const w = box ? box.inlineSize : Math.round(target.clientWidth * devicePixelRatio), h = box ? box.blockSize : Math.round(target.clientHeight * devicePixelRatio);
+      if (target.width !== w) target.width = w;
+      if (target.height !== h) target.height = h;
+      target.requestPaint();
+    });
+    sizes.observe(canvas, { box: 'device-pixel-content-box' });
 
     // The dot pulses, so the canvas repaints about 15 times a second while it is on screen, and every frame
     // during a deploy and the band of light after it.
-    let onScreen = false, last = 0, lastProbe = 0;
+    let onScreen = false, last = 0, lastStatus = 0;
     new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; }).observe(stage);
     requestAnimationFrame(function frame(now) {
       requestAnimationFrame(frame);
+      if (now - lastStatus > 1000) { lastStatus = now; status.textContent = `${readout} ${paints} paint events.`; }
       if (!onScreen || document.hidden || !isFloat) return;
       const fast = busy || now - sweepStart < SWEEP + 100;
       if (!fast && now - last < 66) return;
       last = now;
-      if (!fast && now - lastProbe > 1500) { lastProbe = now; wantProbe = true; }
       canvas.requestPaint();
     });
   }
@@ -332,10 +387,12 @@
   slider.addEventListener('input', () => {
     headroom = +slider.value; sliderOut.textContent = `${headroom.toFixed(1)}×`;
     if (!stage.classList.contains('plain')) ui.style.setProperty('--headroom', headroom);
-    map = null; wantProbe = true; canvas.requestPaint?.();
+    map = null; canvas.requestPaint?.();
   });
   document.getElementById('views').addEventListener('change', (e) => { view = e.target.value; map = null; canvas.requestPaint?.(); });
   limit.addEventListener('change', () => { canvas.style.setProperty('dynamic-range-limit', limit.value); });
+  readButton.addEventListener('click', () => { wantProbe = true; canvas.requestPaint?.(); });
+  retry.addEventListener('click', () => { try { sessionStorage.removeItem(LOST_KEY); } catch { /* nothing stored */ } location.reload(); });
 
   // ---------------------------------------------------------------- live checks, on their own fixtures
   const SIZE = 100;
