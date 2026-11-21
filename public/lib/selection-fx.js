@@ -14,7 +14,9 @@
 //
 // Attributes
 //   effect     highlight | lift | loupe | trail | marker | focus   (2D canvas)
+//              caret: a streak behind the caret, wavy lines under `highlight` ranges (2D canvas)
 //              glow | burn | wave                                  (shader)
+//              key-glow: every pixel near --selection-fx-color glows (shader)
 //              none                                                (the browser's own highlight)
 //   highlight  name of a CSS Custom Highlight (CSS.highlights) to treat like a
 //              selection, for search results and similar. Call refresh() after
@@ -35,6 +37,8 @@
 // Script
 //   el.rects       the selected text as [{x, y, w, h}] in CSS px from the element's top-left
 //   el.focusPoint  {x, y, h} where the moving end of the selection is, or null
+//   el.caret       {x, y, w, h} of the caret while the selection is collapsed in the element
+//   el.marked      the rectangles that come from the `highlight` attribute
 //   el.engine      '2d' | 'webgl' | 'webgpu'
 //   el.note        why a wanted engine is not in use
 //   el.refresh()   measure again
@@ -203,10 +207,17 @@ export class SelectionFx extends SurfaceElement {
   /** Why the engine asked for (or WebGPU) is not the one in use. */
   note = '';
   rects = [];
+  /** The part of `rects` that comes from the `highlight` attribute's Highlight. */
+  marked = [];
   focusPoint = null;
+  /** {x, y, w, h} of the caret when the selection is collapsed inside the element, else null. */
+  caret = null;
   frames = 0;
 
   #signature = '';
+  #markSignature = '';
+  #caretFrom = null;
+  #caretAt = -1e9;
   #changedAt = -1e9;
   #startedAt = -1e9;
   #prev = [];
@@ -443,8 +454,9 @@ export class SelectionFx extends SurfaceElement {
     const ranges = [];
     const selection = getSelection();
     for (let i = 0; i < selection.rangeCount; i++) ranges.push(selection.getRangeAt(i));
+    const marks = [];
     const name = this.getAttribute('highlight');
-    if (name && globalThis.CSS?.highlights?.has(name)) ranges.push(...CSS.highlights.get(name));
+    if (name && globalThis.CSS?.highlights?.has(name)) marks.push(...CSS.highlights.get(name));
 
     // Client rectangles follow where the canvas last drew the element. This
     // element always leaves the geometry at the layout position (render() ends
@@ -452,7 +464,15 @@ export class SelectionFx extends SurfaceElement {
     const base = this.getBoundingClientRect();
     const zoom = cssZoom(this);
     const local = (q) => ({ x: (q.left - base.left) / zoom, y: (q.top - base.top) / zoom, w: q.width / zoom, h: q.height / zoom });
-    const rects = mergeLines(ranges.flatMap((range) => textRects(range, this)).map(local));
+    const selected = ranges.flatMap((range) => textRects(range, this)).map(local);
+    const marked = mergeLines(marks.flatMap((range) => textRects(range, this)).map(local));
+    const rects = mergeLines([...selected, ...marked]);
+    const markSignature = marked.map((r) => `${r.x.toFixed(1)},${r.y.toFixed(1)},${r.w.toFixed(1)}`).join(';');
+    if (markSignature !== this.#markSignature) {
+      this.#markSignature = markSignature;
+      this.marked = marked;
+      this.invalidate();
+    }
 
     // Where the moving end of the selection is (the end under the finger).
     let focus = null;
@@ -471,6 +491,26 @@ export class SelectionFx extends SurfaceElement {
       }
     }
     this.focusPoint = focus;
+
+    // #region caret
+    // The caret, when the selection is collapsed inside this element. A
+    // collapsed Range has one client rectangle of zero width at the caret.
+    let caret = null;
+    if (selection.isCollapsed && selection.focusNode && this.contains(selection.focusNode)) {
+      const at = new Range();
+      at.setStart(selection.focusNode, selection.focusOffset);
+      const q = at.getClientRects()[0];
+      if (q && q.height) caret = local(q);
+    }
+    const same = (a, b) => (!a && !b) || (a && b && Math.abs(a.x - b.x) < 0.3 && Math.abs(a.y - b.y) < 0.3);
+    if (!same(caret, this.caret)) {
+      this.#caretFrom = this.caret && caret ? this.caret : null;
+      this.#caretAt = performance.now() / 1000;
+      this.caret = caret;
+      this.invalidate();
+      this.dispatchEvent(new CustomEvent('selectionfxcaret', { detail: { caret }, bubbles: true }));
+    }
+    // #endregion caret
 
     const signature = rects.map((r) => `${r.x.toFixed(1)},${r.y.toFixed(1)},${r.w.toFixed(1)},${r.h.toFixed(1)}`).join(';');
     if (signature === this.#signature) return;
@@ -506,7 +546,11 @@ export class SelectionFx extends SurfaceElement {
     this.#prev = still ? [] : this.#prev.filter((p) => now - p.t < TRAIL);
     return {
       rects: this.rects,
+      marked: this.marked,
       focus: this.focusPoint,
+      caret: this.caret,
+      caretFrom: this.#caretFrom,
+      caretAge: still ? 10 : now - this.#caretAt,
       trail: this.#prev.map((p) => ({ rects: p.rects, age: (now - p.t) / TRAIL })),
       time: still ? 0 : now,
       since: still ? 10 : now - this.#startedAt,
@@ -545,8 +589,8 @@ export class SelectionFx extends SurfaceElement {
       this.#told = this.engine;
       this.dispatchEvent(new CustomEvent('selectionfxengine', { detail: { engine: this.engine, note: this.note }, bubbles: true }));
     }
-    const settling = s.sinceChange < TRAIL + 0.2 || s.since < 1.2;
-    const again = !s.still && (settling || (def.animated && s.rects.length > 0));
+    const settling = s.sinceChange < TRAIL + 0.2 || s.since < 1.2 || s.caretAge < 0.5;
+    const again = !s.still && (settling || (def.animated && (s.rects.length > 0 || !!s.caret)));
     if (again) this.#maskDirty = true;
     return again;
   }
@@ -1015,7 +1059,104 @@ defineSelectionEffect('focus', {
 });
 // #endregion effect-focus
 
+// #region effect-caret
+// For editors. The browser draws the caret; this adds a streak from where the
+// caret was to where it is, for a quarter of a second, and a soft light around
+// it. Ranges from the `highlight` attribute get a moving wavy underline, and a
+// selection gets plain boxes.
+defineSelectionEffect('caret', {
+  color: '#ff3d7f',
+  animated: true,
+  draw(ctx, s, el) {
+    const marked = new Set(s.marked.map((r) => `${r.x.toFixed(1)},${r.y.toFixed(1)}`));
+    ctx.fillStyle = s.color.alpha(0.3);
+    for (const r of s.rects) {
+      if (marked.has(`${r.x.toFixed(1)},${r.y.toFixed(1)}`)) continue;
+      round(ctx, r, 1, 3);
+      ctx.fill();
+    }
+    el.drawContent(ctx);
+    ctx.strokeStyle = s.color.css;
+    ctx.lineWidth = 1.6;
+    for (const r of s.marked) {
+      const y = r.y + r.h - 1.5;
+      ctx.beginPath();
+      for (let x = 0; x <= r.w; x += 1.5) ctx.lineTo(r.x + x, y + Math.sin((r.x + x) * 0.9 - s.time * 9) * 1.6);
+      ctx.stroke();
+    }
+    const c = s.caret;
+    if (!c) return;
+    const from = s.caretFrom;
+    const k = 1 - ease(s.caretAge / 0.25);
+    if (from && k > 0) {
+      // A quad from the old caret to the new one, solid at the new end.
+      const g = ctx.createLinearGradient(from.x, from.y, c.x, c.y + (c.y === from.y ? 0 : c.h));
+      g.addColorStop(0, s.color.alpha(0));
+      g.addColorStop(1, s.color.alpha(0.75 * k));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y + from.h * 0.35);
+      ctx.lineTo(c.x, c.y);
+      ctx.lineTo(c.x, c.y + c.h);
+      ctx.lineTo(from.x, from.y + from.h * 0.65);
+      ctx.closePath();
+      ctx.fill();
+    }
+    const pulse = 0.55 + 0.45 * Math.sin(s.time * 4);
+    const light = ctx.createRadialGradient(c.x, c.y + c.h / 2, 0, c.x, c.y + c.h / 2, c.h * 1.1);
+    light.addColorStop(0, s.color.alpha(0.35 * pulse + 0.4 * k));
+    light.addColorStop(1, s.color.alpha(0));
+    ctx.fillStyle = light;
+    ctx.fillRect(c.x - c.h * 1.2, c.y - c.h * 0.7, c.h * 2.4, c.h * 2.4);
+  },
+});
+// #endregion effect-caret
+
 // ------------------------------------------------------------ shader effects
+
+// #region effect-key-glow
+// No rectangles at all: every pixel close to --selection-fx-color glows. Give
+// the caret (caret-color) and a ::highlight() that colour and the shader finds
+// them in the element's picture by itself.
+defineSelectionEffect('key-glow', {
+  color: '#ff3d7f',
+  animated: true,
+  glsl: `
+float key(vec2 p) {
+  vec4 c = tex(p);
+  if (c.a < 0.05) return 0.0;
+  return c.a * (1.0 - smoothstep(0.12, 0.32, distance(c.rgb / c.a, u_color.rgb)));
+}
+vec4 fx(vec2 p) {
+  vec4 c = tex(p);
+  float halo = 0.0;
+  for (int i = 0; i < 12; i++) {
+    float a = float(i) * 0.5236;
+    vec2 d = vec2(cos(a), sin(a));
+    halo += key(p + d * 3.0) + 0.7 * key(p + d * 7.0) + 0.4 * key(p + d * 12.0);
+  }
+  float h = clamp(halo / 12.0 * (0.7 + 0.3 * sin(u_time * 4.0)) * u_amount, 0.0, 1.0) * (1.0 - key(p));
+  return c * (1.0 - h * 0.5) + vec4(u_color.rgb * h, h) * 0.8;
+}`,
+  wgsl: `
+fn key(p: vec2f) -> f32 {
+  let c = tex(p);
+  if (c.a < 0.05) { return 0.0; }
+  return c.a * (1.0 - smoothstep(0.12, 0.32, distance(c.rgb / c.a, u.color.rgb)));
+}
+fn fx(p: vec2f) -> vec4f {
+  let c = tex(p);
+  var halo = 0.0;
+  for (var i = 0; i < 12; i++) {
+    let a = f32(i) * 0.5236;
+    let d = vec2f(cos(a), sin(a));
+    halo += key(p + d * 3.0) + 0.7 * key(p + d * 7.0) + 0.4 * key(p + d * 12.0);
+  }
+  let h = clamp(halo / 12.0 * (0.7 + 0.3 * sin(u.time * 4.0)) * u.amount, 0.0, 1.0) * (1.0 - key(p));
+  return c * (1.0 - h * 0.5) + vec4f(u.color.rgb * h, h) * 0.8;
+}`,
+});
+// #endregion effect-key-glow
 
 // #region effect-glow
 // Selected glyphs take the effect colour and light the area around them.

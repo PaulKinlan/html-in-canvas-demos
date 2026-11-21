@@ -846,6 +846,13 @@ Measured in headless Chromium 157 (Linux, software renderer) on 2026-11-21. The 
 | `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas that holds an element texture | crashes the tab (Chromium 157) | Seen in a live check that released its context while the fixture was still in the document. Removing the canvas first avoids it. |
 | A WebGL canvas losing its context | fires `webglcontextlost`, not `contextlost` | `SurfaceElement` in `lib/surface.js` only listens for `contextlost`, so a subclass using WebGL has to listen itself. `<selection-fx>` moves its content to a new 2D canvas on either event. |
 | A canvas with a lost context on Android Chrome 159 | shows a white box with a broken-picture icon | Reported from Paul's phone on first load of `/selection/` (2026-11-21), cause not identified. The page now starts on a 2D effect, starts GPU checks only on a tap, and replaces a lost or picture-less canvas. |
+| `caret-color` and `caret-shape` in the element's picture (`/caret/`) | works | At device scale factor 2 a block caret covers 578 canvas pixels and a bar 102. |
+| `caret-animation: manual` | works | The caret pixels stay in every read-back and no `paint` fires while the caret rests. With `auto` the caret is in about one read-back in three. |
+| Caret position from a collapsed `Range` | works | `getClientRects()` returns one zero-width rectangle at the drawn position. Nothing on an empty line. |
+| `CSS.highlights.highlightsFromPoint()` on an element drawn away from its layout position | works | Returns the Highlight and range at the drawn position, and nothing at an empty point of the canvas. |
+| `::highlight(*)` | not in Chromium 157 | `CSS.supports('selector(::highlight(*))')` is false. Listed for 158. |
+| A shader finding the caret and highlights by colour key, with no rectangles (`key-glow`) | works | Checked on WebGL with a keyed `::highlight()` background. |
+| Playwright screenshots | hide the caret | `page.screenshot()` defaults to `caret: 'hide'`. Pass `caret: 'initial'` when the caret is the subject. |
 | WebGPU on screen, and shader speed on a phone | not verified | The software adapter cannot present a WebGPU canvas. |
 
 How `<selection-fx>` uses this: one `::selection` rule hides the browser's highlight inside the element, `selectionchange` triggers a measurement of one Range per text node, and the rectangles go to a 2D effect directly or to a shader as a mask texture (red: selected, green: selected in the last 1.2 s, blue: selected and blurred by 10 px). The element's geometry stays at its layout position, so the caret and hit testing do not follow what an effect draws.
