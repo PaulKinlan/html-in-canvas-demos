@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Text selection effects</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .stage2 { padding: 30px 28px; border-radius: 16px; border: 1px solid var(--line); background: var(--card); }
+  selection-fx#demo { max-width: 680px; margin: 0 auto; }
+  #demo h3 { font: 700 clamp(24px, 5vw, 34px)/1.15 Georgia, 'Times New Roman', serif; margin: 0 0 14px; text-wrap: balance; }
+  #demo p, #demo li { font: 19px/1.65 Georgia, 'Times New Roman', serif; }
+  #demo p { margin: 0 0 14px; }
+  #demo ul { margin: 0 0 14px; padding-left: 22px; }
+  #demo p[contenteditable] { outline: 1px dashed var(--line); outline-offset: 6px; border-radius: 2px; }
+  #demo p[contenteditable]:focus { outline: 2px solid var(--accent); }
+  #demo > :last-child { margin-bottom: 0; }
+  @media (max-width: 620px) { .stage2 { padding: 22px 16px; } #demo p, #demo li { font-size: 17px; } }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .bar label { font-size: 14px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .bar input[type=search], .bar select { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); max-width: 100%; }
+  .bar .kind { font: 12px var(--mono); color: var(--muted); flex-basis: 100%; margin-top: 4px; }
+  .pick button { min-height: 40px; }
+  .pick button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #readout, #rot-readout { font: 12.5px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; overflow-wrap: anywhere; }
+  /* The search matches have no style of their own: <selection-fx highlight="found"> draws them. */
+
+  #rot { display: block; width: 100%; height: 300px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); touch-action: pan-y; }
+  #rot-text { box-sizing: border-box; width: min(430px, 76%); font: 18px/1.6 Georgia, 'Times New Roman', serif; color: var(--fg); margin: 0; padding: 6px 8px; }
+  .key i { display: inline-block; width: 14px; height: 10px; vertical-align: baseline; margin-right: 4px; border: 2px solid; }
+  ul.ideas li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Text selection effects</h1>
+  <p class="lede">
+    The text below is HTML drawn by a canvas. Selecting it is done by the browser as usual, including the Android handles and the copy menu.
+    The page reads the rectangles of the selected text and the canvas draws the highlight. Select some text, then change the effect.
+  </p>
+
+  <div class="bar pick" id="pick" role="group" aria-label="Effect">
+    <span class="kind">2D canvas</span>
+    <button data-effect="marker">Marker</button>
+    <button data-effect="lift">Lift</button>
+    <button data-effect="loupe">Loupe</button>
+    <button data-effect="trail">Trail</button>
+    <button data-effect="focus">Blur the rest</button>
+    <button data-effect="highlight">Rounded boxes</button>
+    <span class="kind">Shader (WebGPU, else WebGL)</span>
+    <button data-effect="glow">Glow</button>
+    <button data-effect="burn">Burn</button>
+    <button data-effect="wave">Wave</button>
+    <span class="kind">For comparison</span>
+    <button data-effect="none">Browser highlight</button>
+  </div>
+
+  <div class="stage2">
+    <!-- #region markup -->
+    <selection-fx id="demo" effect="marker" highlight="found">
+      <h3>Selecting text that a canvas draws</h3>
+      <p>Press and hold a word on a phone, or drag with a mouse. The browser decides which characters are selected. The canvas only asks where they are, with <code>Range.getClientRects()</code>, and draws something there.</p>
+      <p>The effect is a picture and nothing else. Copy, the handles, <em>double click to select a word</em>, Shift with the arrow keys and <a href="https://github.com/WICG/html-in-canvas">this link to the explainer</a> behave the way they do in any paragraph. Emoji and accents are measured like other text: 👩‍🚀 café, naïve, ﬁne.</p>
+      <ul>
+        <li>A selection can start in one list item</li>
+        <li>and end in another.</li>
+      </ul>
+      <p contenteditable="true" spellcheck="false">This paragraph is editable. Selections made while typing, with Shift and the arrow keys, get the same effect.</p>
+    </selection-fx>
+    <!-- #endregion markup -->
+  </div>
+  <div id="readout" role="status">Nothing is selected.</div>
+
+  <div class="bar">
+    <button id="sample">Select a sentence for me</button>
+    <button id="clear">Clear</button>
+    <input type="search" id="find" placeholder="Find a word" aria-label="Find a word in the text above" size="14">
+    <label>Engine
+      <select id="engine">
+        <option value="auto">Best available</option>
+        <option value="webgpu">WebGPU</option>
+        <option value="webgl">WebGL</option>
+        <option value="2d">2D only</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="native"> Show the browser's highlight too</label>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>selection rectangles to a canvas effect</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Wrap ordinary text in <code>&lt;selection-fx&gt;</code>.</b> The text stays in the light DOM. <code>highlight="found"</code> also treats the ranges of that CSS Custom Highlight as selected.</li>
+      <li data-code="#page"><b>The page script.</b> It changes the <code>effect</code> attribute and fills the highlight for the search box.</li>
+      <li data-code="/lib/selection-fx.js#hide"><b>Inside the element: hide the browser's highlight colour.</b> One <code>::selection</code> rule with a transparent background. The selection itself is untouched.</li>
+      <li data-code="/lib/selection-fx.js#rects"><b>Find the selected text.</b> One <code>Range</code> per text node inside the selection, <code>getClientRects()</code> on each, then rectangles on the same line are joined.</li>
+      <li data-code="/lib/selection-fx.js#measure"><b>Convert to the element's coordinates</b> on every <code>selectionchange</code>, and find the end of the selection that is moving.</li>
+      <li data-code="/lib/selection-fx.js#effect-lift"><b>A 2D effect.</b> It draws the element once dimmed, then draws it again clipped to each rectangle, scaled, on a plate with a shadow.</li>
+      <li data-code="/lib/selection-fx.js#mask"><b>For shaders, the rectangles become a small mask picture.</b> Red is selected now, green was selected in the last 1.2 seconds, blue is the selection blurred.</li>
+      <li data-code="/lib/selection-fx.js#effect-burn"><b>A shader effect</b>, in GLSL for WebGL and WGSL for WebGPU. <code>tex()</code> is the element, <code>sel()</code> the mask, <code>ink()</code> how much glyph is at a point.</li>
+      <li data-code="/lib/selection-fx.js#webgl"><b>The WebGL frame.</b> <code>texElementSubImage2D</code> for the element, <code>texImage2D</code> for the mask, one triangle.</li>
+      <li data-code="/lib/selection-fx.js#webgpu"><b>The WebGPU frame.</b> <code>queue.drawElementImageToTexture()</code> for the element, <code>copyExternalImageToTexture()</code> for the mask.</li>
+      <li data-code="/lib/selection-fx.js#recover"><b>When the canvas loses its context,</b> move the content to a new 2D canvas.</li>
+      <li data-code="/lib/selection-fx.js"><b>The whole element.</b></li>
+    </ol>
+  </details>
+
+  <h2>Use it</h2>
+<pre><code>&lt;script type="module" src="https://html-in-canvas.page/lib/selection-fx.js"&gt;&lt;/script&gt;
+
+&lt;selection-fx effect="burn" style="--selection-fx-color: #ff5a00"&gt;
+  &lt;p&gt;Any markup. Select some of it.&lt;/p&gt;
+&lt;/selection-fx&gt;</code></pre>
+  <p class="note">Effects: <code>marker</code>, <code>lift</code>, <code>loupe</code>, <code>trail</code>, <code>focus</code>, <code>highlight</code> (2D canvas), <code>glow</code>, <code>burn</code>, <code>wave</code> (shader), <code>none</code>. Add your own with <code>defineSelectionEffect(name, { draw })</code> for 2D or <code>{ glsl, wgsl }</code> for a shader; the inputs are listed at the top of <a href="/lib/selection-fx.js">selection-fx.js</a>. Without HTML-in-canvas the element is a plain <code>&lt;slot&gt;</code> and the browser's highlight is shown.</p>
+
+  <h2>Selection on a rotated element</h2>
+  <p>
+    This canvas draws one paragraph with a rotation and a scale. Select text in it. The browser's highlight is part of the element's picture, so it is rotated with the text.
+    <code>Range.getClientRects()</code> returns upright rectangles: the bounding box of each rotated line (<span class="key"><i style="color:#e0218a"></i>pink</span>).
+    To get rectangles in the element's own coordinates, the page sets the element's geometry to the identity with <code>updateElementGeometry()</code>, measures, and puts the geometry back, all in one task. Drawn through the same rotation they fit the lines (<span class="key"><i style="color:#00e676"></i>green</span>).
+  </p>
+  <!-- #region rot-markup -->
+  <canvas id="rot" content="drawable" layoutsubtree>
+    <p id="rot-text" drawable>Select across these lines. On a phone, press and hold a word, then drag a handle. The handles are drawn by the browser on top of the page, so where they appear on a rotated line is something to look at on a real device.</p>
+  </canvas>
+  <!-- #endregion rot-markup -->
+  <div class="bar">
+    <label>Angle <input type="range" id="angle" min="-25" max="25" value="-7" step="1"> <output id="angle-out">-7°</output></label>
+    <label><input type="checkbox" id="rot-boxes" checked> Draw the rectangles</label>
+    <button id="rot-sample">Select a phrase for me</button>
+  </div>
+  <div id="rot-readout" role="status"></div>
+  <details class="show-code">
+    <summary>Show the code <small>rectangles of a rotated element</small></summary>
+    <ol>
+      <li data-code="#rot-markup"><b>A canvas with one drawable paragraph.</b></li>
+      <li data-code="#rot-draw"><b>Draw it rotated.</b> <code>drawElementImage()</code> also moves hit testing, so dragging on the rotated text selects the right characters.</li>
+      <li data-code="#rot-measure"><b>Measure in page coordinates and in element coordinates.</b></li>
+    </ol>
+  </details>
+
+  <h2>Live checks</h2>
+  <p class="note">These start when you press the button, because several of them create WebGL and WebGPU contexts and a phone allows only a few. They run on small fixtures in a corner of the window. They do not change the selection if you have text selected: the checks that need a real selection wait until nothing is selected.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in headless Chromium 157 on Linux with a software renderer, 2026-11-21. The last list says what that browser could not show.</p>
+  <ul class="findings">
+    <li><strong>The browser's selection highlight is part of the element's picture.</strong> It is in the pixels that <code>drawElementImage()</code>, <code>texElementSubImage2D()</code> and a canvas read-back return, in the active colour, and it is transformed with the element.</li>
+    <li><strong><code>paint</code> fires on every change of the selection</strong>, because the highlight changes the element's rendering. A 30-step mouse drag fired 19 paint events. No <code>selectionchange</code> listener is needed just to redraw. One is needed to measure.</li>
+    <li><strong><code>::selection</code> styles apply.</strong> A custom background and colour are drawn. <code>background-color: transparent</code> with no <code>color</code> leaves the picture identical to the unselected one, pixel for pixel, while the selection still exists. That is how <code>&lt;selection-fx&gt;</code> removes the browser's highlight and draws its own.</li>
+    <li><strong><code>::highlight()</code> from the CSS Custom Highlight API is drawn too</strong>, and changing the registry fires <code>paint</code>. A Highlight with no style is invisible and still gives ranges to measure, so search matches can drive the same effects (the Find box above).</li>
+    <li><strong><code>Range.getClientRects()</code> follows the drawn position</strong>, to within a pixel, when the element is drawn with a translation. The rectangles are in page coordinates as usual.</li>
+    <li><strong>Under a rotation the rectangles are bounding boxes.</strong> There is no quad version (<code>getBoxQuads()</code> is not in Chromium), so the shape of a rotated line is lost. <code>updateElementGeometry(el, { canvasTransform: identity })</code> changes what <code>getClientRects()</code> returns synchronously, so measuring under the identity and restoring the transform in the same task gives element-local rectangles without a visible change.</li>
+    <li><strong><code>range.getClientRects()</code> on a whole selection also returns the boxes of block elements</strong> that are fully inside it, which would highlight a whole paragraph box. Measuring one range per text node avoids that.</li>
+    <li><strong>Hit testing for selection follows the drawn geometry.</strong> Mouse drag, double click and <code>caretPositionFromPoint()</code> pick the right characters on an element drawn rotated and scaled. Dragging from one drawable element to another, and from outside the canvas into it, selects across them in document order.</li>
+    <li><strong>Selection does not cross into a <code>contenteditable</code> child</strong> when the drag starts outside it. That is the usual editing-boundary rule, not something the canvas adds.</li>
+    <li><strong>The caret is drawn, and each blink fires <code>paint</code></strong> (4 events in 2.2 seconds with a focused editable element). A shader effect therefore uploads the element's texture twice a second while a caret is showing.</li>
+    <li><strong>Text selected inside an <code>&lt;input&gt;</code> or <code>&lt;textarea&gt;</code> is highlighted in the picture but cannot be measured.</strong> <code>getSelection()</code> has no range inside the control and there is no rectangle API for <code>selectionStart</code>/<code>selectionEnd</code>, so these effects do not apply to form controls.</li>
+    <li><strong>Releasing a WebGL context can crash the tab.</strong> <code>WEBGL_lose_context.loseContext()</code> on a drawable canvas that is still in the document and holds an element texture crashed the renderer in Chromium 157. Removing the canvas from the document first does not. A WebGL canvas also reports loss with <code>webglcontextlost</code>, not the <code>contextlost</code> event of a 2D canvas.</li>
+    <li><strong>Effects are visual only.</strong> <code>&lt;selection-fx&gt;</code> leaves the element's geometry at its layout position, so the caret, the handles and hit testing stay on the line even while the wave effect moves the glyphs by 4 px.</li>
+    <li><strong>A shader needs to know which pixels are glyphs.</strong> The slotted content has a transparent background, so the element texture's alpha is the glyph coverage. For text on its own opaque background the shaders compare against <code>--selection-fx-bg</code>.</li>
+    <li><strong>The rectangles reach a shader as a mask texture</strong> drawn with a 2D <code>OffscreenCanvas</code>, not as a uniform array, so the count of lines is not limited and the mask can carry a blurred copy and a fading history at no shader cost.</li>
+  </ul>
+  <p><strong>Not verified here, needs a real device:</strong></p>
+  <ul class="findings">
+    <li><strong>Touch selection.</strong> Long press did not select anything in the headless test browser, inside or outside a canvas, so press and hold, the Android handles and the copy menu are untested. Things to look at on a phone: whether the handles appear at the drawn position of a rotated line, whether they still appear when <code>::selection</code> is transparent, and whether the loupe effect is hidden under the finger or under Chrome's own magnifier.</li>
+    <li><strong><code>::target-text</code> (text fragment links), find-in-page marks and spelling marks.</strong> The headless browser showed none of them even outside a canvas. The explainer says spelling marks and find-in-page marks are left out of an element's picture for privacy. <a href="#:~:text=the%20way%20they%20do%20in%20any%20paragraph">This link</a> scrolls to a text fragment in the demo above: if the browser marks it, the mark is either in the canvas (drawn with the text) or missing.</li>
+    <li><strong>Why a canvas lost its context on an Android phone.</strong> The first version of this page started on the glow shader and ran its checks on load, and on Chrome 159 the demo was a white box with a broken-picture icon. The cause is not identified. The page now starts on a 2D effect, creates GPU contexts only when a shader effect is picked or the checks are started, and <code>&lt;selection-fx&gt;</code> moves its content to a new 2D canvas when its canvas loses its context or shows no picture. The line under the demo says when that happened.</li>
+    <li><strong>WebGPU on screen.</strong> The WGSL of each effect compiles here and an off-screen WebGPU frame is compared with the WebGL one in the checks. The software adapter cannot show a WebGPU canvas, so the on-screen route is untested.</li>
+    <li><strong>Speed on a phone.</strong> Glow takes 24 texture samples per pixel and burn 16.</li>
+  </ul>
+
+  <h2>Ideas not built</h2>
+  <ul class="ideas">
+    <li><strong>Other people's selections.</strong> Send each reader's ranges over a WebSocket, put them in a named Highlight per person and draw each with its own colour and a name tag at the focus point. <code>highlight="name"</code> already takes the ranges.</li>
+    <li><strong>Selected glyphs as particles.</strong> <a href="/particles/">Typography as particles</a> can lift the glyphs of a range off the line. Joined with this page, deselected text could fall or blow away and return.</li>
+    <li><strong>A share card.</strong> On selection, draw the selected lines alone on a card with the page title and offer it as an image (<a href="/capture/">capture</a> has the export half).</li>
+    <li><strong>Selection in 3D.</strong> Extrude the selected rectangles from a page in <a href="/three-form/">three.js</a>, or light them, using the same mask as a second texture.</li>
+    <li><strong>A heat map of what readers select.</strong> Accumulate the mask over many selections and draw it as a faint background.</li>
+    <li><strong>A minimap.</strong> A small copy of a long article at the side, drawn from the same element, with the selection and search matches marked on it.</li>
+    <li><strong>Redaction.</strong> Draw solid bars over the selection in the picture that is exported or shared to another tab, while the reader's own view stays readable.</li>
+    <li><strong>Translate or define in place.</strong> Draw the answer over the selected rectangles, in the same line boxes, while the original text stays in the DOM.</li>
+    <li><strong>Sound and haptics.</strong> A tick from the Vibration API each time the selection grows by a word.</li>
+    <li><strong>Form controls.</strong> Rebuild the selection rectangles of an <code>&lt;input&gt;</code> by measuring a hidden copy of its text, to bring these effects to text fields.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint, stillDrawn, inkFraction } from '/shared/support.js';
+  import { geometryUnit } from '/lib/surface.js';
+  import { webgpu } from '/shared/backend.js';
+  import { checkWGSL, pictureDifference, looksBlank } from '/lib/gpu-util.js';
+  // #region page
+  import { selectionEffects, shaderSource } from '/lib/selection-fx.js';
+  // #endregion page
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+
+  // #region page
+  const demo = $('demo');
+
+  // One attribute changes the effect. The selection is kept.
+  function setEffect(name) {
+    demo.setAttribute('effect', name);
+    for (const b of $('pick').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.effect === name));
+  }
+  $('pick').addEventListener('click', (e) => {
+    const name = e.target.closest('button')?.dataset.effect;
+    if (name) setEffect(name);
+  });
+  // Buttons must not take the selection away when they are pressed.
+  for (const el of document.querySelectorAll('.pick button, #sample, #rot-sample')) el.addEventListener('pointerdown', (e) => e.preventDefault());
+
+  $('engine').addEventListener('change', (e) => demo.setAttribute('engine', e.target.value));
+  $('native').addEventListener('change', (e) => demo.toggleAttribute('native', e.target.checked));
+
+  // Search matches: a CSS Custom Highlight with no ::highlight() style. The
+  // element reads its ranges and draws them like a selection.
+  $('find').addEventListener('input', (e) => {
+    const word = e.target.value.trim().toLowerCase();
+    const ranges = [];
+    const walker = document.createTreeWalker(demo, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node && word; node = walker.nextNode()) {
+      const text = node.data.toLowerCase();
+      for (let i = text.indexOf(word); i >= 0; i = text.indexOf(word, i + word.length)) {
+        const range = new Range();
+        range.setStart(node, i);
+        range.setEnd(node, i + word.length);
+        ranges.push(range);
+      }
+    }
+    CSS.highlights.set('found', new Highlight(...ranges));
+    demo.refresh();
+  });
+
+  function readout() {
+    const rects = demo.rects ?? [];
+    const text = getSelection().toString();
+    $('readout').textContent = rects.length
+      ? `${rects.length} rectangle${rects.length === 1 ? '' : 's'}, drawn by ${demo.engine ?? 'plain HTML'}${demo.note ? ` (${demo.note})` : ''}. ${text ? `Selected: “${text.replace(/\s+/g, ' ').slice(0, 90)}${text.length > 90 ? '…' : ''}”` : 'From the Find box.'}`
+      : 'Nothing is selected.';
+  }
+  demo.addEventListener('selectionfx', readout);
+  demo.addEventListener('selectionfxengine', readout);
+  // #endregion page
+
+  $('sample').addEventListener('click', () => {
+    const p = demo.querySelectorAll('p')[1];
+    const range = new Range();
+    range.setStart(p.firstChild, 0);
+    range.setEnd(p.querySelector('a').firstChild, 9);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  });
+  $('clear').addEventListener('click', () => {
+    getSelection().removeAllRanges();
+    $('find').value = '';
+    CSS.highlights?.delete('found');
+    demo.refresh?.();
+  });
+  if (params.get('engine')) { demo.setAttribute('engine', params.get('engine')); $('engine').value = params.get('engine'); }
+  // The page starts on a 2D effect, so loading it never needs a GPU context. A shader effect starts one when it is picked.
+  setEffect(selectionEffects.has(params.get('effect')) ? params.get('effect') : 'marker');
+  demo.addEventListener('selectionfxfallback', (e) => { $('readout').textContent = `Changed engine: ${e.detail.reason}. Now drawing with ${demo.getAttribute('engine') || 'auto'}.`; if (demo.getAttribute('engine')) $('engine').value = demo.getAttribute('engine'); });
+  demo.addEventListener('surfacefallback', (e) => { $('readout').textContent = `Showing plain HTML because of: ${e.detail.reason}. Selection works, the effects are off.`; });
+
+  // ------------------------------------------------- the rotated paragraph
+  const rot = $('rot'), rotText = $('rot-text');
+  if (supported) {
+    const ctx = rot.getContext('2d');
+    let boxes = { page: [], local: [] };
+    // #region rot-draw
+    const matrix = () => new DOMMatrix().translate(rot.clientWidth * 0.1, rot.clientHeight * 0.5 - rotText.offsetHeight * 0.5).rotate(Number($('angle').value)).scale(1.08);
+
+    rot.onpaint = () => {
+      const dpr = rot.width / rot.clientWidth;
+      const m = matrix();
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      ctx.save();
+      ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f);
+      ctx.drawElementImage(rotText, 0, 0, rotText.offsetWidth, rotText.offsetHeight);
+      if ($('rot-boxes').checked) {
+        // Element-local rectangles, drawn through the same matrix as the text.
+        ctx.strokeStyle = '#00e676';
+        ctx.lineWidth = 1.5;
+        for (const r of boxes.local) ctx.strokeRect(r.x, r.y, r.width, r.height);
+      }
+      ctx.restore();
+      if ($('rot-boxes').checked) {
+        // What getClientRects() returns, moved from page to canvas coordinates.
+        const c = rot.getBoundingClientRect();
+        ctx.strokeStyle = '#e0218a';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        for (const r of boxes.page) ctx.strokeRect(r.x - c.x, r.y - c.y, r.width, r.height);
+      }
+    };
+    // #endregion rot-draw
+
+    // #region rot-measure
+    function measure() {
+      const selection = getSelection();
+      const range = selection.rangeCount && rotText.contains(selection.anchorNode) && rotText.contains(selection.focusNode) && !selection.isCollapsed ? selection.getRangeAt(0) : null;
+      boxes = { page: [], local: [] };
+      if (range) {
+        // 1. As the page sees them: upright boxes around each rotated line.
+        boxes.page = [...range.getClientRects()];
+        // 2. In the element's own coordinates. Put the element at the canvas
+        //    origin, unrotated, measure, and restore, before anything is painted.
+        const unit = new DOMMatrix().scale(geometryUnit(rot, rotText, rotText.offsetWidth));
+        rot.updateElementGeometry(rotText, { canvasTransform: unit });
+        const c = rot.getBoundingClientRect();
+        boxes.local = [...range.getClientRects()].map((r) => new DOMRect(r.x - c.x, r.y - c.y, r.width, r.height));
+        rot.updateElementGeometry(rotText, { canvasTransform: unit.multiply(matrix()) });
+      }
+      $('rot-readout').textContent = range ? `${boxes.page.length} rectangle${boxes.page.length === 1 ? '' : 's'}. First, on the page: ${fmt(boxes.page[0])}. In the element: ${fmt(boxes.local[0])}. Selected: “${selection.toString().slice(0, 60)}”` : 'Nothing is selected in the rotated paragraph.';
+      rot.requestPaint();
+    }
+    document.addEventListener('selectionchange', measure);
+    // #endregion rot-measure
+    const fmt = (r) => (r ? `${r.width.toFixed(0)}×${r.height.toFixed(0)}` : 'none');
+
+    new ResizeObserver(([entry]) => {
+      const box = entry.devicePixelContentBoxSize?.[0];
+      const w = box ? box.inlineSize : Math.round(entry.contentRect.width * devicePixelRatio);
+      const h = box ? box.blockSize : Math.round(entry.contentRect.height * devicePixelRatio);
+      if (rot.width !== w) rot.width = w;
+      if (rot.height !== h) rot.height = h;
+      measure();
+    }).observe(rot, { box: 'device-pixel-content-box' });
+    $('angle').addEventListener('input', (e) => { $('angle-out').textContent = `${e.target.value}°`; measure(); });
+    $('rot-boxes').addEventListener('change', () => rot.requestPaint());
+    $('rot-sample').addEventListener('click', () => {
+      const range = new Range();
+      range.setStart(rotText.firstChild, 7);
+      range.setEnd(rotText.firstChild, 78);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    });
+    rot.addEventListener('contextlost', () => { $('rot-readout').textContent = 'This canvas lost its context. Reload the page to draw it again.'; });
+    measure();
+  } else {
+    $('rot-readout').textContent = 'HTML-in-canvas is not available, so this canvas is empty.';
+  }
+
+  // ------------------------------------------------------------ live checks
+  // Fixtures sit on the test stage (a small fixed box, nearly transparent). A
+  // check that needs a real selection saves nothing and restores nothing: it
+  // waits until the reader has nothing selected, then clears what it selected.
+  const KEY = [255, 0, 255]; // the fixture's highlight colour, easy to count
+  const style = document.createElement('style');
+  style.textContent = `
+    .sel-fixture { margin: 0; width: 260px; font: 20px/30px monospace; color: #000; background: #fff; }
+    .sel-fixture::selection { background: rgb(255, 0, 255); color: #000; }
+    .sel-fixture.hide::selection { background: transparent; }
+    ::highlight(sel-check) { background: rgb(255, 0, 255); color: #000; }
+    selection-fx.fx-fixture { width: 260px; font: 20px/30px monospace; color: #000; background: #fff; --selection-fx-color: rgb(255, 0, 255); --selection-fx-bg: #fff; }
+    selection-fx.fx-fixture p { margin: 0; }`;
+  document.head.append(style);
+
+  async function fixture({ rotate = 0 } = {}) {
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable');
+    canvas.setAttribute('layoutsubtree', '');
+    canvas.style.cssText = 'display:block;width:300px;height:110px;background:#fff';
+    canvas.width = 300;
+    canvas.height = 110;
+    const p = document.createElement('p');
+    p.className = 'sel-fixture';
+    p.setAttribute('drawable', '');
+    p.textContent = 'ABCDEFGHIJ KLMNOPQRST second line';
+    canvas.append(p);
+    testStage().append(canvas);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const f = { canvas, p, ctx, paints: 0 };
+    canvas.onpaint = () => {
+      f.paints++;
+      ctx.reset();
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, 300, 110);
+      ctx.translate(20, 10);
+      ctx.rotate(rotate);
+      ctx.drawElementImage(p, 0, 0, p.offsetWidth, p.offsetHeight);
+    };
+    f.range = (a, b) => { const r = new Range(); r.setStart(p.firstChild, a); r.setEnd(p.firstChild, b); return r; };
+    f.key = () => {
+      const d = ctx.getImageData(0, 0, 300, 110).data;
+      let n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+      for (let y = 0; y < 110; y++) for (let x = 0; x < 300; x++) {
+        const i = (y * 300 + x) * 4;
+        if (d[i] > 225 && d[i + 1] < 40 && d[i + 2] > 225) { n++; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      }
+      return { n, x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    };
+    f.settle = async () => { await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))); await new Promise((r) => setTimeout(r, 60)); };
+    await nextPaint(canvas);
+    await f.settle();
+    return f;
+  }
+  /** Run fn with a real selection, once the reader has nothing selected. Clears it afterwards. */
+  async function withSelection(range, fn) {
+    for (let waited = 0; !getSelection().isCollapsed; waited += 300) {
+      if (waited > 1800) throw new Error('not run: text on the page stayed selected. Clear the selection and run the checks again');
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    try { return await fn(); } finally { getSelection().removeAllRanges(); }
+  }
+  async function fxFixture(effect, engine) {
+    const el = document.createElement('selection-fx');
+    el.className = 'fx-fixture';
+    el.setAttribute('effect', effect);
+    el.setAttribute('engine', engine);
+    el.setAttribute('highlight', 'fx-check');
+    el.setAttribute('bleed', '10');
+    el.innerHTML = '<p>ABCDEFGHIJ KLMNOPQRST second line</p>';
+    testStage().append(el);
+    for (let i = 0; i < 60 && !el.ready; i++) await new Promise((r) => setTimeout(r, 50));
+    if (!el.ready) throw new Error(`the element did not start (${el.note || el.getAttribute('plain') || 'no paint yet'})`);
+    const text = el.querySelector('p').firstChild;
+    const range = new Range();
+    range.setStart(text, 2);
+    range.setEnd(text, 8);
+    CSS.highlights.set('fx-check', new Highlight(range));
+    el.refresh();
+    return el;
+  }
+  const coloured = (image) => {
+    const d = image.data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 40 && Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]) > 60) n++;
+    return n;
+  };
+
+  const tests = [
+    {
+      name: 'The browser\'s selection highlight is in the canvas pixels',
+      why: 'Select six characters of a drawable paragraph whose ::selection colour is magenta, then count magenta pixels read back from the 2D canvas.',
+      run: async () => {
+        const f = await fixture();
+        return withSelection(f.range(2, 8), async () => {
+          await f.settle();
+          const k = f.key();
+          if (k.n < 200) throw new Error(`${k.n} highlight pixels`);
+          return `${k.n} highlight pixels`;
+        });
+      },
+    },
+    {
+      name: 'paint fires when the selection changes',
+      why: 'No requestPaint() call: the count of paint events is compared before and after selecting.',
+      run: async () => {
+        const f = await fixture();
+        const before = f.paints;
+        return withSelection(f.range(0, 4), async () => {
+          await f.settle();
+          if (f.paints === before) throw new Error('no paint event');
+          return `${f.paints - before} paint event(s)`;
+        });
+      },
+    },
+    {
+      name: '::selection with a transparent background removes the highlight from the picture',
+      why: 'The selection still exists (getSelection().toString() returns the text). Only its colour is gone.',
+      run: async () => {
+        const f = await fixture();
+        f.p.classList.add('hide');
+        return withSelection(f.range(2, 8), async () => {
+          await f.settle();
+          const k = f.key();
+          const text = getSelection().toString();
+          if (k.n > 0 || text !== 'CDEFGH') throw new Error(`${k.n} highlight pixels, selected "${text}"`);
+          return `0 highlight pixels, selected "${text}"`;
+        });
+      },
+    },
+    {
+      name: '::highlight() is drawn, and paint fires when the Highlight is set',
+      why: 'CSS Custom Highlight API. This check does not touch the selection.',
+      run: async () => {
+        const f = await fixture();
+        const before = f.paints;
+        CSS.highlights.set('sel-check', new Highlight(f.range(11, 21)));
+        try {
+          await f.settle();
+          const k = f.key();
+          if (k.n < 200 || f.paints === before) throw new Error(`${k.n} highlight pixels, ${f.paints - before} paint events`);
+          return `${k.n} highlight pixels, ${f.paints - before} paint event(s)`;
+        } finally { CSS.highlights.delete('sel-check'); }
+      },
+    },
+    {
+      name: 'Range.getClientRects() matches the drawn highlight to 1.5 px',
+      why: 'The paragraph is drawn 20 px right and 10 px down. The rectangle of the range, moved into canvas coordinates, is compared with the bounding box of the magenta pixels.',
+      run: async () => {
+        const f = await fixture();
+        const range = f.range(2, 8);
+        CSS.highlights.set('sel-check', new Highlight(range));
+        try {
+          await f.settle();
+          const k = f.key();
+          const c = f.canvas.getBoundingClientRect();
+          const r = range.getClientRects()[0];
+          const dx = Math.abs(r.x - c.x - k.x), dw = Math.abs(r.width - k.w);
+          if (dx > 1.5 || dw > 1.5) throw new Error(`rect x ${(r.x - c.x).toFixed(1)} w ${r.width.toFixed(1)}, pixels x ${k.x} w ${k.w}`);
+          return `rect x ${(r.x - c.x).toFixed(1)} w ${r.width.toFixed(1)}, pixels x ${k.x} w ${k.w}`;
+        } finally { CSS.highlights.delete('sel-check'); }
+      },
+    },
+    {
+      name: 'Under a rotated draw, Range.getClientRects() gives the rotated shape',
+      expect: 'fail',
+      why: 'It gives the upright bounding box. A six character range is 72 by 24 px in the element and comes back larger in both directions when drawn at 0.2 rad.',
+      run: async () => {
+        const f = await fixture({ rotate: 0.2 });
+        const r = f.range(2, 8).getClientRects()[0];
+        const flat = (await fixture()).range(2, 8).getClientRects()[0];
+        if (r.width > flat.width + 2 && r.height > flat.height + 2) throw new Error(`${r.width.toFixed(1)}×${r.height.toFixed(1)}, against ${flat.width.toFixed(1)}×${flat.height.toFixed(1)} unrotated: a bounding box`);
+        return `${r.width.toFixed(1)}×${r.height.toFixed(1)}`;
+      },
+    },
+    {
+      name: 'updateElementGeometry(identity) gives element-local rectangles in the same task',
+      why: 'The workaround for the row above: set the identity, measure, restore. No await between the three steps.',
+      run: async () => {
+        const f = await fixture({ rotate: 0.2 });
+        const range = f.range(2, 8);
+        const rotated = range.getClientRects()[0];
+        const unit = new DOMMatrix().scale(geometryUnit(f.canvas, f.p, f.p.offsetWidth)); // this call itself applies the identity while it calibrates
+        f.canvas.updateElementGeometry(f.p, { canvasTransform: unit });
+        const local = range.getClientRects()[0];
+        f.canvas.updateElementGeometry(f.p, { canvasTransform: unit.multiply(new DOMMatrix().translate(20, 10).rotate(0.2 * 180 / Math.PI)) });
+        const back = range.getClientRects()[0];
+        const flat = (await fixture()).range(2, 8).getClientRects()[0];
+        if (Math.abs(local.width - flat.width) > 1 || Math.abs(back.width - rotated.width) > 1) throw new Error(`local ${local.width.toFixed(1)}, expected ${flat.width.toFixed(1)}; restored ${back.width.toFixed(1)}, expected ${rotated.width.toFixed(1)}`);
+        return `local ${local.width.toFixed(1)}×${local.height.toFixed(1)}, restored ${back.width.toFixed(1)}×${back.height.toFixed(1)}`;
+      },
+    },
+    {
+      name: 'A WebGL texture of the element includes the highlight',
+      why: 'texElementSubImage2D into a texture, read back through a framebuffer.',
+      run: async () => {
+        const canvas = document.createElement('canvas');
+        canvas.setAttribute('content', 'drawable');
+        canvas.setAttribute('layoutsubtree', '');
+        canvas.style.cssText = 'display:block;width:300px;height:60px';
+        const p = document.createElement('p');
+        p.className = 'sel-fixture';
+        p.setAttribute('drawable', '');
+        p.textContent = 'ABCDEFGHIJ KLMNOPQRST';
+        canvas.append(p);
+        testStage().append(canvas);
+        const gl = canvas.getContext('webgl2');
+        if (!gl || !gl.texElementSubImage2D) throw new Error('no texElementSubImage2D');
+        const range = new Range();
+        range.setStart(p.firstChild, 2);
+        range.setEnd(p.firstChild, 8);
+        CSS.highlights.set('sel-check', new Highlight(range));
+        try {
+          await nextPaint(canvas);
+          await new Promise((r) => setTimeout(r, 120));
+          await nextPaint(canvas);
+          const size = canvas.getElementImageDefaultSize(p);
+          const w = Math.ceil(size.width), h = Math.ceil(size.height);
+          const tex = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+          gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, p);
+          const fb = gl.createFramebuffer();
+          gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+          const d = new Uint8Array(w * h * 4);
+          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, d);
+          let n = 0;
+          for (let i = 0; i < d.length; i += 4) if (d[i] > 225 && d[i + 1] < 40 && d[i + 2] > 225) n++;
+          if (n < 200) throw new Error(`${n} highlight pixels in a ${w}×${h} texture`);
+          return `${n} highlight pixels in a ${w}×${h} texture`;
+        } finally { CSS.highlights.delete('sel-check'); }
+      },
+    },
+    {
+      name: '<selection-fx> measures a range and draws it (2D)',
+      why: 'A fixture with effect="highlight" and a Highlight over six characters: one rectangle 72 px wide, and pixels of the effect colour on the canvas.',
+      run: async () => {
+        const el = await fxFixture('highlight', '2d');
+        try {
+          const r = el.rects[0];
+          const n = coloured(await el.readback());
+          if (el.rects.length !== 1 || Math.abs(r.w - 72) > 2 || n < 100) throw new Error(`${el.rects.length} rects, width ${r?.w.toFixed(1)}, ${n} coloured pixels`);
+          return `1 rectangle ${r.w.toFixed(1)}×${r.h.toFixed(1)} at ${r.x.toFixed(1)},${r.y.toFixed(1)}; ${n} coloured pixels`;
+        } finally { CSS.highlights.delete('fx-check'); el.dispose(); }
+      },
+    },
+    ...['glow', 'burn', 'wave'].map((name) => ({
+      name: `The ${name} shader colours the selected glyphs (WebGL)`,
+      why: 'Black text on white, so any coloured pixel on the canvas came from the shader.',
+      run: async () => {
+        const el = await fxFixture(name, 'webgl');
+        try {
+          if (el.engine !== 'webgl') throw new Error(`engine is ${el.engine}: ${el.note}`);
+          await new Promise((r) => setTimeout(r, 500)); // the effects fade in
+          const n = coloured(await el.readback());
+          if (el.lastError) throw el.lastError;
+          if (n < 40) throw new Error(`${n} coloured pixels`);
+          return `${n} coloured pixels`;
+        } finally { CSS.highlights.delete('fx-check'); el.dispose(); }
+      },
+    })),
+    {
+      name: 'The WGSL of each shader effect compiles',
+      why: 'On the page\'s WebGPU device, or one made only for this check when the page is not using WebGPU.',
+      run: async () => {
+        const gpu = await webgpu({ force: true });
+        if (!gpu) return `not run: ${webgpu.reason || 'no WebGPU device'}`;
+        for (const name of ['glow', 'burn', 'wave']) await checkWGSL(gpu.device, shaderSource(name).wgsl, name);
+        return 'glow, burn and wave compile';
+      },
+    },
+    {
+      name: 'WebGPU draws the wave effect like WebGL does',
+      why: 'The same fixture on both engines, with the WebGPU one drawn to a texture and read back. Mean difference per channel must be under 6 of 255. Wave is used because it has no noise in it.',
+      timeout: 20000,
+      run: async () => {
+        const gpu = await webgpu({ force: true });
+        if (!gpu) return `not run: ${webgpu.reason || 'no WebGPU device'}`;
+        const a = await fxFixture('wave', 'webgl');
+        const b = await fxFixture('wave', 'webgpu-offscreen');
+        try {
+          if (b.engine !== 'webgpu') throw new Error(`engine is ${b.engine}: ${b.note}`);
+          a.style.setProperty('--selection-fx-amount', '0.001');
+          b.style.setProperty('--selection-fx-amount', '0.001');
+          await new Promise((r) => setTimeout(r, 1300));
+          const one = await a.readback();
+          const two = await b.readback();
+          const straight = new ImageData(new Uint8ClampedArray(one.data), one.width, one.height);
+          // WebGL read-back is premultiplied; pictureDifference() wants straight alpha on that side.
+          for (let i = 0; i < straight.data.length; i += 4) { const al = straight.data[i + 3] / 255; if (al > 0) for (let c = 0; c < 3; c++) straight.data[i + c] = Math.min(255, straight.data[i + c] / al); }
+          const diff = pictureDifference(straight, two);
+          if (!(diff.ink > 0.01)) throw new Error('the WebGPU picture is empty');
+          if (diff.mean > 6) throw new Error(`mean difference ${diff.mean.toFixed(2)}, largest ${diff.max}`);
+          return `mean difference ${diff.mean.toFixed(2)} of 255, ${(diff.ink * 100).toFixed(0)}% of pixels drawn`;
+        } finally { CSS.highlights.delete('fx-check'); a.dispose(); b.dispose(); }
+      },
+    },
+    stillDrawn(() => [
+      { name: 'the selection demo', ink: async () => (!demo.live ? null : demo.engine === 'webgpu' ? (looksBlank(demo.canvas) ? 0 : 1) : inkFraction(await demo.readback())), rescue: () => demo.fallBackToPlain('the canvas was blank after the checks') },
+    ]),
+  ];
+  if (supported) runTests($('tests'), tests);
+  else runTests($('tests'), tests.slice(0, 1));
+</script>
+</body>
+</html>
