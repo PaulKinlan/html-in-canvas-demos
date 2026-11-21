@@ -33,6 +33,10 @@
   /* A word at headroom times white on a strip of 1.0 white. It can be read only where the screen shows values above 1.0. */
   #ui .strip { background: #fff; color: color(display-p3 var(--headroom) var(--headroom) var(--headroom)); }
   /* #endregion hdr-css */
+  /* WebGPU route: the element's picture holds at most 1.0, so the word is full white on a strip just under it and the shader raises full white. */
+  #stage.gpu #ui { --headroom: 1; }
+  #stage.gpu #ui .strip { background: rgb(248 248 248); color: #fff; }
+
 
   #ui { --headroom: 4; position: relative; box-sizing: border-box; width: 100%; height: 100%; padding: 18px; display: flex; flex-direction: column; gap: 12px;
     background: #0b0d14; color: #e9ecf5; font: 15px/1.4 system-ui, sans-serif; }
@@ -101,6 +105,7 @@
     <label><code>dynamic-range-limit</code> <select id="limit"><option>no-limit</option><option>constrained</option><option>standard</option></select></label>
     <button id="read" type="button">Read values back</button>
     <button id="retry" type="button" disabled>Reset and reload</button>
+    <button id="gpu" type="button">Use a WebGPU canvas</button>
   </div>
   <p id="screen">&nbsp;</p>
 
@@ -112,6 +117,10 @@
       <li data-code="#markup"><b>The markup.</b> <code>data-glow</code> marks the two elements that the canvas raises.</li>
       <li data-code="#paint"><b>On <code>paint</code>.</b> Draw the panel, raise the marked elements, then apply the chosen view.</li>
       <li data-code="#fallback"><b>The fallback.</b> If the float context is lost after a readback, the panel moves to a new float16 canvas and readback is switched off. After any other loss the new canvas is 8-bit.</li>
+      <li data-code="#gpu-start"><b>The WebGPU route: the switch.</b> A new canvas for the panel, the device from <code>shared/backend.js</code>, and the list of boxes for the shader.</li>
+      <li data-code="/hdr-glow/gpu-route.js#gpu-configure"><b>The WebGPU route: the target.</b> An <code>rgba16float</code> canvas in Display P3 with extended tone mapping.</li>
+      <li data-code="/hdr-glow/gpu-route.js#shader"><b>The WebGPU route: the shader.</b> The element arrives as an 8-bit picture. The shader multiplies the marked boxes, adds the halos and draws the map view with no readback.</li>
+      <li data-code="/hdr-glow/gpu-route.js#gpu-draw"><b>The WebGPU route: one frame.</b> Upload the element, then one render pass.</li>
       <li data-code="#glow"><b>The canvas route.</b> A <code>multiply</code> fill over the element's box and a halo from a canvas shadow.</li>
     </ol>
   </details>
@@ -128,8 +137,13 @@
     panel goes dark in proportion. "Map" reads the float pixels back and colours each one: grey for 1.0 or under, yellow through red to magenta for 1.0 up to the headroom. The page picks
     "As stored" when the screen reports <code>dynamic-range: high</code> and "Exposed down" otherwise.</p>
 
+  <p><b>WebGPU route.</b> "Use a WebGPU canvas" moves the panel into a canvas configured as <code>rgba16float</code>, Display P3, <code>toneMapping: { mode: 'extended' }</code>.
+    <code>drawElementImageToTexture()</code> stores at most 1.0, so the CSS colours are set back to headroom 1 and a shader does all the raising: it multiplies the boxes of the badge, the bar, the dot and
+    the Deploy button, raises the full-white pixels of the word in the strip, and adds the halos. The map view is drawn by the same shader, so it needs no readback. The focus ring is not raised on this route.
+    The button is there because the 2D float canvas showed no extra brightness on the test phone.</p>
+
   <h2>Live checks</h2>
-  <p>These run on their own small canvases in the corner of the window. They wait for a tap, because they read float pixels back and open a WebGL and a WebGPU context. On the test phone a float readback loses every float16 context on the page, so running them there also replaces the demo's canvas. Rows marked as expected failures record what the API clamps or refuses in the browser that wrote this page.</p>
+  <p>These run on their own small canvases in the corner of the window. They wait for a tap, because they read float pixels back and open a WebGL context and two WebGPU devices. On the test phone a float readback loses every float16 context on the page, so running them there also replaces the demo's canvas. Rows marked as expected failures record what the API clamps or refuses in the browser that wrote this page.</p>
   <table class="results"><tbody id="tests"></tbody></table>
 
   <h2>Findings</h2>
@@ -146,7 +160,8 @@
     <li><code>toneMapping: { mode: 'extended' }</code> is accepted by the 2D context and reported back as <code>standard</code> in Chromium 157 without the experimental features flag. The line under the controls prints what this browser reports.</li>
     <li>On Chrome 159 on an Android phone, <code>getImageData()</code> with <code>pixelFormat: 'rgba-float16'</code> loses the float16 2D context, and every other float16 context on the page with it. The first version of the page read back every 1.5 seconds and was lost every 1.5 seconds. With readback on a button, the canvas was lost "right after a float readback" when the map view was chosen. Drawing alone did not lose it. After such a loss the page now starts a new float16 canvas and switches readback and the map view off on that device.</li>
     <li>That phone reports <code>dynamic-range: high</code>.</li>
-    <li>Not verified: whether the values reach the screen above standard white. The test browser has no HDR output. The white strip in the demo answers it on the device that opens the page.</li>
+    <li>On that phone the 2D float16 canvas showed 4.0 times white at the brightness of white: the word in the strip could not be read with tone mapping <code>standard</code>, with <code>extended</code> (experimental features flag on) or with <code>dynamic-range-limit: no-limit</code>.</li>
+    <li>A WebGPU canvas configured <code>rgba16float</code> with <code>toneMapping: { mode: 'extended' }</code> reports <code>extended</code> without a flag in Chromium 157. The page's shader raises an uploaded element to 4.0 in such a target (live check). Not verified: whether that route is shown brighter than white on the phone. "Use a WebGPU canvas" and the strip answer it on the device that opens the page.</li>
   </ul>
 </main>
 
@@ -181,7 +196,7 @@
   const LOST_KEY = 'hdr-glow-float-lost', READ_KEY = 'hdr-glow-readback-loses';
   const recall = () => { try { return sessionStorage.getItem(LOST_KEY); } catch { return null; } };
   const readbackLoses = () => { try { return localStorage.getItem(READ_KEY); } catch { return null; } };
-  let ctx = null, attrs = {}, isFloat = false, lastRead = -1e9, swaps = 0;
+  let ctx = null, attrs = {}, isFloat = false, lastRead = -1e9, swaps = 0, gpuOn = false, gpuLine = '';
   function useCanvas(target, float) {
     canvas = target;
     ctx = float ? floatContext(target) : target.getContext('2d');
@@ -189,9 +204,10 @@
     isFloat = attrs.colorType === 'float16';
     target.addEventListener('paint', onPaint);
     target.addEventListener('contextlost', onLost);
-    target.addEventListener('contextrestored', () => { if (!recall() && !readbackLoses()) notice.hidden = true; target.requestPaint(); });
+    target.addEventListener('contextrestored', () => { if (target !== canvas) return; if (!recall() && !readbackLoses()) notice.hidden = true; target.requestPaint(); });
   }
   function onLost() {
+    if (gpuOn || this !== canvas) return;       // a canvas the panel has left
     if (!isFloat || document.hidden) { say('The canvas lost its context. It is drawn again when the browser gives it back.'); return; }
     const afterRead = window.__checkState === 'running' || performance.now() - lastRead < 2500;
     const when = window.__checkState === 'running' ? 'while the live checks were reading float pixels back'
@@ -201,6 +217,13 @@
     // A loss that follows a readback gets another float canvas, up to four times. Any other loss gets 8 bits.
     const again = afterRead && ++swaps <= 4;
     try { if (again) localStorage.setItem(READ_KEY, reason); else sessionStorage.setItem(LOST_KEY, reason); } catch { /* private mode */ }
+    const next = freshCanvas();
+    useCanvas(next, again);
+    if (again && isFloat) noReadback(reason); else eightBit(reason);
+    sizes?.observe(next, { box: 'device-pixel-content-box' });
+  }
+  // Put the panel into a new canvas in the same place. A canvas cannot change its context type.
+  function freshCanvas() {
     const next = document.createElement('canvas');
     next.id = 'canvas'; next.setAttribute('content', 'drawable'); next.setAttribute('layoutsubtree', '');
     const old = canvas;
@@ -208,9 +231,7 @@
     old.before(next);
     if (next.moveBefore) next.moveBefore(ui, null); else next.append(ui);
     old.remove();
-    useCanvas(next, again);
-    if (again && isFloat) noReadback(reason); else eightBit(reason);
-    sizes?.observe(next, { box: 'device-pixel-content-box' });
+    return next;
   }
   function noReadback(reason) {
     readButton.disabled = true; retry.disabled = false;
@@ -238,7 +259,7 @@
   document.querySelector(`input[name="view"][value="${view}"]`).checked = true;
   function describeScreen() {
     screenLine.textContent = `Screen: dynamic-range ${high.matches ? 'high' : 'standard'}, colour gamut ${wide.matches ? 'p3 or wider' : 'srgb'}. ` +
-      (ctx ? `Context: ${attrs.colorType ?? 'unorm8'}, ${attrs.colorSpace ?? 'srgb'}, tone mapping ${attrs.toneMapping?.mode ?? 'not reported'}.` : 'No canvas context.');
+      (gpuOn ? gpuLine : ctx ? `Context: ${attrs.colorType ?? 'unorm8'}, ${attrs.colorSpace ?? 'srgb'}, tone mapping ${attrs.toneMapping?.mode ?? 'not reported'}.` : 'No canvas context.');
   }
   high.addEventListener('change', describeScreen);
 
@@ -286,7 +307,7 @@
 
   // #region paint
   function onPaint() {
-    if (!ctx) return;
+    if (!ctx || gpuOn) return;
     const w = canvas.clientWidth, h = canvas.clientHeight, dpr = canvas.width / w, now = performance.now();
     paints++;
     ctx.reset();
@@ -384,7 +405,7 @@
     requestAnimationFrame(function frame(now) {
       requestAnimationFrame(frame);
       if (now - lastStatus > 1000) { lastStatus = now; status.textContent = `${readout} ${paints} paint events.`; }
-      if (!onScreen || document.hidden || !isFloat) return;
+      if (!onScreen || document.hidden || !(isFloat || gpuOn)) return;
       const fast = busy || now - sweepStart < SWEEP + 100;
       if (!fast && now - last < 66) return;
       last = now;
@@ -407,13 +428,69 @@
   });
   slider.addEventListener('input', () => {
     headroom = +slider.value; sliderOut.textContent = `${headroom.toFixed(1)}×`;
-    if (!stage.classList.contains('plain')) ui.style.setProperty('--headroom', headroom);
+    if (!stage.classList.contains('plain') && !gpuOn) ui.style.setProperty('--headroom', headroom);
     map = null; canvas.requestPaint?.();
   });
   document.getElementById('views').addEventListener('change', (e) => { view = e.target.value; map = null; canvas.requestPaint?.(); });
   limit.addEventListener('change', () => { canvas.style.setProperty('dynamic-range-limit', limit.value); });
   readButton.addEventListener('click', () => { if (!readbackLoses()) { wantProbe = true; canvas.requestPaint?.(); } });
   retry.addEventListener('click', () => { try { sessionStorage.removeItem(LOST_KEY); localStorage.removeItem(READ_KEY); } catch { /* nothing stored */ } location.reload(); });
+
+  // ---------------------------------------------------------------- the WebGPU route
+  // #region gpu-start
+  const gpuButton = document.getElementById('gpu');
+  if (!supported || !ctx) gpuButton.disabled = true;
+  gpuButton.addEventListener('click', async () => {
+    gpuButton.disabled = true;
+    const { webgpu } = await import('/shared/backend.js');
+    // ?webgpu=force skips the rule against software adapters. It is for the test browser.
+    const gpu = await webgpu({ force: new URLSearchParams(location.search).get('webgpu') === 'force' });
+    if (!gpu || !('drawElementImageToTexture' in GPUQueue.prototype)) { say(`The WebGPU route was not started: ${gpu ? 'this browser has no drawElementImageToTexture()' : webgpu.reason}. The panel stays in the 2D canvas.`); return; }
+    const { HdrGpu, configureHdr } = await import('./gpu-route.js');
+    let hdr, context;
+    const next = freshCanvas();
+    try { hdr = new HdrGpu(gpu.device); context = configureHdr(next, gpu.device); }
+    catch (e) { say(`The WebGPU route failed to start (${e.message}). Reload the page for the 2D canvas.`); stage.classList.add('plain'); stage.append(ui); return; }
+    canvas = next; ctx = null; isFloat = false; gpuOn = true; map = null;
+    stage.classList.add('gpu'); ui.style.removeProperty('--headroom');
+    const kept = context.getConfiguration?.() ?? {};
+    gpuLine = `Context: WebGPU canvas, ${kept.format ?? 'rgba16float'}, ${kept.colorSpace ?? 'display-p3'}, tone mapping ${kept.toneMapping?.mode ?? 'not reported'}.`;
+    readout = 'WebGPU route: the shader raises the marked boxes. No pixels are read back.';
+    readButton.disabled = true; retry.disabled = false; slider.disabled = false; notice.hidden = true;
+    for (const input of document.querySelectorAll('input[name="view"]')) input.disabled = false;
+    describeScreen();
+
+    // The boxes the shader raises: the two data-glow elements as on the 2D route, and the three that CSS raised there.
+    const extra = [
+      { el: badge, r: 1, g: 0.22, b: 0.2, radius: 13, k: 1, halo: 1 },
+      { el: fill, r: 0.3, g: 1, b: 0.55, radius: 5, k: 0.6, halo: 0.6 },
+      { el: ui.querySelector('.strip'), r: 1, g: 1, b: 1, radius: 6, k: 1, halo: 0, kind: 1 },
+    ];
+    next.addEventListener('paint', () => {
+      const w = next.clientWidth, h = next.clientHeight, now = performance.now();
+      paints++;
+      try { hdr.upload(next, ui); } catch { return; }           // not painted yet
+      const items = [];
+      for (const item of glowing) {
+        const beat = item.pulses || busy ? 0.6 + 0.4 * Math.sin(now / (item.pulses ? 420 : 160)) : 1;
+        items.push({ ...placeIn(item.el), radius: item.radius, r: item.r, g: item.g, b: item.b, gain: 1 + (headroom - 1) * item.k * beat, halo: 1 });
+      }
+      for (const e of extra) { const box = placeIn(e.el); if (box.w > 0) items.push({ ...box, ...e, gain: 1 + (headroom - 1) * e.k }); }
+      const t = (now - sweepStart) / SWEEP;
+      const sweep = t >= 0 && t <= 1 ? [-0.3 * w + t * 1.6 * w, 1 + (headroom - 1) * 0.8 * Math.sin(Math.PI * t)] : [-1e4, 1];
+      hdr.draw(context.getCurrentTexture().createView(), { size: [w, h], headroom, view: view === 'exposed' ? 1 : view === 'map' ? 2 : 0, sweep, items });
+      // The panel is drawn over the whole canvas, so its hit box is the canvas.
+      next.updateElementGeometry?.(ui, { canvasTransform: new DOMMatrix().scale(next.width / w, next.height / h) });
+    });
+    addEventListener('webgpulost', () => {
+      gpuOn = false; stage.classList.remove('gpu'); stage.classList.add('plain'); stage.append(ui);
+      describeScreen();
+      say('The WebGPU device was lost, so the panel is shown as plain HTML. Reload the page for the 2D canvas.');
+    }, { once: true });
+    sizes?.observe(next, { box: 'device-pixel-content-box' });
+    next.requestPaint();
+  });
+  // #endregion gpu-start
 
   // ---------------------------------------------------------------- live checks, on their own fixtures
   const SIZE = 100;
@@ -498,6 +575,29 @@
         const v = [...new Float16Array(buffer.getMappedRange().slice(row * 50 + 50 * 8, row * 50 + 50 * 8 + 8))];
         buffer.unmap(); texture.destroy(); device.destroy();
         return expectAbove(v, 'The texture');
+      } },
+    { name: 'WebGPU: a shader raises the uploaded element above 1.0 in an rgba16float target', expect: 'pass', why: 'The pass that "Use a WebGPU canvas" runs, drawn into a texture and read back: a white block with a gain of 4, and the page beside it',
+      run: async () => {
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (!adapter || !('drawElementImageToTexture' in GPUQueue.prototype)) throw new Error('No WebGPU adapter with drawElementImageToTexture() here, so this was not measured.');
+        const device = await adapter.requestDevice();
+        const { HdrGpu, configureHdr } = await import('./gpu-route.js');
+        const f = await fixture(block('background:#fff'), 'webgpu');
+        const kept = configureHdr(f.cv, device).getConfiguration?.() ?? {};
+        await nextPaint(f.cv);
+        const hdr = new HdrGpu(device);
+        hdr.upload(f.cv, f.el);
+        const texture = device.createTexture({ size: [SIZE, SIZE], format: 'rgba16float', usage: GPUTextureUsage.COPY_SRC | GPUTextureUsage.RENDER_ATTACHMENT });
+        hdr.draw(texture.createView(), { size: [SIZE, SIZE], headroom: 4, items: [{ x: 30, y: 30, w: 40, h: 40, radius: 0, r: 1, g: 1, b: 1, gain: 4 }] });
+        const row = 1024, buffer = device.createBuffer({ size: row * SIZE, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const enc = device.createCommandEncoder(); enc.copyTextureToBuffer({ texture }, { buffer, bytesPerRow: row }, [SIZE, SIZE]); device.queue.submit([enc.finish()]);
+        await buffer.mapAsync(GPUMapMode.READ);
+        const all = buffer.getMappedRange().slice(0);
+        const at = (px, py) => [...new Float16Array(all, row * py + px * 8, 4)];
+        const inside = at(50, 50), outside = at(8, 8);
+        buffer.unmap(); texture.destroy(); hdr.destroy(); device.destroy();
+        if (Math.abs(inside[0] - 4) > 0.1 || outside[0] > 1.01) throw new Error(`Inside the box ${show(inside)}, outside ${show(outside)}.`);
+        return `Inside the box ${show(inside)}, outside ${show(outside)}. The canvas configuration reports tone mapping ${kept.toneMapping?.mode ?? 'not reported'}.`;
       } },
   ];
   runTests(document.getElementById('tests'), supported ? tests : tests.slice(0, 1));

@@ -86,6 +86,27 @@ Fifth report, four screenshots at 19:57 on the same preview with chrome://flags 
 | A later float readback lost the context ("last seen right after a float readback with getImageData(), 32.3 s after load"). The panel moved to a new float16 canvas, which kept drawing (669 and 729 paint events) with tone mapping extended, and readback and the map were switched off | reported, A159. This is the first real run of the path that had only been tested with a dispatched event |
 | So a float readback does not lose the context every time: at least one full-canvas readback returned data before the one that lost it | reported, A159 |
 
+Sixth report, 20:06, flag still on, "As stored", 62 paint events, context line "float16, display-p3, tone mapping extended": the word in the white strip could not be read on the screen itself.
+
+| Result | Label |
+|---|---|
+| A float16 Display P3 2D canvas with tone mapping `extended` (flag on) also shows values above 1.0 at the brightness of white | reported, A159 |
+| So no setting of the 2D route tried here (tone mapping standard or extended, `dynamic-range-limit: no-limit`) showed extra brightness on this phone | reported, A159 |
+
+The partial strip in the map view of the fifth report is explained by the test browser: the halo of the Deploy button reaches the left part of the strip below it, and the halo is above 1.0 while the strip is 1.0. The WebGPU route's map drew the same shape in Chromium 157.
+
+## The WebGPU route (added 2026-11-21 after the reports above)
+
+"Use a WebGPU canvas" moves the panel into a canvas configured `rgba16float`, `display-p3`, `toneMapping: { mode: 'extended' }`, with the device from `shared/backend.js`. The element is uploaded as an 8-bit picture and the shader in `public/hdr-glow/gpu-route.js` multiplies the boxes of the dot, the Deploy button, the badge and the bar, raises the full-white pixels of the word in the strip, adds halos, and draws the exposed and map views. No pixels are read back.
+
+| Result | Label |
+|---|---|
+| The pass, drawn into an `rgba16float` texture: a white block with gain 4 reads back 4.00, the page beside it under 1.0 | measured, live check, Chromium 157 headless (software adapter) |
+| `GPUCanvasContext.getConfiguration()` after configuring with `toneMapping: { mode: 'extended' }` reports `extended`, with no flag | measured, Chromium 157 headless |
+| The whole panel through the route, with the canvas texture replaced by an off-screen texture in the test script: exposed and map views match the 2D route, the Hold button and the last line of the panel are hit at their places | measured by script, Chromium 157 headless |
+| Presenting the canvas | not verified: a software adapter loses the device when it presents, so the button reports "the only WebGPU adapter is a software one" in the test browser. `?webgpu=force` skips that rule |
+| Whether the word in the strip is brighter than the strip on the phone on this route | not verified. This is the open question the route was added for |
+
 What the page does now: it reads floats back only when "Read values back" is pressed or the map view is chosen, and its live checks wait for a tap. When a float16 context is lost within 2.5 seconds of a readback, the panel moves into a new float16 canvas, and readback and the map view are switched off on that device (`localStorage`). When it is lost with no readback before, the new canvas is 8-bit and the notice says so (`sessionStorage`). "Reset and reload" clears both. Both paths were tested in the test browser with a dispatched `contextlost` event, not with a real loss.
 
 ## Things that bit
@@ -96,8 +117,8 @@ What the page does now: it reads floats back only when "Read values back" is pre
 
 ## Not verified
 
-- Whether the phone shows values above 1.0 brighter than white with tone mapping `extended` (flag on). The context is created that way (fifth report above), but a screenshot cannot show it. To verify: with the flag on and "As stored" selected, look at the white strip on the screen itself for the word BRIGHTER.
-- Why the map view coloured only the left third of the white strip on the phone.
+- Whether the WebGPU route shows values above 1.0 brighter than white on the test phone. To verify: press "Use a WebGPU canvas", pick "As stored", and look for the word BRIGHTER in the strip on the screen itself. In a screenshot the word is only slightly lighter than the strip (255 against 248).
+- The focus ring is not raised on the WebGPU route.
 - The effect of `dynamic-range-limit` on the canvas element. The page has a select for it.
 - `(dynamic-range: high)` on the test phone. The page prints what the screen reports.
 - Whether an 8-bit readback (`getImageData()` with no `pixelFormat`) of a float16 canvas also loses the context on the phone, and whether the loss is a GPU process crash. Not tried.
