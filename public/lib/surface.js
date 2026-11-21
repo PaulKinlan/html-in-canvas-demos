@@ -175,6 +175,13 @@ export class SurfaceElement extends HTMLElement {
       if (canvas !== this.canvas) return;
       lost = setTimeout(() => canvas === this.canvas && this.fallBackToPlain('canvas context lost'), 1500);
     });
+    // A WebGL canvas fires its own event. A subclass that handles the loss
+    // moves to a new canvas or gets the context restored within the wait.
+    canvas.addEventListener('webglcontextlost', () => {
+      if (canvas !== this.canvas) return;
+      lost = setTimeout(() => canvas === this.canvas && this.ctx?.isContextLost?.() && this.fallBackToPlain('WebGL context lost'), 1500);
+    });
+    canvas.addEventListener('webglcontextrestored', () => clearTimeout(lost));
     canvas.addEventListener('contextrestored', () => {
       clearTimeout(lost);
       if (canvas !== this.canvas) return;
