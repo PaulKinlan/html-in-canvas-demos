@@ -607,9 +607,9 @@ if (support.paint && !isFixture) {
       run: async () => {
         if (!navigator.gpu) throw new Error('WebGPU is not available in this browser');
         if (!support.webgpu) throw new Error('GPUQueue has no element-image method');
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) throw new Error('no WebGPU adapter on this machine');
-        const device = await adapter.requestDevice();
+        // The page's shared device, not a second one.
+        const device = (await (await import('/shared/backend.js')).checkDevice())?.device;
+        if (!device) throw new Error('no WebGPU adapter on this machine');
         const el = $('laptop-ui'), measured = canvas.getElementImageDefaultSize(el), size = { width: measured.width, height: measured.height };
         size.width = Math.ceil(size.width);
         size.height = Math.ceil(size.height);
@@ -626,7 +626,7 @@ if (support.paint && !isFixture) {
         const b = localBox(el, $('f-post')), k = size.width / el.offsetWidth;
         const at = Math.round((b.y + b.h / 2) * k) * bytesPerRow + Math.round((b.x + 8) * k) * 4;
         const px = Array.from(bytes.slice(at, at + 3));
-        device.destroy();
+        buffer.destroy(); texture.destroy();
         if (!close(px, [210, 73, 31])) throw new Error(`texel on the button is rgb(${px})`);
         return `${size.width}×${size.height} GPUTexture, button texel rgb(${px}). The element lives in a ${useGPU ? 'WebGPU' : 'WebGL'} canvas.`;
       },

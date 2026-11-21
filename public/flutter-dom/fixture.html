@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flutter-dom fixture</title>
+<link rel="stylesheet" href="/flutter-dom/ui.css">
+<body style="margin:0;background:#15171c">
+<!-- The same app as /flutter-dom/, alone on a page. The live checks load it in a frame so
+     they never touch the copy a person is using. ?route= picks the texture source. -->
+<div class="fd-stage" id="stage" style="height:100vh;min-height:0;border-radius:0">
+  <div class="fd-host" id="host"></div>
+  <canvas class="fd-source" id="source" content="drawable" layoutsubtree>
+    <form class="fd-form" id="form" drawable onsubmit="return false">
+      <label>Email <input name="email" type="email" autocomplete="email" placeholder="you@example.com"></label>
+      <label>Plan <select name="plan"><option>Free</option><option>Team</option><option>Enterprise</option></select></label>
+      <label>Notes <textarea name="notes" rows="2">Typed into a real textarea.</textarea></label>
+    </form>
+  </canvas>
+</div>
+<script type="module">
+import { createBridge, describeFlutter } from '/flutter-dom/bridge.js';
+const $ = (id) => document.getElementById(id);
+const route = new URLSearchParams(location.search).get('route') || 'canvas-copy';
+window.flutterDom = createBridge({ source: $('source'), form: $('form'), route });
+window.describeFlutter = () => describeFlutter($('host'));
+window.__form = $('form');
+const script = document.createElement('script');
+script.src = '/flutter-dom/app/flutter_bootstrap.js';
+script.onload = async () => {
+  try {
+    const multi = new URLSearchParams(location.search).get('surface') === 'multi';
+    await window.startFlutterDom($('host'), multi ? { canvasKitForceMultiSurfaceRasterizer: true } : {});
+    if (route === 'element') {
+      for (let i = 0; i < 100 && !describeFlutter($('host')).canvases.length; i++) await new Promise((r) => setTimeout(r, 50));
+      try { window.flutterDom.adopt(describeFlutter($('host')).canvases[0].el); } catch (err) { window.__adoptError = err.message; }
+    }
+    window.__started = true;
+  } catch (err) {
+    window.__failed = String(err?.message ?? err);
+  }
+};
+script.onerror = () => (window.__failed = 'flutter_bootstrap.js did not load');
+document.head.append(script);
+</script>
+</body>
+</html>

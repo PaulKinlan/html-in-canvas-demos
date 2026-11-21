@@ -12,7 +12,8 @@ const supported =
 const mode = document.getElementById('mode');
 mode.hidden = false;
 
-// Build the index from the shared list: one grid of links per group.
+// Build the index from the shared list: for each group, grids of at most four links.
+const PER_CANVAS = 4;
 const grids = [];
 {
   const root = document.getElementById('demos');
@@ -25,10 +26,19 @@ const grids = [];
     const h = document.createElement('h2');
     h.className = 'group-title';
     h.textContent = label;
-    const grid = document.createElement('nav');
-    grid.className = 'demos';
-    grid.setAttribute('aria-label', label);
+    const group = document.createElement('nav');
+    group.setAttribute('aria-label', label);
+    // At most PER_CANVAS cards in one grid, because each grid becomes one canvas. In one column on a phone a
+    // group of 20 cards was a canvas 8,500 device pixels tall and 9 megapixels, more than a phone GPU takes as
+    // one texture. Four cards in one column are about 1,000 CSS pixels.
+    let grid = null;
     for (const d of items) {
+      if (!grid || grid.childElementCount >= PER_CANVAS) {
+        grid = document.createElement('div');
+        grid.className = 'demos';
+        group.append(grid);
+        grids.push(grid);
+      }
       const a = document.createElement('a');
       a.className = 'demo';
       a.href = d.href;
@@ -36,8 +46,7 @@ const grids = [];
       a.innerHTML = `<span class="num">${String(++n).padStart(2, '0')}</span><h2>${esc(d.title)}</h2><p>${d.blurb ?? ''}</p><span class="tags">${(d.tags ?? []).map((t) => `<span>${esc(t)}</span>`).join('')}</span>`;
       grid.append(a);
     }
-    root.append(h, grid);
-    grids.push(grid);
+    root.append(h, group);
   }
 }
 
@@ -117,13 +126,21 @@ function enhance(nav) {
   new ResizeObserver(([entry]) => {
     const box = entry.devicePixelContentBoxSize?.[0];
     layout();
-    const r = canvas.getBoundingClientRect();
     dpr = box ? box.inlineSize / Math.max(1, entry.contentRect.width) : devicePixelRatio;
-    const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+    size();
+  }).observe(nav, { box: 'device-pixel-content-box' });
+
+  // The canvas has pixels only while it is within one screen of the viewport. Further away it is 0 by 0 and
+  // holds no memory. All the grids together would hold over 200 MB on a phone.
+  let near = (() => { const r = nav.getBoundingClientRect(); return r.top < innerHeight * 2 && r.bottom > -innerHeight; })();
+  function size() {
+    const r = canvas.getBoundingClientRect();
+    const w = near ? Math.round(r.width * dpr) : 0, h = near ? Math.round(r.height * dpr) : 0;
     if (canvas.width !== w) canvas.width = w;
     if (canvas.height !== h) canvas.height = h;
-    kick();
-  }).observe(nav, { box: 'device-pixel-content-box' });
+    if (near) kick();
+  }
+  new IntersectionObserver(([entry]) => { near = entry.isIntersecting; size(); }, { rootMargin: '100% 0px' }).observe(nav);
 
   const colors = () => {
     const cs = getComputedStyle(document.documentElement);
@@ -226,6 +243,7 @@ function enhance(nav) {
   // The paint event fires when a card's rendering changes (focus ring, fonts
   // loading, theme) or when we ask for it while animating.
   canvas.addEventListener('paint', () => {
+    if (!canvas.width || !canvas.height) return;
     const moving = draw();
     if (moving && !running) {
       running = true;
