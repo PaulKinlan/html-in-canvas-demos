@@ -1,6 +1,6 @@
 # Plan
 
-The goals of this project, the strands of work and their status, every open idea with its source, and what is still unverified because it needs real hardware. Status is as of 2026-11-21. Results are in [FINDINGS.md](FINDINGS.md). How the code is organised is in [ARCHITECTURE.md](ARCHITECTURE.md).
+The goals of this project, the strands of work and their status, every open idea with its source, and what is still unverified because it needs real hardware. Status is as of 2026-11-21 at 15:00 UTC, after pull requests up to #65 had merged. Results are in [FINDINGS.md](FINDINGS.md). How the code is organised is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 This file has one writer at a time. A pull request that adds or changes a page does not edit it: the page's open ideas and unverified items go in its file in [findings/](findings/), and a planning pass copies them here. The reason is in [ARCHITECTURE.md](ARCHITECTURE.md), "Files that parallel branches share".
 
@@ -9,7 +9,7 @@ This file has one writer at a time. A pull request that adds or changes a page d
 - [Goals](#goals)
 - [How the work is run](#how-the-work-is-run)
 - [Strands and status](#strands-and-status)
-- [Open pull requests](#open-pull-requests)
+- [Pull requests](#pull-requests)
 - [Planned demos from the Chrome APIs plan](#planned-demos-from-the-chrome-apis-plan)
 - [Open ideas by strand](#open-ideas-by-strand)
 - [Ideas from the element catalogue](#ideas-from-the-element-catalogue)
@@ -46,73 +46,85 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 | Strand | Pages | Libraries | Pull requests | Status |
 |---|---|---|---|---|
 | Slots | `/slot/`, `/slot-bare/`, `/slot-bare/plain.html` | `canvas-slot.js`, `light-slots.js` | #1, #2, #5, #23, #30, #31 | Done. The mount-point pattern from the ExtensibleWebApps repository was studied and added (`/slot/mount.html`). |
-| Workers, tabs, origins | `/offscreen/`, `/cross-tab/`, `/cross-origin/`, `/transports/` | `slot-share.js`, `broker.js` | #1, #2, #3, #18 | Done. 49 transport routes tested. New routes are planned (demo 18). |
-| Cross-context | `/tear-off/`, `/remote/`, `/embed/`, `/support/`, `/slot-view/`, `/pip/` | `live-*.js`, `slot-view.js`, `slot-provider.js`, `element-pip.js`, `src/cross-context.js` | #9, #15, #26, #35 | Built. Not verified between two real networks or with a real cross-site pair. Demos 18 and 22 are assigned to this thread. |
-| UI primitives | `/portal/`, `/lens/`, `/shader-css/`, `/slot-effects/`, `/physical/` | `surface.js`, `dom-portal.js`, `dom-lens.js`, `lens-gl.js`, `lens-gpu.js`, `shader-fx.js`, `effects.js`, `slot-effects.js`, `physical-ui.js`, `fx.js` | #6, #12, #17, #19, #28, #32, #33, #42, #44 | Built. Five pages still gate their checks behind a tap. Demo 21 (component kit) is assigned to this thread. |
+| Workers, tabs, origins | `/offscreen/`, `/cross-tab/`, `/cross-origin/`, `/transports/`, `/transports-2/` | `slot-share.js`, `broker.js`, `freeze-log.js` | #1, #2, #3, #18, #54 | Done. 49 transport routes tested in the first lab. Demo 18 (newer routes) is built as `/transports-2/`. Element Capture, a frozen tab and WebTransport against a real server are not verified. |
+| Cross-context | `/tear-off/`, `/remote/`, `/embed/`, `/support/`, `/slot-view/`, `/pip/`, `/iframe-tiles/` | `live-*.js`, `slot-view.js`, `slot-provider.js`, `element-pip.js`, `src/cross-context.js` | #9, #15, #26, #35, #54 | Built. Not verified between two real networks or with a real cross-site pair. Demo 22 is built as `/iframe-tiles/`. |
+| UI primitives | `/portal/`, `/lens/`, `/shader-css/`, `/slot-effects/`, `/physical/`, `/component-kit/` | `surface.js`, `dom-portal.js`, `dom-lens.js`, `lens-gl.js`, `lens-gpu.js`, `shader-fx.js`, `effects.js`, `slot-effects.js`, `physical-ui.js`, `fx.js` | #6, #12, #17, #19, #28, #32, #33, #42, #44, #53 | Built. Five pages still gate their checks behind a tap. Demo 21 is built as `/component-kit/`. |
 | Form controls | `/select/`, `/datalist/`, `/inputs/` | `select-picker.js`, `placed-popover.js`, `datalist-picker.js`, `input-pickers.js` | #45 | Built. Not tried on a phone. |
 | Transitions and motion | `/transitions/`, `/view-transitions/`, `/time-scrubber/`, `/particles/` | `live-transition.js`, `dom-rewind.js`, `glyph-field.js` | #4, #8, #10, #20, #27, #43 | Built. |
-| WebGPU across the shader pages | the six shader pages and `/lens/` | `shared/backend.js`, `shared/route-switch.js`, `gpu-util.js` | #33, #37, #42 | Built. Confirmed on screen on the phone for `/shader-css/` only. Demo 26 is assigned to this thread. |
-| 3D and spatial | `/three-form/`, `/board/`, `/xr/` | `html3d.js`, `check-fixture.js` | #11, #21, #25 | Built. three `WebGPURenderer`, a real headset and Android AR are not verified. Demo 24 is assigned to this thread. |
-| Native UI toolkits | `/native-ui/` | `native/egui-dom/`, `native/qt-dom/`, `docs/native-frameworks.md` | #47 | Built for egui and Qt Quick. Eight follow-up experiments are listed below. Demo 28 is assigned to this thread. |
+| WebGPU across the shader pages | the six shader pages, `/lens/` and `/webgpu-features/` | `shared/backend.js`, `shared/route-switch.js`, `gpu-util.js` | #33, #37, #42, #60 | Built. Confirmed on screen on the phone for `/shader-css/` only. Demo 26 is built as `/webgpu-features/`. Two of its shaders (`dual-source-blending`, `primitive-index`) have never been compiled, because the software adapter has neither feature. |
+| 3D and spatial | `/three-form/`, `/board/`, `/xr/`, `/xr-room/` | `html3d.js`, `check-fixture.js`, `xr-room.js` | #11, #21, #25, #59 | Built. three `WebGPURenderer`, a real headset and Android AR are not verified. Demo 24 is built as `/xr-room/` with a simulated room and a headset emulator. |
+| Native UI toolkits | `/native-ui/`, `/wasm-ui/` | `native/egui-dom/`, `native/qt-dom/`, `docs/native-frameworks.md` | #47, #55 | Built for egui and Qt Quick. Eight follow-up experiments are listed below. Demo 28 is built as `/wasm-ui/` (a C loop waiting on `paint` through JSPI). Its WebNN part ran only against a JavaScript stand-in. |
 | Devices | `/fold/`, `/hardware-out/`, `/window-chrome/` | `fold-view.js`, `device-out.js` | #57 | Built with simulated devices (demos 23, 25 and 27 of the Chrome APIs plan). No real foldable, peripheral or installed app window has been tried. |
 | Video and sound | `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/` | `video-export.js`, `webm-mux.js` | #46, #51 | Built. Hardware decoding and sound are not verified. Demo 19 (media state) landed in #51 as additions to the media pages. |
-| Accessibility, capture, performance | `/a11y/`, `/capture/`, `/perf/` | `a11y-audit.js`, `element-capture.js` | #7, #13, #14, #16, #22, #24 | Built. By-hand results (screen reader, IME, flicker, frame rates) are still wanted. Demos 10, 17 and 20 are assigned to this thread. |
+| Accessibility, capture, performance | `/a11y/`, `/capture/`, `/perf/`, `/protected/` | `a11y-audit.js`, `element-capture.js`, `device-tier.js`, `tools/protected/` | #7, #13, #14, #16, #22, #24, #56 | Built. By-hand results (screen reader, IME, flicker, frame rates) are still wanted. Demos 10, 17 and 20 are built as `/protected/`, the latency buttons on `/perf/` and section C of `/capture/`. |
 | Pages that hold still | every page | `tools/jank/`, `shared/support.js`, `shared/nav.js` | #29 and the per-page fixes #23 to #28 | Done. All pages hold still on load. Gated pages carry `<meta name="checks" content="tap">`. |
 | Show the code | every page | `shared/show-code.js`, `shared/source-view.js` | #30, #34 | Done. The two listing components could be unified. |
 | Learning resource | `/start/`, homepage, `shared/learn.js` | | #36, #38, #39, #40, #41 | Done. Open recommendations are listed below. |
-| Element catalogue | `/elements/`, `ELEMENTS.md` | `tools/elements/` | #48 (open) | Built, waiting to merge. 121 ideas, none built. |
+| Element catalogue | `/elements/`, `/element-ideas/`, `ELEMENTS.md` | `tools/elements/`, `tools/element-ideas/` | #48 | Built. 121 ideas, 17 of them built on `/element-ideas/` (`npm run check:ideas`). |
 | Text selection | `/selection/`, `/caret/` | `selection-fx.js` | #49, #52 | Built. Demo 9 (carets and highlights) landed in #52 as `/caret/`. Touch selection is not verified. |
-| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `/chrome-apis/plan.md` | `tools/chrome-apis/` | #50 | Plan written, 27 probes recorded. Building the 28 demos started on 2026-11-21. |
+| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `/chrome-apis/plan.md`, `/stream/`, `/carousel/`, `/patch/`, `/popovers/` | `tools/chrome-apis/`, `element-gl.js` | #50 | Plan written, 27 probes recorded. Demos 1, 2, 3 and 29 are built. Of the 29 planned demos, 27 are built. Demos 4 (`hdr-glow`) and 5 (`css-uniforms`) are not. |
+| Effects from CSS and sensors (plan demos 6, 7, 8, 11) | `/scroll-fx/`, `/shape-ui/`, `/text-labels/`, `/tilt-card/` | `tilt-light.js`, `char-rects.js`, `shared/fx-route.js` | #62 | Built. The overscroll drawer of demo 6 was not built (no `overscroll-area` in Chromium 157). The real tilt sensor and touch scrolling are not verified. |
 | AI and input (plan demos 12 to 16) | `/translate-lens/`, `/agent-view/`, `/voice/`, `/nav-shader/`, `/focus-nav/` | `text-twin.js` | #61 | Demos 12 to 16 built. No model, WebMCP or microphone in the test browser, so each page runs on a labelled fallback there. |
-| Lost canvases on new pages | new pages | shared fix | none yet | In progress in its own thread. See "Site-wide work that is open". |
+| Lost canvases on new pages | every page | `shared/context-guard.js`, `shared/backend.js`, `surface.js`, `tools/jank/` | #63 | Built. A guard loaded by `nav.js` counts contexts, frees the WebGL contexts of removed canvases, and puts a note with a Reload button over a canvas that stays lost. `check:jank` fails a page with more than 8 live WebGL contexts or any lost canvas. Not confirmed on the phone. |
+| Repository layout for parallel branches | every page | `tools/site/`, `public/<name>/page.json`, `findings/` | #64, #65 | Done. Each page registers itself with its own `page.json` and records results in its own findings file. The menu is generated by `npm run build`. |
 
-## Open pull requests
+## Pull requests
 
-On 2026-11-21 at 14:40 UTC:
+None is open on 2026-11-21 at 15:00 UTC. Pull requests #1 to #65 have merged. The wave that merged between 14:00 and 15:00 UTC that day:
 
-| PR | Title | Adds |
-|---|---|---|
-| #48 | `/elements/`: every HTML element inside a drawable canvas, measured | `public/elements/`, `ELEMENTS.md`, `tools/elements/record.mjs`, `npm run record:elements` |
-| #50 | Plan: Chrome 130 to 160 features combined with HTML-in-canvas, with probes | `public/chrome-apis/`, `docs/chrome-apis-plan.md`, `tools/chrome-apis/`, `npm run build:plan`, `npm run record:probes` |
-
-Each of them appends a section to FINDINGS.md. Merged the same day while this file was being written: #49 (`/selection/`), #51 (`/player-fx/` and the media state additions) and #52 (`/caret/`).
+| PR | Adds |
+|---|---|
+| #48 | `/elements/`, `/element-ideas/`, `ELEMENTS.md` |
+| #50 | The Chrome APIs plan, `/stream/`, `/carousel/`, `/patch/`, `/popovers/` |
+| #53 | `/component-kit/` |
+| #54 | `/transports-2/`, `/iframe-tiles/` |
+| #55 | `/wasm-ui/` |
+| #56 | `/protected/`, latency on `/perf/`, clipboard, print and folder additions on `/capture/` |
+| #57 | `/fold/`, `/hardware-out/`, `/window-chrome/` |
+| #59 | `/xr-room/` |
+| #60 | `/webgpu-features/` |
+| #61 | `/translate-lens/`, `/agent-view/`, `/voice/`, `/nav-shader/`, `/focus-nav/` |
+| #62 | `/scroll-fx/`, `/shape-ui/`, `/tilt-card/`, `/text-labels/` |
+| #63 | `shared/context-guard.js` and the context limits in `check:jank` |
+| #64, #65 | `page.json` per page, `findings/` per page or strand, one file per menu group |
 
 ## Planned demos from the Chrome APIs plan
 
-Source: `tools/chrome-apis/demos.json` and `public/chrome-apis/plan.md` (written by `npm run build`). The plan surveys the 678 features that chromestatus.com lists for Chrome 130 to 160, has an idea for 359 of them, and ranks 28 demos in three tiers. The full description of each demo (what it shows, how to build it, what was measured, what is uncertain) is in the plan document. When a demo ships, set `"built": "/path/"` on its entry in `demos.json` and run `npm run build:plan`.
+Source: `tools/chrome-apis/demos.json` and `public/chrome-apis/plan.md` (written by `npm run build`). The plan surveys the 678 features that chromestatus.com lists for Chrome 130 to 160, has an idea for 359 of them, and ranks 29 demos in three tiers. The full description of each demo (what it shows, how to build it, what was measured, what is uncertain) is in the plan document. A page that builds a demo names it with `"plan": "<key>"` in its `page.json`, and the build marks the demo as built from that.
 
-"Thread" is the project thread the demo was assigned to on 2026-11-21. By 14:40 UTC that day two had shipped: demo 9 as `/caret/` (PR #52) and demo 19 as additions to the media pages (PR #51, FINDINGS.md "Media state, lazy loading, the iframe policy, output latency"). Check `demos.json` and the open pull requests for the current state.
+On 2026-11-21 at 15:00 UTC, 27 of the 29 are built. Not built: demo 4 (`hdr-glow`) and demo 5 (`css-uniforms`). `grep -l '"plan"' public/*/page.json` lists the pages that claim a demo. Demos 9, 21 and 19 are built on `/caret/`, `/component-kit/` and the media pages; `/caret/` and `/component-kit/` do not carry the `plan` key yet.
 
-| # | Key | Demo | Tier | Thread |
+| # | Key | Demo | Tier | Built as |
 |---|---|---|---|---|
-| 1 | `stream-materialise` | Streamed HTML that the canvas draws as it arrives (`streamAppendHTML()`, Prompt API or Workers AI) | next | Build demos from Chrome APIs plan |
-| 2 | `carousel-3d` | A CSS-only carousel (`::scroll-marker`, `::scroll-button()`) drawn as a cover flow | next | Build demos from Chrome APIs plan |
-| 3 | `popover-tips` | Native popovers, hints (`interestfor`) and commands (`commandfor`) on warped surfaces | next | Build demos from Chrome APIs plan |
-| 4 | `hdr-glow` | HDR interface: elements brighter than white in a `float16` canvas | next | Build demos from Chrome APIs plan |
-| 5 | `css-uniforms` | Shader uniforms written in CSS only (typed `attr()`, `@function`, `if()`, `sibling-index()`, `random()`) | next | Build demos from Chrome APIs plan |
-| 6 | `scroll-fx` | Scroll-linked shaders with no scroll listener | next | Build visual effect demos from plan |
-| 7 | `shape-ui` | CSS shapes (`corner-shape`, `border-shape`, `shape()`) lit as solid objects | next | Build visual effect demos from plan |
-| 8 | `text-labels` | Text measured by CSS for textures, signs and particles (`text-box-trim`, `text-fit`, `OpaqueRange`) | next | Build visual effect demos from plan |
-| 9 | `caret-fx` | Carets, highlights and editing drawn through shaders | next | Build text selection effects |
-| 10 | `caps-in-canvas` | What a canvas may not see or wrap: permission elements, `:visited`, system colours, spelling markers, autofill previews, cross-origin iframes | next | Audit accessibility, capture and performance |
-| 11 | `sensor-parallax` | Tilt the phone to light a live card | next | Build visual effect demos from plan |
-| 12 | `translate-lens` | A lens that translates, simplifies or summarises what is under it | then | Build AI and input demos from plan. Built: `/translate-lens/` |
-| 13 | `agent-view` | An agent operating a canvas UI through WebMCP tools, drawn as it happens | then | Build AI and input demos from plan. Built: `/agent-view/` |
-| 14 | `voice-ui` | Speak a label to press what the canvas draws | then | Build AI and input demos from plan. Built: `/voice/` |
-| 15 | `nav-shader` | Page navigations drawn by a shader that starts at the clicked link (Navigation API) | then | Build AI and input demos from plan. Built: `/nav-shader/` |
-| 16 | `focus-nav` | Controller, keyboard (`focusgroup`) and haptic navigation of drawn UI | then | Build AI and input demos from plan. Built: `/focus-nav/` |
-| 17 | `perf-latency` | Latency from DOM change to canvas pixels, and a device tier | then | Audit accessibility, capture and performance |
-| 18 | `transport-2` | New routes for the transport lab and the remote component (WebTransport, Element Capture, worker input) | then | Share live widgets across contexts |
-| 19 | `media-states` | Media state pseudo-classes for canvas-drawn players | then | Explore video and media APIs |
-| 20 | `capture-print` | Capture additions: clipboard, print margins, files | then | Audit accessibility, capture and performance |
-| 21 | `component-kit` | The custom elements packaged with newer DOM features (scoped registries, Reference Target, `using`, Observable) | then | UI primitives thread |
-| 22 | `iframe-tiles` | Iframes as tiles: sizing, prerender and limits | then | Share live widgets across contexts |
-| 23 | `foldable` | DOM drawn across a fold | hardware | Build hardware demos from plan. Built as `/fold/` (PR #57). |
-| 24 | `xr-real` | HTML panels in a real room (hands, planes, depth, quad layers) | hardware | Put live HTML into 3D scenes |
-| 25 | `hardware-out` | Live DOM on physical devices (Stream Deck, receipt printer, LED matrix) | hardware | Build hardware demos from plan. Built as `/hardware-out/` (PR #57). |
-| 26 | `webgpu-pipeline` | WebGPU features for element textures (compatibility mode, dual source blending, `primitive_index`, immediates) | hardware | WebGPU thread |
-| 27 | `window-chrome` | An installed app whose window frame is a canvas | hardware | Build hardware demos from plan. Built as `/window-chrome/` (PR #57). |
-| 28 | `wasm-ui` | WebAssembly toolkits (JSPI) and WebNN models over live elements | hardware | Research native frameworks in canvas |
+| 1 | `stream-materialise` | Streamed HTML that the canvas draws as it arrives (`streamAppendHTML()`, Prompt API or Workers AI) | next | `/stream/` (#50) |
+| 2 | `carousel-3d` | A CSS-only carousel (`::scroll-marker`, `::scroll-button()`) drawn as a cover flow | next | `/carousel/` (#50) |
+| 3 | `popover-tips` | Native popovers, hints (`interestfor`) and commands (`commandfor`) on warped surfaces | next | `/popovers/` (#50) |
+| 4 | `hdr-glow` | HDR interface: elements brighter than white in a `float16` canvas | next | not built |
+| 5 | `css-uniforms` | Shader uniforms written in CSS only (typed `attr()`, `@function`, `if()`, `sibling-index()`, `random()`) | next | not built |
+| 6 | `scroll-fx` | Scroll-linked shaders with no scroll listener | next | `/scroll-fx/` (#62), without the overscroll drawer |
+| 7 | `shape-ui` | CSS shapes (`corner-shape`, `border-shape`, `shape()`) lit as solid objects | next | `/shape-ui/` (#62) |
+| 8 | `text-labels` | Text measured by CSS for textures, signs and particles (`text-box-trim`, `text-fit`, `OpaqueRange`) | next | `/text-labels/` (#62) |
+| 9 | `caret-fx` | Carets, highlights and editing drawn through shaders | next | `/caret/` (#52) |
+| 10 | `caps-in-canvas` | What a canvas may not see or wrap: permission elements, `:visited`, system colours, spelling markers, autofill previews, cross-origin iframes | next | `/protected/` (#56) |
+| 11 | `sensor-parallax` | Tilt the phone to light a live card | next | `/tilt-card/` (#62) |
+| 12 | `translate-lens` | A lens that translates, simplifies or summarises what is under it | then | `/translate-lens/` (#61) |
+| 13 | `agent-view` | An agent operating a canvas UI through WebMCP tools, drawn as it happens | then | `/agent-view/` (#61) |
+| 14 | `voice-ui` | Speak a label to press what the canvas draws | then | `/voice/` (#61) |
+| 15 | `nav-shader` | Page navigations drawn by a shader that starts at the clicked link (Navigation API) | then | `/nav-shader/` (#61) |
+| 16 | `focus-nav` | Controller, keyboard (`focusgroup`) and haptic navigation of drawn UI | then | `/focus-nav/` (#61) |
+| 17 | `perf-latency` | Latency from DOM change to canvas pixels, and a device tier | then | latency buttons on `/perf/` (#56) |
+| 18 | `transport-2` | New routes for the transport lab and the remote component (WebTransport, Element Capture, worker input) | then | `/transports-2/` (#54) |
+| 19 | `media-states` | Media state pseudo-classes for canvas-drawn players | then | additions to `/player-parts/` and the media pages (#51) |
+| 20 | `capture-print` | Capture additions: clipboard, print margins, files | then | section C of `/capture/` (#56) |
+| 21 | `component-kit` | The custom elements packaged with newer DOM features (scoped registries, Reference Target, `using`, Observable) | then | `/component-kit/` (#53) |
+| 22 | `iframe-tiles` | Iframes as tiles: sizing, prerender and limits | then | `/iframe-tiles/` (#54) |
+| 23 | `foldable` | DOM drawn across a fold | hardware | `/fold/` (#57) |
+| 24 | `xr-real` | HTML panels in a real room (hands, planes, depth, quad layers) | hardware | `/xr-room/` (#59) |
+| 25 | `hardware-out` | Live DOM on physical devices (Stream Deck, receipt printer, LED matrix) | hardware | `/hardware-out/` (#57) |
+| 26 | `webgpu-pipeline` | WebGPU features for element textures (compatibility mode, dual source blending, `primitive_index`, immediates) | hardware | `/webgpu-features/` (#60) |
+| 27 | `window-chrome` | An installed app whose window frame is a canvas | hardware | `/window-chrome/` (#57) |
+| 28 | `wasm-ui` | WebAssembly toolkits (JSPI) and WebNN models over live elements | hardware | `/wasm-ui/` (#55) |
+| 29 | `partial-updates` | Declarative partial updates (`<template for>`) and `moveBefore()` drawn by a canvas | next | `/patch/` (#50) |
 
 Guidance given to every thread building these (2026-11-21): ship in small pull requests of two or three demos, let a demo that fails on the API fail visibly with the finding recorded, start each page on its lightest effect, create one graphics context per page where possible, keep live checks behind a tap, recover from a lost context with a message, and favour dynamic, visually strong effects. The hardware-tier demos are built with a simulated fallback (a fold control, a simulated device panel, a simulated title bar) because the cloud browser cannot verify the real thing.
 
@@ -217,7 +229,7 @@ Source: PR #44 and the project notes.
 
 ## Ideas from the element catalogue
 
-Source: `ELEMENTS.md` (PR #48), generated from `public/elements/notes.js` and `ideas.js`. 121 ideas: 28 at rank 1 (build next), 60 at rank 2, 33 at rank 3 (small, speculative or blocked). Each has the elements it needs and whether the recording says it is possible. None is built.
+Source: `ELEMENTS.md` (PR #48), generated from `public/elements/notes.js` and `ideas.js`. 121 ideas: 28 at rank 1 (build next), 60 at rank 2, 33 at rank 3 (small, speculative or blocked). Each has the elements it needs and whether the recording says it is possible. 17 are built on `/element-ideas/`; that page lists which. The list below is the full rank 1 list and still includes the built ones.
 
 Rank 1:
 
@@ -256,8 +268,8 @@ Rank 2 and rank 3 are in `ELEMENTS.md` under "Ideas". Rank 2 includes developer 
 
 | Item | Source | Notes |
 |---|---|---|
-| Canvases losing their graphics context on load on the phone | Phone reports 2026-11-21, thread "Fix lost canvases on new pages" | New pages showed a white box with a broken-picture icon on Chrome 159 on Android. The suspected cause is several WebGL contexts and a WebGPU device opened at once. The cause is not confirmed. A shared fix is being built. Until it lands, follow the rules in ARCHITECTURE.md, "How to add a page", step 8. |
-| Pages whose checks wait for a tap | `<meta name="checks" content="tap">` in each page (`grep -l 'name="checks"' public/*/index.html`) | Nineteen pages on 2026-11-21. `/portal/`, `/lens/`, `/shader-css/`, `/physical/` shift by 0.25 to 1.03 with checks forced on because `#check-bench` grows and shrinks. `/slot-effects/` shifts by 1.40 and covers over 40% of the screen. `/cross-origin/` scrolls 990 px. `/remote/` moves focus four times. A fixed-size bench would probably fix the bench cases. |
+| Canvases losing their graphics context on load on the phone | Phone reports 2026-11-21, PR #63 | New pages showed a white box with a broken-picture icon on Chrome 159 on Android. The suspected cause is several WebGL contexts and a WebGPU device opened at once. The cause is not confirmed. PR #63 added `shared/context-guard.js` and context limits in `check:jank`. Whether the phone still shows lost canvases has not been reported. |
+| Pages whose checks wait for a tap | `<meta name="checks" content="tap">` in each page (`grep -l 'name="checks"' public/*/index.html`) | Forty pages on 2026-11-21 at 15:00 UTC. `/portal/`, `/lens/`, `/shader-css/`, `/physical/` shift by 0.25 to 1.03 with checks forced on because `#check-bench` grows and shrinks. `/slot-effects/` shifts by 1.40 and covers over 40% of the screen. `/cross-origin/` scrolls 990 px. `/remote/` moves focus four times. A fixed-size bench would probably fix the bench cases. |
 | A flaky check | project notes | `/lens/`: "Pinned lens: clicks land on the magnified drawing". |
 | `<dom-portal>` in viewport mode resizes its canvas on every `innerHeight` change | project notes | This clears the canvas when a phone's URL bar moves. |
 | `testStage()` takes taps while checks run | FINDINGS.md, "Video and sound" | The media pages wrap it with `pointer-events: none`. Other pages still have the problem. |
@@ -280,7 +292,7 @@ Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-2
 
 | Area | What is unverified | How to verify |
 |---|---|---|
-| WebGPU | Every on-screen WebGPU path except `/shader-css/`; its speed against WebGL; three `WebGPURenderer` | Open each shader page and read the "Drawn with" line and the two WebGPU check rows. `/three-form/?renderer=webgpu`. |
+| WebGPU | Every on-screen WebGPU path except `/shader-css/`; its speed against WebGL; three `WebGPURenderer`; `dual-source-blending` and `primitive-index` on `/webgpu-features/`; whether a phone gives a separate compatibility mode adapter | Open each shader page and read the "Drawn with" line and the two WebGPU check rows. `/three-form/?renderer=webgpu`. |
 | Lens | Frame times on a real GPU; whether Chrome on Android keeps the sub-rectangle canvas-to-texture copy on the GPU | "Measure on this device" on `/lens/`. |
 | Built-in AI | `Translator`, `Rewriter`, `Summarizer` filling the lens copy; the Prompt API planning tool calls and describing a picture | `/translate-lens/` and `/agent-view/`: the line under each demo lists what the browser reports; press "Use ... on this device" and run the live checks. |
 | WebMCP | Whether Chrome 159 has `registerTool()` or `provideContext()`, and an agent calling the tools | `/agent-view/` with the WebMCP flag on: the first chip under the demo and the first live check. |
@@ -302,6 +314,15 @@ Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-2
 | Storage partitioning | The BroadcastChannel bridge and the window-name consent route between two real sites | Needs two origins that are not same-site. |
 | Consent window on Android | Android opens the `/slot-view/` consent window as a tab | Phone. |
 | WebXR | A real headset or Android AR session; whether `paint` keeps firing behind an immersive session; `XRQuadLayer` | `/xr/` in a headset. The page counts paint events in session and shows the result on a panel. |
+| Transports | Element Capture of a plain element, a drawable canvas and a canvas child (tab capture does not start in the test browsers); what stops while a tab is frozen; WebTransport against a real server | `/transports-2/`: the Element Capture button in desktop Chrome, the freeze test on a phone with the tab hidden for 90 seconds, `?wt=<url>` for a server. |
+| Iframe tiles | `frame-sizing: content-height` and the focus policy on the phone; cross-origin tiles during prerender | `/iframe-tiles/`: "Run the measurements", and "Prerender both pages" pressed by a person. |
+| Recent CSS and DOM features on the phone | Whether Chrome 159 has `<template for>` and the streaming methods; where it anchors a popover to a drawn control (Chromium 153 uses the layout box); long press for an `interestfor` hint; touch fling and the generated buttons on the carousel; which of the six component-kit features it reports | First live check on `/patch/`, third and fourth on `/popovers/`, the checks on `/carousel/` and `/component-kit/`. |
+| Effects from CSS and sensors | Touch scrolling against main-thread property reads; the real tilt sensor (event rate, permission step); IME in the drawn input; `createValueRange()` on Chrome 159 | Scroll `/scroll-fx/` by touch; "Use the phone's tilt" on `/shape-ui/`; `/tilt-card/` prints the sensor's event rate; `/text-labels/` prints which measuring method it used. |
+| Protected content | Spelling markers and the autofill preview in a drawn field; a tap on a permission element in a canvas on Android; a custom system accent colour | "Try it by hand" on `/protected/`. |
+| Latency and capture additions | Latency and the long-frame split on real hardware, and whether `deviceTier()` matches the measured wall; `showDirectoryPicker()` and `FileSystemObserver` on Android; a printed capture with its margin boxes | The two latency buttons on `/perf/`; `/capture/` section C. |
+| WebAssembly and WebNN | The WebNN graph on `/wasm-ui/` (ran only against a JavaScript stand-in); touch on its slider and dialog | "Run the edge filter" and the last live check on `/wasm-ui/` in a browser with WebNN on. |
+| Room-scale XR | Hand joints, planes and depth on Android Chrome and a headset; a real anchor; `texElementSubImage2D()` into a quad layer's texture | `/xr-room/` in a session. Its "What a session reports" table records each. |
+| Element ideas | The browser's find-in-page on `/element-ideas/#find`; a list box for `<select multiple>` on Android; touch drag on a slider drawn rotated 90 degrees | Phone. |
 | Other browsers | Safari and Firefox as viewers of the cross-context pages | By hand. |
 | Chrome version | Chrome 159 against the four probe results that differ between 153 and 157; Chrome 148 as the floor | `/chrome-apis/probes.html` on the phone. |
 | Native UI | Qt Widgets (2D canvas route) | Not built. |

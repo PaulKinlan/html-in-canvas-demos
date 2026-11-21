@@ -17,7 +17,7 @@ This repository is a set of experiments with the HTML-in-canvas API, served as a
 | Native UI frameworks on the web (Qt, Flutter, Compose, egui and others) | [docs/native-frameworks.md](docs/native-frameworks.md) |
 | The `<slot-view>` wire protocol | [public/slot-view/PROTOCOL.md](public/slot-view/PROTOCOL.md) |
 | One row per HTML element drawn in a canvas, and 121 ideas | [ELEMENTS.md](ELEMENTS.md) |
-| 678 Chrome features with ideas, and 28 planned demos | `public/chrome-apis/plan.md` after `npm run build`, or https://html-in-canvas.page/chrome-apis/plan.md |
+| 678 Chrome features with ideas, and 29 planned demos | `public/chrome-apis/plan.md` after `npm run build`, or https://html-in-canvas.page/chrome-apis/plan.md |
 | The raw API in 60 lines | [public/start/hello.html](public/start/hello.html) |
 
 The five top-level documents (PLAN, FINDINGS, ARCHITECTURE, DESIGN, KNOWN-LINKS-AND-RESOURCES) and the files in `findings/` are the source of truth for the project. A pull request that adds or changes a page records its results in its own file in `findings/`. The top-level documents are brought up to date by a documentation pass on its own branch (see "Files a pull request may edit" below).
