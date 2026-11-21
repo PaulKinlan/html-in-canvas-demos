@@ -68,6 +68,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/video/` | A `<video controls>` with captions as a canvas child under a shader. What is drawn (frames, controls, `::cue`), and what is left out (cross-origin, encrypted) |
 | `/overlay/` | HTML over video in one canvas: recorded with sound, exported frame by frame with WebCodecs, sent over WebRTC |
 | `/audio/` | Web Audio band levels as CSS custom properties that drive a shader over a working `<audio>` card |
+| `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 

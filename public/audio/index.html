@@ -221,6 +221,9 @@
     }
     if (!running) { running = true; requestAnimationFrame(tick); }
   }
+  // The fixture box lies over the bottom left of the window while checks run. It lets taps through, except for the moment a check asks what is at a point.
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const hitAt = (x, y) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { s.style.pointerEvents = 'none'; } };
   function tick() {
     const live = micSource || !player.paused;
     const now = live ? levels(analyser) : [0, 0, 0, 0];
@@ -280,7 +283,7 @@
     holder.innerHTML = `<div ${attrs} style="width:220px;height:90px;padding:8px;box-sizing:border-box;background:linear-gradient(90deg,#1b1f3a,#a13a6a);color:#fff;${style}">${CARD}</div>`;
     holder.style.cssText = 'flex:none;width:240px';
     const el = holder.firstElementChild;
-    testStage().append(holder);
+    quietStage().append(holder);
     let s;
     for (let i = 0; i < 80; i++) { s = el.closest('fx-surface'); if (s?.ready) break; await sleep(25); }
     if (!s?.ready) throw new Error('the fixture was never drawn');
@@ -300,14 +303,14 @@
         c.width = 320; c.height = 70;
         c.style.cssText = 'width:320px;height:70px;flex:none';
         c.innerHTML = '<div drawable style="width:320px;height:70px;background:#fff"><audio controls preload="none" src="/media/clip.webm" style="display:block;width:300px"></audio></div>';
-        testStage().append(c);
+        quietStage().append(c);
         const ctx = c.getContext('2d', { willReadFrequently: true });
         await new Promise((resolve) => { c.addEventListener('paint', () => { ctx.drawElementImage(c.firstElementChild, 0, 0, 320, 70); resolve(); }, { once: true }); c.requestPaint(); });
         const d = ctx.getImageData(0, 0, 320, 70).data;
         let ink = 0;
         for (let i = 0; i < d.length; i += 4) if (d[i] < 240 || d[i + 1] < 240 || d[i + 2] < 240) ink++;
         const box = c.getBoundingClientRect();
-        const hit = document.elementFromPoint(box.left + 30, box.top + 27);
+        const hit = hitAt(box.left + 30, box.top + 27);
         if (ink < 500) throw new Error(`only ${ink} pixels of the control bar were drawn`);
         if (hit?.localName !== 'audio') throw new Error(`elementFromPoint() returned ${hit ? `<${hit.localName}>` : 'nothing'}`);
         return `${ink} pixels of controls drawn; elementFromPoint() at the play button returns the <audio>`;
