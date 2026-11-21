@@ -1,6 +1,8 @@
-# DOM drawn across a fold (`/fold/`, `lib/fold-view.js`)
+# Devices: fold, peripherals, app window (`/fold/`, `/hardware-out/`, `/window-chrome/`)
 
-Measured in Chromium 157 (headless shell) on 2026-11-21 with a mouse, emulated touch and DevTools device emulation. From the hardware tier of the Chrome APIs plan. An on-page control stands in for the device.
+From the hardware tier of the Chrome APIs plan. Each page has an on-page control that stands in for the device. Tested in headless Chromium 157 with a mouse, emulated touch and DevTools device emulation. No real foldable was used.
+
+## `/fold/`, `lib/fold-view.js`
 
 | Experiment | Result | Why |
 |---|---|---|
@@ -14,19 +16,34 @@ Measured in Chromium 157 (headless shell) on 2026-11-21 with a mouse, emulated t
 | `viewport.segments` and `devicePosture` through `Emulation.setDeviceMetricsOverride` | works | A display feature gives two segments and `"folded"`. `visualViewport.segments` does not exist in 157. |
 | Playwright `page.screenshot()` during that emulation | resets it | Playwright sends its own metrics override, which drops the display feature. Use CDP `Page.captureScreenshot`. |
 
-## Things that bit
+Not verified: any real foldable. Segment rectangles, the reported hinge width of a dual-screen device, the segments while the on-screen keyboard is open, and whether the shaded crease lines up with the physical one. The API reports no fold angle, so a real device cannot drive the angle of the picture.
 
-- Playwright `page.screenshot()` sends its own metrics override, which drops the emulated display feature. Screenshots of the device mode need CDP `Page.captureScreenshot`.
-- The first version drew both halves at half the fold angle and fitted the scale to each angle. On a phone the controls moved and changed size under the finger while the angle slider was dragged (reported, A159). The half with the controls now has a fixed tilt and one scale.
+## `/hardware-out/`, `lib/device-out.js`
 
-## Not verified
+Three canvases hold a shop till written as plain HTML: fifteen buttons, a receipt, a sign. Each is converted to the bytes of a device, and a simulated device on the page is drawn from those bytes by a reader that knows nothing about the DOM.
 
-any real foldable. Segment rectangles, the reported hinge width of a dual-screen device, the segments while the on-screen keyboard is open, and whether the shaded crease lines up with the physical one. The API reports no fold angle, so a real device cannot drive the angle of the picture. To verify: open `/fold/` on a foldable and press "Use this device's fold". The table on the page shows the posture and the segments.
+| Experiment | Result | Why |
+|---|---|---|
+| Fifteen `<button drawable>` grandchildren of one canvas, each drawn into its own 72 x 72 square | works | `drawElementImage(button, x, y, 72, 72)` per button. The buttons stay clickable in the canvas at the drawn size. |
+| `event.changedElements` to choose which keys to refresh | works, over-reports | A frame of an animated key lists that button only. Setting text to the same value also lists the element, so the page hashes the pixels of listed keys before sending. |
+| Key picture to JPEG to 1,024-byte HID reports and back | works | `OffscreenCanvas.convertToBlob()` per key, about 1.2 KB and 2 reports. The reader returns the same bytes. Report layout is that of the 15-key JPEG Stream Decks. |
+| A key press from the device | synthetic only | The input report leads to `button.click()`. Handlers run. The event is not trusted and there is no `:active`. |
+| An element as ESC/POS raster (`GS v 0`) | works | 384 dots wide, about 15 KB for a 330 row receipt. Error diffusion, an ordered pattern or a threshold. The reader gets the same dots back. |
+| A focused `<input>` in the printed element | caret is printed | The caret and the placeholder are part of the picture. |
+| A CSS `@keyframes` ticker drawn into 64 x 32 pixels | works | `paint` fires about 60 times a second with no script, also while the canvas is scrolled out of view. Frames are RGB565, 4,100 bytes. |
 
-## For the index
+Not verified: any device. WebHID and Web Serial exist in the test browser, Web Bluetooth does not. The Stream Deck report layout comes from open-source drivers. The LED matrix frame format is this page's own and needs firmware written for it.
 
-- Hit testing and updateElementGeometry(): a folded surface drawn as two tilted planes keeps hit testing through one perspective matrix per half. measured, C157, `/fold/`.
-- Hit testing and updateElementGeometry(): an element across two planes has one hit box, which the page moves to the half under the pointer. measured, C157, `/fold/`.
-- Phones and lost contexts: a real foldable. not verified, `/fold/`.
+## `/window-chrome/`, `app.html`, `app.webmanifest`
 
-For PLAN.md: demo 23 `foldable` is built as `/fold/`. "Not verified" row: Foldables, as above.
+An installable app whose window is one canvas. The title bar is a `<header>` child of the canvas with `app-region: drag`. The page runs the app in a frame with a simulated window around it. Tested in headless Chromium 157 with a mouse and emulated touch, 2026-11-21. No installed app window was used.
+
+| Experiment | Result | Why |
+|---|---|---|
+| A title bar element drawn by the canvas, with tabs and a text field in it | works in the simulated window | The bar is sized to the title bar rectangle and drawn there. A tab takes a click and the field takes typing at the drawn position, by mouse and by emulated touch. |
+| Canvas drawing around the bar | works | The gradient behind the bar, a glow under the pointer and the grey of an inactive window are drawn by the canvas around the picture of the element. |
+| Read `app-region` at a drawn position | works | `elementFromPoint()` at the picture of an element drawn 150 px from its layout box returns the element, and its computed `app-region` is `drag`. At the layout box it returns what is drawn there. A simulated window built on those two calls drags from the picture. |
+| `window-drag` | not in Chromium 153 or 157 | `CSS.supports('window-drag: drag')` is false. `app-region: drag` is supported. |
+| `window.minimize()`, `maximize()`, `restore()`, `setResizable()`, `setShape()`, `navigator.install()` | undefined in a tab | The app's buttons report what exists where it runs. |
+
+Not verified: everything about a real window. Whether the window controls overlay hands the canvas the strip beside the system buttons as expected, whether a real drag region is at the picture of the element or at its layout box (the app's "Test 1" and "Test 2" measure it from `screenX` and `screenY` once installed), whether `updateElementGeometry()` changes that, and the windowing calls in an installed window. Window Shape needs an allowlisted Isolated Web App on ChromeOS and was not tried.
