@@ -60,7 +60,9 @@ export const PROBES = {
     if (Math.abs(dpr - 1) < 0.05) return { happens: null, detail: 'devicePixelRatio is 1 here, so CSS pixels and device pixels are the same size. Open the page on a HiDPI screen.' };
     const f = await fixture(BOX('#f00'), 300, 120, { backing: dpr });
     f.ctx.scale(dpr, dpr);
-    f.ctx.drawElementImage(f.el, 0, 0); // No size on purpose: the default size is what this probe measures.
+    f.canvas.setAttribute('data-gfx-any-size', ''); // the wrong size is the thing measured: the guard does not report it
+    // gfx-allow: draw-size no size on purpose, the default size under a scaled context is what this probe measures
+    f.ctx.drawElementImage(f.el, 0, 0);
     const got = f.extent(red);
     const cssWidth = got ? got.w / dpr : 0;
     return { happens: cssWidth > 100 * (1 + (dpr - 1) / 2), detail: `A 100 px wide box drawn with no size under ctx.scale(${dpr.toFixed(3)}) covers ${cssWidth.toFixed(0)} CSS px of the canvas.` };
