@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Partial updates and moved elements drawn by a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; max-width: 560px; height: 446px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #0d1017; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #stage.plain #doc { position: absolute; inset: 0; }
+
+  #doc { position: relative; width: 100%; color: #e9edf5; font: 14px/1.35 system-ui; }
+  #grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
+  .tile { --c: #6aa8ff; box-sizing: border-box; height: 132px; padding: 11px 12px; border-radius: 14px; overflow: hidden; background: #182031; border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+    display: flex; flex-direction: column; gap: 4px; }
+  .tile h3 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--c); }
+  .tile p { margin: 0; }
+  .tile .big { font: 700 27px/1.1 system-ui; }
+  .tile .sub { font-size: 12px; opacity: .75; }
+  .tile ol { margin: 0; padding: 0; list-style: none; font-size: 13px; }
+  .tile ol li { display: flex; justify-content: space-between; }
+  .tile button, .tile input { font: inherit; }
+  .tile button { align-self: flex-start; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--c); background: transparent; color: #fff; }
+  .tile input { box-sizing: border-box; width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid #ffffff40; background: #0d1017; color: #fff; }
+  .bar { height: 8px; border-radius: 4px; background: #ffffff22; overflow: hidden; } .bar i { display: block; height: 100%; background: var(--c); }
+  .skeleton { display: block; height: 12px; border-radius: 6px; background: #ffffff1f; margin-top: 8px; } .skeleton.w60 { width: 60%; } .skeleton.w40 { width: 40%; height: 22px; }
+  /* A hand that turns in steps, four times a second. It restarts from the top when its element is removed and inserted again. */
+  .dial { position: relative; width: 62px; height: 62px; border-radius: 50%; border: 2px solid var(--c); margin: 2px 0 0; }
+  .dial i { position: absolute; left: 50%; top: 50%; width: 2px; height: 27px; margin: -27px 0 0 -1px; background: #fff; transform-origin: 50% 100%; animation: turn 12s steps(48) infinite; }
+  @keyframes turn { to { rotate: 360deg; } }
+
+  .tools { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .tools button { font: inherit; padding: 6px 10px; }
+  #status, #witness { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; margin: 6px 0; }
+  #notice { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--warn); border-radius: 8px; font-size: 14px; }
+  #notice[hidden] { display: none; }
+  #rig { position: fixed; left: 0; bottom: 0; width: 220px; height: 120px; opacity: .01; pointer-events: none; overflow: hidden; }
+  td.status.ok { color: var(--ok); } td.status.fail { color: var(--bad); } td.status.idle { color: var(--muted); }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Partial updates and moved elements drawn by a canvas</h1>
+  <p class="lede">
+    The tiles below are children of a canvas. Four of them hold a named range, <code>&lt;?start name="orders"?&gt;</code> to <code>&lt;?end?&gt;</code>. A stream of
+    <code>&lt;template for="orders"&gt;</code> elements replaces each range, in any order, with no script touching the tiles. The canvas draws every tile as its own texture, so it can
+    show which tile a patch is landing in, and it can fly a tile from its old place to its new one when <code>moveBefore()</code> reorders the list.
+  </p>
+
+  <div class="tools">
+    <button id="send" type="button">Send the patches, out of order</button>
+    <button id="add" type="button">Add a tile with a patch</button>
+  </div>
+  <div class="tools">
+    <button id="move" type="button">Shuffle with moveBefore()</button>
+    <button id="insert" type="button">Shuffle with insertBefore()</button>
+    <label><input type="checkbox" id="keep"> Keep shuffling</label>
+  </div>
+
+  <div id="stage">
+    <!-- #region markup -->
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <div id="doc" drawable>
+        <div id="grid">
+          <section class="tile" drawable style="--c:#6aa8ff"><h3>Orders today</h3><?start name="orders"?><span class="skeleton w40"></span><span class="skeleton w60"></span><?end?></section>
+          <section class="tile" drawable style="--c:#ffb454"><h3>Clock hand</h3><div class="dial"><i id="hand"></i></div><p class="sub">A CSS animation.</p></section>
+          <section class="tile" drawable style="--c:#7ee787"><h3>Note</h3><input id="note" value="Type here" aria-label="Note"><p class="sub">Focus this, then shuffle.</p></section>
+          <section class="tile" drawable style="--c:#ff7b9c"><h3>Build</h3><?start name="build"?><span class="skeleton w40"></span><span class="skeleton"></span><?end?></section>
+          <section class="tile" drawable style="--c:#c297ff"><h3>Top pages</h3><?start name="pages"?><span class="skeleton"></span><span class="skeleton w60"></span><span class="skeleton"></span><?end?></section>
+          <section class="tile" drawable style="--c:#5ad8d0"><h3>On call</h3><?start name="oncall"?><span class="skeleton w40"></span><span class="skeleton w60"></span><?end?></section>
+          <?marker name="more"?>
+        </div>
+      </div>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+  <p id="status">&nbsp;</p>
+  <p id="witness">&nbsp;</p>
+  <p id="notice" hidden></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>ranges, patches, one texture per tile, moves</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Ranges and a marker in the markup.</b> Each tile is a <code>drawable</code> element inside a drawable child of the canvas.</li>
+      <li data-code="#patches"><b>The patches.</b> Each is a <code>&lt;template for&gt;</code>. It carries new <code>start</code> and <code>end</code> instructions, so the range can be patched again.</li>
+      <li data-code="#send"><b>Send them.</b> Only the <code>Unsafe</code> streaming methods apply patches; the sanitising ones drop processing instructions.</li>
+      <li data-code="#track"><b>Which tile changed, and which tile is new.</b> A <code>MutationObserver</code> on the grid.</li>
+      <li data-code="#shuffle"><b>Reorder with <code>moveBefore()</code>.</b> Record where each tile is drawn, move the elements, and let the canvas travel from the old place to the new one.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Upload the tiles in <code>changedElements</code>, then draw each tile at its place.</li>
+      <li data-code="#shader"><b>The fragment shader.</b> A rim and a scan line on a tile that just changed, a moving band on a tile that still holds its placeholder, and the shadow of a tile in flight.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>Each tile is a <code>drawable</code> element with its own texture. The patch buttons write <code>&lt;template for&gt;</code> elements into the document with <code>streamAppendHTMLUnsafe()</code>, 14 characters at a time. The browser puts each template's content into the range of the same name. A <code>MutationObserver</code> records which tile changed and when; the <code>paint</code> event's <code>changedElements</code> says which textures to upload again. A shuffle records where each tile is drawn, reorders the elements, and the canvas draws each quad on a path from the old place to the tile's new layout box for 600 ms.</p>
+
+  <h2>Live checks</h2>
+  <p class="checks-gate"><button id="run-checks" type="button">Run these 5 checks</button> <span class="note">They run on a separate small canvas and take the focus for a moment.</span></p>
+  <table class="results" id="checks">
+    <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>A streamed <code>&lt;template for&gt;</code> replaces a range in a canvas child</td><td class="status idle">not run</td><td></td></tr>
+      <tr><td>The sanitising stream leaves the range alone</td><td class="status idle">not run</td><td></td></tr>
+      <tr><td>The patch raises <code>paint</code>, and <code>changedElements</code> names the patched element</td><td class="status idle">not run</td><td></td></tr>
+      <tr><td>A drawable element added by a patch is drawn at the next paint</td><td class="status idle">not run</td><td></td></tr>
+      <tr><td><code>moveBefore()</code> keeps focus and animation time; <code>insertBefore()</code> does not</td><td class="status idle">not run</td><td></td></tr>
+    </tbody>
+  </table>
+  <div id="rig" aria-hidden="true"></div>
+
+  <h2>Findings</h2>
+  <ul>
+    <li>A <code>&lt;template for="name"&gt;</code> written through <code>streamAppendHTMLUnsafe()</code> replaces the range of that name, including a range that was in the document before the stream
+      started. The content appears in the range while the template is still open, so text streams into the middle of the page (Chromium 157).</li>
+    <li>The sanitising methods (<code>streamAppendHTML()</code>, <code>appendHTML()</code>) remove processing instructions and patch templates, so nothing is patched. The one-shot methods
+      (<code>appendHTMLUnsafe()</code>, <code>insertAdjacentHTML()</code>) insert the template and leave it unapplied. <code>innerHTML</code> applies a patch only to a range in the same string.</li>
+    <li>When a template closes, its <code>start</code> and <code>end</code> instructions are removed. A patch that should be repeatable has to write them again inside its own content.</li>
+    <li>Each chunk of a patch raises one <code>paint</code> event with no call to <code>requestPaint()</code>, and <code>changedElements</code> names the tile that holds the range, not the whole document.
+      Only that tile is uploaded again.</li>
+    <li>A <code>drawable</code> element that arrives inside a patch has a picture at the next <code>paint</code> event and can be uploaded then. It needs no registration.</li>
+    <li><code>moveBefore()</code> on a tile keeps the focus and the selection of an input inside it and keeps its CSS animation running. The tile's texture is still valid after the move, so the canvas
+      only changes where it draws it. <code>insertBefore()</code> on the same tile drops the focus and restarts the animation.</li>
+    <li>Moving a drawable element to a different canvas with <code>moveBefore()</code> also keeps focus; the new canvas gets a <code>paint</code> event and can draw it.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { ElementGL, supported } from '/lib/element-gl.js';
+
+  const stageBox = document.getElementById('stage');
+  const canvas = document.getElementById('canvas');
+  const doc = document.getElementById('doc');
+  const grid = document.getElementById('grid');
+  const status = document.getElementById('status');
+  const witness = document.getElementById('witness');
+  const notice = document.getElementById('notice');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const tiles = () => [...grid.querySelectorAll(':scope > .tile')];
+  const canPatch = 'streamAppendHTMLUnsafe' in Element.prototype && 'htmlFor' in HTMLTemplateElement.prototype;
+
+  // The On call button, wherever a patch puts it.
+  grid.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) b.textContent = b.textContent === 'Page' ? 'Paged' : 'Page'; });
+
+  // #region patches
+  const rnd = (a, b) => Math.round(a + Math.random() * (b - a));
+  const PATCHES = {
+    orders: () => `<p class="big">${rnd(900, 1900).toLocaleString('en')}</p><p class="sub">${rnd(2, 19)}% more than yesterday. This text arrived in a template.</p>`,
+    build: () => { const n = rnd(20, 100); return `<p class="big">#${rnd(4000, 4999)}</p><div class="bar"><i style="width:${n}%"></i></div><p class="sub">${n}% of the tests have run.</p>`; },
+    pages: () => `<ol>${['/stream/', '/carousel/', '/patch/', '/lens/'].sort(() => Math.random() - 0.5).map((p) => `<li>${p} <b>${rnd(40, 900)}</b></li>`).join('')}</ol>`,
+    oncall: () => `<p class="big">Rota ${'ABCD'[rnd(0, 3)]}</p><button type="button">Page</button>`,
+  };
+  // The template replaces the range called `name`. The content starts and ends with new instructions of the
+  // same name, because the old ones are removed when the template closes.
+  const patch = (name) => `<template for="${name}"><?start name="${name}"?>${PATCHES[name]()}<?end?></template>`;
+  let added = 0;
+  const newTile = () => {
+    const hue = (added++ * 67 + 20) % 360;
+    return `<template for="more"><section class="tile" drawable style="--c:hsl(${hue} 90% 70%)"><h3>Added by a patch</h3><p class="big">${grid.children.length + 1}</p>` +
+      `<p class="sub">This element was not in the page. It came in a template for a marker.</p></section><?marker name="more"?></template>`;
+  };
+  // #endregion patches
+
+  // #region send
+  let sending = false;
+  async function send(html) {
+    if (sending) return;
+    sending = true;
+    const writer = doc.streamAppendHTMLUnsafe().getWriter();
+    // Small chunks with a pause, as a slow response would deliver them. A chunk may end inside a tag.
+    for (let i = 0; i < html.length; i += 14) { await writer.write(html.slice(i, i + 14)); await sleep(22); }
+    await writer.close();
+    sending = false;
+  }
+  // #endregion send
+
+  // #region track
+  const state = new WeakMap();   // tile -> { changed, born, from, moved }
+  const info = (tile) => { let s = state.get(tile); if (!s) { s = { changed: -1e9, born: -1e9, moved: -1e9, from: null }; state.set(tile, s); } return s; };
+  const observer = new MutationObserver((records) => {
+    const now = performance.now();
+    for (const r of records) {
+      for (const n of r.addedNodes) if (n.nodeType === 1 && n.parentNode === grid) info(n).born = now;
+      const tile = (r.target.nodeType === 1 ? r.target : r.target.parentElement)?.closest('.tile');
+      if (tile) info(tile).changed = now;
+    }
+    fit();
+    animate(1600);
+  });
+  observer.observe(grid, { childList: true, subtree: true, characterData: true });
+  // #endregion track
+
+  // The stage is as tall as the grid.
+  function fit() { const h = doc.offsetHeight; if (h && Math.abs(stageBox.clientHeight - h) > 1) stageBox.style.height = `${h}px`; }
+
+  // #region shuffle
+  function shuffle(method) {
+    const list = tiles(), now = performance.now();
+    const hand = document.getElementById('hand'), note = document.getElementById('note');
+    const before = { focus: document.activeElement === note, time: hand.getAnimations()[0]?.currentTime ?? 0 };
+    for (const t of list) { const s = info(t); s.from = placeOf(t, now); }
+    const end = [...grid.childNodes].find((n) => n.nodeType === 7) ?? null;   // keep the marker last
+    for (const t of list.sort(() => Math.random() - 0.5)) grid[method](t, end);
+    observer.takeRecords();   // a move is not a change of content
+    for (const t of list) info(t).moved = now;
+    const time = hand.getAnimations()[0]?.currentTime ?? 0;
+    witness.textContent = `${method}(): focus in the note ${before.focus ? (document.activeElement === note ? 'kept' : 'lost') : 'was not there'}; ` +
+      `the hand's animation ${time >= before.time ? 'continued' : 'restarted'} (${(before.time / 1000).toFixed(1)} s before, ${(time / 1000).toFixed(1)} s after).`;
+    animate(900);
+  }
+  // #endregion shuffle
+
+  // #region shader
+  const FRAGMENT = `#version 300 es
+  precision mediump float;
+  uniform sampler2D uTex;
+  uniform vec2 uSize;
+  uniform float uTime, uKind;       // uKind: 1 a tile, 2 the shadow of a tile in flight
+  uniform float uAge, uPending, uOpacity, uLift;
+  uniform vec3 uAccent;
+  in vec2 vUv;
+  out vec4 outColor;
+  void main() {
+    vec4 c = texture(uTex, vUv);
+    if (uKind > 1.5) { outColor = vec4(0.0, 0.0, 0.0, c.a * 0.45 * uLift); return; }
+    vec2 px = vUv * uSize, fromEdge = min(px, uSize - px);
+    // A tile that changed: a rim in the tile's colour that fades over a second, and a line that runs down it.
+    float flash = exp(-uAge * 2.6);
+    float rim = smoothstep(14.0, 0.0, min(fromEdge.x, fromEdge.y));
+    float line = smoothstep(0.07, 0.0, abs(vUv.y - uAge / 0.6)) * step(uAge, 0.7);
+    c.rgb += uAccent * (rim * flash + line * 0.55) * c.a;
+    // A tile that still holds its placeholder: a band that crosses it while a stream is open.
+    float band = smoothstep(0.18, 0.0, abs(fract(vUv.x * 0.6 + vUv.y * 0.25 - uTime * 0.7) - 0.5));
+    c.rgb += vec3(0.10) * band * uPending * c.a;
+    // A tile in flight is a little brighter.
+    c.rgb *= 1.0 + 0.18 * uLift;
+    vec2 e = min(vUv, 1.0 - vUv) / max(fwidth(vUv), vec2(1e-5));
+    outColor = c * clamp(min(e.x, e.y), 0.0, 1.0) * uOpacity;
+  }`;
+  // #endregion shader
+
+  let gl = null, paints = 0, uploads = 0;
+
+  function plain(reason) {
+    if (!stageBox.classList.contains('plain')) { stageBox.classList.add('plain'); stageBox.append(doc); canvas.hidden = true; }
+    notice.hidden = false; notice.textContent = reason;
+  }
+  function drawn() {
+    if (!stageBox.classList.contains('plain')) return;
+    stageBox.classList.remove('plain'); canvas.hidden = false; canvas.append(doc); notice.hidden = true;
+  }
+  if (!supported) {
+    plain('This browser does not have HTML-in-canvas for WebGL (texElementSubImage2D). The tiles are shown as plain HTML; patches and moves still work where the browser has them.');
+  } else {
+    try {
+      gl = new ElementGL(canvas, {
+        fragment: FRAGMENT,
+        onLost: () => plain('The browser took the WebGL context away. The tiles are shown as plain HTML until the context returns.'),
+        onRestored: () => { drawn(); canvas.requestPaint(); },
+      });
+    } catch (e) {
+      plain(`WebGL could not start (${e.message}). The tiles are shown as plain HTML.`);
+    }
+  }
+
+  // #region paint
+  const ease = (t) => t * t * (3 - 2 * t);
+  const accents = new WeakMap();
+  const accent = (tile) => {
+    let a = accents.get(tile);
+    if (!a) {
+      const probe = document.createElement('i'); probe.style.color = getComputedStyle(tile).getPropertyValue('--c'); document.body.append(probe);
+      a = getComputedStyle(probe).color.match(/[\d.]+/g).slice(0, 3).map((v) => v / 255); probe.remove(); accents.set(tile, a);
+    }
+    return a;
+  };
+  // Where a tile is drawn now: its layout box, or a point on the way there from where it was before a move.
+  function placeOf(tile, now) {
+    const s = info(tile), to = { x: tile.offsetLeft, y: tile.offsetTop, w: tile.offsetWidth, h: tile.offsetHeight, lift: 0 };
+    const t = (now - s.moved) / 600;
+    if (!s.from || t >= 1) return to;
+    const k = ease(Math.max(0, t));
+    return { x: s.from.x + (to.x - s.from.x) * k, y: s.from.y + (to.y - s.from.y) * k, w: to.w, h: to.h, lift: Math.sin(Math.PI * k) };
+  }
+  function toClip(m, w, h) {
+    return new DOMMatrix().translate(-1, 1).scale(2 / canvas.clientWidth, -2 / canvas.clientHeight).multiply(m).scale(w, h).toFloat32Array();
+  }
+  function draw() {
+    if (!gl || !gl.begin([0, 0, 0, 0])) return;
+    const now = performance.now();
+    canvas.updateElementGeometry(doc, { canvasTransform: new DOMMatrix() });
+    const items = tiles().map((tile) => ({ tile, at: placeOf(tile, now), s: info(tile) }));
+    items.sort((a, b) => a.at.lift - b.at.lift);   // tiles in flight are drawn last, on top
+    for (const { tile, at, s } of items) {
+      const born = Math.min(1, (now - s.born) / 450), grow = 0.7 + 0.3 * ease(born) + 0.07 * at.lift;
+      const turn = at.lift * (s.from && s.from.x < tile.offsetLeft ? 5 : -5);
+      const m = new DOMMatrix().translate(at.x + at.w / 2, at.y + at.h / 2).rotate(turn).scale(grow).translate(-at.w / 2, -at.h / 2);
+      const set = (kind) => (g, u) => {
+        g.uniform1f(u('uKind'), kind);
+        g.uniform1f(u('uAge'), (now - s.changed) / 1000);
+        g.uniform1f(u('uPending'), sending && tile.querySelector('.skeleton') ? 1 : 0);
+        g.uniform1f(u('uOpacity'), born);
+        g.uniform1f(u('uLift'), at.lift);
+        g.uniform3fv(u('uAccent'), accent(tile));
+      };
+      if (at.lift > 0.01) gl.quad(tile, toClip(new DOMMatrix().translate(0, 14 * at.lift).multiply(m), at.w, at.h), set(2));
+      gl.quad(tile, toClip(m, at.w, at.h), set(1));
+      // The hit box is the tile's layout box, which is where the tile comes to rest.
+      canvas.updateElementGeometry(tile, { canvasTransform: new DOMMatrix().translate(tile.offsetLeft, tile.offsetTop) });
+    }
+  }
+
+  canvas.addEventListener('paint', (e) => {
+    if (!gl || gl.lost) return;
+    paints++;
+    const changed = new Set(e.changedElements ?? []);
+    for (const tile of tiles()) if (changed.has(tile) || !gl.has(tile)) { gl.upload(tile); uploads++; }
+    draw();
+    status.textContent = `${paints} paint events, ${uploads} tile uploads, ${tiles().length} tiles.`;
+  });
+  // #endregion paint
+
+  // The canvas repaints every frame only while a patch is arriving or a tile is in flight.
+  let running = false, until = 0;
+  function animate(ms) {
+    until = Math.max(until, performance.now() + ms);
+    if (running) return;
+    running = true;
+    requestAnimationFrame(function frame() {
+      if (!gl || gl.lost || (performance.now() > until && !sending)) { running = false; return; }
+      canvas.requestPaint?.();
+      requestAnimationFrame(frame);
+    });
+  }
+  new ResizeObserver(() => canvas.requestPaint?.()).observe(canvas);
+  canvas.requestPaint?.();
+
+  // ---------------------------------------------------------------- buttons
+  const sendButton = document.getElementById('send'), addButton = document.getElementById('add');
+  if (!canPatch) {
+    sendButton.disabled = addButton.disabled = true;
+    notice.hidden = false;
+    notice.textContent += ' This browser does not have streamAppendHTMLUnsafe() with <template for>, so the two patch buttons are off. The shuffle buttons work.';
+  }
+  sendButton.onclick = () => { animate(500); send(Object.keys(PATCHES).sort(() => Math.random() - 0.5).map(patch).join('')); };
+  addButton.onclick = () => { if (tiles().length < 10) send(newTile()); else witness.textContent = 'Ten tiles is the limit on this page.'; };
+  const moveButton = document.getElementById('move'), insertButton = document.getElementById('insert'), keep = document.getElementById('keep');
+  // mousedown is cancelled so that pressing a shuffle button does not take the focus out of the note.
+  for (const b of [moveButton, insertButton]) b.addEventListener('mousedown', (e) => e.preventDefault());
+  if (!('moveBefore' in Element.prototype)) { moveButton.disabled = keep.disabled = true; moveButton.textContent = 'moveBefore() is not in this browser'; }
+  moveButton.onclick = () => shuffle('moveBefore');
+  insertButton.onclick = () => shuffle('insertBefore');
+  let timer = 0;
+  keep.onchange = () => { clearInterval(timer); if (keep.checked) timer = setInterval(() => shuffle('moveBefore'), 1800); };
+
+  // ---------------------------------------------------------------- live checks (run on a tap, on their own canvas)
+  const rows = [...document.querySelectorAll('#checks tbody tr')];
+  const set = (i, ok, detail) => { rows[i].children[1].className = `status ${ok ? 'ok' : 'fail'}`; rows[i].children[1].textContent = ok ? 'pass' : 'fail'; rows[i].children[2].textContent = detail; };
+  document.getElementById('run-checks').onclick = async () => {
+    const results = [];
+    const check = (i, name, ok, detail) => { set(i, ok, detail); results.push({ name, ok }); };
+    const rig = document.getElementById('rig');
+    rig.innerHTML = `<style>#fhand { display: block; width: 4px; height: 4px; animation: turn 20s linear infinite; }</style>
+      <canvas content="drawable" layoutsubtree width="220" height="120" style="width:220px;height:120px;display:block"><div id="fx" drawable style="position:relative;width:220px;height:120px;font:13px system-ui;background:#fff;color:#000">
+      <p id="fa" style="margin:0">A: <?start name="fa"?>old<?end?></p><p id="fb" style="margin:0">B: <?start name="fb"?>old<?end?></p>
+      <div id="fgrid"><div drawable id="ft1" style="height:24px"><input id="fin" value="abc" style="width:60px"><i id="fhand"></i></div><div drawable id="ft2" style="height:20px">two</div><?marker name="fm"?></div></div></canvas>`;
+    const fc = rig.querySelector('canvas'), fx = rig.querySelector('#fx'), fgrid = rig.querySelector('#fgrid');
+    const ctx = fc.getContext('2d', { willReadFrequently: true });
+    if (!ctx?.drawElementImage) { for (let i = 0; i < rows.length; i++) check(i, `check ${i}`, false, 'No drawElementImage() in this browser.'); window.__results = results; return; }
+    let count = 0, names = [], drawError = '';
+    fc.addEventListener('paint', (e) => {
+      count++; names.push(...(e.changedElements ?? []).map((el) => el.id));
+      ctx.reset();
+      try { ctx.drawElementImage(fx, 0, 0); for (const t of fgrid.children) ctx.drawElementImage(t, t.offsetLeft, t.offsetTop); } catch (err) { drawError = err.message; }
+    });
+    fc.requestPaint(); await sleep(300);
+    const text = (id) => rig.querySelector(id).textContent;
+    const stream = async (method, html) => { const w = fx[method]().getWriter(); await w.write(html.slice(0, 20)); await w.write(html.slice(20)); await w.close(); await sleep(250); };
+
+    count = 0; names = [];
+    if (canPatch) await stream('streamAppendHTMLUnsafe', '<template for="fa">NEW</template>');
+    check(0, 'patch applies', text('#fa') === 'A: NEW', canPatch ? `The paragraph reads "${text('#fa')}".` : 'No streamAppendHTMLUnsafe() or <template for> in this browser.');
+    const patchPaints = count, patchNames = [...new Set(names)];
+    if ('streamAppendHTML' in fx) await stream('streamAppendHTML', '<template for="fb">NEW</template>');
+    check(1, 'sanitised stream', text('#fb') === 'B: old', `After streamAppendHTML() the paragraph reads "${text('#fb')}".`);
+    check(2, 'paint', patchPaints > 0 && patchNames.includes('fx'), `${patchPaints} paint events with no requestPaint(); changedElements: ${patchNames.join(', ') || 'none'}.`);
+
+    if (canPatch) await stream('streamAppendHTMLUnsafe', '<template for="fm"><div drawable id="ft3" style="height:20px;background:rgb(0,160,0)"></div></template>');
+    const t3 = rig.querySelector('#ft3');
+    let px = [0, 0, 0];
+    if (t3) { fc.requestPaint(); await sleep(200); px = [...ctx.getImageData(t3.offsetLeft + 30, t3.offsetTop + 10, 1, 1).data]; }
+    check(3, 'new drawable', !!t3 && px[1] > 120 && px[0] < 60 && !drawError, t3 ? `Pixel inside the new element: rgb(${px[0]}, ${px[1]}, ${px[2]}).${drawError ? ` Draw error: ${drawError}` : ''}` : 'The element did not arrive.');
+
+    const had = document.activeElement, fin = rig.querySelector('#fin'), ft1 = rig.querySelector('#ft1'), anim = () => rig.querySelector('#fhand').getAnimations()[0]?.currentTime ?? -1;
+    let detail = 'No moveBefore() in this browser.', ok = false;
+    if ('moveBefore' in fgrid) {
+      fin.focus({ preventScroll: true }); await sleep(120);
+      const t0 = anim(); fgrid.moveBefore(ft1, null); await sleep(60);
+      const kept = document.activeElement === fin, went = anim() > t0;
+      fin.focus({ preventScroll: true }); await sleep(60);
+      const t1 = anim(); fgrid.insertBefore(ft1, fgrid.firstChild); await sleep(60);
+      const lost = document.activeElement !== fin, restarted = anim() < t1;
+      ok = kept && went && lost && restarted;
+      detail = `moveBefore(): focus ${kept ? 'kept' : 'lost'}, animation ${went ? 'continued' : 'restarted'}. insertBefore(): focus ${lost ? 'lost' : 'kept'}, animation ${restarted ? 'restarted' : 'continued'}.`;
+    }
+    check(4, 'moveBefore', ok, detail);
+    if (had && had !== document.body && had.isConnected) had.focus({ preventScroll: true }); else document.activeElement?.blur?.();
+    rig.innerHTML = '';
+    window.__results = results;
+  };
+  if (new URLSearchParams(location.search).get('autochecks') === '1') document.getElementById('run-checks').click();
+  else window.__results = [];
+</script>
+</body>
+</html>

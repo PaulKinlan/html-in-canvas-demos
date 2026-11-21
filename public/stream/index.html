@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
 <title>Streamed HTML drawn as it arrives</title>
 <link rel="stylesheet" href="/shared/style.css">
 <style>
@@ -52,6 +53,7 @@
   </div>
   <p id="status">Press a button above to start a stream.</p>
   <p id="notice" hidden></p>
+  <p class="checks-gate"><button id="run-checks" type="button">Run these 4 checks</button> <span class="note">The results are in the Live checks table below.</span></p>
 
   <div class="tools">
     <label>Effect
@@ -84,17 +86,11 @@
     </ol>
   </details>
 
-  <h2>Findings</h2>
-  <ul>
-    <li><code>streamAppendHTML()</code> raises one <code>paint</code> event per chunk with no call to <code>requestPaint()</code> (Chromium 157). The page counts the events under the stage.</li>
-    <li>The <code>paint</code> event does not say which block is new: <code>changedElements</code> lists drawable children of the canvas, and the whole document is one child. A <code>MutationObserver</code> supplies the per-block timing.</li>
-    <li>The document scrolls inside its own box while it is drawn through the shader, and it keeps to the bottom while text arrives. Block rectangles are measured every frame, so the effect stays on its block during a scroll.</li>
-    <li>Chromium 153 has no <code>streamAppendHTML()</code>. Writing the chunks with <code>document.write()</code> into a second document, after moving that document's container into the canvas child, gives the same result there.</li>
-    <li>Not verified here: the on-device model. The test browser reports the Prompt API as downloadable and cannot download it, so the model button has only been run against a stub.</li>
-  </ul>
+  <h2>How it works</h2>
+  <p>The document is one <code>drawable</code> child of the canvas. A writer from <code>streamAppendHTML()</code> receives the chunks. A <code>MutationObserver</code> records when each top-level block appeared and last changed. On every <code>paint</code> event the element is uploaded as one texture with <code>texElementSubImage2D()</code> and drawn on one quad; the fragment shader gets the rectangles and ages of the newest blocks as uniforms and applies the effect inside them. The quad covers the element's layout box, so <code>updateElementGeometry()</code> gets an identity matrix.</p>
 
   <h2>Live checks</h2>
-  <p class="checks-gate"><button id="run-checks" type="button">Run these 4 checks</button> <span class="note">They restart the stream on this page.</span></p>
+  <p>The button under the demo runs these. They use the demo itself, so it has to be on screen: a point outside the window cannot be hit tested.</p>
   <table class="results" id="checks">
     <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
     <tbody>
@@ -104,6 +100,15 @@
       <tr><td>A point on a streamed paragraph hit tests to that paragraph</td><td class="status idle">not run</td><td></td></tr>
     </tbody>
   </table>
+
+  <h2>Findings</h2>
+  <ul>
+    <li><code>streamAppendHTML()</code> raises one <code>paint</code> event per chunk with no call to <code>requestPaint()</code> (Chromium 157). The page counts the events under the stage.</li>
+    <li>The <code>paint</code> event does not say which block is new: <code>changedElements</code> lists drawable children of the canvas, and the whole document is one child. A <code>MutationObserver</code> supplies the per-block timing.</li>
+    <li>The document scrolls inside its own box while it is drawn through the shader, and it keeps to the bottom while text arrives. Block rectangles are measured every frame, so the effect stays on its block during a scroll.</li>
+    <li>Chromium 153 has no <code>streamAppendHTML()</code>. Writing the chunks with <code>document.write()</code> into a second document, after moving that document's container into the canvas child, gives the same result there.</li>
+    <li>Not verified here: the on-device model. The test browser reports the Prompt API as downloadable and cannot download it, so the model button has only been run against a stub.</li>
+  </ul>
 </main>
 
 <script type="module">
