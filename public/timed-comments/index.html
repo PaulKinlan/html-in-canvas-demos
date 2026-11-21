@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Timed comments that cross the video as clickable DOM</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .bar label { display: inline-flex; gap: 4px 8px; align-items: center; flex-wrap: wrap; max-width: 100%; }
+  .bar select, .bar button, .bar input[type=text] { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; max-width: 100%; }
+  .bar input[type=text] { flex: 1; min-width: 8em; }
+  .bar button[disabled] { opacity: .5; }
+  #add { display: flex; gap: 8px; flex: 1; min-width: min(100%, 280px); }
+  .stage { max-width: 640px; position: relative; container-type: inline-size; }
+  /* The frame (16:9) and the 48 px control bar. cqw is a hundredth of the stage's width. */
+  #screen { display: block; width: 100%; height: calc(56.25cqw + 48px); border-radius: 10px; background: #10131c; touch-action: manipulation; }
+  #blank[hidden] { display: none; }
+  #blank { margin: 0 0 8px; padding: 10px 14px; border-radius: 8px; font-size: 14px; background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  #say { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; white-space: pre-line; }
+  #result { margin: 8px 0 0; max-width: 640px; }
+  #result video { display: block; width: 100%; background: #000; border-radius: 10px; }
+  #result figcaption { font-size: 13px; color: var(--muted); margin: 6px 0; }
+
+  /* #region css */
+  #clip { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+  #controls { display: flex; gap: 10px; align-items: center; width: 100%; height: 48px; padding: 0 10px; background: #1b2030; color: #fff; font: 14px system-ui, sans-serif; }
+  #controls button { min-width: 68px; min-height: 40px; border: 0; border-radius: 8px; background: #ffd166; color: #1b1400; font: 600 14px system-ui, sans-serif; }
+  #controls input { flex: 1; min-width: 0; accent-color: #ffd166; }
+  #controls output { font: 13px ui-monospace, monospace; }
+
+  /* A comment is a child of the canvas with the drawable attribute. Its layout position does not
+     matter: the canvas draws it where the video's time puts it. It is as wide as its text. */
+  .comment { position: absolute; left: 0; top: 0; width: max-content; max-width: 300px; font: 600 15px/1.2 system-ui, sans-serif; color: #fff; }
+  .comment button { font: inherit; color: inherit; border: 0; cursor: pointer; }
+  .comment .say { display: block; padding: 6px 12px; border-radius: 999px; background: rgb(12 14 22 / .78); text-align: left; white-space: nowrap; }
+  .comment .say b { color: hsl(var(--hue) 90% 72%); }
+  .comment .likes:not(:empty)::before { content: ' ♥ '; color: #ff6b8b; }
+  .comment .more { display: none; gap: 6px; margin-top: 6px; }
+  .comment .more button { min-height: 40px; padding: 4px 12px; border-radius: 8px; background: #ffd166; color: #1b1400; font-size: 14px; }
+  .comment.open { padding: 8px; border-radius: 14px; background: #1b2030; }
+  .comment.open .say { white-space: normal; background: none; padding: 2px 4px; }
+  .comment.open .more { display: flex; }
+  /* "Text that inverts the frame": no pill, large white text. The canvas draws it with the difference blend mode. */
+  [data-mode=difference] .comment:not(.open) .say { background: none; padding: 0 4px; font-size: 22px; font-weight: 800; }
+  [data-mode=difference] .comment:not(.open) .say b { color: #fff; }
+  /* #endregion css */
+  .plain { display: grid; gap: 6px; padding: 10px; border-radius: 10px; background: #10131c; }
+  .plain .comment { position: static; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Timed comments that cross the video as clickable DOM</h1>
+  <p class="lede">
+    Each comment below is an HTML element that the canvas draws over the video, at a position worked out from the time of the video frame.
+    Press Play. Tap a comment to stop it and open its Like button. Write one of your own and it is added at the current time.
+  </p>
+
+  <div class="stage">
+    <p id="blank" hidden></p>
+    <!-- #region markup -->
+    <canvas id="screen" content="drawable" layoutsubtree data-mode="pill" aria-label="A video with comments crossing it">
+      <video id="clip" drawable playsinline preload="metadata"></video>
+      <div id="controls" drawable>
+        <button type="button" id="play">Play</button>
+        <input type="range" id="seek" min="0" max="10" step="0.01" value="0" aria-label="Position in the video">
+        <output id="clock">0:00.0</output>
+      </div>
+      <!-- Comments are added here, one element per active cue. -->
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+  <div class="bar">
+    <form id="add">
+      <input type="text" id="text" maxlength="40" placeholder="Write a comment" aria-label="Your comment" autocomplete="off" enterkeyhint="send">
+      <button type="submit">Send</button>
+    </form>
+  </div>
+  <div class="bar">
+    <label>Draw the comments
+      <select id="mode">
+        <option value="pill">as pills in straight lanes</option>
+        <option value="difference">as text that inverts the frame</option>
+        <option value="wave">on a wave, tilting</option>
+      </select>
+    </label>
+    <button type="button" id="export">Export 3 s frame by frame</button>
+  </div>
+  <p id="say" role="status">The video has not been played yet.</p>
+  <figure id="result" hidden>
+    <figcaption id="resultNote"></figcaption>
+    <video id="out" controls playsinline muted></video>
+  </figure>
+
+  <details class="show-code">
+    <summary>Show the code <small>comments as cues, one element each, placed per frame</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> The video and a control bar are children of the canvas. Comment elements are added beside them.</li>
+      <li data-code="#track"><b>Store comments as cues.</b> <code>video.addTextTrack('metadata')</code> makes a track that is never shown. Each comment is a <code>VTTCue</code> whose text is JSON.</li>
+      <li data-code="/lib/cue-layer.js#layer"><b>One element per active cue.</b> The same library as <a href="/captions/">the captions page</a>, with a <code>render</code> function that makes a comment.</li>
+      <li data-code="#element"><b>The comment element.</b> A <code>drawable</code> div holding buttons.</li>
+      <li data-code="#place"><b>Where a comment is at a time.</b> A function of the media time, so the same time always gives the same picture.</li>
+      <li data-code="#paint"><b>Draw.</b> One <code>drawElementImage()</code> call per comment, inside a transform. The call also moves the element's hit-test region.</li>
+      <li data-code="#taps"><b>Taps.</b> Ordinary click handlers on the buttons.</li>
+      <li data-code="#export"><b>Export.</b> <code>exportFrames()</code> seeks the video frame by frame, and <code>onframe</code> chooses the comments for each time.</li>
+      <li data-code="#css"><b>The CSS.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The comments live in a text track of kind <code>metadata</code>. A cue runs from the comment's time for 4 seconds, the time a comment takes to cross. The browser keeps <code>activeCues</code> current, so the page holds elements only for the comments on screen.</li>
+    <li>Every comment is its own <code>drawable</code> child of the canvas. The paint handler computes <code>x = W − (t − start) ÷ 4 × (W + width)</code> from the media time <code>t</code> that <code>requestVideoFrameCallback()</code> reported for the frame, and draws the element there.</li>
+    <li><code>drawElementImage()</code> sets the element's hit-test region to where it was drawn, including the rotation in the wave mode. A tap on a moving comment is an ordinary <code>click</code> on its button.</li>
+    <li>The inverting mode sets <code>globalCompositeOperation = 'difference'</code> for the draw call. White text then shows the inverse of the frame under it.</li>
+    <li>A Like is written back into the cue's JSON text, so the count is still there when the video loops and the element is built again.</li>
+    <li>The export pauses the video, seeks to each frame time and asks the cue library for the cues at that time by comparing times, because <code>activeCues</code> is updated only after the seek has finished.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small video and canvas in a corner of the window. The player above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 headless with software video decoding, 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings" id="findings">
+    <li><strong>Works: a metadata track as the store.</strong> <code>addTextTrack('metadata')</code> starts in the <code>hidden</code> mode, and cues added by script enter <code>activeCues</code> like cues from a file.</li>
+    <li><strong>Works: elements added and removed while the video plays.</strong> A new <code>drawable</code> child cannot be drawn until the browser has recorded it once. The first <code>drawElementImage()</code> call throws, so the paint handler skips the element and asks for another paint.</li>
+    <li><strong>Works: the position matches the frame.</strong> The third check plays a fixture and, in each paint, reads the frame number from the stripes in the picture. It reports how many paints drew the comment for that same frame.</li>
+    <li><strong>Works: taps on moving and rotated comments.</strong> <code>elementFromPoint()</code> finds the comment's button at the drawn place, and no longer finds it there after the comment has moved on.</li>
+    <li><strong>Works: the <code>difference</code> blend mode on an element.</strong> The composite operation applies to <code>drawElementImage()</code> as it does to <code>drawImage()</code>.</li>
+    <li><strong>Works: frame-exact export.</strong> In an exported file the comment moves the same number of pixels in every frame.</li>
+    <li><strong>Limit: a comment that starts in the last 4 seconds is cut off when the clip loops.</strong> Its cue cannot run past the end of the video.</li>
+    <li><strong>Not verified:</strong> the frame match with a hardware decoder on Android, the cost of 30 or more comments on a phone, and tapping a moving comment with a finger. The third check and the line under the player report the first two on the device.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { cueLayer, cuesAt } from '/lib/cue-layer.js';
+  import { exportFrames } from '/lib/video-export.js';
+  import { fit, blobUrl, quietStage, hitAt, sleep, until, release } from '/lib/stage-2d.js';
+  import { banner, runTests, supported, nextPaint } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const CLIP = '/media/clip.webm', FPS = 30;
+  const CROSS = 4; // seconds a comment takes to cross the frame
+  const LANES = 5;
+  const canvas = $('screen'), video = $('clip'), controls = $('controls');
+  const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+
+  // #region track
+  /** Add a comment to a metadata track as a cue. The cue's text is the comment as JSON. */
+  function addComment(track, comment, duration = Infinity) {
+    const start = Math.max(0, comment.t);
+    const cue = new VTTCue(start, Math.min(start + CROSS, duration), JSON.stringify(comment));
+    track.addCue(cue);
+    return cue;
+  }
+  const SEED = [
+    [0.0, 'Ada', 'first'], [0.4, 'Ben', 'here it goes'], [0.9, 'Cy', 'this is the Mandelbrot set'], [1.5, 'Dot', 'zooming in'],
+    [2.1, 'Ada', 'the stripes top right count frames'], [2.8, 'Eve', 'look at the spirals'], [3.3, 'Ben', 'tap me'], [3.9, 'Cy', 'every comment is a button'],
+    [4.6, 'Dot', 'still zooming'], [5.2, 'Eve', 'how deep does it go'], [5.7, 'Ada', 'colour bands'], [6.0, 'Ben', 'last one before the loop'],
+  ];
+  const hue = (who) => [...who].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
+  function seed(track, duration) {
+    SEED.forEach(([t, who, text], i) => addComment(track, { t, who, text, lane: i % LANES, likes: i === 6 ? 2 : 0 }, duration));
+  }
+  // #endregion track
+
+  // #region element
+  /** The element for one comment cue: a drawable div with the comment as a button, and three more buttons shown when it is open. */
+  function commentElement(cue) {
+    const c = JSON.parse(cue.text);
+    const el = document.createElement('div');
+    el.className = 'comment';
+    el.setAttribute('drawable', '');
+    el.style.setProperty('--hue', hue(c.who));
+    el.innerHTML = `<button type="button" class="say"><b></b> <span></span><output class="likes"></output></button>
+      <span class="more"><button type="button" class="like">Like</button><button type="button" class="jump"></button><button type="button" class="close">Close</button></span>`;
+    el.querySelector('b').textContent = c.who;
+    el.querySelector('.say span').textContent = c.text;
+    el.querySelector('.likes').textContent = c.likes || '';
+    el.querySelector('.jump').textContent = `Go to ${fmt(cue.startTime)}`;
+    return el;
+  }
+  // #endregion element
+
+  // #region place
+  /** Where the comment of `cue` is at media time `time`: its top left corner and its rotation, in CSS pixels of the canvas. */
+  function place(cue, time, W, frameHeight, w, h, mode) {
+    const lane = JSON.parse(cue.text).lane ?? 0;
+    const p = (time - cue.startTime) / CROSS; // 0 as it enters on the right, 1 as it leaves on the left
+    const x = W - p * (W + w);
+    let y = 22 + lane * ((frameHeight - 34 - h) / (LANES - 1)), turn = 0;
+    if (mode === 'wave') {
+      const a = p * Math.PI * 3 + lane;
+      y += Math.sin(a) * 12;
+      turn = Math.cos(a) * 0.16;
+    }
+    return { x, y, turn };
+  }
+  // #endregion place
+
+  // #region paint
+  /**
+   * Draw the video, the control bar and every comment of `layer`.
+   * `state()` returns { mode, time, open }: the drawing mode, the media time and the cue of the open comment, if any.
+   */
+  function compose(canvas, video, controls, layer, state, stats = {}) {
+    const ctx = canvas.getContext('2d', stats.read ? { willReadFrequently: true } : undefined);
+    canvas.addEventListener('paint', () => {
+      const k = canvas.width / canvas.clientWidth;
+      const W = canvas.clientWidth, vh = video.offsetHeight;
+      const { mode, time, open } = state();
+      ctx.reset();
+      ctx.scale(k, k);
+      ctx.drawElementImage(video, 0, 0, W, vh);
+      stats.onframe?.(ctx, time);
+      if (controls) ctx.drawElementImage(controls, 0, vh, W, controls.offsetHeight);
+      ctx.beginPath();
+      ctx.rect(0, 0, W, vh);
+      ctx.clip();
+      const cues = layer.cues, elements = layer.elements;
+      let again = false, drawn = 0;
+      const draw = (cue, el, fixed) => {
+        const w = el.offsetWidth, h = el.offsetHeight;
+        const at = place(cue, time, W, vh, w, h, mode);
+        ctx.save();
+        if (fixed) {
+          // The open comment stays where it was tapped, kept inside the frame, and is not rotated.
+          ctx.translate(Math.min(Math.max(at.x, 8), Math.max(8, W - w - 8)) + w / 2, Math.min(Math.max(at.y, 8), Math.max(8, vh - h - 8)) + h / 2);
+          ctx.shadowColor = '#000a';
+          ctx.shadowBlur = 16;
+        } else {
+          ctx.translate(at.x + w / 2, at.y + h / 2);
+          ctx.rotate(at.turn);
+          if (mode === 'difference') ctx.globalCompositeOperation = 'difference';
+        }
+        // A child added since the last paint has no recorded picture yet, and drawing it throws.
+        try { ctx.drawElementImage(el, -w / 2, -h / 2, w, h); drawn++; } catch { again = true; }
+        ctx.restore();
+      };
+      cues.forEach((cue, i) => { if (cue !== open) draw(cue, elements[i], false); });
+      const i = cues.indexOf(open);
+      if (i >= 0) draw(open, elements[i], true);
+      stats.drawn = drawn;
+      stats.paints = (stats.paints ?? 0) + 1;
+      if (again) canvas.requestPaint();
+    });
+    return ctx;
+  }
+  // #endregion paint
+
+  /** Connect a video, a canvas and a metadata track of comments. Returns what the page and the checks need. */
+  function commentPlayer(canvas, video, controls, { mode = () => 'pill', onframe = () => {}, stats = {} } = {}) {
+    const track = video.addTextTrack('metadata', 'Comments');
+    const layer = cueLayer(track, canvas, { render: commentElement, onexit: (el, cue) => { if (cue === me.open) me.open = null; } });
+    const me = { track, layer, time: 0, open: null, wasPlaying: false, stats };
+    const tick = (time) => { me.time = time; onframe(time); canvas.requestPaint?.(); };
+    track.addEventListener('cuechange', () => canvas.requestPaint?.());
+    video.addEventListener('seeked', () => tick(video.currentTime));
+    if ('requestVideoFrameCallback' in video) {
+      const each = (now, frame) => { tick(frame.mediaTime); video.requestVideoFrameCallback(each); };
+      video.requestVideoFrameCallback(each);
+    } else {
+      video.addEventListener('timeupdate', () => tick(video.currentTime));
+    }
+
+    // #region taps
+    const cueOf = (el) => layer.cues[layer.elements.indexOf(el)];
+    me.close = () => {
+      if (!me.open) return;
+      layer.elements[layer.cues.indexOf(me.open)]?.classList.remove('open');
+      me.open = null;
+      if (me.wasPlaying) video.play().catch(() => {});
+      canvas.requestPaint?.();
+    };
+    canvas.addEventListener('click', (e) => {
+      const el = e.target.closest?.('.comment');
+      if (!el) return;
+      const cue = cueOf(el);
+      if (e.target.closest('.say') && me.open !== cue) {
+        // Stop the video so the comment stays put, and show its other buttons.
+        me.close();
+        me.wasPlaying = !video.paused;
+        video.pause();
+        me.open = cue;
+        el.classList.add('open');
+      } else if (e.target.closest('.like')) {
+        // The count is stored in the cue, so it is still there after the video loops.
+        const c = JSON.parse(cue.text);
+        c.likes = (c.likes || 0) + 1;
+        cue.text = JSON.stringify(c);
+        el.querySelector('.likes').textContent = c.likes;
+      } else if (e.target.closest('.jump')) {
+        const t = cue.startTime + 0.6;
+        me.wasPlaying = false;
+        me.close();
+        video.currentTime = t;
+      } else if (e.target.closest('.close')) {
+        me.close();
+      }
+      canvas.requestPaint?.();
+    });
+    // #endregion taps
+
+    if (supported) compose(canvas, video, controls, layer, () => ({ mode: mode(), time: me.time, open: me.open }), stats);
+    return me;
+  }
+
+  const mode = () => $('mode').value;
+  let exporting = false;
+  const stats = {};
+  const player = commentPlayer(canvas, video, controls, {
+    mode, stats,
+    onframe: (time) => {
+      if (exporting) return;
+      $('seek').value = time;
+      $('clock').value = fmt(time);
+      report();
+    },
+  });
+  function report() {
+    if (exporting) return;
+    $('say').textContent = `${player.track.cues.length} comments in the track, ${player.track.activeCues.length} active at ${fmt(player.time)}` + (supported ? `, ${stats.drawn ?? 0} drawn in paint ${stats.paints ?? 0}` : '');
+  }
+  // Registered after the paint handler in compose(), so the counts are those of this paint.
+  canvas.addEventListener('paint', report);
+
+  function showPlain(why) {
+    // No HTML-in-canvas: the children of a canvas are not rendered, so show them in a plain box. Comments are then a list.
+    const box = document.createElement('div');
+    box.className = 'plain';
+    box.append(video, controls);
+    canvas.replaceWith(box);
+    box.append(canvas);
+    canvas.style.cssText = 'display:contents';
+    $('blank').hidden = false;
+    $('blank').textContent = why;
+    $('export').disabled = true;
+    $('mode').disabled = true;
+  }
+  if (supported) {
+    fit(canvas);
+    canvas.addEventListener('contextlost', () => { $('blank').hidden = false; $('blank').textContent = 'The canvas lost its drawing context. Reload the page to draw the comments again.'; });
+  } else {
+    showPlain('This browser does not have HTML-in-canvas. The active comments are listed under the video as plain buttons.');
+  }
+
+  blobUrl(CLIP).then((url) => { video.src = url; }, () => { video.src = CLIP; });
+  video.addEventListener('loadedmetadata', () => {
+    $('seek').max = video.duration.toFixed(2);
+    seed(player.track, video.duration);
+    video.currentTime = 2.4; // a time with comments in the frame, so the first picture is not empty
+  }, { once: true });
+  video.addEventListener('error', () => { $('say').textContent = `The video did not load: ${video.error?.message || 'unknown error'}`; });
+  video.addEventListener('ended', () => { video.currentTime = 0; video.play().catch(() => {}); });
+  for (const type of ['play', 'pause']) video.addEventListener(type, () => { $('play').textContent = video.paused ? 'Play' : 'Pause'; });
+  $('play').onclick = () => { player.wasPlaying = false; player.close(); video.paused ? video.play().catch((err) => { $('say').textContent = `play() was refused: ${err.message}`; }) : video.pause(); };
+  $('seek').oninput = () => { video.currentTime = Number($('seek').value); };
+  $('mode').onchange = () => { canvas.dataset.mode = mode(); canvas.requestPaint?.(); };
+  $('add').onsubmit = (e) => {
+    e.preventDefault();
+    const text = $('text').value.trim();
+    if (!text || !video.duration) return;
+    // Start it 0.6 s in the past, so it is already inside the right edge of the frame.
+    const lanes = new Array(LANES).fill(-Infinity);
+    for (const cue of player.track.cues) { const c = JSON.parse(cue.text); if (cue.startTime <= video.currentTime) lanes[c.lane] = Math.max(lanes[c.lane], cue.startTime); }
+    addComment(player.track, { t: video.currentTime - 0.6, who: 'You', text, lane: lanes.indexOf(Math.min(...lanes)), likes: 0 }, video.duration);
+    $('text').value = '';
+    canvas.requestPaint?.();
+  };
+
+  // #region export
+  $('export').onclick = async () => {
+    $('export').disabled = true;
+    exporting = true;
+    player.wasPlaying = false;
+    player.close();
+    try {
+      const from = Math.min(Math.floor(video.currentTime * FPS) / FPS, video.duration - 3);
+      const result = await exportFrames(canvas, {
+        video, from, seconds: 3, fps: FPS,
+        // activeCues is not updated until after the seek, so choose the comments by comparing times.
+        onframe: async (i, t) => {
+          player.layer.update(t, { exact: true });
+          player.time = t;
+          if (i % 10 === 0) $('say').textContent = `Exporting frame ${i + 1} of 90…`;
+          // New comment elements need one paint before they can be drawn.
+          await nextPaint(canvas);
+        },
+      });
+      $('result').hidden = false;
+      const out = $('out');
+      if (out.src.startsWith('blob:')) URL.revokeObjectURL(out.src);
+      out.src = URL.createObjectURL(result.blob);
+      $('resultNote').textContent = `The export: ${result.frames} frames of ${result.codec} at exactly ${FPS} per second, ${result.msPerFrame.toFixed(0)} ms each, ${(result.blob.size / 1024).toFixed(0)} kB. `;
+      $('resultNote').append(Object.assign(document.createElement('a'), { href: out.src, download: 'comments.webm', textContent: 'Download the file' }), '.');
+      out.play().catch(() => {});
+      $('say').textContent = 'Export finished.';
+    } catch (err) {
+      $('say').textContent = `Export failed: ${err.message}`;
+    }
+    exporting = false;
+    player.layer.sync();
+    $('export').disabled = false;
+  };
+  // #endregion export
+
+  // ---- live checks: every one on its own fixture ----
+  const made = [];
+  /** The frame number in the clip's corner: 16 stripes across the right half of the frame, lowest bit first. */
+  function frameNumber(ctx, x0, y, stripe) {
+    const d = ctx.getImageData(Math.round(x0), Math.round(y), Math.round(stripe * 16), 1).data;
+    let n = 0;
+    for (let i = 0; i < 16; i++) if (d[Math.round(i * stripe + stripe / 2) * 4] > 128) n |= 1 << i;
+    return n;
+  }
+  /** A 320 by 180 canvas with its own video and three comments at 1.0, 1.5 and 2.0 s. */
+  async function fixture({ mode = 'pill', read = false } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.dataset.mode = mode;
+    c.style.cssText = 'width:320px;height:180px;flex:none;background:#10131c';
+    c.width = 320; c.height = 180;
+    c.innerHTML = '<video drawable muted playsinline preload="auto" style="display:block;width:100%;aspect-ratio:16/9"></video>';
+    const v = c.querySelector('video');
+    quietStage().append(c);
+    made.push(v);
+    const stats = { read, frames: [] };
+    // Runs inside the paint handler, straight after the video is drawn: which frame is in the picture, and which time were the comments placed for?
+    if (read) stats.onframe = (ctx, time) => stats.frames.push([frameNumber(ctx, c.width / 2, 4 * (c.width / 320), (c.width / 320) * 10), time]);
+    const p = commentPlayer(c, v, null, { mode: () => mode, stats });
+    v.src = await blobUrl(CLIP);
+    await until(() => v.readyState >= 2, 8000, v.error ? `the video did not load: ${v.error.message}` : 'the video did not load');
+    const cues = [[1.0, 'A', 'one'], [1.5, 'B', 'two two'], [2.0, 'C', 'three']].map(([t, who, text], i) => addComment(p.track, { t, who, text, lane: i, likes: 0 }, v.duration));
+    return { c, v, p, cues, stats, mode };
+  }
+  async function seek(f, t) {
+    const done = new Promise((r) => f.v.addEventListener('seeked', r, { once: true }));
+    f.v.currentTime = t;
+    await done;
+    await until(() => cuesAt(f.p.track, t).length === f.p.track.activeCues.length, 3000, 'activeCues did not follow the seek');
+    await sleep(60);
+    await nextPaint(f.c);
+    await nextPaint(f.c);
+    await nextPaint(f.c);
+  }
+  const elementOf = (f, cue) => f.p.layer.elements[f.p.layer.cues.indexOf(cue)];
+  const expected = (f, cue, el, t) => place(cue, t, 320, 180, el.offsetWidth, el.offsetHeight, f.mode);
+  const each = (tests) => tests.map((t) => ({ timeout: 20000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { for (const v of made.splice(0)) release(v); } } }));
+
+  runTests($('results'), each([
+    {
+      name: 'A metadata track holds the comments and reports the active ones',
+      why: 'addTextTrack("metadata"), three cues added by script, then a seek to 2.5 s. All three cover that time.',
+      run: async () => {
+        const f = await fixture();
+        const before = f.p.track.mode;
+        await seek(f, 2.5);
+        const active = [...f.p.track.activeCues].map((cue) => JSON.parse(cue.text).text);
+        if (active.length !== 3) throw new Error(`${active.length} active cues: ${active.join(', ')}`);
+        await seek(f, 5.2);
+        const later = [...f.p.track.activeCues].map((cue) => JSON.parse(cue.text).text);
+        if (later.length !== 2) throw new Error(`at 5.2 s ${later.length} cues are active, 2 were expected`);
+        return `the track's mode is "${before}"; active at 2.5 s: ${active.join(', ')}; at 5.2 s: ${later.join(', ')}`;
+      },
+    },
+    {
+      name: 'Each active comment is an element drawn at the place its time gives',
+      why: 'At 3.0 s, the box of each comment (getBoundingClientRect) is compared with x = W − (t − start) ÷ 4 × (W + width).',
+      run: async () => {
+        const f = await fixture();
+        await seek(f, 3);
+        const box = f.c.getBoundingClientRect();
+        const out = [];
+        for (const cue of f.cues) {
+          const el = elementOf(f, cue);
+          if (!el) throw new Error('an active cue has no element');
+          const want = expected(f, cue, el, f.v.currentTime);
+          const r = el.getBoundingClientRect();
+          if (Math.abs(r.left - box.left - want.x) > 1.5 || Math.abs(r.top - box.top - want.y) > 1.5) throw new Error(`"${el.textContent.trim()}" is at ${(r.left - box.left).toFixed(1)}, ${(r.top - box.top).toFixed(1)}; expected ${want.x.toFixed(1)}, ${want.y.toFixed(1)}`);
+          out.push(`x ${(r.left - box.left).toFixed(0)}`);
+        }
+        return `${f.stats.drawn} comments drawn; boxes at ${out.join(', ')}, each within 1.5 px of the computed place`;
+      },
+    },
+    {
+      name: 'During playback the comments are placed for the frame that is in the picture',
+      why: 'Plays for 1.5 s. In each paint, the frame number is read from the stripes in the canvas and compared with the media time the comments were placed for.',
+      run: async () => {
+        const f = await fixture({ read: true });
+        await seek(f, 1);
+        f.stats.frames.length = 0;
+        await f.v.play();
+        await sleep(1500);
+        f.v.pause();
+        const frames = f.stats.frames.slice();
+        const same = frames.filter(([n, t]) => n === Math.round(t * FPS)).length;
+        const worst = Math.max(...frames.map(([n, t]) => Math.abs(n - Math.round(t * FPS))));
+        if (frames.length < 5) throw new Error(`only ${frames.length} paints in 1.5 s`);
+        if (same < frames.length * 0.8) throw new Error(`${same} of ${frames.length} paints matched; the worst was ${worst} frames apart`);
+        return `${same} of ${frames.length} paints placed the comments for the frame in the picture` + (same < frames.length ? `; the worst was ${worst} frame${worst === 1 ? '' : 's'} apart` : '');
+      },
+    },
+    {
+      name: 'A tap finds a rotated comment where it is drawn, and not where it was',
+      why: 'Wave mode at 2.6 s. elementFromPoint() at the centre of comment "two two", then again at the same point after a seek to 4.2 s.',
+      run: async () => {
+        const f = await fixture({ mode: 'wave' });
+        await seek(f, 2.6);
+        const el = elementOf(f, f.cues[1]);
+        const want = expected(f, f.cues[1], el, f.v.currentTime);
+        const box = f.c.getBoundingClientRect();
+        const px = box.left + want.x + el.offsetWidth / 2, py = box.top + want.y + el.offsetHeight / 2;
+        const hit = hitAt(px, py);
+        if (!el.contains(hit)) throw new Error(`elementFromPoint() returned ${hit ? `<${hit.localName}>` : 'nothing'} at the drawn comment (rotation ${want.turn.toFixed(2)} rad)`);
+        await seek(f, 4.2);
+        const after = hitAt(px, py);
+        if (el.contains(after)) throw new Error('the same point still answers with the comment after it moved 100 px away');
+        return `hit <${hit.localName} class="${hit.className}"> at rotation ${want.turn.toFixed(2)} rad; after the comment moved, the point answers <${after?.localName ?? 'nothing'}>`;
+      },
+    },
+    {
+      name: 'A click opens the comment, pauses the video and Like is stored in the cue',
+      why: 'Clicks on the elements elementFromPoint() returns: the comment, then its Like button twice.',
+      run: async () => {
+        const f = await fixture();
+        await seek(f, 2.6);
+        await f.v.play();
+        await sleep(300);
+        const cue = f.cues[0], el = elementOf(f, cue);
+        const r = el.getBoundingClientRect();
+        const hit = hitAt(r.left + r.width / 2, r.top + r.height / 2);
+        if (!el.contains(hit)) throw new Error(`the comment is not hit at its box: got ${hit ? `<${hit.localName}>` : 'nothing'}`);
+        hit.click();
+        await sleep(150);
+        await nextPaint(f.c);
+        await nextPaint(f.c);
+        if (!f.v.paused || !el.classList.contains('open')) throw new Error(`after the click: paused ${f.v.paused}, open ${el.classList.contains('open')}`);
+        const like = el.querySelector('.like'), lr = like.getBoundingClientRect();
+        const likeHit = hitAt(lr.left + lr.width / 2, lr.top + lr.height / 2);
+        if (likeHit !== like) throw new Error(`the Like button is not hit where it is drawn: got ${likeHit ? `<${likeHit.localName} class="${likeHit.className}">` : 'nothing'}`);
+        likeHit.click(); likeHit.click();
+        const stored = JSON.parse(cue.text).likes;
+        if (stored !== 2) throw new Error(`the cue's text holds ${stored} likes`);
+        return `opened and paused at ${f.v.currentTime.toFixed(2)} s; the Like button is hit at its drawn place; the cue's text now holds likes: ${stored}`;
+      },
+    },
+    {
+      name: 'The difference blend mode applies to a drawn element',
+      why: 'White text drawn with globalCompositeOperation = "difference". Pixels inside the text should be the inverse of the frame under it.',
+      run: async () => {
+        const f = await fixture({ mode: 'difference' });
+        await seek(f, 3);
+        const el = elementOf(f, f.cues[1]);
+        const r = el.getBoundingClientRect(), box = f.c.getBoundingClientRect();
+        const x = Math.max(0, Math.round(r.left - box.left)), y = Math.round(r.top - box.top), w = Math.min(320 - x, Math.round(r.width)), h = Math.round(r.height);
+        const shot = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
+        shot.drawImage(f.c, x, y, w, h, 0, 0, w, h);
+        const frame = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
+        frame.drawImage(f.v, x * 2, y * 2, w * 2, h * 2, 0, 0, w, h); // the clip is 640 wide, the fixture 320
+        const a = shot.getImageData(0, 0, w, h).data, b = frame.getImageData(0, 0, w, h).data;
+        let inverted = 0, changed = 0;
+        for (let i = 0; i < a.length; i += 4) {
+          const d = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+          if (d > 90) changed++;
+          if (Math.abs(a[i] + b[i] - 255) < 60 && Math.abs(a[i + 1] + b[i + 1] - 255) < 60 && Math.abs(a[i + 2] + b[i + 2] - 255) < 60 && d > 90) inverted++;
+        }
+        if (changed < 40) throw new Error(`only ${changed} pixels differ from the plain frame`);
+        if (inverted < changed * 0.5) throw new Error(`${inverted} of ${changed} changed pixels are the inverse of the frame`);
+        return `${changed} pixels differ from the plain frame and ${inverted} of them are its inverse`;
+      },
+    },
+    {
+      name: 'A frame-by-frame export moves the comment by the same step in every frame',
+      why: 'exportFrames() for 12 frames from 2.0 s, with the cues chosen by time in onframe. The comment\'s box is read after each frame is drawn.',
+      run: async () => {
+        const f = await fixture();
+        await seek(f, 2);
+        const cue = f.cues[0], xs = [];
+        const result = await exportFrames(f.c, {
+          video: f.v, from: 2, seconds: 0.4, fps: FPS,
+          onframe: async (i, t) => { f.p.layer.update(t, { exact: true }); f.p.time = t; await nextPaint(f.c); },
+          ondrawn: () => { xs.push(elementOf(f, cue).getBoundingClientRect().left); },
+        });
+        const el = elementOf(f, cue);
+        const step = (320 + el.offsetWidth) / CROSS / FPS;
+        const steps = xs.slice(1).map((x, i) => xs[i] - x);
+        const off = Math.max(...steps.map((s) => Math.abs(s - step)));
+        if (result.frames !== 12) throw new Error(`${result.frames} frames were written`);
+        if (off > 0.6) throw new Error(`steps between frames: ${steps.map((s) => s.toFixed(1)).join(', ')}; expected ${step.toFixed(2)}`);
+        return `${result.frames} frames of ${result.codec}; the comment moved ${step.toFixed(2)} px in every frame (largest error ${off.toFixed(2)} px), ${(result.blob.size / 1024).toFixed(0)} kB`;
+      },
+    },
+  ]));
+</script>
+</body>
+</html>
