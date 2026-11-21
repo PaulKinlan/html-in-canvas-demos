@@ -39,6 +39,14 @@ Pages with only 2D canvases lost their canvases or the tab on the test phone: `/
 
 Conclusion: a drawable 2D canvas made with `willReadFrequently: true`, after one `drawElementImage()` and one `getImageData()`, loses every 2D context on the page on that phone, and they are lost again every half second while it exists, with no further call from the page. Separated later by `/crashes/repro/readback-matrix.html` (A159, reported, 19:52 UTC, a page load for each case, no site scripts): `willReadFrequently` with `drawElementImage()` loses both canvases with or without a read (first loss 8 ms and 22 ms after the call, then about every 510 ms). Ten cases without the option lost nothing: draw only, `getImageData()` after `fillRect()` on a drawable and on a plain canvas, `getImageData()` right after `drawElementImage()` and 1 s later, a read from a `drawImage()` copy in a plain and in a `willReadFrequently` canvas, `toDataURL()`, `createImageBitmap()`, `captureElementImage()`. The guard now removes the option from drawable canvases. Trials added after this result: `copy-read`, `wrf-guarded`, `fixtures-guarded`. The three raw trials are left out of "Run every trial" and keep the option with `data-gfx-raw`.
 
+### Second run on production, 20:03 UTC on 2026-11-21 (Chrome 159, Android 10)
+
+Reported through `/api/reports`, visit `0e3owys7mwqu4054`, with the guard of pull request 84. Ten trials (`once` to `nested`) ended with "no loss". `gpu-read` (a drawable canvas with no options in a paint loop, `getImageData()` of one pixel every 300 ms) ended "lost": 12 `contextlost` events, on the trial's canvas and on the canvas that stays, 7 ms after the second read, 3 ms after the fourth and 4 ms after the sixth, about 600 ms apart. 110 paints in 4 s where the other trials had 240. The guard stopped `paint` events after the third loss and the run ended there, so `copy-read`, `snapshots`, `wrf-guarded`, `fixtures-guarded` and the float trials have still not run on the phone.
+
+Changes that follow from it: the guard answers `getImageData()` on a drawable canvas from a `drawImage()` copy; "Run every trial" loads the page once for each trial so that a loss cannot end the run; `gpu-read` keeps its direct read with `data-gfx-raw`, and `gpu-read-guarded` makes the same calls through the guard. In headless Chromium 157 all 21 trials end "no loss" in a chained run (measured 2026-11-21).
+
+The run before it, at 20:01 UTC, was the page from before pull request 84 deployed: `wrf` lost 10 contexts, the first 6 ms after the read.
+
 ## Reports
 
 | Question | Result |
