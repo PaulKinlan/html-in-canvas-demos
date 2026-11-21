@@ -1,0 +1,76 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Element probe lab</title>
+<body style="font:14px system-ui;margin:8px">
+<p style="margin:0">A bare page for <code>tools/elements/record.mjs</code>, which drives the element probe with real clicks and keys. The catalogue is at <a href="/elements/">/elements/</a>.</p>
+<script type="module">
+  import { ELEMENTS } from './data.js';
+  import { assets } from './media.js';
+  import * as P from './probe.js';
+
+  // The recorder looks at pixels, so here the fixture box is opaque and sits next to a plain-DOM copy.
+  const st = P.stage();
+  st.host.style.cssText += ';opacity:1;left:330px;top:60px;bottom:auto;overflow:visible';
+  const plain = document.createElement('div');
+  plain.style.cssText = `position:fixed;left:8px;top:60px;width:${P.FIX_W}px;height:${P.FIX_H}px;background:#fff;overflow:hidden`;
+  document.body.append(plain);
+
+  const lab = (window.lab = { ELEMENTS, P, clicks: [], submits: 0, messages: [] });
+  // Fixtures are in a shadow root, so `target` here is the target as code inside that root would see it.
+  addEventListener('click', (ev) => { const path = ev.composedPath(); lab.clicks.push({ target: path.find((n) => n.getRootNode?.() === st) ?? ev.target, trusted: ev.isTrusted, path: path[0] }); }, true);
+  // submit is not composed, so it has to be caught inside the fixtures' shadow root.
+  st.addEventListener('submit', (ev) => { ev.preventDefault(); lab.submits++; }, true);
+  addEventListener('message', (ev) => lab.messages.push(ev.data));
+
+  /** Draw one entry in a canvas and keep it there. Also puts the same markup next to it as plain DOM. */
+  lab.hold = async (tag, { withPlain = true } = {}) => {
+    document.activeElement?.blur?.();
+    getSelection().removeAllRanges();
+    for (const old of [...st.children, ...plain.children]) P.discard(old);
+    lab.clicks.length = 0; lab.messages.length = 0; lab.submits = 0;
+    const A = (lab.A ??= await assets());
+    const entry = ELEMENTS.find((e) => e.tag === tag);
+    if (entry.needsOther && !A.other) return null;
+    const { wrap, target } = P.build(entry, A);
+    if (withPlain) {
+      const copy = P.build(entry, A);
+      copy.wrap.style.margin = `${P.DY}px 0 0 ${P.DX}px`;
+      plain.append(copy.wrap);
+      lab.plainTarget = copy.target;
+    }
+    const m = await P.measure(wrap, target, { keep: true, idle: 60 });
+    Object.assign(lab, { T: target, W: wrap, C: m.canvas });
+    return { ...lab.at(target), error: m.error };
+  };
+  /** Where an element is on screen, as { x, y } of its centre plus its size. */
+  lab.at = (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, left: r.left, top: r.top }; };
+  lab.ink = () => { const d = lab.C.getContext('2d').getImageData(0, 0, P.FIX_W, P.FIX_H).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++; return n; };
+  lab.paintsFor = (ms) => new Promise((resolve) => { let n = 0; const on = () => n++; lab.C.addEventListener('paint', on); setTimeout(() => { lab.C.removeEventListener('paint', on); resolve(n); }, ms); });
+  /** Compare two screenshots (data URLs): the share of the plain copy's non-white pixels that the canvas copy reproduces. */
+  lab.compare = async (a, b) => {
+    const [ia, ib] = await Promise.all([a, b].map(async (u) => createImageBitmap(await (await fetch(u)).blob())));
+    const c = new OffscreenCanvas(ia.width, ia.height * 2), g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(ia, 0, 0); g.drawImage(ib, 0, ia.height);
+    const da = g.getImageData(0, 0, ia.width, ia.height).data, db = g.getImageData(0, ia.height, ia.width, ia.height).data;
+    // The two copies can sit a few pixels apart (margins collapse differently in the two places), so try
+    // every offset up to 8 px each way and keep the best.
+    const W = ia.width, H = ia.height;
+    const white = (d, i) => d[i] > 245 && d[i + 1] > 245 && d[i + 2] > 245;
+    const ink = (d) => { const pts = []; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (!white(d, (y * W + x) * 4)) pts.push(x, y); return pts; };
+    const pa = ink(da), inkA = pa.length / 2, inkB = ink(db).length / 2;
+    let same = 0;
+    for (let oy = -8; oy <= 8; oy++) for (let ox = -8; ox <= 8; ox++) {
+      let n = 0;
+      for (let k = 0; k < pa.length; k += 2) {
+        const x = pa[k] + ox, y = pa[k + 1] + oy;
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const i = (pa[k + 1] * W + pa[k]) * 4, j = (y * W + x) * 4;
+        if (!white(db, j) && Math.abs(da[i] - db[j]) + Math.abs(da[i + 1] - db[j + 1]) + Math.abs(da[i + 2] - db[j + 2]) < 60) n++;
+      }
+      if (n > same) same = n;
+    }
+    return { plainInk: inkA, canvasInk: inkB, match: inkA ? +(same / inkA).toFixed(3) : null };
+  };
+  window.labReady = true;
+</script>

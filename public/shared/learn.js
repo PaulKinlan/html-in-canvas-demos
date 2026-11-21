@@ -86,6 +86,8 @@
       '/a11y/': { question: 'Which accessibility features work for DOM drawn in a canvas, and which techniques on this site break them?', first: ['/start/'], api: ['accessibility tree', 'focus', 'forced-colors'] },
       '/capture/': { question: 'Can any element be exported as a PNG, a video or a printed page by wrapping it in a canvas for one frame?', first: ['/start/'], api: ['drawElementImage()', 'moveBefore()', 'VideoEncoder'] },
       '/perf/': { question: 'How many elements can a canvas draw per frame on your device, compared with plain DOM and with a worker?', first: ['/start/', '/offscreen/'], api: ['requestPaint()', 'captureElementImage()'] },
+      '/elements/': { question: 'What does each HTML element do inside a drawable canvas: is it drawn, can it be hit, does it take input?', result: 'Every element with a box draws and hit tests. Top-layer content (modal dialogs, popovers, the base-select picker) stays outside the canvas, other origins are blank, and the picture is clipped to the element\'s box.', first: ['/start/', '/a11y/'], api: ['drawElementImage()', 'paint', 'elementsFromPoint()'] },
+      '/element-ideas/': { question: 'Can the ideas in the element catalogue be built with the real elements: a wheel of options, rotated range inputs, a dialog in the canvas, table cells as bars?', result: 'All 17 work. Options, list items and table cells can each be drawn on their own. A range input turned a quarter turn needs help with touch drags.', first: ['/start/', '/elements/'], api: ['drawElementImage()', 'updateElementGeometry()', 'paint', 'inert'] },
     },
   };
   window.LEARN = LEARN;
