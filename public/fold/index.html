@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>DOM drawn across a fold</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  #stage { padding: 0; overflow: hidden; position: relative; background: #8a8f98 linear-gradient(#a3a8b0, #6f747d); }
+  #fold { display: block; width: 100%; height: 520px; touch-action: manipulation; }
+  /* "This device": the canvas covers the window, so its pixels line up with the viewport segments. */
+  #stage.fill { position: fixed; inset: 0; z-index: 2147483000; border: 0; border-radius: 0; background: #000; }
+  #stage.fill #fold { height: 100%; }
+  #leave { position: absolute; right: 8px; top: 8px; z-index: 1; display: none; min-height: 40px; }
+  #stage.fill #leave { display: block; }
+
+  /* #region css */
+  /* The panes are ordinary elements. The script sets data-mode from the posture:
+     the content pane is "half" (one segment) or "span" (the whole screen),
+     the controls pane is "full" (one segment) or "bar" (a strip at the edge). */
+  .pane { font: 15px/1.4 system-ui, sans-serif; overflow: hidden; container-type: inline-size; }
+  @container (width < 200px) { .pane > * { font-size: 13px; } #content h3 { font-size: 16px; } #controls .steps { grid-template-columns: 1fr; } }
+  #content { background: #fdf6e7; color: #2a2117; padding: 14px 16px; }
+  #content h3 { margin: 0 0 6px; font-size: 19px; }
+  #content .step-no { font: 600 12px var(--mono); color: #9a5b12; letter-spacing: .04em; text-transform: uppercase; }
+  #content p { margin: 6px 0; }
+  #content ol { margin: 6px 0; padding-left: 22px; }
+  #content li { margin-bottom: 5px; }
+  #content li.now { font-weight: 700; color: #a1380e; }
+  #content a { color: #a1380e; }
+  #controls { background: #1f2630; color: #eef2f6; padding: 12px; display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-content: start; align-items: center; }
+  #controls > :not(.steps, #timerOut) { grid-column: 1 / -1; }
+  #controls button { min-height: 44px; border-radius: 10px; border: 1px solid #55606e; background: #2f3947; color: inherit; font: inherit; }
+  #controls button:active { background: #f0a23b; color: #111; }
+  #controls .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #controls label { display: grid; gap: 4px; font-size: 13px; }
+  #controls input[type=range] { width: 100%; min-height: 24px; accent-color: #f0a23b; }
+  #controls input[type=text] { font: inherit; min-height: 40px; border-radius: 8px; border: 1px solid #55606e; background: #11161c; color: inherit; padding: 4px 10px; min-width: 0; }
+  #controls .checks { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 14px; }
+  #controls .checks label { display: flex; gap: 8px; align-items: center; min-height: 30px; }
+  #controls .checks input { width: 20px; height: 20px; accent-color: #f0a23b; }
+  #timerOut { font: 600 15px var(--mono); }
+  /* As a bar only the two step buttons and the timer are shown. */
+  #controls[data-mode=bar] { padding: 10px 12px; }
+  #controls[data-mode=bar] :is(.checks, .memo, .timer) { display: none; }
+  /* #endregion css */
+
+  .knobs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 20px; margin-top: 12px; }
+  .knobs fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+  .knobs legend { padding: 0; font-weight: 600; font-size: 14px; }
+  .knobs label { display: inline-flex; gap: 6px; align-items: center; min-height: 36px; font-size: 15px; }
+  .knobs input[type=range] { flex: 1 1 120px; min-width: 100px; min-height: 30px; }
+  .knobs output { font: 13px var(--mono); min-width: 3.5em; }
+  .knobs button { min-height: 40px; }
+  table.lab { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 10px; }
+  table.lab th, table.lab td { text-align: left; padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.lab td:nth-child(2), table.lab td:nth-child(3) { font-family: var(--mono); font-size: 13px; }
+  #stageNote:empty { display: none; }
+  #deviceRow { margin-top: 12px; }
+  #deviceRow button { min-height: 44px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>DOM drawn across a fold</h1>
+  <p class="lede">
+    A foldable device reports its posture with <code>navigator.devicePosture</code> and the rectangle of each screen half with
+    <code>viewport.segments</code>. This page asks what one canvas that draws live DOM can do with those two values: place a pane on each half,
+    draw one element across the fold, and keep buttons and text fields working where they are drawn. A fold control stands in for the device,
+    so the page works on a flat screen. Change the angle, then press the buttons and type in the picture.
+  </p>
+
+  <!-- #region markup -->
+  <div id="stage" class="stage">
+    <canvas id="fold" content="drawable" layoutsubtree>
+      <section id="content" class="pane" drawable>
+        <div class="step-no" id="stepNo">Step 1 of 4</div>
+        <h3>Flatbread</h3>
+        <ol id="stepList">
+          <li>Mix 250 g flour, 150 g yoghurt and a pinch of salt into a dough.</li>
+          <li>Rest the dough under a bowl for the time on the timer.</li>
+          <li>Divide it into four and roll each piece thin.</li>
+          <li>Cook in a dry, hot pan until both sides have brown spots.</li>
+        </ol>
+        <p>Have ready: <span id="haveReady">nothing yet</span>.</p>
+        <p id="noteOut"></p>
+        <p><a href="#findings" id="contentLink">Findings of this page</a></p>
+      </section>
+      <section id="controls" class="pane" drawable>
+        <div class="steps">
+          <button type="button" id="prev">Previous</button>
+          <button type="button" id="next">Next step</button>
+        </div>
+        <output id="timerOut">10:00</output>
+        <label class="timer">Rest time, minutes
+          <input type="range" id="timer" min="1" max="30" value="10">
+        </label>
+        <div class="checks">
+          <label><input type="checkbox" value="flour"> Flour</label>
+          <label><input type="checkbox" value="yoghurt"> Yoghurt</label>
+          <label><input type="checkbox" value="salt"> Salt</label>
+        </div>
+        <input type="text" id="note" class="memo" placeholder="Type a note" aria-label="Note" enterkeyhint="done">
+      </section>
+    </canvas>
+    <button type="button" id="leave">Leave full window</button>
+  </div>
+  <!-- #endregion markup -->
+  <p class="note" id="stageNote"></p>
+
+  <div class="knobs">
+    <fieldset>
+      <legend>Fold</legend>
+      <label><input type="radio" name="axis" value="horizontal" checked> Horizontal</label>
+      <label><input type="radio" name="axis" value="vertical"> Vertical</label>
+    </fieldset>
+    <fieldset>
+      <legend>Angle</legend>
+      <input type="range" id="angle" min="60" max="180" value="125" aria-label="Fold angle in degrees">
+      <output id="angleOut">125°</output>
+      <button type="button" id="openIt">Open</button>
+      <button type="button" id="closeIt">Close</button>
+    </fieldset>
+    <fieldset>
+      <legend>Hinge width</legend>
+      <input type="range" id="hinge" min="0" max="48" value="0" aria-label="Hinge width in pixels">
+      <output id="hingeOut">0 px</output>
+    </fieldset>
+    <fieldset>
+      <legend>When folded</legend>
+      <label><input type="radio" name="span" value="" checked> One pane on each half</label>
+      <label><input type="radio" name="span" value="1"> Content across both halves</label>
+    </fieldset>
+    <fieldset>
+      <legend>At the hinge</legend>
+      <label><input type="checkbox" id="cut" checked> Cut the picture and continue after the hinge</label>
+    </fieldset>
+  </div>
+
+  <div id="deviceRow" class="row">
+    <button type="button" id="useDevice" disabled>Use this device's fold</button>
+    <span class="note" id="deviceNote"></span>
+  </div>
+
+  <table class="lab">
+    <thead><tr><th>Value</th><th>This window reports</th><th>The canvas is using</th></tr></thead>
+    <tbody>
+      <tr><td><code>navigator.devicePosture.type</code></td><td id="realPosture"></td><td id="usedPosture"></td></tr>
+      <tr><td><code>viewport.segments</code></td><td id="realSegments"></td><td id="usedSegments"></td></tr>
+      <tr><td>Draw calls in the last frame</td><td></td><td id="usedDraws"></td></tr>
+    </tbody>
+  </table>
+
+  <details class="show-code">
+    <summary>Show the code <small>two panes placed by posture and drawn across a fold</small></summary>
+    <ol>
+      <li data-code="#markup"><b>One canvas with two children.</b> Both are ordinary HTML. Nothing in the markup knows about the fold.</li>
+      <li data-code="#css"><b>Each pane has two layouts, chosen by a <code>data-mode</code> attribute.</b></li>
+      <li data-code="#page"><b>The page creates the view and passes it the values of the controls.</b> The last line switches to the device's own posture and segments.</li>
+      <li data-code="/lib/fold-view.js#device"><b>Inside the library: read the posture and the segments.</b></li>
+      <li data-code="/lib/fold-view.js#layout"><b>Choose a rectangle for each pane.</b> Folded: one segment each. Otherwise the content covers the screen and the controls are a bar.</li>
+      <li data-code="/lib/fold-view.js#strips"><b>Cut each half into strips and work out where each strip appears.</b> This is only needed for the picture of a folded device on a flat screen.</li>
+      <li data-code="/lib/fold-view.js#draw"><b>Draw: one clipped <code>drawElementImage()</code> per strip and pane.</b></li>
+      <li data-code="/lib/fold-view.js#opening"><b>On a real device, a posture change plays the opening.</b></li>
+      <li data-code="/lib/fold-view.js#plane"><b>The hit box of a tilted half is a matrix with a perspective row.</b></li>
+      <li data-code="/lib/fold-view.js#geometry"><b>Set the hit boxes after drawing.</b> A pane across both halves gets the matrix of the half under the pointer.</li>
+      <li data-code="/lib/fold-view.js"><b>The whole library.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="how">How it works</h2>
+  <p>
+    The canvas has two children, a content pane and a controls pane. When the posture is <code>folded</code>, each pane gets the rectangle of one
+    segment. When it is <code>continuous</code>, the content pane covers the whole screen and the controls pane becomes a bar. The panes are
+    resized with CSS, so the browser lays them out again, and the canvas draws them at their new place. A pane that changes place slides there over
+    320 ms, drawn at sizes between the two.
+  </p>
+  <p>
+    The fold control draws a picture of a folded device. Each half is cut into strips 8 px long that run beside the fold. A strip
+    further from the hinge is nearer the eye, so it is drawn wider. Each strip is one <code>drawElementImage()</code> call with a clip and a
+    scale. Next to the hinge the angle changes over 16 px, which is why the text curves there. On a real foldable none of this is drawn,
+    because the screen is bent already. There the canvas covers the window and only shades the crease.
+  </p>
+  <p>
+    "Open" and "Close" swing the angle to 180° and to 60° with a damped motion. In the simulated picture the half that holds the controls is drawn at one fixed tilt and only the other half turns, and the scale is chosen once for every angle, so the controls stay in the same place on the screen while the angle changes. On a real device the same picture is played when
+    <code>devicePosture</code> fires <code>change</code>: the API gives no angle, so on <code>"continuous"</code> the canvas draws the two halves
+    as slabs that start at 90° and swing flat over 1.1 seconds, with the live panes on them. A light band crosses each half and the shadow
+    under the device grows as the halves lift.
+  </p>
+  <p>
+    A hinge with a width hides pixels. A window that spans a dual-screen device has rows that no screen shows. With "Cut the picture" on, the
+    canvas lays the content out shorter by the width of the hinge and draws it in two pieces, one on each side, so no row is hidden.
+    With it off, the hinge covers part of the content, which is what a spanning window does without a canvas.
+  </p>
+
+  <h2 id="checks">Live checks</h2>
+  <p class="note">These run on a second, small fold in a panel at the bottom of the window, not on the one above. They wait for a tap.</p>
+  <table class="results"><tbody id="results"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li><strong>Layout by posture needs no canvas. Drawing one element across the fold does.</strong> CSS can place two elements with <code>env(viewport-segment-*)</code> and the <code>device-posture</code> media feature. CSS cannot remove the rows of one element that fall under a hinge. A canvas can: it draws the element twice with a clip, before and after the hinge.</li>
+    <li><strong>A tilted half keeps exact hit testing.</strong> One half of a folded surface is a plane. <code>updateElementGeometry()</code> accepts a matrix with a perspective row, so a button on a half that is drawn at 100° is found by <code>elementFromPoint()</code> where it is drawn, and typing, the range slider and the checkboxes work there.</li>
+    <li><strong>An element across both halves has one hit box and two planes.</strong> The page gives the hit box to the half under the pointer, in <code>pointermove</code> and <code>pointerdown</code> listeners. With a mouse that is always in time. A touch has no <code>pointermove</code> before it: the <code>pointerdown</code> of a first tap on the other half is aimed with the old hit box, but the listener moves the box before the browser picks the target of the <code>click</code>, so the tap still follows a link after a 30 px hinge (emulated touch, Chromium 157). Controls that act on <code>pointerdown</code>, such as a range slider, would miss on that first touch. With no hinge the two planes differ only by the perspective, a few pixels near the fold.</li>
+    <li><strong>The curve next to the hinge is drawn but not hit tested.</strong> The matrix describes the flat part of each half. In the 16 px next to the hinge the picture is curved and the hit box is not, so a target there is off by up to 2 px at 90°.</li>
+    <li><strong>The posture and the segments were read through DevTools emulation only.</strong> In Chromium 157, <code>Emulation.setDeviceMetricsOverride</code> with a display feature gives two entries in <code>viewport.segments</code> and <code>devicePosture.type</code> <code>"folded"</code>, and "Use this device's fold" places the panes on them. <code>visualViewport.segments</code>, the older name, does not exist in this build.</li>
+    <li><strong>Not verified on a foldable.</strong> Segment rectangles on a real device, the hinge width a dual-screen device reports, how the on-screen keyboard changes the segments, and whether the crease shading lines up with the physical crease all need the hardware.</li>
+    <li><strong>The API has no fold angle, so the opening is played, not tracked.</strong> The posture is one of two words. A picture that follows the hinge as a hand opens it is not possible with this API. The page starts a fixed 1.1 second swing when the word changes to <code>"continuous"</code>, and a shorter one when it changes to <code>"folded"</code>. With emulated posture changes the swing plays and the panes stay live during it. How it looks against the real movement of a hinge is not known.</li>
+    <li><strong>The panes are live during the swing.</strong> Every frame redraws both panes from the DOM and sets their hit boxes, at 60° as well as at 180°. The countdown keeps running on a slab in motion.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported } from '/shared/support.js';
+  import { FoldView, readDevice, watchDevice } from '/lib/fold-view.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('fold'), stage = $('stage');
+
+  // ---- The recipe: plain DOM code that knows nothing about the canvas --------
+  let step = 0, left = 600, running = false;
+  const items = [...$('stepList').children];
+  const showStep = () => {
+    items.forEach((li, i) => li.classList.toggle('now', i === step));
+    $('stepNo').textContent = `Step ${step + 1} of ${items.length}`;
+    $('prev').disabled = step === 0;
+    $('next').textContent = step === 1 && !running ? 'Start timer' : step === items.length - 1 ? 'Start again' : 'Next step';
+  };
+  const clock = () => { $('timerOut').textContent = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`; };
+  $('next').onclick = () => {
+    if (step === 1 && !running) { running = true; left = $('timer').value * 60; clock(); showStep(); return; }
+    step = (step + 1) % items.length; running = false; showStep();
+  };
+  $('prev').onclick = () => { step = Math.max(0, step - 1); running = false; showStep(); };
+  $('timer').oninput = () => { if (!running) { left = $('timer').value * 60; clock(); } };
+  setInterval(() => { if (running && left > 0 && !document.hidden) { left--; clock(); } }, 1000);
+  $('note').oninput = () => { $('noteOut').textContent = $('note').value ? `Note: ${$('note').value}` : ''; };
+  $('controls').addEventListener('change', () => {
+    const have = [...document.querySelectorAll('#controls .checks input:checked')].map((i) => i.value);
+    $('haveReady').textContent = have.join(', ') || 'nothing yet';
+  });
+  showStep();
+
+  let view = null;
+  if (supported) {
+    // #region page
+    view = new FoldView(canvas, { content: $('content'), controls: $('controls') });
+    const read = () => view.set({
+      axis: document.querySelector('[name=axis]:checked').value, // 'horizontal' | 'vertical'
+      angle: +$('angle').value, // 180 is flat
+      hinge: +$('hinge').value, // px
+      span: !!document.querySelector('[name=span]:checked').value, // content across both halves when folded
+      cut: $('cut').checked, // cut the picture at the hinge
+    });
+    document.querySelector('.knobs').addEventListener('input', read);
+    read();
+    $('useDevice').onclick = () => { stage.classList.add('fill'); view.set({ source: 'device' }); };
+    // #endregion page
+    // Open and Close move the angle slider with a damped swing, the way a hinge settles.
+    let swing = 0;
+    const swingTo = (target) => {
+      const from = +$('angle').value, start = performance.now(), mine = ++swing;
+      const step = (now) => {
+        if (mine !== swing) return;
+        const t = Math.min(1, (now - start) / 1300);
+        $('angle').value = Math.round(target - (target - from) * Math.exp(-3.2 * t) * Math.cos(4.2 * t));
+        if (t === 1) $('angle').value = target;
+        $('angle').dispatchEvent(new Event('input', { bubbles: true }));
+        if (t < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+    $('openIt').onclick = () => swingTo(180);
+    $('closeIt').onclick = () => swingTo(60);
+    $('angle').addEventListener('pointerdown', () => { swing++; }); // a hand on the slider stops the swing
+    $('leave').onclick = () => { stage.classList.remove('fill'); view.set({ source: 'sim' }); };
+    view.onlost = () => { $('stageNote').textContent = view.lost ? 'This canvas lost its 2D context, so nothing is drawn. Reload the page to draw it again.' : ''; };
+    view.onmodel = (m) => {
+      $('usedPosture').textContent = `"${m.posture}"` + (m.source === 'sim' ? ' (from the angle: below 150° is folded)' : '');
+      const segs = !m.fold ? [[0, 0, m.W, m.H]] : m.axis === 'horizontal' ? [[0, 0, m.W, m.h0], [0, m.h1, m.W, m.L - m.h1]] : [[0, 0, m.h0, m.H], [m.h1, 0, m.L - m.h1, m.H]];
+      $('usedSegments').textContent = segs.map((s) => `[${s.map(Math.round).join(', ')}]`).join(' ') + (m.source === 'sim' ? ' (simulated)' : '');
+      requestAnimationFrame(() => { $('usedDraws').textContent = `${view.draws ?? 0} clipped drawElementImage() calls over ${m.strips.length} strips`; });
+    };
+    view.update();
+  } else {
+    // Without the API a canvas shows nothing of its children. Show the panes as plain HTML.
+    stage.replaceChildren($('content'), $('controls'));
+    stage.style.background = 'none';
+    $('stageNote').textContent = 'HTML-in-canvas is not available, so the two panes are shown as plain HTML and the fold controls do nothing.';
+  }
+
+  const labels = () => { $('angleOut').textContent = `${$('angle').value}°`; $('hingeOut').textContent = `${$('hinge').value} px`; };
+  document.querySelector('.knobs').addEventListener('input', labels);
+  labels();
+
+  const showDevice = () => {
+    const dev = readDevice();
+    $('realPosture').textContent = dev.posture === null ? 'no Device Posture API' : `"${dev.posture}"`;
+    $('realSegments').textContent = dev.from ? dev.segments.map((s) => `[${[s.x, s.y, s.width, s.height].map(Math.round).join(', ')}]`).join(' ') : 'no Viewport Segments API';
+    const two = dev.segments.length >= 2;
+    $('useDevice').disabled = !two || !view;
+    $('deviceNote').textContent = two
+      ? 'This window has two segments. The button makes the canvas cover the window and places the panes on them.'
+      : 'This window reports one segment, so the fold control above is used. On a foldable that is half open, or with a foldable profile in DevTools device emulation, this button places the panes on the real segments.';
+  };
+  watchDevice(showDevice);
+  showDevice();
+
+  window.__fold = { view }; // for tests
+</script>
+<script type="module" src="/fold/checks.js"></script>
+</body>
+</html>

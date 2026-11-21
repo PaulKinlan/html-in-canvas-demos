@@ -54,6 +54,7 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 | WebGPU across the shader pages | the six shader pages and `/lens/` | `shared/backend.js`, `shared/route-switch.js`, `gpu-util.js` | #33, #37, #42 | Built. Confirmed on screen on the phone for `/shader-css/` only. Demo 26 is assigned to this thread. |
 | 3D and spatial | `/three-form/`, `/board/`, `/xr/` | `html3d.js`, `check-fixture.js` | #11, #21, #25 | Built. three `WebGPURenderer`, a real headset and Android AR are not verified. Demo 24 is assigned to this thread. |
 | Native UI toolkits | `/native-ui/` | `native/egui-dom/`, `native/qt-dom/`, `docs/native-frameworks.md` | #47 | Built for egui and Qt Quick. Eight follow-up experiments are listed below. Demo 28 is assigned to this thread. |
+| Devices | `/fold/`, `/hardware-out/`, `/window-chrome/` | `fold-view.js`, `device-out.js` | #57 | Built with simulated devices (demos 23, 25 and 27 of the Chrome APIs plan). No real foldable, peripheral or installed app window has been tried. |
 | Video and sound | `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/` | `video-export.js`, `webm-mux.js` | #46, #51 | Built. Hardware decoding and sound are not verified. Demo 19 (media state) landed in #51 as additions to the media pages. |
 | Accessibility, capture, performance | `/a11y/`, `/capture/`, `/perf/` | `a11y-audit.js`, `element-capture.js` | #7, #13, #14, #16, #22, #24 | Built. By-hand results (screen reader, IME, flicker, frame rates) are still wanted. Demos 10, 17 and 20 are assigned to this thread. |
 | Pages that hold still | every page | `tools/jank/`, `shared/support.js`, `shared/nav.js` | #29 and the per-page fixes #23 to #28 | Done. All pages hold still on load. Gated pages carry `<meta name="checks" content="tap">`. |
@@ -105,11 +106,11 @@ Source: `tools/chrome-apis/demos.json` and `public/chrome-apis/plan.md` (written
 | 20 | `capture-print` | Capture additions: clipboard, print margins, files | then | Audit accessibility, capture and performance |
 | 21 | `component-kit` | The custom elements packaged with newer DOM features (scoped registries, Reference Target, `using`, Observable) | then | UI primitives thread |
 | 22 | `iframe-tiles` | Iframes as tiles: sizing, prerender and limits | then | Share live widgets across contexts |
-| 23 | `foldable` | DOM drawn across a fold | hardware | Build hardware demos from plan |
+| 23 | `foldable` | DOM drawn across a fold | hardware | Build hardware demos from plan. Built as `/fold/` (PR #57). |
 | 24 | `xr-real` | HTML panels in a real room (hands, planes, depth, quad layers) | hardware | Put live HTML into 3D scenes |
-| 25 | `hardware-out` | Live DOM on physical devices (Stream Deck, receipt printer, LED matrix) | hardware | Build hardware demos from plan |
+| 25 | `hardware-out` | Live DOM on physical devices (Stream Deck, receipt printer, LED matrix) | hardware | Build hardware demos from plan. Built as `/hardware-out/` (PR #57). |
 | 26 | `webgpu-pipeline` | WebGPU features for element textures (compatibility mode, dual source blending, `primitive_index`, immediates) | hardware | WebGPU thread |
-| 27 | `window-chrome` | An installed app whose window frame is a canvas | hardware | Build hardware demos from plan |
+| 27 | `window-chrome` | An installed app whose window frame is a canvas | hardware | Build hardware demos from plan. Built as `/window-chrome/` (PR #57). |
 | 28 | `wasm-ui` | WebAssembly toolkits (JSPI) and WebNN models over live elements | hardware | Research native frameworks in canvas |
 
 Guidance given to every thread building these (2026-11-21): ship in small pull requests of two or three demos, let a demo that fails on the API fail visibly with the finding recorded, start each page on its lightest effect, create one graphics context per page where possible, keep live checks behind a tap, recover from a lost context with a message, and favour dynamic, visually strong effects. The hardware-tier demos are built with a simulated fallback (a fold control, a simulated device panel, a simulated title bar) because the cloud browser cannot verify the real thing.
@@ -298,6 +299,9 @@ Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-2
 | Other browsers | Safari and Firefox as viewers of the cross-context pages | By hand. |
 | Chrome version | Chrome 159 against the four probe results that differ between 153 and 157; Chrome 148 as the floor | `/chrome-apis/probes.html` on the phone. |
 | Native UI | Qt Widgets (2D canvas route) | Not built. |
+| Foldables | Any real foldable on `/fold/`: the segment rectangles, the hinge width of a dual-screen device, segments with the keyboard open, whether the drawn crease lines up with the real one, the opening swing on a real posture change | Open `/fold/` on a foldable and press "Use this device's fold". The table on the page shows the posture and segments. |
+| Peripherals | A real Stream Deck (WebHID), ESC/POS receipt printer (Web Serial) and LED matrix on `/hardware-out/`; the report layout comes from open-source drivers | Desktop Chrome with the device, the "Connect" button of each panel. The status line beside it reports the result. |
+| App window | `/window-chrome/` installed on a desktop: the window controls overlay, whether a drag region is at the drawn position or the layout box, `window.minimize()` and the other windowing calls | Install the app from `/window-chrome/`, turn on the overlay, run "Test 1" and "Test 2" in the app. |
 
 ## Reports to make upstream
 
