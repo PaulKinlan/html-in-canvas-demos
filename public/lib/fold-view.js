@@ -55,6 +55,8 @@ export class FoldView {
   #pointerHalf = -1;
   #unit = null;
   #raf = 0;
+  #opening = null; // { from, start, ms }: the picture of the hinge opening after a posture change
+  #lastPosture = null;
 
   constructor(canvas, { content, controls }) {
     this.canvas = canvas;
@@ -82,7 +84,23 @@ export class FoldView {
     const follow = (e) => this.#follow(e);
     addEventListener('pointermove', follow, { capture: true, passive: true });
     addEventListener('pointerdown', follow, { capture: true, passive: true });
-    watchDevice(() => { if (this.state.source === 'device') this.update(); });
+    watchDevice(() => {
+      if (this.state.source !== 'device') return;
+      // #region opening
+      // The API has no fold angle, only two words. When the word changes, the canvas
+      // plays the movement itself: the two halves are drawn as slabs that swing flat.
+      const posture = readDevice().posture;
+      if (this.#lastPosture && posture !== this.#lastPosture) this.open(posture === 'continuous' ? 90 : 150, posture === 'continuous' ? 1100 : 600);
+      this.#lastPosture = posture;
+      // #endregion opening
+      this.update();
+    });
+  }
+
+  /** Draw the halves swinging from `from` degrees to flat. Used when a real device changes posture. */
+  open(from = 90, ms = 1100) {
+    this.#opening = { from, start: performance.now(), ms };
+    this.update();
   }
 
   set(patch) {
@@ -108,6 +126,13 @@ export class FoldView {
       const dev = readDevice();
       const [a, b] = dev.segments;
       m.W = cw; m.H = ch; m.bezel = 0; m.posture = dev.posture ?? 'continuous';
+      this.#lastPosture ??= dev.posture;
+      if (this.#opening) {
+        // A damped swing from the starting angle to flat. It passes 180 degrees a little and comes back.
+        const t = (performance.now() - this.#opening.start) / this.#opening.ms;
+        if (t >= 1) this.#opening = null;
+        else { m.angle = 180 - (180 - this.#opening.from) * Math.exp(-3.2 * t) * Math.cos(4.2 * t); m.opening = true; }
+      }
       if (a && b) {
         // Two segments one above the other mean a horizontal fold. Side by side mean a vertical one.
         m.axis = b.y >= a.y + a.height - 1 ? 'horizontal' : 'vertical';
@@ -204,7 +229,16 @@ export class FoldView {
       }
     };
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (m.bezel) { outline(m.bezel); ctx.fillStyle = '#26282c'; ctx.fill(); }
+    if (m.bezel) {
+      // The body, with a shadow that grows as the slabs lift off the page.
+      outline(m.bezel);
+      ctx.shadowColor = 'rgb(0 0 0 / .45)';
+      ctx.shadowBlur = dpr * (6 + 26 * Math.sin(Math.abs(m.alpha)));
+      ctx.shadowOffsetY = dpr * (2 + 14 * Math.sin(Math.abs(m.alpha)));
+      ctx.fillStyle = '#26282c';
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+    }
     outline(0);
     ctx.fillStyle = '#0c0d0f';
     ctx.fill();
@@ -252,6 +286,17 @@ export class FoldView {
       const p0 = Math.round(s.p0 * dpr), p1 = Math.round(s.p1 * dpr);
       ctx.fillRect(...(horizontal ? [0, p0, canvas.width, p1 - p0] : [p0, 0, p1 - p0, canvas.height]));
     }
+    // Glass: a band of reflected light that crosses each half as the angle changes.
+    if (Math.abs(m.alpha) > 0.004) {
+      const turn = Math.sin(m.alpha), size = Math.max(canvas.width, canvas.height);
+      for (const half of [-1, 1]) {
+        const at = (m.cA + half * m.k * (m.L / 2) * (1.15 - 1.3 * Math.abs(turn))) * dpr, w = size * 0.16;
+        const g = horizontal ? ctx.createLinearGradient(0, at - w, w * 0.5, at + w) : ctx.createLinearGradient(at - w, 0, at + w, w * 0.5);
+        g.addColorStop(0, 'rgb(255 255 255 / 0)'); g.addColorStop(0.5, `rgb(255 255 255 / ${(0.22 * Math.min(1, Math.abs(turn) * 2.5)).toFixed(3)})`); g.addColorStop(1, 'rgb(255 255 255 / 0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
     ctx.restore(); // end of the screen clip
 
     // The hinge is flat and faces the eye.
@@ -274,7 +319,7 @@ export class FoldView {
     for (const pane of this.#panes) this.#place(pane);
     this.painted = (this.painted ?? 0) + 1;
     this.draws = draws;
-    if (moving && !this.#raf) this.#raf = requestAnimationFrame(() => { this.#raf = 0; canvas.requestPaint(); });
+    if ((moving || m.opening) && !this.#raf) this.#raf = requestAnimationFrame(() => { this.#raf = 0; if (m.opening) this.update(); else canvas.requestPaint(); });
   }
   // #endregion draw
 
@@ -383,7 +428,7 @@ function at(profile, d) {
 }
 
 function strips(m) {
-  const flat = m.alpha < 0.004;
+  const flat = Math.abs(m.alpha) < 0.004;
   const lenA = m.h0, lenB = m.L - m.h1, longest = Math.max(lenA, lenB, 1);
   const steps = flat ? 1 : Math.ceil(longest / STRIP);
   m.profile = walk(longest, m.alpha, steps);

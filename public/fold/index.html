@@ -50,7 +50,8 @@
   .knobs legend { padding: 0; font-weight: 600; font-size: 14px; }
   .knobs label { display: inline-flex; gap: 6px; align-items: center; min-height: 36px; font-size: 15px; }
   .knobs input[type=range] { flex: 1 1 120px; min-width: 100px; min-height: 30px; }
-  .knobs output { font: 13px var(--mono); min-width: 4.5em; }
+  .knobs output { font: 13px var(--mono); min-width: 3.5em; }
+  .knobs button { min-height: 40px; }
   table.lab { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 10px; }
   table.lab th, table.lab td { text-align: left; padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
   table.lab td:nth-child(2), table.lab td:nth-child(3) { font-family: var(--mono); font-size: 13px; }
@@ -117,8 +118,10 @@
     </fieldset>
     <fieldset>
       <legend>Angle</legend>
-      <input type="range" id="angle" min="80" max="180" value="125" aria-label="Fold angle in degrees">
+      <input type="range" id="angle" min="24" max="180" value="125" aria-label="Fold angle in degrees">
       <output id="angleOut">125°</output>
+      <button type="button" id="openIt">Open</button>
+      <button type="button" id="closeIt">Close</button>
     </fieldset>
     <fieldset>
       <legend>Hinge width</legend>
@@ -160,6 +163,7 @@
       <li data-code="/lib/fold-view.js#layout"><b>Choose a rectangle for each pane.</b> Folded: one segment each. Otherwise the content covers the screen and the controls are a bar.</li>
       <li data-code="/lib/fold-view.js#strips"><b>Cut each half into strips and work out where each strip appears.</b> This is only needed for the picture of a folded device on a flat screen.</li>
       <li data-code="/lib/fold-view.js#draw"><b>Draw: one clipped <code>drawElementImage()</code> per strip and pane.</b></li>
+      <li data-code="/lib/fold-view.js#opening"><b>On a real device, a posture change plays the opening.</b></li>
       <li data-code="/lib/fold-view.js#plane"><b>The hit box of a tilted half is a matrix with a perspective row.</b></li>
       <li data-code="/lib/fold-view.js#geometry"><b>Set the hit boxes after drawing.</b> A pane across both halves gets the matrix of the half under the pointer.</li>
       <li data-code="/lib/fold-view.js"><b>The whole library.</b></li>
@@ -180,6 +184,12 @@
     because the screen is bent already. There the canvas covers the window and only shades the crease.
   </p>
   <p>
+    "Open" and "Close" swing the angle to 180° and to 30° with a damped motion. On a real device the same picture is played when
+    <code>devicePosture</code> fires <code>change</code>: the API gives no angle, so on <code>"continuous"</code> the canvas draws the two halves
+    as slabs that start at 90° and swing flat over 1.1 seconds, with the live panes on them. A light band crosses each half and the shadow
+    under the device grows as the halves lift.
+  </p>
+  <p>
     A hinge with a width hides pixels. A window that spans a dual-screen device has rows that no screen shows. With "Cut the picture" on, the
     canvas lays the content out shorter by the width of the hinge and draws it in two pieces, one on each side, so no row is hidden.
     With it off, the hinge covers part of the content, which is what a spanning window does without a canvas.
@@ -197,7 +207,8 @@
     <li><strong>The curve next to the hinge is drawn but not hit tested.</strong> The matrix describes the flat part of each half. In the 16 px next to the hinge the picture is curved and the hit box is not, so a target there is off by up to 2 px at 90°.</li>
     <li><strong>The posture and the segments were read through DevTools emulation only.</strong> In Chromium 157, <code>Emulation.setDeviceMetricsOverride</code> with a display feature gives two entries in <code>viewport.segments</code> and <code>devicePosture.type</code> <code>"folded"</code>, and "Use this device's fold" places the panes on them. <code>visualViewport.segments</code>, the older name, does not exist in this build.</li>
     <li><strong>Not verified on a foldable.</strong> Segment rectangles on a real device, the hinge width a dual-screen device reports, how the on-screen keyboard changes the segments, and whether the crease shading lines up with the physical crease all need the hardware.</li>
-    <li><strong>The API has no fold angle.</strong> The posture is one of two words. The picture on a real device therefore cannot follow the angle, and this page shades the crease by a fixed amount when the posture is <code>folded</code>.</li>
+    <li><strong>The API has no fold angle, so the opening is played, not tracked.</strong> The posture is one of two words. A picture that follows the hinge as a hand opens it is not possible with this API. The page starts a fixed 1.1 second swing when the word changes to <code>"continuous"</code>, and a shorter one when it changes to <code>"folded"</code>. With emulated posture changes the swing plays and the panes stay live during it. How it looks against the real movement of a hinge is not known.</li>
+    <li><strong>The panes are live during the swing.</strong> Every frame redraws both panes from the DOM and sets their hit boxes, at 24° as well as at 180°. The countdown keeps running on a slab in motion.</li>
   </ul>
 </main>
 
@@ -248,6 +259,23 @@
     read();
     $('useDevice').onclick = () => { stage.classList.add('fill'); view.set({ source: 'device' }); };
     // #endregion page
+    // Open and Close move the angle slider with a damped swing, the way a hinge settles.
+    let swing = 0;
+    const swingTo = (target) => {
+      const from = +$('angle').value, start = performance.now(), mine = ++swing;
+      const step = (now) => {
+        if (mine !== swing) return;
+        const t = Math.min(1, (now - start) / 1300);
+        $('angle').value = Math.round(target - (target - from) * Math.exp(-3.2 * t) * Math.cos(4.2 * t));
+        if (t === 1) $('angle').value = target;
+        $('angle').dispatchEvent(new Event('input', { bubbles: true }));
+        if (t < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+    $('openIt').onclick = () => swingTo(180);
+    $('closeIt').onclick = () => swingTo(30);
+    $('angle').addEventListener('pointerdown', () => { swing++; }); // a hand on the slider stops the swing
     $('leave').onclick = () => { stage.classList.remove('fill'); view.set({ source: 'sim' }); };
     view.onlost = () => { $('stageNote').textContent = view.lost ? 'This canvas lost its 2D context, so nothing is drawn. Reload the page to draw it again.' : ''; };
     view.onmodel = (m) => {
