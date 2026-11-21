@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flip clock from a time element</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; height: 172px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #101116; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+  @media (min-width: 700px) { #stage { height: 260px; } }
+
+  #stage.is-plain { height: auto; background: var(--card); padding: 8px 12px; }
+
+  /* #region styles */
+  /* A registered property has a type, so an animation can interpolate it. */
+  @property --flip { syntax: '<number>'; inherits: false; initial-value: 1; }
+  .flip-clock { display: block; box-sizing: border-box; width: 100%; padding: 26px 0 0; text-align: center; color: #f5f2e8;
+    /* A custom property that changes fires no paint event. A colour computed from it does, also when
+       the change cannot be seen. This border is what makes the browser fire paint on each frame of a flip. */
+    border-top: 1px solid rgb(0 0 0 / calc(var(--flip) * 0.02)); }
+  .flip-clock .digits { display: block; white-space: pre; font: 700 var(--size, 60px)/1.2 ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+    font-variant-numeric: tabular-nums; letter-spacing: .14em; margin-right: -.14em; }
+  .flip-clock .date { display: block; margin-top: 18px; font: 14px/1.3 system-ui, sans-serif; color: #a8adbd; }
+  /* #endregion styles */
+
+  .plain-html .flip-clock { color: var(--fg); }
+  .plain-html .flip-clock .date { color: var(--muted); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 10px 0 4px; min-height: 44px; }
+  .controls label { font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
+  .controls select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); max-width: 100%; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 4.2em; margin: 4px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Flip clock from a time element</h1>
+  <p class="lede">
+    The clock is one <code>&lt;time&gt;</code> element drawn by a canvas. A timer changes its text once a second. Each change fires <code>paint</code>, and the canvas flips the digits that differ from a snapshot of
+    the old text to the new text. The page has no frame loop: the frames of a flip come from a CSS animation on the element. Change the time zone to flip most of the digits at once.
+  </p>
+  <p id="support"></p>
+
+  <div id="stage">
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <!-- #region markup -->
+      <time id="clock" class="flip-clock" drawable datetime="2026-11-21T00:00:00Z">
+        <span class="digits">00:00:00</span>
+        <span class="date">&nbsp;</span>
+      </time>
+      <!-- #endregion markup -->
+    </canvas>
+  </div>
+
+  <div class="controls">
+    <label>Time zone
+      <select id="zone">
+        <option value="">This device</option>
+        <option>UTC</option>
+        <option>America/Los_Angeles</option>
+        <option>America/New_York</option>
+        <option>Europe/London</option>
+        <option>Asia/Kolkata</option>
+        <option>Asia/Tokyo</option>
+        <option>Australia/Sydney</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="seconds" checked> Seconds</label>
+    <label><input type="checkbox" id="twelve"> 12 hour</label>
+  </div>
+  <p id="status">&nbsp;</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>a timer, a snapshot and a CSS animation; no requestAnimationFrame</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The clock.</b> A <code>&lt;time&gt;</code> element with the digits and a date line.</li>
+      <li data-code="#styles"><b>The styles.</b> A registered property <code>--flip</code>, and a border colour computed from it.</li>
+      <li data-code="#tick"><b>Once a second.</b> Take a snapshot, change the text, start the animation.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Read <code>--flip</code> and draw each changed digit part way between the snapshot and the element.</li>
+      <li data-code="/lib/text-canvas.js#flap"><b>One flap</b> part way through a flip.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>A <code>setTimeout()</code> aimed at the start of each second formats the time and compares it with the element's text. When they differ it does three things: it calls <code>captureElementImage()</code> to keep a picture of
+    the element as it is, it sets the new text and the <code>datetime</code> attribute, and it starts a Web Animation that runs the registered custom property <code>--flip</code> from 0 to 1 in 520 ms.</p>
+  <p>The text change fires <code>paint</code>. The animation fires <code>paint</code> on every frame while it runs, because the element's top border has a colour computed from <code>--flip</code>. The paint handler reads
+    <code>--flip</code> with <code>getComputedStyle()</code> and uses it as the progress of the flip. For each digit that changed, the old face is a piece of the snapshot and the new face is a piece of the live element.
+    When the animation ends the paint events stop, and nothing runs until the next second.</p>
+  <p>The line under the controls counts the paint events and the calls the page made. <code>requestPaint()</code> is called when the canvas changes size and when it scrolls into the window, and not for the clock.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own fixtures in the corner of the window.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul>
+    <li>Changing the text of a <code>&lt;time&gt;</code> element fires <code>paint</code>. A clock that shows seconds gets one paint event a second from the text alone.</li>
+    <li>An animation on a registered custom property fires no <code>paint</code> by itself. With a border colour computed from the property, <code>paint</code> fires once per frame of the animation, and
+      <code>getComputedStyle()</code> inside the handler returns the interpolated value. That gives a canvas an animation clock with no <code>requestAnimationFrame()</code> and no <code>requestPaint()</code>.</li>
+    <li>A CSS counter animated with <code>@keyframes</code> and shown through <code>content: counter()</code> fires <code>paint</code> for each new number. No script changes the text.</li>
+    <li><code>captureElementImage()</code> works in a timer, outside a paint handler, and returns the picture from the last paint.</li>
+    <li>Not verified: Chrome 159 for Android, and whether the timer and the animation keep in step when the phone throttles a page. Watch the status line for a minute: the paint count should rise by about 32 a second with seconds on.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage } from '/shared/support.js';
+  import { supported, mount, draw, piece, home, flap, charBoxes, plain, ease, fixtureCanvas } from '/lib/text-canvas.js';
+  banner();
+
+  const canvas = document.getElementById('canvas'), clock = document.getElementById('clock'), status = document.getElementById('status');
+  const digits = clock.querySelector('.digits'), dateLine = clock.querySelector('.date');
+  const zone = document.getElementById('zone'), seconds = document.getElementById('seconds'), twelve = document.getElementById('twelve');
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function format(now) {
+    const timeZone = zone.value || undefined;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: twelve.checked ? 'h12' : 'h23' })
+      .formatToParts(now).map((p) => [p.type, p.value]));
+    const text = `${parts.hour.padStart(2, '0')}:${parts.minute}` + (seconds.checked ? `:${parts.second}` : '');
+    const date = new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now);
+    const where = zone.value || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return { text, date: `${twelve.checked ? (parts.dayPeriod ?? '').toUpperCase() + ' · ' : ''}${date} · ${where}` };
+  }
+
+  // One clock: the canvas and the time element. The same function drives the fixtures of the live checks.
+  function flipClock(canvas, time, face) {
+    let before = null, oldText = face.textContent, animation = null, drawnOnce = false, framesAtStart = 0;
+    const stamps = [];
+    let key = '', boxes = [];
+
+    // #region tick
+    function show(text) {
+      if (text === face.textContent) return false;
+      oldText = face.textContent;
+      // Keep the picture of the element as it is now. This works outside a paint handler.
+      try { before = canvas.captureElementImage(time); } catch { before = null; }
+      face.textContent = text;
+      animation?.cancel();
+      // The animation changes nothing that can be seen. It makes the browser fire paint for 520 ms.
+      animation = calm ? null : time.animate({ '--flip': [0, 1] }, { duration: 520, fill: 'forwards' });
+      return true;
+    }
+    // #endregion tick
+
+    // #region paint
+    const view = mount(canvas, (ctx, w, h) => {
+      stamps.push(performance.now());
+      // The progress of the flip, straight from CSS.
+      const style = getComputedStyle(time), t = animation ? parseFloat(style.getPropertyValue('--flip')) : 1;
+      const text = face.textContent, spacing = parseFloat(getComputedStyle(face).letterSpacing) || 0;
+      const fresh = text + getComputedStyle(face).fontSize + w;
+      if (fresh !== key) { key = fresh; boxes = charBoxes(face); }
+      const x0 = face.offsetLeft, y0 = face.offsetTop, jobs = [];
+      boxes.forEach((b, i) => {
+        if (!/\d/.test(b.ch)) return;
+        const card = { x: x0 + b.x - spacing / 2 + 2, y: y0 + b.y - 8, w: b.w - 4, h: b.h + 16 };
+        const back = () => {
+          const g = ctx.createLinearGradient(0, card.y, 0, card.y + card.h);
+          g.addColorStop(0, '#34373f'); g.addColorStop(0.5, '#272a31'); g.addColorStop(0.5, '#1e2026'); g.addColorStop(1, '#282b32');
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.roundRect(card.x, card.y, card.w, card.h, Math.min(10, card.w / 6)); ctx.fill();
+        };
+        back();
+        if (t < 1 && before && oldText[i] !== text[i]) {
+          // The old face is a piece of the snapshot. The new face is the same piece of the live element.
+          const from = (source) => () => { back(); piece(ctx, source, x0 + b.x, y0 + b.y, b.w, b.h, x0 + b.x, y0 + b.y); };
+          jobs.push(() => flap(ctx, ease(t), card.x, card.y, card.w, card.h, from(before), from(time)));
+        }
+        jobs.push(() => {
+          ctx.fillStyle = 'rgb(0 0 0 / .65)';
+          ctx.fillRect(card.x, card.y + card.h / 2 - 1, card.w, 2);
+          ctx.fillStyle = '#101116';
+          ctx.fillRect(card.x, card.y + card.h / 2 - 4, 3, 8);
+          ctx.fillRect(card.x + card.w - 3, card.y + card.h / 2 - 4, 3, 8);
+        });
+      });
+      // The element: every digit, the colons and the date line, over the cards.
+      if (draw(ctx, time, 0, 0) && !drawnOnce) { drawnOnce = true; framesAtStart = view.frames; }
+      for (const job of jobs) job();
+      home(ctx, time, 0, 0);
+      // Never ask for another frame. The next paint comes from the animation or from the next text change.
+      return false;
+    });
+    // #endregion paint
+
+    return { view, show, paintsSince: (ms) => { const from = performance.now() - ms; return stamps.filter((s) => s >= from).length; }, loopFrames: () => view.frames - framesAtStart, ready: () => drawnOnce };
+  }
+
+  // Choose a digit size that fills the canvas. Measured, because fixed-pitch fonts differ in width.
+  function fit() {
+    const room = Math.min(canvas.clientWidth, 620) - 24, count = digits.textContent.length;
+    canvas.style.setProperty('--size', '40px');
+    const probe = charBoxes(digits)[0];
+    const advance = probe && probe.w ? probe.w / 40 : 0.74;
+    canvas.style.setProperty('--size', `${Math.max(20, Math.min(118, room / count / advance)).toFixed(1)}px`);
+  }
+
+  let engine = null;
+  if (!supported) {
+    plain(canvas);
+    setInterval(() => { const f = format(new Date()); digits.textContent = f.text; dateLine.textContent = f.date; }, 500);
+  } else {
+    engine = flipClock(canvas, clock, digits);
+    const update = () => {
+      const now = new Date(), f = format(now), resized = f.text.length !== digits.textContent.length;
+      if (engine.show(f.text)) clock.dateTime = now.toISOString().slice(0, 19) + 'Z';
+      if (dateLine.textContent !== f.date) dateLine.textContent = f.date;
+      if (resized) fit();
+      status.textContent = `${engine.paintsSince(10000)} paint events in the last 10 seconds. requestAnimationFrame calls for the clock: ${engine.loopFrames()}. ` +
+        `requestPaint() calls: ${engine.view.requests} (canvas size and scrolling into the window).`;
+    };
+    const tick = () => { update(); setTimeout(tick, 1000 - (Date.now() % 1000) + 4); };
+    update();
+    fit();
+    new ResizeObserver(fit).observe(canvas);
+    tick();
+    for (const control of [zone, seconds, twelve]) control.addEventListener('change', update);
+  }
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const TIME = '<time class="flip-clock" drawable style="width:200px;padding:6px 0;--size:30px"><span class="digits" style="color:#fff">12:34</span></time>';
+
+  runTests(document.getElementById('tests'), [
+    { name: 'Changing the text of a time element fires paint', expect: 'pass', why: 'No requestPaint() call. The page waits 300 ms for paint events.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), TIME, 220, 70);
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        await sleep(100);
+        let changed = [];
+        fx.canvas.addEventListener('paint', (e) => { changed = (e.changedElements ?? []).map((el) => el.localName); }, { once: true });
+        fx.el.firstElementChild.textContent = '12:35';
+        const n = await fx.quiet(300);
+        return need(n > 0, `${n} paint events. changedElements: ${changed.join(', ') || 'empty'}.`);
+      } },
+    { name: 'An animated custom property fires paint only when something painted is computed from it', expect: 'pass',
+      why: 'The same 400 ms animation of --flip, first on an element with no border, then with the border colour computed from --flip.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), TIME.replace('padding:6px 0', 'padding:6px 0;border-top:0'), 220, 70);
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        await sleep(100);
+        const run = async () => {
+          const values = [], read = () => values.push(parseFloat(getComputedStyle(fx.el).getPropertyValue('--flip')));
+          fx.canvas.addEventListener('paint', read);
+          const from = fx.paints, animation = fx.el.animate({ '--flip': [0, 1] }, { duration: 400 });
+          await sleep(550);
+          fx.canvas.removeEventListener('paint', read);
+          animation.cancel();
+          return { paints: fx.paints - from, between: values.filter((v) => v > 0 && v < 1).length };
+        };
+        const alone = await run();
+        fx.el.style.borderTop = '';
+        await sleep(100);
+        const border = await run();
+        return need(alone.paints === 0 && border.paints >= 8 && border.between >= 6,
+          `Property alone: ${alone.paints} paint events. With the border: ${border.paints} paint events, ${border.between} of them read a value between 0 and 1.`);
+      } },
+    { name: 'A snapshot taken in a timer keeps the old digits', expect: 'pass', why: 'captureElementImage() outside a paint handler, then the text changes from 12:34 to 12:31. The last digit is drawn from both.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), TIME, 220, 90), face = fx.el.firstElementChild;
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        await sleep(60);
+        const snap = fx.canvas.captureElementImage(fx.el);
+        const b = charBoxes(face)[4], sx = face.offsetLeft + b.x, sy = face.offsetTop + b.y;
+        face.textContent = '12:31';
+        await fx.quiet(200); await fx.paint();
+        fx.start(); piece(fx.ctx, snap, sx, sy, b.w, b.h, 10, 50); piece(fx.ctx, fx.el, sx, sy, b.w, b.h, 100, 50);
+        const old = fx.count(10, 50, b.w, b.h), live = fx.count(100, 50, b.w, b.h);
+        return need(old > 0 && live > 0 && Math.abs(old - live) > 12, `The box of the last digit: ${old} pixels from the snapshot (4), ${live} from the live element (1).`);
+      } },
+    { name: 'A clock on a fixture flips with no requestAnimationFrame call', expect: 'pass', why: 'flipClock() on a fixture. The text changes once. Paint events during the next 700 ms are counted.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), TIME, 220, 70);
+        const c = flipClock(fx.canvas, fx.el, fx.el.firstElementChild);
+        c.view.visible = true;
+        await fx.paint(); await sleep(150);
+        const paints = fx.paints, requests = c.view.requests;
+        c.show('12:35');
+        await sleep(700);
+        const during = fx.paints - paints;
+        const after = await fx.quiet(400);
+        return need(during >= (calm ? 1 : 8) && c.loopFrames() === 0 && c.view.requests === requests && after === 0,
+          `${during} paint events during the flip, ${after} in the 400 ms after it. requestAnimationFrame calls: ${c.loopFrames()}. requestPaint() calls: ${c.view.requests - requests}.`);
+      } },
+    { name: 'An animated CSS counter in generated content fires paint without script', expect: 'pass', why: 'counter-reset from a registered integer property that @keyframes animates, shown with content: counter().',
+      run: async () => {
+        const css = '<style>@property --fx-n { syntax: "<integer>"; inherits: false; initial-value: 0; } @keyframes fx-count { to { --fx-n: 40; } } ' +
+          '.fx-count { color: #fff; font: 20px monospace; counter-reset: n var(--fx-n); animation: fx-count 4s steps(40) infinite; } .fx-count::after { content: counter(n); }</style>';
+        const fx = await fixtureCanvas(testStage(), '<div class="fx-count" drawable>n = </div>' + css, 220, 50);
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        const n = await fx.quiet(700);
+        fx.el.style.animation = 'none';
+        return need(n >= 3, `${n} paint events in 700 ms. The counter steps 10 times a second.`);
+      } },
+    { name: 'The clock on this page is running without a frame loop', expect: 'pass', why: 'Reads the counters of the clock above. It does not touch it.',
+      run: async () => {
+        need(engine, 'The clock is shown as plain HTML here.');
+        if (!engine.ready()) return 'The clock has not been on screen yet, so it has not painted.';
+        return need(engine.loopFrames() === 0, `${engine.view.paints} paint events so far. requestAnimationFrame calls for the clock: ${engine.loopFrames()}.`);
+      } },
+  ]);
+</script>
+</body>
+</html>

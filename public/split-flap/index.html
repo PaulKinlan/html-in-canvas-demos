@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Split-flap output element</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; height: 304px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #0e0f12; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+  @media (min-width: 700px) { #stage { height: 400px; } }
+
+  #stage.is-plain { height: auto; background: var(--card); padding: 8px 12px; }
+
+  /* #region styles */
+  .flaps, .flap-drum { color: #f4f1e6; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; }
+  .flaps { box-sizing: border-box; width: 100%; max-width: 640px; margin: 0; padding: 12px 14px; }
+  .flaps h3 { margin: 0 0 8px; font: 600 12px/1.3 system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: #9aa0b4; }
+  /* One character per flap: fixed-pitch text with space between the letters for the gaps between cards. */
+  .flaps output, .flap-drum { display: block; width: max-content; margin: 0 0 .34em; white-space: pre;
+    font-weight: 700; font-size: var(--size, 22px); line-height: 1.5; letter-spacing: .16em; }
+  .flaps .note, .flap-drum.note { color: #ffd84a; }
+  /* A drum holds every character a flap can show. It is a second child of the canvas and is only ever drawn in pieces. */
+  .flap-drum { position: absolute; left: 0; top: 0; margin: 0; pointer-events: none; user-select: none; }
+  /* #endregion styles */
+
+  .plain-html .flaps { color: var(--fg); }
+  .plain-html .flaps .note { color: var(--accent); }
+
+  form.controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 10px 0 4px; min-height: 92px; align-content: flex-start; }
+  .controls label { font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
+  .controls input[type=text], .controls select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); max-width: 100%; }
+  .controls input[type=text] { width: 190px; }
+  .controls input[type=range] { width: 120px; }
+  .controls output { font: 13px var(--mono); min-width: 6ch; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 2.8em; margin: 4px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Split-flap output element</h1>
+  <p class="lede">
+    A departure board made of six <code>&lt;output&gt;</code> elements, drawn by a canvas. The form under the canvas sets their values. When a value changes, the canvas flips each character that differs
+    to its new one, card by card. Type a message, move the delay slider or press Next departure. The Flip menu switches between stepping through the alphabet and turning straight from the old picture to the new one.
+  </p>
+  <p id="support"></p>
+
+  <div id="stage">
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <!-- #region markup -->
+      <section id="board" class="flaps" drawable aria-label="Departures">
+        <h3>Time &nbsp;Destination &nbsp;Platform</h3>
+        <output name="row0" form="form">09:42 EDINBURGH    4</output>
+        <output name="row1" form="form">09:55 YORK        11</output>
+        <output name="row2" form="form">10:03 MANCHESTER   7</output>
+        <output name="row3" form="form">10:10 BRISTOL      2</output>
+        <output name="row4" form="form">10:26 PENZANCE     9</output>
+        <output name="note" form="form" class="note" for="text">MIND THE GAP        </output>
+      </section>
+      <!-- #endregion markup -->
+    </canvas>
+  </div>
+
+  <!-- #region form -->
+  <form id="form" class="controls">
+    <label>Message <input type="text" name="text" id="text" maxlength="20" value="Mind the gap" autocomplete="off" spellcheck="false"></label>
+    <label>Delay <input type="range" name="delay" min="0" max="45" value="0"> <output name="mins" for="delay">0 min</output></label>
+    <button type="button" id="next">Next departure</button>
+    <label>Flip
+      <select name="mode">
+        <option value="cycle">Through the alphabet</option>
+        <option value="direct">Old picture to new picture</option>
+      </select>
+    </label>
+  </form>
+  <!-- #endregion form -->
+  <p id="status">&nbsp;</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>output values read on paint, flaps drawn from pieces of elements</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The board.</b> Six <code>&lt;output&gt;</code> elements in a drawable section. They belong to the form through the <code>form</code> attribute.</li>
+      <li data-code="#form"><b>The form</b>, outside the canvas.</li>
+      <li data-code="#values"><b>The form sets values.</b> Nothing here talks to the canvas.</li>
+      <li data-code="#styles"><b>The styles.</b> Fixed-pitch text, and the drum.</li>
+      <li data-code="#change"><b>On <code>paint</code>, find what changed.</b> Compare each output's value with the characters the flaps show.</li>
+      <li data-code="#faces"><b>The faces of a flap.</b> A character from the drum, from the live board or from a snapshot of the board.</li>
+      <li data-code="/lib/text-canvas.js#flap"><b>One flap</b> part way through a flip.</li>
+      <li data-code="/lib/text-canvas.js#draw"><b>Drawing a piece of an element</b> with the nine-argument <code>drawElementImage()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>Setting <code>output.value</code> changes the element's text, and the browser fires <code>paint</code> on the canvas. The paint handler reads the value of each output and compares it, character by character,
+    with what its flaps show. That comparison is the only link between the form and the board. The canvas code has no input listener and no observer.</p>
+  <p>Each character has a box, measured with a <code>Range</code>. The canvas draws a card behind every box, then the section itself, so a settled character is the browser's own text and can be selected.
+    A flap in motion is drawn from pieces of elements with the nine-argument form of <code>drawElementImage()</code>, which copies a source rectangle of an element's picture to a destination rectangle.</p>
+  <p>In the first mode a flap steps through the characters of a drum: a line of text in the same font that holds every character a flap can show. The drum is a second <code>drawable</code> child of the canvas. It is never drawn whole:
+    its characters are drawn one at a time. There is one drum for each style of output, so the yellow row flips in yellow. In the second mode the old face of a flap is a piece of a snapshot taken
+    with <code>captureElementImage()</code> before the change, and the new face is a piece of the live section. That mode needs no drum and works for any character.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own fixtures in the corner of the window.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul>
+    <li>Setting <code>output.value</code> fires <code>paint</code> with no call from the page. A paint handler can treat the event as "something changed" and read the values itself.</li>
+    <li><code>drawElementImage(source, sx, sy, sw, sh, dx, dy, dw, dh)</code> works for an element and for an <code>ElementImage</code> snapshot. The source rectangle is in CSS pixels of the element.</li>
+    <li>A snapshot from <code>captureElementImage()</code> keeps the old value after the output changes, so one element can be the old face and the new face of a flap. <code>captureElementImage()</code> also works outside a paint handler.</li>
+    <li>The drum is a direct child of the canvas for a reason. As a <code>drawable</code> element nested in the section, its picture held only the characters that were inside the window, and which ones changed with
+      the place the drum was last drawn. Flaps then showed blank cards for the rest. A direct child of the canvas is recorded whole. <a href="/keycaps/">Keycaps drawn from kbd</a> has a live check for this.</li>
+    <li>An <code>&lt;output form="…"&gt;</code> inside the canvas is in <code>form.elements</code> of a form outside it.</li>
+    <li>With <code>letter-spacing</code>, the box of a character includes the space after it, and the glyph is at the left of the box. The cards are shifted left by half the spacing to centre the glyphs.</li>
+    <li>Not verified: Chrome 159 for Android, and whether a screen reader announces the new value once (an <code>&lt;output&gt;</code> is a live region). Turn on TalkBack, press Next departure and listen for one announcement per row.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage } from '/shared/support.js';
+  import { supported, mount, draw, piece, home, flap, charBoxes, plain, fixtureCanvas } from '/lib/text-canvas.js';
+  banner();
+
+  const canvas = document.getElementById('canvas'), board = document.getElementById('board'), form = document.getElementById('form'), status = document.getElementById('status');
+  const RING = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:.,-'!?/&+";
+  const COLUMNS = 20;
+
+  // #region values
+  const PLACES = ['EDINBURGH', 'YORK', 'MANCHESTER', 'BRISTOL', 'PENZANCE', 'GLASGOW', 'LEEDS', 'NEWCASTLE', 'LIVERPOOL', 'CARDIFF', 'OXFORD', 'CAMBRIDGE', 'BRIGHTON', 'INVERNESS', 'ABERDEEN', 'NORWICH'];
+  let trains = [[582, 0, 4], [595, 1, 11], [603, 2, 7], [610, 3, 2], [626, 4, 9]];   // minutes after midnight, place, platform
+  const clock = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+  function fill() {
+    const delay = +form.elements.delay.value;
+    trains.forEach(([at, place, platform], i) => {
+      form.elements['row' + i].value = `${clock(at + delay)} ${PLACES[place].padEnd(11)} ${String(platform).padStart(2)}`;
+    });
+    form.elements.note.value = form.elements.text.value.toUpperCase().padEnd(COLUMNS);
+    form.elements.mins.value = `${delay} min`;
+  }
+  form.addEventListener('input', fill);
+  document.getElementById('next').onclick = () => {
+    const [at, place] = trains.at(-1);
+    trains = [...trains.slice(1), [at + 5 + Math.floor(Math.random() * 20), (place + 1 + Math.floor(Math.random() * 5)) % PLACES.length, 1 + Math.floor(Math.random() * 12)]];
+    fill();
+  };
+  // #endregion values
+
+  // One board: a canvas, the drawn section, and a function that says which flip mode is on.
+  function flapBoard(canvas, root, mode = () => 'cycle') {
+    const rows = [...root.querySelectorAll('output')].map((out) => {
+      // One drum for each style of output, so its characters are drawn in that output's colour.
+      const drum = document.createElement('div');
+      drum.className = `flap-drum ${out.className}`;
+      drum.setAttribute('drawable', '');
+      drum.setAttribute('aria-hidden', 'true');
+      drum.textContent = RING;
+      canvas.append(drum);
+      return { out, drum, cells: [], boxes: [], key: '', where: new Map() };
+    });
+    let then = 0, snapshot = null, busy = true, flips = 0;
+
+    function measure(row, text) {
+      const size = getComputedStyle(row.out).fontSize, key = text + size + root.offsetWidth;
+      if (key === row.key) return;
+      row.key = key;
+      row.boxes = charBoxes(row.out);
+      row.where = new Map(charBoxes(row.drum).map((b) => [b.ch, b]));
+    }
+
+    const view = mount(canvas, (ctx, w, h, now) => {
+      const dt = Math.min(0.05, (now - then) / 1000 || 0.016);
+      then = now;
+      const ox = Math.max(0, Math.round((w - root.offsetWidth) / 2)), oy = 0, direct = mode() === 'direct';
+      const spacing = parseFloat(getComputedStyle(rows[0].out).letterSpacing) || 0;
+      const jobs = [];
+      busy = false;
+      for (const row of rows) {
+        // #region change
+        // The paint event says that something changed. Read the value and compare it with what the flaps show.
+        const text = row.out.value, chars = [...text];
+        measure(row, text);
+        while (row.cells.length < chars.length) row.cells.push({ shown: chars[row.cells.length], next: null, t: 0, wait: 0 });
+        row.cells.length = chars.length;
+        row.cells.forEach((cell, i) => {
+          const target = chars[i];
+          if (cell.next === null && cell.shown !== target) {
+            // Start a flip. In cycle mode the next face is the next character on the drum, until the target comes up.
+            const at = RING.indexOf(cell.shown), stepping = !direct && at >= 0 && RING.includes(target);
+            cell.next = stepping ? RING[(at + 1) % RING.length] : target;
+            cell.old = stepping ? 'drum' : 'snapshot';
+            if (!cell.running) cell.wait = i * 0.022;
+            cell.running = true;
+            cell.t = 0;
+          }
+          if (cell.next !== null) {
+            if (cell.wait > 0) cell.wait -= dt; else cell.t += dt / (cell.old === 'drum' ? 0.065 : 0.34);
+            if (cell.t >= 1) { cell.shown = cell.next; cell.next = null; cell.t = 0; flips++; }
+          }
+          if (cell.shown === target && cell.next === null) cell.running = false; else busy = true;
+        });
+        // #endregion change
+
+        // #region faces
+        const x0 = ox + row.out.offsetLeft, y0 = oy + row.out.offsetTop;
+        row.boxes.forEach((b, i) => {
+          const cell = row.cells[i];
+          if (!cell || b.w === 0) return;
+          const card = { x: x0 + b.x - spacing / 2 + 1, y: y0 + b.y - 1, w: b.w - 2, h: b.h + 2 };
+          const back = () => {
+            const g = ctx.createLinearGradient(0, card.y, 0, card.y + card.h);
+            g.addColorStop(0, '#2d3038'); g.addColorStop(0.5, '#23252c'); g.addColorStop(0.5, '#1c1e24'); g.addColorStop(1, '#22242b');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.roundRect(card.x, card.y, card.w, card.h, 3); ctx.fill();
+          };
+          // Three sources for the picture of a character, all drawn to the same place.
+          const fromDrum = (ch) => { const d = row.where.get(ch); if (d) piece(ctx, row.drum, d.x, d.y, d.w, d.h, x0 + b.x, y0 + b.y, b.w, b.h); };
+          const fromLive = () => piece(ctx, root, row.out.offsetLeft + b.x, row.out.offsetTop + b.y, b.w, b.h, x0 + b.x, y0 + b.y);
+          const fromSnapshot = () => { if (snapshot) piece(ctx, snapshot, row.out.offsetLeft + b.x, row.out.offsetTop + b.y, b.w, b.h, x0 + b.x, y0 + b.y); };
+          back();
+          if (cell.running) {
+            const oldFace = () => { back(); if (cell.old === 'drum') fromDrum(cell.shown); else fromSnapshot(); };
+            const newFace = () => { back(); if (cell.old === 'drum') fromDrum(cell.next ?? cell.shown); else fromLive(); };
+            // The section is drawn after the cards and shows the new value, so a moving flap is drawn after the section.
+            jobs.push(() => flap(ctx, cell.next === null ? 0 : cell.t, card.x, card.y, card.w, card.h, oldFace, newFace));
+          }
+          jobs.push(() => { ctx.fillStyle = 'rgb(0 0 0 / .6)'; ctx.fillRect(card.x, card.y + card.h / 2 - 0.5, card.w, 1); });
+        });
+        // #endregion faces
+      }
+      // The section: the heading and the text of every output, over the cards.
+      const drawn = draw(ctx, root, ox, oy);
+      for (const job of jobs) job();
+      // Drawing pieces moved the section's hit region. Put it back, so the text can be selected where it shows.
+      home(ctx, root, ox, oy);
+      // Keep a picture of the settled board. It is the old face for the next change in direct mode.
+      if (drawn && !busy) { try { snapshot = canvas.captureElementImage(root); } catch {} }
+      return busy;
+    });
+
+    return { view, rows, busy: () => busy, flips: () => flips, shown: (i) => rows[i].cells.map((c) => c.shown).join('') };
+  }
+
+  // Choose a font size that makes 20 characters fill the board. Measured, because fixed-pitch fonts differ in width.
+  function fit() {
+    const room = Math.min(canvas.clientWidth, 640) - 28;
+    canvas.style.setProperty('--size', '20px');
+    const probe = charBoxes(board.querySelector('output'))[0];
+    const advance = probe && probe.w ? probe.w / 20 : 0.76;
+    canvas.style.setProperty('--size', `${Math.max(10, Math.min(30, room / COLUMNS / advance)).toFixed(2)}px`);
+  }
+
+  if (!supported) {
+    plain(canvas);
+  } else {
+    fit();
+    new ResizeObserver(fit).observe(canvas);
+    const engine = flapBoard(canvas, board, () => form.elements.mode.value);
+    setInterval(() => {
+      status.textContent = `${engine.view.paints} paint events, ${engine.flips()} flips drawn. ${engine.busy() ? 'Flipping.' : 'Settled: the page is requesting no frames.'}`;
+    }, 400);
+  }
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const BOARD = '<section class="flaps" drawable style="width:200px;padding:30px 10px 10px"><output style="color:#fff">AB 12</output></section>';
+  const NESTED = '<section class="flaps" drawable style="position:relative;width:280px;height:90px;padding:0"><div class="flap-drum" drawable style="top:50px">ABCDEFGH</div><output style="color:#fff">AB</output></section>';
+
+  runTests(document.getElementById('tests'), [
+    { name: 'Setting output.value fires paint', expect: 'pass', why: 'No requestPaint() call. The page waits 300 ms for paint events.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), BOARD, 220, 90), out = fx.el.querySelector('output');
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        await sleep(100);
+        out.value = 'CD 34';
+        const n = await fx.quiet(300);
+        return need(n > 0 && out.textContent === 'CD 34', `${n} paint events after output.value = "CD 34".`);
+      } },
+    { name: 'One character of a drum can be drawn alone', expect: 'pass',
+      why: 'A drum nested in the board is left out of the board\'s picture. The nine-argument drawElementImage() copies the box of the letter C from the drum to 200, 10.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), NESTED, 300, 100), drum = fx.el.querySelector('.flap-drum');
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        const inBoard = fx.count(0, 50, 280, 40);
+        const c = charBoxes(drum)[2];
+        fx.start(); piece(fx.ctx, drum, c.x, c.y, c.w, c.h, 200, 10);
+        const at = fx.count(200, 10, c.w, c.h), all = fx.count(0, 0, 300, 100);
+        return need(inBoard === 0 && at > 20 && all === at, `Board alone: ${inBoard} pixels where the drum is laid out. The piece drew ${at} pixels in its destination box and ${all - at} outside it.`);
+      } },
+    { name: 'A snapshot keeps the old value after the output changes', expect: 'pass', why: 'captureElementImage(), then output.value changes, then the same box is drawn from the snapshot and from the live element.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), BOARD, 220, 90), out = fx.el.querySelector('output');
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        const snap = fx.canvas.captureElementImage(fx.el);
+        const b = charBoxes(out)[0], sx = out.offsetLeft + b.x, sy = out.offsetTop + b.y;
+        out.value = '.  12';
+        await fx.quiet(200); await fx.paint();
+        fx.start(); piece(fx.ctx, snap, sx, sy, b.w, b.h, 10, 50); piece(fx.ctx, fx.el, sx, sy, b.w, b.h, 100, 50);
+        const old = fx.count(10, 50, b.w, b.h), live = fx.count(100, 50, b.w, b.h);
+        return need(old > live * 1.3 && live > 0, `The box of the first character: ${old} pixels from the snapshot (A), ${live} from the live element (a full stop).`);
+      } },
+    { name: 'The flaps reach the new value and the page stops asking for frames', expect: 'pass', why: 'A board on the fixture. Its output goes from "AB 12" to "AD 13". In cycle mode B steps through C to D.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), BOARD, 220, 90), out = fx.el.querySelector('output');
+        const engine = flapBoard(fx.canvas, fx.el);
+        engine.view.visible = true;
+        await fx.paint(); await sleep(200);
+        const before = engine.shown(0);
+        out.value = 'AD 13';
+        for (let i = 0; i < 40 && (engine.busy() || engine.shown(0) !== 'AD 13'); i++) await sleep(100);
+        const frames = engine.view.frames;
+        await sleep(300);
+        return need(before === 'AB 12' && engine.shown(0) === 'AD 13' && engine.view.frames === frames, `Showed "${before}", then "${engine.shown(0)}" after ${engine.flips()} flips. Frames requested after settling: ${engine.view.frames - frames}.`);
+      } },
+    { name: 'A point on a drawn character hit tests to the output', expect: 'pass', why: 'elementFromPoint() in the box of the first character, after the board drew its flaps.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), BOARD, 220, 90), out = fx.el.querySelector('output');
+        flapBoard(fx.canvas, fx.el);
+        await fx.paint(); await sleep(150);
+        const r = out.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.x + 8, r.y + r.height / 2);
+        return need(hit === out, `elementFromPoint returned ${hit ? '<' + hit.localName + '>' : 'nothing'}.`);
+      } },
+    { name: 'An output inside the canvas belongs to the form outside it', expect: 'pass', why: 'The outputs have form="form". This reads form.elements on the page and changes nothing.',
+      run: async () => {
+        const note = board.querySelector('output[name=note]');
+        return need(form.elements.note === note && note.form === form && note.htmlFor.value === 'text', `form.elements.note is the output in the canvas. Its htmlFor is "${note.htmlFor.value}".`);
+      } },
+  ]);
+</script>
+</body>
+</html>

@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marker-pen highlight on mark</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; height: 540px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fbf7ec; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+  @media (min-width: 700px) { #stage { height: 400px; } }
+
+  #stage.is-plain { height: auto; background: var(--card); padding: 8px 12px; }
+
+  /* #region styles */
+  .pen-text { box-sizing: border-box; width: 100%; margin: 0; padding: 18px 20px; color: #2b2622; font: 17px/1.8 Georgia, 'Times New Roman', serif; outline: none; }
+  .pen-text h3 { margin: 0 0 6px; font: 600 19px/1.4 Georgia, serif; }
+  .pen-text p { margin: 0 0 10px; }
+  /* Inside the canvas the browser's flat background is off. The canvas draws the ink. */
+  canvas .pen-text mark { background: none; color: inherit; --ink: #ffd84a; }
+  canvas .pen-text mark.green { --ink: #9fe07c; }
+  canvas .pen-text mark.pink { --ink: #ff9fcb; }
+  canvas .pen-text mark.blue { --ink: #4f8df0; }
+  canvas .pen-text mark.red { --ink: #e5484d; }
+  /* #endregion styles */
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0 4px; min-height: 88px; align-content: flex-start; }
+  .controls label { font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
+  .controls select { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 2.8em; margin: 4px 0; }
+  .plain-html { padding: 4px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Marker-pen highlight on mark</h1>
+  <p class="lede">
+    The text below is one element drawn by a canvas. Its <code>&lt;mark&gt;</code> elements have no background. The canvas draws a pen stroke for each line that a mark covers, from the boxes
+    that <code>getClientRects()</code> returns, and draws the text over it. Select some words and press Highlight selection to wrap them in a new <code>&lt;mark&gt;</code>. Tap a mark to redraw it with the chosen pen.
+    Switch on editing and type: the strokes follow the new line breaks.
+  </p>
+  <p id="support"></p>
+
+  <div id="stage">
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <!-- #region markup -->
+      <article id="text" class="pen-text" drawable spellcheck="false">
+        <h3>Notes on the mark element</h3>
+        <p>The <mark>mark element</mark> flags a run of text as relevant. A browser paints it with a flat yellow background. In this canvas that background is off and
+          <mark data-pen="underline" class="blue">the canvas draws each stroke</mark> under the text, from the boxes that <mark class="green">getClientRects()</mark> returns.
+          There is one box for each line. <mark data-pen="circle" class="red">Select some words</mark> and press the button, or switch on editing and type. The strokes follow the
+          <mark data-pen="strike" class="red">old</mark> new line breaks, <mark class="pink">and a mark that wraps onto a second or a third line gets a separate stroke for each of them</mark>.
+          A <mark data-pen="box" class="blue">box</mark> is four strokes.</p>
+      </article>
+      <!-- #endregion markup -->
+    </canvas>
+  </div>
+
+  <div class="controls">
+    <label>Pen
+      <select id="pen">
+        <option value="highlight">Highlighter</option>
+        <option value="underline">Underline</option>
+        <option value="circle">Circle</option>
+        <option value="box">Box</option>
+        <option value="strike">Strike through</option>
+      </select>
+    </label>
+    <label>Ink
+      <select id="ink">
+        <option value="">Yellow</option>
+        <option value="green">Green</option>
+        <option value="pink">Pink</option>
+        <option value="blue">Blue</option>
+        <option value="red">Red</option>
+      </select>
+    </label>
+    <button type="button" id="add">Highlight selection</button>
+    <button type="button" id="redraw">Redraw strokes</button>
+    <button type="button" id="clear">Remove marks</button>
+    <label><input type="checkbox" id="edit"> Edit the text</label>
+  </div>
+  <p id="status">&nbsp;</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>line boxes of a mark, strokes under the text</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The text.</b> An article with <code>&lt;mark&gt;</code> elements, as a child of the canvas.</li>
+      <li data-code="#styles"><b>The styles.</b> The mark background is off inside the canvas. <code>--ink</code> carries the colour.</li>
+      <li data-code="/lib/text-canvas.js#boxes"><b>The boxes.</b> One for each line a mark covers, relative to the article.</li>
+      <li data-code="#strokes"><b>The strokes.</b> Each pen is a list of polylines with a seeded wobble.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Paper, ink, then the article with <code>drawElementImage()</code>.</li>
+      <li data-code="#wrap"><b>Highlight selection.</b> Wrap the selected range in a new <code>&lt;mark&gt;</code>. The change fires <code>paint</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>The article is a child of a <code>&lt;canvas content="drawable"&gt;</code>. On every <code>paint</code> event the page asks each <code>&lt;mark&gt;</code> for its client rects. An inline element that wraps
+    returns one rect for each line, so a mark over three lines gives three boxes. The page turns each box into strokes for the mark's pen (<code>data-pen</code>), in the colour of its <code>--ink</code> custom property,
+    and draws them on the canvas. Highlighter and underline strokes are drawn before the article, so the glyphs are on top of the ink. Circle, box and strike strokes are drawn after it.</p>
+  <p>A stroke is a polyline with small random offsets. The random numbers come from a generator seeded per mark, so the stroke has the same shape on every frame and after an edit. A new mark is drawn in over time:
+    the page draws only the first part of each polyline and asks for another frame until the stroke is complete. When nothing is animating the page requests no frames. Typing, selecting and resizing fire <code>paint</code> themselves.</p>
+  <p>The text stays a normal element. It can be selected, copied, edited and found. Highlight selection changes the document: it wraps the selected range in a <code>&lt;mark&gt;</code>, which a screen reader
+    and a copy to the clipboard both see.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own fixtures in the corner of the window.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul>
+    <li><code>mark.getClientRects()</code> on a mark inside a drawn element returns one rect per line, as it does outside a canvas. The rects are reported where the element was last drawn and at the scale it was drawn with.
+      Measured against the element's own <code>getBoundingClientRect()</code> and divided by the drawn scale, they give layout positions that can be used in the canvas's coordinate system.</li>
+    <li>Wrapping a range in a new <code>&lt;mark&gt;</code>, removing a mark and typing in the article each fire <code>paint</code> with no call from the page.</li>
+    <li>With <code>background: none</code> the mark paints nothing of its own, so the canvas can put ink under the glyphs by drawing the ink first and the element second. The selection highlight is part of the element's picture, so it is drawn over the ink.</li>
+    <li>A <code>Range</code> returns the same boxes as a <code>&lt;mark&gt;</code> around the same text. A canvas could draw pen strokes for ranges without changing the document. This page changes the document so that the highlight is in the markup.</li>
+    <li>Not verified: long-press selection and its handles on Chrome 159 for Android, and the on-screen keyboard while editing. Open the page on the phone, select two words, press Highlight selection, then switch on editing and type.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage } from '/shared/support.js';
+  import { supported, mount, draw, lineBoxes, plain, seeded, clamp, ease, fixtureCanvas } from '/lib/text-canvas.js';
+  banner();
+
+  const canvas = document.getElementById('canvas'), text = document.getElementById('text'), status = document.getElementById('status');
+  const penPick = document.getElementById('pen'), inkPick = document.getElementById('ink');
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // #region strokes
+  // A wobbly line from (x0, y) to (x1, y): points every 12 px or so, each moved a little.
+  function line(rnd, x0, y0, x1, y1, wobble) {
+    const n = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / 12)), pts = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      pts.push([x0 + (x1 - x0) * t + (rnd() - 0.5) * wobble, y0 + (y1 - y0) * t + (rnd() - 0.5) * wobble]);
+    }
+    return pts;
+  }
+
+  // Each pen turns one line box into strokes: { pts, width, alpha }. `over` pens are drawn on top of the text.
+  const PENS = {
+    highlight: { over: false, blend: 'multiply', make(rnd, b) {
+      const x0 = b.x - 1 - rnd() * 3, x1 = b.x + b.w + 2 + rnd() * 4, band = b.h * 0.33, tilt = (rnd() - 0.5) * 2;
+      // Three passes, there and back, that overlap. Where they overlap the ink is darker.
+      return [0.2, 0.5, 0.8].map((f, i) => {
+        const y = b.y + b.h * f, a = i % 2 ? x1 : x0, z = i % 2 ? x0 : x1;
+        return { pts: line(rnd, a, y - tilt, z, y + tilt, 1.6), width: band, alpha: 0.58, cap: 'butt' };
+      });
+    } },
+    underline: { over: false, make(rnd, b) {
+      const y = b.y + b.h * 0.97;
+      return [{ pts: line(rnd, b.x - 2, y, b.x + b.w + 3, y + 1, 1.8), width: 2.2, alpha: 0.95 },
+              { pts: line(rnd, b.x + b.w + 1, y + 3, b.x + b.w * 0.25, y + 3.5, 1.8), width: 1.8, alpha: 0.85 }];
+    } },
+    strike: { over: true, make(rnd, b) {
+      const y = b.y + b.h * 0.56;
+      return [{ pts: line(rnd, b.x - 3, y + 2, b.x + b.w + 3, y - 2, 1.5), width: 2.2, alpha: 0.9 },
+              { pts: line(rnd, b.x + b.w + 2, y + 2, b.x - 2, y, 1.5), width: 1.6, alpha: 0.8 }];
+    } },
+    circle: { over: true, make(rnd, b) {
+      // A little over one turn of an ellipse whose radius drifts, so the end overshoots the start.
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2, rx = b.w / 2 + 9, ry = b.h / 2 + 4, pts = [];
+      const start = Math.PI * (0.9 + rnd() * 0.3), n = Math.max(24, Math.round(b.w / 5));
+      for (let i = 0; i <= n; i++) {
+        const t = i / n, a = start + t * Math.PI * 2.25, grow = 1.06 - t * 0.1 + (rnd() - 0.5) * 0.03;
+        pts.push([cx + Math.cos(a) * rx * grow, cy + Math.sin(a) * ry * grow]);
+      }
+      return [{ pts, width: 2, alpha: 0.9 }];
+    } },
+    box: { over: true, make(rnd, b) {
+      const l = b.x - 4, r = b.x + b.w + 4, t = b.y + 1, u = b.y + b.h + 1, o = () => 2 + rnd() * 4;
+      return [[l - o(), t, r + o(), t], [r, t - o(), r, u + o()], [r + o(), u, l - o(), u], [l, u + o(), l, t - o()]]
+        .map(([a, c, d, e]) => ({ pts: line(rnd, a, c, d, e, 1.4), width: 1.9, alpha: 0.9 }));
+    } },
+  };
+
+  const length = (pts) => { let s = 0; for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return s; };
+
+  // Stroke the first `want` pixels of a polyline. Returns the point where the pen is.
+  function strokePart(ctx, pts, want) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    let tip = pts[0];
+    for (let i = 1; i < pts.length && want > 0; i++) {
+      const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]), f = Math.min(1, want / (d || 1));
+      tip = [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
+      ctx.lineTo(tip[0], tip[1]);
+      want -= d;
+    }
+    ctx.stroke();
+    return tip;
+  }
+
+  // Draw a mark's strokes up to progress p (0 to 1). Returns the pen position while it is still drawing.
+  function drawStrokes(ctx, strokes, ink, blend, p) {
+    const total = strokes.reduce((s, k) => s + k.len, 0);
+    let left = total * p, tip = null;
+    ctx.save();
+    ctx.globalCompositeOperation = blend ?? 'source-over';
+    ctx.strokeStyle = ink;
+    ctx.lineJoin = 'round';
+    for (const k of strokes) {
+      if (left <= 0) break;
+      ctx.lineWidth = k.width;
+      ctx.lineCap = k.cap ?? 'round';
+      ctx.globalAlpha = k.alpha;
+      tip = strokePart(ctx, k.pts, left);
+      left -= k.len;
+    }
+    ctx.restore();
+    return p < 1 ? tip : null;
+  }
+  // #endregion strokes
+
+  // What the page remembers about each mark: a seed for its wobble and when its stroke started.
+  const known = new WeakMap();
+  let seeds = 1, startAt = null;
+  function stateOf(mark, now, index) {
+    let st = known.get(mark);
+    if (!st) {
+      // Marks that are in the page at load start one after another. A mark added later starts at once.
+      st = { seed: seeds++ * 7919, t0: startAt === null ? null : now, order: index };
+      known.set(mark, st);
+    }
+    return st;
+  }
+
+  function strokesFor(mark, st, root) {
+    const pen = PENS[mark.dataset.pen] ?? PENS.highlight, rnd = seeded(st.seed);
+    const strokes = [];
+    for (const box of lineBoxes(mark, root)) for (const k of pen.make(rnd, box)) { k.len = length(k.pts); strokes.push(k); }
+    return { pen, strokes, total: strokes.reduce((s, k) => s + k.len, 0) };
+  }
+
+  function nib(ctx, tip, ink) {
+    ctx.save();
+    ctx.translate(tip[0], tip[1]);
+    ctx.rotate(-0.9);
+    ctx.fillStyle = '#2b2622';
+    ctx.beginPath(); ctx.roundRect(-4, -34, 8, 28, 3); ctx.fill();
+    ctx.fillStyle = ink;
+    ctx.beginPath(); ctx.moveTo(-4, -7); ctx.lineTo(4, -7); ctx.lineTo(1.5, 0); ctx.lineTo(-1.5, 0); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  // #region paint
+  function paintText(ctx, root, now, w, h) {
+    ctx.fillStyle = '#fbf7ec';
+    ctx.fillRect(0, 0, w, h);
+    const marks = [...root.querySelectorAll('mark')], later = [], tips = [];
+    let moving = false, boxes = 0;
+    marks.forEach((mark, i) => {
+      const st = stateOf(mark, now, i);
+      if (st.t0 === null && startAt !== null) st.t0 = startAt + st.order * 420;
+      const { pen, strokes, total } = strokesFor(mark, st, root);
+      boxes += strokes.length;
+      const ink = getComputedStyle(mark).getPropertyValue('--ink').trim() || '#ffd84a';
+      // The pen moves at about 1500 px a second, so a long mark takes longer.
+      const p = calm ? 1 : st.t0 === null ? 0 : ease(clamp((now - st.t0) / clamp(total / 1.5, 350, 2400)));
+      if (p < 1 && st.t0 !== null) moving = true;
+      const job = () => { const tip = drawStrokes(ctx, strokes, ink, pen.blend, p); if (tip && p > 0) tips.push([tip, ink]); };
+      if (pen.over) later.push(job); else job();
+    });
+    // The article, over the highlighter ink. This also puts its hit region at 0, 0.
+    draw(ctx, root, 0, 0);
+    for (const job of later) job();
+    for (const [tip, ink] of tips) nib(ctx, tip, ink);
+    return { moving, marks: marks.length, boxes };
+  }
+  // #endregion paint
+
+  // #region wrap
+  // Remember the last selection inside the article: on a phone a tap on the button can clear it.
+  let picked = null;
+  document.addEventListener('selectionchange', () => {
+    const sel = getSelection();
+    if (sel.rangeCount && !sel.isCollapsed && text.contains(sel.anchorNode) && text.contains(sel.focusNode)) picked = sel.getRangeAt(0).cloneRange();
+  });
+
+  function wrap(range, pen, ink) {
+    const mark = document.createElement('mark');
+    if (pen !== 'highlight') mark.dataset.pen = pen;
+    if (ink) mark.className = ink;
+    // surroundContents() throws when the range cuts through an element. Then move the contents by hand.
+    try { range.surroundContents(mark); } catch { mark.append(range.extractContents()); range.insertNode(mark); }
+    for (const inner of mark.querySelectorAll('mark')) inner.replaceWith(...inner.childNodes);
+    return mark;
+  }
+  // #endregion wrap
+
+  if (!supported) {
+    plain(canvas);
+  } else {
+    let last = { marks: 0, boxes: 0 };
+    const view = mount(canvas, (ctx, w, h, now) => {
+      const t0 = performance.now();
+      last = paintText(ctx, text, now, w, h);
+      status.textContent = `${last.marks} marks, ${last.boxes} strokes. ${view.paints} paint events, ${view.frames} frames requested by the page. Last paint took ${(performance.now() - t0).toFixed(1)} ms.`;
+      return last.moving;
+    });
+    // Start the first strokes when the text is on screen.
+    new IntersectionObserver(([entry], io) => {
+      if (!entry.isIntersecting) return;
+      io.disconnect();
+      startAt = performance.now() + 300;
+      view.request();
+    }, { threshold: 0.4 }).observe(canvas);
+
+    document.getElementById('add').onclick = () => {
+      if (!picked || picked.collapsed || !text.contains(picked.commonAncestorContainer)) { status.textContent = 'Select some words in the text first.'; return; }
+      wrap(picked, penPick.value, inkPick.value);
+      picked = null;
+      getSelection().removeAllRanges();
+    };
+    document.getElementById('redraw').onclick = () => {
+      const now = performance.now();
+      [...text.querySelectorAll('mark')].forEach((m, i) => { const st = known.get(m); if (st) st.t0 = now + i * 260; });
+      view.request();
+    };
+    document.getElementById('clear').onclick = () => { for (const m of text.querySelectorAll('mark')) m.replaceWith(...m.childNodes); text.normalize(); };
+    document.getElementById('edit').onchange = (e) => { text.contentEditable = e.target.checked ? 'true' : 'false'; };
+    // A tap on a mark redraws it with the chosen pen and ink.
+    text.addEventListener('click', (e) => {
+      const mark = e.target.closest?.('mark');
+      if (!mark || !getSelection().isCollapsed || text.isContentEditable) return;
+      if (penPick.value === 'highlight') delete mark.dataset.pen; else mark.dataset.pen = penPick.value;
+      mark.className = inkPick.value;
+      const st = known.get(mark);
+      if (st) st.t0 = performance.now();
+      view.request();
+    });
+  }
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const need = (ok, textOut) => { if (!ok) throw new Error(textOut); return textOut; };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const WRAPPED = '<p class="pen-text" drawable style="font:14px/1.6 sans-serif;padding:6px;width:150px">One <mark>mark that is long enough to wrap onto more lines</mark> end</p>';
+  const SHORT = '<p class="pen-text" drawable style="font:16px/1.6 sans-serif;padding:6px;width:280px">One <mark>marked run</mark> end</p>';
+
+  runTests(document.getElementById('tests'), [
+    { name: 'A mark that wraps returns one box for each line', expect: 'pass', why: 'A 150 px wide paragraph with a long mark. lineBoxes() reads mark.getClientRects().',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), WRAPPED, 170, 130), mark = fx.el.querySelector('mark');
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        const boxes = lineBoxes(mark, fx.el), lines = new Set(boxes.map((b) => Math.round(b.y))).size;
+        return need(boxes.length >= 3 && lines === boxes.length, `${boxes.length} boxes on ${lines} lines.`);
+      } },
+    { name: 'With background: none the mark paints no background, and ink drawn first is under the glyphs', expect: 'pass', why: 'Draw the element alone, then a yellow rectangle followed by the element.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), SHORT, 290, 50), mark = fx.el.querySelector('mark');
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        const b = lineBoxes(mark, fx.el)[0];
+        const yellow = (r, g, bl, a) => a > 200 && r > 200 && g > 180 && bl < 140, dark = (r, g, bl, a) => a > 200 && r < 90 && g < 90 && bl < 90;
+        const own = fx.count(b.x, b.y, b.w, b.h, yellow);
+        fx.start(); fx.ctx.fillStyle = '#ffd84a'; fx.ctx.fillRect(b.x, b.y, b.w, b.h); draw(fx.ctx, fx.el, 0, 0);
+        const ink = fx.count(b.x, b.y, b.w, b.h, yellow), glyphs = fx.count(b.x, b.y, b.w, b.h, dark);
+        return need(own === 0 && ink > 100 && glyphs > 20, `Element alone: ${own} yellow pixels in the mark's box. Ink then element: ${ink} yellow and ${glyphs} dark glyph pixels.`);
+      } },
+    { name: 'Adding a mark and typing before it fire paint, and the boxes move', expect: 'pass', why: 'No requestPaint() call. The page waits 300 ms for paint events after each change.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), SHORT, 290, 50), mark = fx.el.querySelector('mark');
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        const before = lineBoxes(mark, fx.el)[0].x;
+        fx.el.firstChild.data = 'One more ';
+        const typed = await fx.quiet(300);
+        const after = lineBoxes(mark, fx.el)[0].x;
+        const range = new Range(); range.selectNodeContents(fx.el.lastChild);
+        wrap(range, 'underline', 'blue');
+        const added = await fx.quiet(300);
+        return need(typed > 0 && added > 0 && after > before + 10, `${typed} paint events after typing, ${added} after wrapping a range. The box moved from x ${before.toFixed(1)} to ${after.toFixed(1)}.`);
+      } },
+    { name: 'Client rects follow the drawn position and scale', expect: 'pass', why: 'Draw the paragraph at twice its size at 20, 10. lineBoxes() divides the scale out again.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), SHORT.replace('280px', '130px'), 300, 130), mark = fx.el.querySelector('mark');
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        const raw1 = mark.getClientRects()[0], box1 = lineBoxes(mark, fx.el)[0], at = fx.canvas.getBoundingClientRect();
+        fx.start(); fx.ctx.translate(20, 10); fx.ctx.scale(2, 2); draw(fx.ctx, fx.el, 0, 0);
+        const raw2 = mark.getClientRects()[0], box2 = lineBoxes(mark, fx.el)[0];
+        const scaled = Math.abs(raw2.width - raw1.width * 2) < 1.5 && Math.abs((raw2.x - at.x) - (20 + box1.x * 2)) < 1.5;
+        const same = Math.abs(box2.x - box1.x) < 0.6 && Math.abs(box2.w - box1.w) < 0.6;
+        return need(scaled && same, `Raw rect width ${raw1.width.toFixed(1)} became ${raw2.width.toFixed(1)}. Normalised box stayed at x ${box2.x.toFixed(1)}, width ${box2.w.toFixed(1)}.`);
+      } },
+    { name: 'A Range returns the same boxes as a mark around the same text', expect: 'pass', why: 'A route that draws strokes without changing the document.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), WRAPPED, 170, 130), mark = fx.el.querySelector('mark');
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        const range = new Range(); range.selectNodeContents(mark);
+        const a = lineBoxes(mark, fx.el), b = lineBoxes(range, fx.el);
+        const same = a.length === b.length && a.every((box, i) => Math.abs(box.x - b[i].x) < 0.6 && Math.abs(box.w - b[i].w) < 0.6);
+        return need(same, `${a.length} boxes from the mark, ${b.length} from the range, at the same places.`);
+      } },
+    { name: 'A point on a drawn mark hit tests to the mark', expect: 'pass', why: 'elementFromPoint() in the middle of the first box, after drawing the paragraph at 30, 20.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), SHORT, 330, 80), mark = fx.el.querySelector('mark');
+        fx.start(); draw(fx.ctx, fx.el, 30, 20);
+        await sleep(50);
+        const r = mark.getClientRects()[0];
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return need(hit === mark, `elementFromPoint returned ${hit ? '<' + hit.localName + '>' : 'nothing'}.`);
+      } },
+  ]);
+</script>
+</body>
+</html>
