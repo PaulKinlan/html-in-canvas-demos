@@ -721,6 +721,8 @@ Compared with controls written in HTML: the native ones bring the overflow menu,
 
 While checks run, the shared fixture box covered the bottom left of the window and took taps meant for the page. The four media pages now set `pointer-events: none` on it, and switch it back only for the synchronous `elementFromPoint()` call of a hit-test check.
 
+Reported from Chrome on Android (2026-11-21): with the checks starting on load, videos on these pages errored and the page jumped. A check fixture is one or two more playing videos beside the three on the page, and a phone has a small number of hardware decoders. Since then the checks on the four media pages wait for a tap, each player on `/player-parts/` gets its file only when it is scrolled near and pauses when it leaves the window, and a media error is written under the player with a button to load the file again. Whether that is the whole cause is not confirmed on the device.
+
 ### Not verified
 
 - Hardware-decoded video on Android. Frames from a hardware decoder may take a different path into the element's picture. The first four live checks on `/video/` answer this on the device.

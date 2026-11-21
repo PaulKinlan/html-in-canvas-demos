@@ -96,7 +96,7 @@
   <div class="stage">
     <!-- #region markup -->
     <div class="player theme-ink" id="themed" fx="none">
-      <video src="/media/clip.webm" controls muted playsinline loop preload="auto">
+      <video data-src="/media/clip.webm" controls muted playsinline loop preload="auto">
         <track default kind="captions" srclang="en" label="English" src="/media/clip.vtt">
       </video>
     </div>
@@ -107,7 +107,7 @@
   <h2 id="state">2. The player's state drives a shader, in CSS</h2>
   <div class="stage">
     <div class="player" id="stateful" fx="player-state">
-      <video src="/media/clip.webm" controls muted playsinline loop autoplay preload="auto"></video>
+      <video data-src="/media/clip.webm" controls muted playsinline loop autoplay preload="auto"></video>
       <div class="muted">Muted</div>
     </div>
   </div>
@@ -139,10 +139,10 @@
     <!-- #region layers-markup -->
     <canvas id="layers" content="drawable" layoutsubtree aria-label="Video with its controls drawn as a separate layer">
       <div id="strip" drawable>
-        <video id="lv" src="/media/clip.webm" controls muted playsinline loop preload="auto"></video>
+        <video id="lv" data-src="/media/clip.webm" controls muted playsinline loop preload="auto"></video>
       </div>
       <div id="astrip" drawable style="display:none">
-        <audio id="la" src="/media/clip.webm" controls loop preload="metadata"></audio>
+        <audio id="la" data-src="/media/clip.webm" controls loop preload="metadata"></audio>
       </div>
       <div id="htmlbar" drawable style="display:none">
         <button type="button" id="hPlay">Play</button>
@@ -206,6 +206,39 @@
 
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // A phone has few video decoders. Each player gets its file when it is scrolled near, and pauses when it leaves the window.
+  const near = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      for (const v of e.target.querySelectorAll('video')) {
+        if (e.isIntersecting && !v.src) v.src = v.dataset.src;
+        else if (!e.isIntersecting && !v.paused) v.pause();
+        else if (e.isIntersecting && v.autoplay && v.paused && !v.dataset.pausedByPerson) v.play().catch(() => {});
+      }
+    }
+  }, { rootMargin: '200px 0px' });
+  for (const stage of document.querySelectorAll('.stage')) near.observe(stage);
+  // A media error is written under its player, with a button that loads the file again.
+  const errorNames = { 1: 'aborted', 2: 'network', 3: 'decode', 4: 'source not supported' };
+  for (const media of document.querySelectorAll('.stage video, .stage audio')) {
+    media.addEventListener('error', () => {
+      const stage = media.closest('.stage');
+      let note = stage.nextElementSibling?.classList.contains('media-error') ? stage.nextElementSibling : null;
+      if (!note) {
+        note = document.createElement('p');
+        note.className = 'note media-error';
+        note.setAttribute('role', 'status');
+        stage.after(note);
+      }
+      const err = media.error;
+      note.textContent = `The ${media.localName} stopped with an error: ${errorNames[err?.code] ?? 'unknown'}${err?.message ? ` (${err.message})` : ''}. `;
+      const again = document.createElement('button');
+      again.type = 'button';
+      again.textContent = 'Load it again';
+      again.onclick = () => { note.remove(); media.src = media.dataset.src; media.load(); };
+      note.append(again);
+    });
+  }
 
   // ---- 1. restyle ----
   const themed = $('themed');
@@ -323,7 +356,11 @@
     la.pause();
     lv.pause();
     lv.playbackRate = 1;
-    if (led()) { lv.muted = true; la.currentTime = lv.currentTime; }
+    if (led()) {
+      if (!la.src) la.src = la.dataset.src; // loaded only when this option is chosen
+      lv.muted = true;
+      la.currentTime = lv.currentTime;
+    }
   });
 
   // Controls written in HTML, for comparison.
