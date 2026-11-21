@@ -28,8 +28,8 @@ export const THEMES = [
 ];
 
 const i = (rank, theme, title, text, needs, built) => ({ rank, theme, title, text, needs, built });
-// Set to the demo page's path once it exists; until then built ideas show no link.
-export const BUILT_PAGE = null;
+// The page that builds the ideas that have a `built` id. The id is the anchor of the demo on it.
+export const BUILT_PAGE = '/element-ideas/';
 const B = '';
 
 export const IDEAS = [

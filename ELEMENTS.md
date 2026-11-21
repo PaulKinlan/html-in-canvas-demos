@@ -23,33 +23,33 @@ Ranked 1 (build next) to 3 (small, speculative or blocked). Status is from the r
 
 ### Rank 1
 
-- **Picker wheel from select multiple** (possible). Draw a list box on a cylinder. The options are real option elements and the selection is form state. Needs `<select multiple>`, `<option>`.
-- **Mixing desk from rotated range inputs** (possible). Range inputs drawn rotated 90 degrees as faders. The hit region follows the transform. Needs `<input type=range>`, `<label>`, `<output>`.
-- **Step sequencer from a grid of checkboxes** (possible). Real checkboxes drawn as lit pads. The pattern can be submitted, reset and read by a screen reader. Needs `<input type=checkbox>`, `<form>`, `<fieldset>`.
-- **Textarea as a CRT terminal** (possible). A real textarea drawn with scan lines and curvature, with the caret landing where you tap. Needs `<textarea>`.
+- **Picker wheel from select multiple** (possible). Draw a list box on a cylinder. The options are real option elements and the selection is form state. Needs `<select multiple>`, `<option>`. Built: [/element-ideas/#wheel](https://html-in-canvas.page/element-ideas/#wheel).
+- **Mixing desk from rotated range inputs** (possible). Range inputs drawn rotated 90 degrees as faders. The hit region follows the transform. Needs `<input type=range>`, `<label>`, `<output>`. Built: [/element-ideas/#desk](https://html-in-canvas.page/element-ideas/#desk).
+- **Step sequencer from a grid of checkboxes** (possible). Real checkboxes drawn as lit pads. The pattern can be submitted, reset and read by a screen reader. Needs `<input type=checkbox>`, `<form>`, `<fieldset>`. Built: [/element-ideas/#sequencer](https://html-in-canvas.page/element-ideas/#sequencer).
+- **Textarea as a CRT terminal** (possible). A real textarea drawn with scan lines and curvature, with the caret landing where you tap. Needs `<textarea>`. Built: [/element-ideas/#crt](https://html-in-canvas.page/element-ideas/#crt).
 - **Rotary switch from a radio group** (possible). The checked radio sets the knob angle. Arrow keys already move between positions. Needs `<input type=radio>`, `<fieldset>`, `<label>`.
 - **Odometer for a number input** (possible). Draw the value on counter wheels that roll when the value steps. The field stays editable. Needs `<input type=number>`, `<output>`.
 - **Form on a prism, one fieldset per face** (possible). A multi-step form where Next turns the prism. Validation and submit are native. Needs `<form>`, `<fieldset>`, `<legend>`, `<input>`, `<button>`.
-- **Animated diff from ins and del** (possible). Glyphs of ins assemble and glyphs of del burn away, from the markup a static diff already uses. Needs `<ins>`, `<del>`, `<p>`.
-- **MathML terms that move between steps** (possible). Each term travels from its place in one line of a derivation to its place in the next. Needs `<math>`.
+- **Animated diff from ins and del** (possible). Glyphs of ins assemble and glyphs of del burn away, from the markup a static diff already uses. Needs `<ins>`, `<del>`, `<p>`. Built: [/element-ideas/#diff](https://html-in-canvas.page/element-ideas/#diff).
+- **MathML terms that move between steps** (possible). Each term travels from its place in one line of a derivation to its place in the next. Needs `<math>`. Built: [/element-ideas/#math](https://html-in-canvas.page/element-ideas/#math).
 - **Marker-pen highlight** (possible). Replace the flat background of mark with a hand-drawn stroke along its line boxes. Needs `<mark>`, `<p>`.
 - **Keycaps from kbd** (possible). Each kbd is drawn as a key that goes down while the real key is held. A shortcut cheat sheet that responds. Needs `<kbd>`.
-- **Television with native controls and captions** (possible). A video on a drawn screen. Its frames set the repaint rate, and play, scrub and captions are the browser's own. Needs `<video>`, `<video controls>`, `<track>`.
-- **Image map on a perspective floor plan** (possible). Each area is a link and a focus stop on a plan drawn in perspective. Needs `<map>`, `<area>`, `<img>`.
+- **Television with native controls and captions** (possible). A video on a drawn screen. Its frames set the repaint rate, and play, scrub and captions are the browser's own. Needs `<video>`, `<video controls>`, `<track>`. Built: [/element-ideas/#tv](https://html-in-canvas.page/element-ideas/#tv).
+- **Image map on a perspective floor plan** (possible). Each area is a link and a focus stop on a plan drawn in perspective. Needs `<map>`, `<area>`, `<img>`. Built: [/element-ideas/#plan](https://html-in-canvas.page/element-ideas/#plan).
 - **Cassette deck from audio controls** (possible). Native audio controls on a drawn deck with spinning reels while it plays. Needs `<audio controls>`.
-- **Table cells that extrude into a bar chart** (possible). A bar rises out of each cell from its rectangle and number. The table stays the accessible data. Needs `<table>`, `<td>`, `<th>`.
-- **Cover flow from a ul** (possible). Each li is a card in a row drawn in depth. Tab and screen-reader order follow the list. Needs `<ul>`, `<li>`.
-- **Radial menu from a menu element** (possible). Buttons drawn rotated around a centre. The hit regions rotate with them. Needs `<menu>`, `<button>`.
+- **Table cells that extrude into a bar chart** (possible). A bar rises out of each cell from its rectangle and number. The table stays the accessible data. Needs `<table>`, `<td>`, `<th>`. Built: [/element-ideas/#bars](https://html-in-canvas.page/element-ideas/#bars).
+- **Cover flow from a ul** (possible). Each li is a card in a row drawn in depth. Tab and screen-reader order follow the list. Needs `<ul>`, `<li>`. Built: [/element-ideas/#flow](https://html-in-canvas.page/element-ideas/#flow).
+- **Radial menu from a menu element** (possible). Buttons drawn rotated around a centre. The hit regions rotate with them. Needs `<menu>`, `<button>`. Built: [/element-ideas/#radial](https://html-in-canvas.page/element-ideas/#radial).
 - **Sortable table with rows that travel** (possible). On sort, each row is drawn moving from its old position to its new one. Needs `<table>`, `<tr>`, `<th>`, `<button>`.
-- **Find in page that moves the camera** (possible). Panels of a scene hold hidden=until-found text. A find match fires beforematch and the camera goes to that panel. Needs `[hidden=until-found]`, `<section>`.
+- **Find in page that moves the camera** (possible). Panels of a scene hold hidden=until-found text. A find match fires beforematch and the camera goes to that panel. Needs `[hidden=until-found]`, `<section>`. Built: [/element-ideas/#find](https://html-in-canvas.page/element-ideas/#find).
 - **Accordion that unfolds** (possible). The two pictures of a details element, closed and open, are joined by a fold-out animation. Needs `<details>`, `<summary>`.
 - **Live minimap of a page** (possible). Every article drawn a second time at a tenth of its size beside the scroll bar, updating as the page does. Needs `<article>`, `<section>`, `<h2>`.
-- **In-canvas dialog with a canvas backdrop** (possible). A dialog that stays in the scene with open and position: static, while the canvas blurs and dims everything behind it. Needs `<dialog open>`, `[inert]`, `<button>`.
-- **Anchored popover call-outs on drawn elements** (possible). Popovers anchored to elements drawn on a turning object. The browser keeps upright, sharp labels attached. Needs `[popover]`, `<button>`.
-- **LED ticker from a marquee** (possible). A marquee drawn through a dot-matrix mask. It supplies the motion, the repaint signal and the text. Needs `<marquee>`.
+- **In-canvas dialog with a canvas backdrop** (possible). A dialog that stays in the scene with open and position: static, while the canvas blurs and dims everything behind it. Needs `<dialog open>`, `[inert]`, `<button>`. Built: [/element-ideas/#?dialog](https://html-in-canvas.page/element-ideas/#?dialog).
+- **Anchored popover call-outs on drawn elements** (possible). Popovers anchored to elements drawn on a turning object. The browser keeps upright, sharp labels attached. Needs `[popover]`, `<button>`. Built: [/element-ideas/#callouts](https://html-in-canvas.page/element-ideas/#callouts).
+- **LED ticker from a marquee** (possible). A marquee drawn through a dot-matrix mask. It supplies the motion, the repaint signal and the text. Needs `<marquee>`. Built: [/element-ideas/#ticker](https://html-in-canvas.page/element-ideas/#ticker).
 - **Tab switcher of live pages** (possible). Every open page of an app as a live, clickable card in a fan. Needs `<iframe> (same origin)`.
-- **Editable style element drawn in the scene** (possible). A stylesheet edited inside the scene it styles. The editor is the style element itself. Needs `<style> (display: block, contenteditable)`.
-- **Set inert on undrawn children automatically** (possible). Children that are in the canvas but not drawn are still focusable. Mark every child the paint handler skipped as inert. Needs `[inert]`, `<button>`.
+- **Editable style element drawn in the scene** (possible). A stylesheet edited inside the scene it styles. The editor is the style element itself. Needs `<style> (display: block, contenteditable)`. Built: [/element-ideas/#style](https://html-in-canvas.page/element-ideas/#style).
+- **Set inert on undrawn children automatically** (possible). Children that are in the canvas but not drawn are still focusable. Mark every child the paint handler skipped as inert. Needs `[inert]`, `<button>`. Built: [/element-ideas/#inert](https://html-in-canvas.page/element-ideas/#inert).
 - **Focus order shown as a path** (possible). Draw a numbered line through every focusable element in tab order, live. Needs `[tabindex]`, `<a>`, `<button>`, `<input>`.
 
 ### Rank 2

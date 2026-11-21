@@ -57,6 +57,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/capture/` | Any element or a whole page to PNG (up to print quality), video (MediaRecorder or frame-exact WebCodecs) or print with one call |
 | `/perf/` | Performance wall: how many live elements before frames drop; DOM vs 2D canvas vs worker |
 | `/elements/` | Every HTML element, input type and a few attributes inside a drawable canvas: drawn or not, hit testing, real clicks and keys, and one idea per element. `ELEMENTS.md` is the same table as Markdown; `npm run record:elements` re-records it |
+| `/element-ideas/` | 17 ideas from the element catalogue built with the real elements: picker wheel, mixing desk, step sequencer, CRT textarea, in-canvas dialog, anchored popovers, inert, find and camera, MathML, video, image map, cover flow, radial menu, table bar chart, ins and del, editable style, marquee ticker. `npm run check:ideas` drives each with real input |
 | `/transitions/` | `<live-transition>`: shatter, fold, burn, morph or your own fragment shader between two states that both stay live and clickable |
 | `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |

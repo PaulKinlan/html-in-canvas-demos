@@ -16,6 +16,7 @@ The main results. Each is backed by the tables in the sections below.
 - Any element can be exported with one call today, and a whole ordinary page can be wrapped in a canvas for a single frame without the user seeing it.
 - A native "draw this element by reference" hook for canvas (an id reference rather than DOM containment) would remove the need for the shadow root. An ElementImage that could be drawn into a second canvas would make cross-document reprojection first class; today it is deliberately bound to one canvas.
 - Every HTML element with a box draws and hit tests in a canvas (180 entries measured on `/elements/`). The exceptions are the top layer (modal dialogs, popovers, the base-select picker), other origins (blank, though a cross-origin iframe still takes clicks) and permission elements (they report themselves invalid).
+- Any descendant of the canvas with `drawable` can be drawn on its own, including `<option>`, `<li>` and `<td>`, while its undrawn parent keeps working. `/element-ideas/` builds 17 demos on this. A range input turned 90 degrees cannot be dragged by touch.
 - A customisable select can hand its options to a canvas inside its own picker and keep the value, the keyboard and hit testing. A select inside a canvas cannot have its picker drawn by that canvas, because the picker is in the top layer.
 - Datalist, date, time and colour popups have no element, so a canvas cannot draw them. The `<datalist>` element and its options can be drawn, and a picker made of real buttons in a popover canvas can replace the others on the same input.
 - For 3D, the texture half of the API is ready and the method names are the only obstacle in three.js today. The input half rests entirely on `updateElementGeometry()`: it accepts a perspective matrix, which covers every flat surface, and anything curved or occluded needs the app to re-place the element under the pointer.
@@ -681,6 +682,28 @@ Not verified: any connection between two real networks. The cloud test browser h
 Not measured, because headless Chromium does not show native popup windows: where the list of a plain `select`, the date, time and colour pickers, `datalist` suggestions and `title` tooltips appear when the element is drawn transformed. The PDF viewer is also missing there. `hidden=until-found` needs find-in-page driven by a person.
 
 Two things the measurements had to work around. The page's stylesheet restyles test markup, so fixtures live in a shadow root. And a click on a new canvas at the spot where the pointer already rested did not focus the element under it until the pointer moved.
+
+### 17 ideas from the catalogue, built (`/element-ideas/`)
+
+Each demo keeps the real element and draws it with a 2D canvas. Tested in headless Chromium 157 with mouse, keyboard and emulated touch (`npm run check:ideas`).
+
+| Experiment | Result | Detail |
+| --- | --- | --- |
+| `drawable` on `<option>` in `<select multiple>`, `<li>` in `<ul>` and `<menu>`, `<th>` and `<td>` in a table | works | Each one is drawn on its own and has its own hit region. The parent is not drawn and keeps its job: the select owns the selection, the table lays out the cells. |
+| A draw with `globalAlpha = 0`, or clipped away completely | moves the hit region | Used to say where input goes after the element was drawn in distorted pieces (CRT bulge, raised room). |
+| `<input type="range">` drawn rotated 90 degrees, mouse drag | works | Up raises the value. |
+| The same, touch drag | fails | A tap on the track is mapped through the rotation, a drag is not followed. A slider drawn at 17 degrees drags by touch. Chrome appears to test the drag's direction in screen space for a horizontal slider. The page sets the value from the pointer. Also needs `touch-action: none`. |
+| `<area>` on an image drawn rotated 45 degrees and scaled to half height | works | The click target is the area. Tab moves between areas. |
+| `<dialog>` opened with `show()`, drawn with a blurred page behind it | works | Needs `position: static`. The page adds `inert` on the content behind, Escape and focus return. |
+| `popover` anchored to a `popovertarget` button that the canvas moves each frame | works | The popover follows with no script. `showPopover()` from script needs `{ source: button }` or there is no anchor. |
+| Hide an element by moving its hit region far away with `updateElementGeometry()`, then focus it | scrolls the page | The page scrolls towards the far place. Shrinking the region to a point inside the canvas does not. |
+| `ctx.filter` (blur, grayscale, brightness) and `globalCompositeOperation` (`lighter`, `destination-in`) on element pictures | work | Glow, dialog backdrop, LED dot mask. |
+| `getClientRects()` on `<ins>`, `<del>` and MathML tokens inside a drawn element | works | Boxes are in the drawn position, so differences between two boxes of one element are layout offsets. |
+| A scroll container in the canvas, scrolled by script, then scrolled back and replayed as an animation | works | `window.find()` in headless Chromium does not scroll a container, in or out of a canvas, so the page's own search form is what was tested. |
+| `<video controls>` drawn three times (blurred, mirrored, sheared) | works | Controls and captions are in every copy. The controls take clicks on the last copy drawn. |
+| `<marquee>` enlarged and masked | works | 60 `paint` events a second with no timer. The link inside is hit on the enlarged picture. |
+
+Not verified: the browser's find-in-page on `/element-ideas/#find`, whether Chrome on Android has a list box for `<select multiple>` (the wheel shows a message if the options have no boxes), and the touch-drag result on a real phone.
 
 ## Video and sound (`/video/`, `/overlay/`, `/audio/`, `/player-parts/`)
 
