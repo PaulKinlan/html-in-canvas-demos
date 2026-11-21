@@ -72,7 +72,25 @@ Measured on main on 2026-11-21 (Chromium 157, headless), before and after this c
 | `/` (homepage) | 222 MB in 9 canvases, the largest 9.2 megapixels (1,081 by 8,490 device pixels) | 17 MB, the largest 2.8 megapixels. Each group is drawn by canvases of at most four cards, and a canvas more than one screen away is 0 by 0. |
 | `/hdr-glow/` | Readbacks in 3 of the 4 seconds after its checks | The same on main. Pull request 75 removes the timer. |
 | `/shader-css/`, `/slot-effects/` | 7 and 8 WebGL contexts | The same, recorded as exceptions. Each effect element still has its own context when WebGPU is not used. |
+| `/embed/` | `readPixels()` once a second for as long as the page was open (`LiveCard.isBlank()`) | The look stops when a picture has been seen, or after nine looks. |
+| `/hardware-out/` | `getImageData()` from a GPU canvas on every frame (the LED matrix) and for every changed key | The canvases that are read are made with `willReadFrequently`. |
+| `/select/` and other pages that call `webgl2()` | One lost WebGL context each: the probe in `shared/backend.js` gave its context back with `loseContext()` and the guard counted it | The probe is released through the guard and is not a loss. |
 | Every other page | At most 60 MB, 3.8 megapixels, 3 WebGL contexts | The same. |
+
+After the change, 75 of 76 pages pass. `/hdr-glow/` fails `timedReadbacks` until pull request 75 merges.
+
+Open pull requests, measured the same day with the new guard copied into each branch:
+
+| Pull request | Pages | Result |
+|---|---|---|
+| 69 | `/select-ideas/`, `/input-ideas/` | Pass. |
+| 70 (merged) | `/scoped-transitions/` | Passes: 1 WebGL context, 17 MB. |
+| 71 | `/imgui-dom/`, `/flutter-dom/`, `/godot-dom/`, `/qt-widgets-dom/` | The measured limits pass. `check:gfx` fails on `flutter-dom/bridge.js`, `flutter-dom/main.js`, `godot-dom/bridge.js` and `godot-dom/main.js`: they ask for the WebGL context that the framework made, and two live checks read a pixel inside `requestAnimationFrame()`. Each needs a `gfx-allow` comment with the reason, or the readback moved out of the frame callback. |
+| 72 | `/instruments/` | Passes: no WebGL, 3.2 MB, checks wait for a tap. |
+| 73 | `/selection-peers/`, `/selection-glyphs/`, `/redact/`, `/selection-heat/`, `/share-card/` | Pass. `/selection-heat/` has a 3.6 megapixel canvas, close to the limit of 4. |
+| 75 | `/hdr-glow/` | Passes: no readback until a button is pressed. |
+
+Every branch from before this change also fails `check:gfx` in the files this change fixed, until it merges main.
 
 ## What the guard does at run time
 

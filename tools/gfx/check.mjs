@@ -41,9 +41,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-// Not read: other people's code, build output (a compiled framework app in public/<page>/app/), and the
-// bundle whose sources are read.
-const SKIP = [/^vendor\//, /^native-ui\/(egui|qt)\//, /^lib\/fx\.js$/, /^media\//, /^shared\/pages\.js$/, /^[^/]+\/app\//];
+// Not read: other people's code, build output, and the bundle whose sources are read. A file with a
+// line over 2,000 characters is a compiled or minified bundle (a framework's runtime) and is not read either.
+// A page that ships someone else's runtime puts it in a folder named vendor/.
+const SKIP = [/(^|\/)vendor\//, /(^|\/)canvaskit\//, /^native-ui\/(egui|qt)\//, /^lib\/fx\.js$/, /^media\//, /^shared\/pages\.js$/];
 // The shared modules that are the one allowed place for each call.
 const HOME = {
   'lose-context': ['shared/context-guard.js'],
@@ -101,6 +102,7 @@ export async function checkGfx(root) {
   for (const rel of await walk(root)) {
     const text = await readFile(path.join(root, rel), 'utf8');
     const lines = text.split('\n');
+    if (lines.some((l) => l.length > 2000)) continue;
     const code = codeOnly(text, rel.endsWith('.html'));
     const lineOf = (i) => code.slice(0, i).split('\n').length;
     const excuse = (rule, line) => {
