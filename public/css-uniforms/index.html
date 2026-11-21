@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shader uniforms written in CSS only</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; height: 1448px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #0a0b11; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #stage.plain canvas { display: none; }
+  #gallery { position: relative; box-sizing: border-box; width: 100%; height: 100%; padding: 8px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 232px; gap: 8px; container-type: inline-size; }
+  @media (min-width: 700px) {
+    #stage { height: 968px; }
+    #gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+
+  .card { box-sizing: border-box; min-width: 0; padding: 8px; border-radius: 12px; display: flex; flex-direction: column; gap: 5px; overflow: hidden;
+    background: linear-gradient(150deg, #23283b, #151824); border: 1px solid #ffffff2b; color: #e8eaf2; font: 13px/1.3 system-ui, sans-serif; }
+  .card h3 { margin: 0; font-size: 14px; }
+  .card p { margin: 0; font-size: 12px; color: #aeb4c8; }
+  .card label { font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+  .card button, .card input[type=text] { font: 12.5px system-ui; padding: 5px 9px; border-radius: 7px; border: 1px solid #ffffff55; background: #0c0e16; color: #fff; min-width: 0; }
+  /* Each card's rule is a <style> element that is shown on the card and can be edited there. */
+  .card style { display: block; margin-top: auto; padding: 5px; border-radius: 6px; background: #0b0d14; color: #9fe3b5; font: 9.5px/1.4 ui-monospace, Menlo, Consolas, monospace;
+    white-space: pre-wrap; overflow: hidden; outline: none; }
+  .card style:focus { box-shadow: 0 0 0 2px #9fe3b5; }
+
+  /* #region keyframes */
+  /* The keyframes that the cards' rules name. They animate registered custom properties and nothing else. */
+  @keyframes phase { to { --u-phase: 1; } }
+  @keyframes shine { 0% { --u-shine: -0.3; } 22%, 100% { --u-shine: 1.3; } }
+  @keyframes burn { from { --u-dissolve: 0.05; } to { --u-dissolve: 0.42; } }
+  @keyframes arrive { from { --u-dissolve: 1; } to { --u-dissolve: 0; } }
+  @function --ease(--t <number>) returns <number> { result: calc(0.5 - 0.5 * cos(var(--t) * 360deg)); }
+  @media (prefers-reduced-motion: reduce) { .card { animation: none !important; } }
+  /* #endregion keyframes */
+
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 3em; margin: 6px 0; }
+  #notice { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--warn); border-radius: 8px; font-size: 14px; }
+  #notice[hidden] { display: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Shader uniforms written in CSS only</h1>
+  <p class="lede">
+    Twelve cards are drawn by one WebGL canvas through one fragment shader. The shader's uniforms are CSS custom properties: <code>uniform float uWave</code> reads <code>--u-wave</code> from each card.
+    Each card carries the CSS rule that sets its uniforms, in a <code>&lt;style&gt;</code> element that is displayed on the card. The rules use transitions, keyframes, typed <code>attr()</code>,
+    <code>sibling-index()</code>, <code>random()</code>, <code>if()</code>, style queries, <code>progress()</code>, <code>@function</code> and a view timeline. No card has script of its own.
+    Tap into a rule and change a number.
+  </p>
+  <p id="support"></p>
+
+  <div id="stage">
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <div id="gallery">
+        <!-- #region cards -->
+        <article class="card wave" drawable>
+          <h3>Keyframes</h3>
+          <p>An animation runs the phase of a wave.</p>
+          <style contenteditable="plaintext-only" spellcheck="false">.card.wave {
+  --u-wave: 5;
+  animation: phase 3s
+    linear infinite;
+}</style>
+        </article>
+        <article class="card press" drawable>
+          <h3>Hover and press</h3>
+          <button type="button">Hold me</button>
+          <style contenteditable="plaintext-only" spellcheck="false">.press {
+  transition:
+    --u-bulge .25s;
+}
+.press:hover,
+.press:has(:active) {
+  --u-bulge: 1;
+}</style>
+        </article>
+        <article class="card split" drawable data-split="2">
+          <h3>Typed attr()</h3>
+          <p>The card has <code>data-split="2"</code>.</p>
+          <style contenteditable="plaintext-only" spellcheck="false">.split {
+  --u-split: attr(
+    data-split
+    type(<number>), 0);
+}</style>
+        </article>
+        <article class="card all" drawable>
+          <h3>sibling-index()</h3>
+          <p>A band of light crosses every card, later for each one.</p>
+          <style contenteditable="plaintext-only" spellcheck="false">.card {
+  animation: shine 5s
+    linear infinite;
+  animation-delay: calc(
+    sibling-index()
+    * -0.4s);
+}</style>
+        </article>
+        <article class="card seed" drawable>
+          <h3>random()</h3>
+          <p>A seed places the holes. It differs on each load.</p>
+          <style contenteditable="plaintext-only" spellcheck="false">.card.seed {
+  --u-seed: random(0, 1);
+  animation: burn 4s
+    ease-in-out infinite
+    alternate;
+}</style>
+        </article>
+        <article class="card crt" drawable>
+          <h3>if() and style()</h3>
+          <label><input type="checkbox" checked> Old screen</label>
+          <style contenteditable="plaintext-only" spellcheck="false">.crt:has(:checked) {
+  --mode: crt;
+}
+.crt {
+  transition:
+    --u-scan .4s;
+  --u-scan: if(
+   style(--mode: crt): 1;
+   else: 0);
+}</style>
+        </article>
+        <article class="card level" drawable>
+          <h3>Style range query</h3>
+          <label><input type="checkbox" id="hot"> Level 3</label>
+          <style contenteditable="plaintext-only" spellcheck="false">main:has(#hot:checked) {
+  --level: 3;
+}
+.level { transition:
+  --u-twist .5s; }
+@container
+  style(--level >= 2) {
+  .level { --u-twist: .5;
+    --u-glow: 1; }
+}</style>
+        </article>
+        <article class="card size" drawable>
+          <h3>progress()</h3>
+          <p>Blue in a narrow window, red in a wide one.</p>
+          <style contenteditable="plaintext-only" spellcheck="false">.size {
+  --u-tint: color-mix(
+    in srgb,
+    rgb(255 70 90 / .6)
+    calc(100% * progress(
+    100vw,320px,800px)),
+   rgb(60 190 255 / .6));
+}</style>
+        </article>
+        <article class="card fn" drawable>
+          <h3>@function</h3>
+          <p>A CSS function shapes the phase into a twist.</p>
+          <style contenteditable="plaintext-only" spellcheck="false">.card.fn {
+  --u-twist: --ease(
+    var(--u-phase));
+  animation: phase 4s
+    linear infinite;
+}</style>
+        </article>
+        <article class="card focus" drawable>
+          <h3>:focus-within</h3>
+          <input type="text" value="Type here" aria-label="Text that lights the card while it has focus">
+          <style contenteditable="plaintext-only" spellcheck="false">.focus {
+  transition:
+    --u-glow .3s;
+}
+.focus:has(input:focus) {
+  --u-glow: 1.5;
+}</style>
+        </article>
+        <article class="card tint" drawable>
+          <h3>Colour transition</h3>
+          <label><input type="checkbox"> Alarm</label>
+          <style contenteditable="plaintext-only" spellcheck="false">.tint {
+  --u-tint:
+    rgb(255 180 0 / 0);
+  transition:
+    --u-tint .8s;
+}
+.tint:has(:checked) {
+  --u-tint:
+   rgb(255 40 110 / .75);
+}</style>
+        </article>
+        <article class="card scroll" drawable>
+          <h3>View timeline</h3>
+          <p>The card forms as it scrolls into the window.</p>
+          <style contenteditable="plaintext-only" spellcheck="false">.card.scroll {
+  --u-seed: .3;
+  animation: arrive
+    linear both;
+  animation-timeline:
+    view();
+  animation-range:
+    entry 0% cover 45%;
+}</style>
+        </article>
+        <!-- #endregion cards -->
+      </div>
+    </canvas>
+  </div>
+  <p id="status">&nbsp;</p>
+  <p id="notice" hidden></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>uniforms from custom properties, one read per frame</small></summary>
+    <ol>
+      <li data-code="#cards"><b>The cards.</b> Each holds its own rule in a displayed, editable <code>&lt;style&gt;</code> element.</li>
+      <li data-code="#keyframes"><b>The keyframes and the function</b> that the rules name.</li>
+      <li data-code="#shader"><b>The fragment shader.</b> Every <code>float</code> and <code>vec4</code> uniform it declares becomes a custom property.</li>
+      <li data-code="/lib/css-uniforms.js#bind"><b>The binding.</b> Parse the declarations, register the properties, read computed values, set the uniforms.</li>
+      <li data-code="#frame"><b>Once a frame.</b> Read every card's values and ask for a paint only when one changed.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Upload the cards whose picture changed and draw each with its own values.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p><code>lib/css-uniforms.js</code> reads the shader source, finds each <code>uniform float</code> and <code>uniform vec4</code>, and registers a custom property for it with
+    <code>CSS.registerProperty()</code>: a <code>&lt;number&gt;</code> for a float, a <code>&lt;color&gt;</code> for a vec4. A registered property has a type, so the browser can interpolate it in a transition,
+    an animation or a scroll timeline. Each card is a <code>drawable</code> element with its own texture. For each card the page reads the computed values with <code>getComputedStyle()</code> and sets them
+    as uniforms before drawing that card's quad.</p>
+  <p>A change to a custom property does not change the card's picture, so the browser raises no <code>paint</code> event for it. The page reads all values once per animation frame while the canvas is on
+    screen, compares the strings with the previous frame, and calls <code>requestPaint()</code> only when one differs. The line under the canvas shows what that read costs.</p>
+  <p>The rules on the cards are live <code>&lt;style&gt;</code> elements with <code>display: block</code> and <code>contenteditable</code>. Editing one changes the page's style sheet, and the next frame's read picks up the new value.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own fixtures in the corner of the window.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul>
+    <li>In Chromium 157 every CSS feature on the cards produced a number or a colour that <code>getComputedStyle()</code> returns resolved: typed <code>attr()</code>, <code>sibling-index()</code>,
+      <code>random()</code>, <code>if()</code> with <code>style()</code>, a style range query, <code>progress()</code>, <code>@function</code>, and values in the middle of a transition, an animation or a view timeline.</li>
+    <li>Changing only a custom property raises no <code>paint</code> event, also when the property is registered and animating. The canvas has to poll. Reading 12 properties on 12 cards, with animations running on all of them, took about
+      0.9 ms per frame in the test browser, which includes resolving the animated values.</li>
+    <li>A registered <code>&lt;color&gt;</code> property in a transition is returned as <code>rgb()</code> or <code>rgba()</code> with interpolated components, so a colour uniform can be animated by CSS.</li>
+    <li><code>random()</code> keeps its value for an element across reads, so a seed does not flicker. It changes on reload.</li>
+    <li>A <code>&lt;style&gt;</code> element with <code>display: block</code> inside a drawn element is part of its picture, can be edited there with <code>contenteditable</code>, and its rules apply while it is edited.</li>
+    <li>A view timeline on a drawn card runs from the card's layout position in the page, so a card can form as it scrolls into the window.</li>
+    <li>Not verified: Chrome 159 on the test phone, and the cost of the per-frame read there. The status line reports it.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint } from '/shared/support.js';
+  import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+  import { cssUniforms } from '/lib/css-uniforms.js';
+  banner();
+
+  const stage = document.getElementById('stage'), canvas = document.getElementById('canvas'), gallery = document.getElementById('gallery');
+  const status = document.getElementById('status'), notice = document.getElementById('notice');
+  const cards = [...gallery.children];
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const say = (text) => { notice.hidden = false; notice.textContent = text; };
+
+  // #region shader
+  // uTex, uSize and uTime are set by the renderer. Every other uniform is read from CSS: uWave from --u-wave.
+  const FRAGMENT = `#version 300 es
+  precision highp float;
+  uniform sampler2D uTex;
+  uniform vec2 uSize;
+  uniform float uWave, uPhase, uBulge, uTwist, uPixel, uSplit;   // where to sample
+  uniform float uScan, uShine, uGlow, uDissolve, uSeed;          // what to do with the colour
+  uniform vec4 uTint;
+  in vec2 vUv;
+  out vec4 outColor;
+  vec4 at(vec2 p) {
+    vec2 uv = p / uSize;
+    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec4(0.0);
+    return texture(uTex, uv);
+  }
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float noise(vec2 p) {
+    vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+  }
+  void main() {
+    vec2 p0 = vUv * uSize, c = uSize * 0.5, d = p0 - c;
+    float r = min(length(d / c), 1.0);
+    d *= 1.0 - uBulge * 0.3 * (1.0 - r * r);
+    float turn = uTwist * 1.6 * (1.0 - r) * (1.0 - r);
+    d = mat2(cos(turn), -sin(turn), sin(turn), cos(turn)) * d;
+    vec2 p = c + d;
+    p.x += uWave * sin(p.y * 0.05 + uPhase * 6.2832);
+    if (uPixel >= 1.0) p = (floor(p / uPixel) + 0.5) * uPixel;
+
+    vec4 col = at(p);
+    if (uSplit > 0.0) { vec4 a = at(p + vec2(uSplit, 0.0)), b = at(p - vec2(uSplit, 0.0)); col = vec4(a.r, col.g, b.b, max(col.a, max(a.a, b.a))); }
+    float lum = dot(col.rgb, vec3(0.3, 0.59, 0.11));
+    col.rgb = mix(col.rgb, uTint.rgb * (lum * 1.4 + 0.12 * col.a), uTint.a);
+    col.rgb *= 1.0 - uScan * 0.45 * (0.5 + 0.5 * sin(p0.y * 2.4));
+    float s = (p0.x + p0.y * 0.5) / (uSize.x + uSize.y * 0.5);
+    col.rgb += col.a * 0.3 * smoothstep(0.12, 0.0, abs(s - uShine));
+    float e = min(min(p0.x, p0.y), min(uSize.x - p0.x, uSize.y - p0.y));
+    col.rgb += col.a * uGlow * vec3(0.3, 0.7, 1.0) * exp(-e / 9.0);
+    if (uDissolve > 0.0) {
+      float n = 0.65 * noise(p0 / 16.0 + uSeed * 57.0) + 0.35 * noise(p0 / 5.0 + uSeed * 91.0);
+      float th = uDissolve * 1.15 - 0.08;
+      col *= smoothstep(th - 0.03, th + 0.03, n);
+      col.rgb += col.a * vec3(1.0, 0.45, 0.1) * smoothstep(0.09, 0.0, n - th);
+    }
+    outColor = col;
+  }`;
+  // #endregion shader
+
+  const bound = cssUniforms(FRAGMENT);
+  bound.register();
+
+  let gl = null, paints = 0, uploads = 0;
+  if (supported && glSupported) {
+    try {
+      gl = new ElementGL(canvas, { fragment: FRAGMENT,
+        onLost: () => say('The canvas lost its WebGL context. It is drawn again when the browser gives the context back.'),
+        onRestored: () => { notice.hidden = true; } });
+    } catch (e) { say(`WebGL could not start: ${e.message}`); }
+  }
+  if (!gl) {
+    // No canvas route: the cards are shown as plain HTML. Their rules still set the properties; nothing reads them.
+    stage.classList.add('plain');
+    stage.append(gallery);
+    if (notice.hidden) say('This browser cannot draw elements into a WebGL canvas, so the cards are plain HTML and the uniforms are not used.');
+  }
+
+  // #region paint
+  const placed = new WeakMap();
+  canvas.addEventListener('paint', (e) => {
+    if (!gl || gl.lost) return;
+    paints++;
+    const changed = new Set(e.changedElements ?? []);
+    for (const card of cards) if (changed.has(card) || !gl.has(card)) { gl.upload(card); uploads++; }
+    if (!gl.begin()) return;
+    for (const card of cards) {
+      const x = card.offsetLeft, y = card.offsetTop, w = card.offsetWidth, h = card.offsetHeight;
+      const { values } = bound.read(card);
+      gl.quad(card, ElementGL.rect(canvas, x, y, w, h), (g, location) => bound.apply(g, location, values));
+      // Tell the browser where the card was drawn, once for each place.
+      const key = `${x},${y},${w},${h}`;
+      if (placed.get(card) !== key) { placed.set(card, key); canvas.updateElementGeometry(card, { canvasTransform: new DOMMatrix().translate(x, y) }); }
+    }
+  });
+  // #endregion paint
+
+  // #region frame
+  // A custom property that changes raises no paint event, so read the values once a frame and
+  // ask for a paint when one of them differs from the frame before.
+  let onScreen = false, readMs = 0, frames = 0, drawn = 0, lastStatus = 0;
+  if (gl) {
+    new IntersectionObserver(([entry]) => { onScreen = entry.isIntersecting; }).observe(stage);
+    new ResizeObserver(() => canvas.requestPaint()).observe(canvas);
+    requestAnimationFrame(function frame(now) {
+      requestAnimationFrame(frame);
+      if (!onScreen || document.hidden || gl.lost) return;
+      const t0 = performance.now();
+      let any = false;
+      for (const card of cards) if (bound.read(card).changed) any = true;
+      readMs += (performance.now() - t0 - readMs) * 0.05;
+      frames++;
+      if (any) { drawn++; canvas.requestPaint(); }
+      if (now - lastStatus > 500) {
+        lastStatus = now;
+        status.textContent = `${cards.length} cards, ${bound.list.length} properties each. Reading them takes ${readMs.toFixed(2)} ms a frame. ` +
+          `${drawn} of ${frames} frames had a changed value. ${paints} paint events, ${uploads} texture uploads.`;
+      }
+    });
+  }
+  // #endregion frame
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const fixture = (html) => { const d = document.createElement('div'); d.style.cssText = 'width:300px;flex:none'; d.innerHTML = html; testStage().append(d); return d; };
+  const value = (el, name) => getComputedStyle(el).getPropertyValue(name).trim();
+  const number = (el, name) => parseFloat(value(el, name));
+  const near = (a, b, by = 0.02) => Math.abs(a - b) <= by;
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+
+  const tests = [
+    { name: 'A registered property gives numbers in the middle of a transition', expect: 'pass', why: '--u-wave from 0 to 10 over 600 ms, read at about 300 ms',
+      run: async () => {
+        const f = fixture('<style>#fx-t { transition: --u-wave .6s linear; } #fx-t.on { --u-wave: 10; }</style><div id="fx-t"></div>'), el = f.lastChild;
+        value(el, '--u-wave'); el.classList.add('on'); await sleep(300);
+        const v = number(el, '--u-wave');
+        return need(v > 1 && v < 9, `--u-wave read ${v.toFixed(2)} part way through.`);
+      } },
+    { name: 'A registered colour is interpolated in a transition', expect: 'pass', why: '--u-tint from red to blue over 600 ms',
+      run: async () => {
+        const f = fixture('<style>#fx-c { --u-tint: rgb(255 0 0); transition: --u-tint .6s linear; } #fx-c.on { --u-tint: rgb(0 0 255); }</style><div id="fx-c"></div>'), el = f.lastChild;
+        value(el, '--u-tint'); el.classList.add('on'); await sleep(300);
+        const v = value(el, '--u-tint'), n = v.match(/[\d.]+/g).map(Number);
+        return need(n[0] > 20 && n[0] < 235 && n[2] > 20, `--u-tint read ${v} part way through.`);
+      } },
+    { name: 'Typed attr() sets a number from an attribute', expect: 'pass', why: '--u-split: attr(data-split type(<number>), 0) with data-split="3"',
+      run: async () => { const f = fixture('<div data-split="3" style="--u-split: attr(data-split type(<number>), 0)"></div>'); return need(number(f.lastChild, '--u-split') === 3, `--u-split is ${value(f.lastChild, '--u-split') || 'empty'}.`); } },
+    { name: 'sibling-index() and sibling-count() give each element its own number', expect: 'pass', why: '--u-phase: calc(sibling-index() / sibling-count()) on three siblings',
+      run: async () => {
+        const f = fixture('<style>#fx-s > i { --u-phase: calc(sibling-index() / sibling-count()); }</style><div id="fx-s"><i></i><i></i><i></i></div>');
+        const got = [...f.lastChild.children].map((el) => number(el, '--u-phase'));
+        return need(near(got[0], 1 / 3) && near(got[1], 2 / 3) && near(got[2], 1), `Read ${got.map((v) => v.toFixed(2)).join(', ')}.`);
+      } },
+    { name: 'random() differs between elements and stays the same between reads', expect: 'pass', why: '--u-seed: random(0, 1) on two elements, read twice 100 ms apart',
+      run: async () => {
+        const f = fixture('<style>#fx-r > i { --u-seed: random(0, 1); }</style><div id="fx-r"><i></i><i></i></div>'), [a, b] = f.lastChild.children;
+        const first = [number(a, '--u-seed'), number(b, '--u-seed')]; await sleep(100);
+        const second = [number(a, '--u-seed'), number(b, '--u-seed')];
+        return need(first[0] !== first[1] && first[0] === second[0] && first[1] === second[1], `First read ${first.join(', ')}; second read ${second.join(', ')}.`);
+      } },
+    { name: 'if() with style() picks a value', expect: 'pass', why: '--u-scan: if(style(--mode: crt): .9; else: 0)',
+      run: async () => {
+        const f = fixture('<style>#fx-i > i { --u-scan: if(style(--mode: crt): .9; else: 0); }</style><div id="fx-i"><i style="--mode: crt"></i><i></i></div>'), [a, b] = f.lastChild.children;
+        return need(near(number(a, '--u-scan'), 0.9) && number(b, '--u-scan') === 0, `With --mode: crt it is ${value(a, '--u-scan')}; without, ${value(b, '--u-scan')}.`);
+      } },
+    { name: 'A style range query sets a value', expect: 'pass', why: '@container style(--level >= 2) with --level: 3 and --level: 1 on two parents',
+      run: async () => {
+        const f = fixture('<style>@container style(--level >= 2) { .fx-q { --u-glow: 1; } }</style><div style="--level: 3"><i class="fx-q"></i></div><div style="--level: 1"><i class="fx-q"></i></div>');
+        const [a, b] = f.querySelectorAll('.fx-q');
+        return need(number(a, '--u-glow') === 1 && number(b, '--u-glow') === 0, `Level 3 gives ${value(a, '--u-glow')}; level 1 gives ${value(b, '--u-glow')}.`);
+      } },
+    { name: 'progress() maps a length to 0 to 1', expect: 'pass', why: '--u-wave: progress(100cqi, 100px, 500px) in a 300 pixel container',
+      run: async () => {
+        const f = fixture('<div style="container-type: inline-size; width: 300px"><i style="--u-wave: progress(100cqi, 100px, 500px)"></i></div>');
+        return need(near(number(f.querySelector('i'), '--u-wave'), 0.5), `--u-wave is ${value(f.querySelector('i'), '--u-wave') || 'empty'}.`);
+      } },
+    { name: 'A CSS @function computes a value from another property', expect: 'pass', why: '--u-twist: --ease(var(--u-phase)) with --u-phase: 0.25',
+      run: async () => { const f = fixture('<div style="--u-phase: 0.25; --u-twist: --ease(var(--u-phase))"></div>'); return need(near(number(f.lastChild, '--u-twist'), 0.5), `--u-twist is ${value(f.lastChild, '--u-twist') || 'empty'}.`); } },
+    { name: 'Changing only a custom property raises a paint event', expect: 'fail', why: 'If it did, the page would not need to read the values every frame',
+      run: async () => {
+        const f = fixture('<canvas content="drawable" layoutsubtree width="100" height="40" style="width:100px;height:40px"><div drawable style="width:100px;height:40px;background:#fff"></div></canvas>');
+        const cv = f.lastChild, el = cv.firstChild, ctx = cv.getContext('2d');
+        let count = 0;
+        cv.addEventListener('paint', () => { count++; ctx.reset(); ctx.drawElementImage(el, 0, 0, 100, 40); });
+        await nextPaint(cv); await sleep(150); count = 0;
+        el.style.setProperty('--u-wave', '5'); await sleep(300);
+        const afterSet = count;
+        el.style.transition = '--u-wave .2s linear'; value(el, '--u-wave'); el.style.setProperty('--u-wave', '9'); await sleep(350);
+        return need(afterSet > 0 && count > afterSet, `${afterSet} paint events after setting --u-wave, ${count - afterSet} more during a transition of it.`);
+      } },
+    { name: 'A colour set in CSS reaches the shader', expect: 'pass', why: 'A white element drawn with --u-tint: rgb(255 0 0 / 1), then the pixel is read from WebGL',
+      run: async () => {
+        const f = fixture('<canvas content="drawable" layoutsubtree width="100" height="40" style="width:100px;height:40px"><div drawable style="width:100px;height:40px;background:#fff;--u-tint: rgb(255 0 0 / 1)"></div></canvas>');
+        const cv = f.lastChild, el = cv.firstChild;
+        const g = new ElementGL(cv, { fragment: FRAGMENT, attributes: { preserveDrawingBuffer: true } });
+        await nextPaint(cv);
+        g.upload(el); g.begin();
+        const { values } = bound.read(el);
+        g.quad(el, ElementGL.rect(cv, 0, 0, 100, 40), (c, location) => bound.apply(c, location, values));
+        const px = new Uint8Array(4); g.gl.readPixels(Math.floor(cv.width / 2), Math.floor(cv.height / 2), 1, 1, g.gl.RGBA, g.gl.UNSIGNED_BYTE, px);
+        return need(px[0] > 200 && px[1] < 40 && px[2] < 40, `The white element was drawn as rgb(${px[0]}, ${px[1]}, ${px[2]}).`);
+      } },
+    { name: 'Reading every property of 12 elements takes under 1 ms', expect: 'pass', why: 'The cost of polling once a frame',
+      run: async () => {
+        const f = fixture('<div>' + '<i style="--u-wave: 3"></i>'.repeat(12) + '</div>'), els = [...f.lastChild.children];
+        const t0 = performance.now();
+        for (let k = 0; k < 50; k++) { els[k % 12].style.setProperty('--u-wave', String(k)); for (const el of els) bound.read(el); }
+        const ms = (performance.now() - t0) / 50;
+        return need(ms < 1, `${ms.toFixed(3)} ms for ${els.length} elements and ${bound.list.length} properties, with one value changed each time.`);
+      } },
+  ];
+  runTests(document.getElementById('tests'), tests);
+</script>
+</body>
+</html>

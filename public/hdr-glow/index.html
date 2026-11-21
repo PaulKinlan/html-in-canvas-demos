@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HDR interface: elements brighter than white</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; max-width: 520px; height: 376px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #0b0d14; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #stage.plain canvas { display: none; }
+
+  /* #region hdr-css */
+  /* The CSS route. --headroom is a number, and these colours multiply their Display P3 components by it,
+     so they go above 1.0. In a float16 canvas the values survive drawElementImage(). */
+  @property --headroom { syntax: '<number>'; inherits: true; initial-value: 4; }
+  #ui .badge {
+    background: color(display-p3 calc(1 * var(--headroom)) calc(0.22 * var(--headroom)) calc(0.2 * var(--headroom)));
+    color: color(display-p3 var(--headroom) var(--headroom) var(--headroom));
+    box-shadow: 0 0 14px 2px color(display-p3 calc(1 * var(--headroom)) calc(0.2 * var(--headroom)) calc(0.15 * var(--headroom)) / .7);
+  }
+  #ui :is(input, button):focus-visible {
+    outline: 3px solid color(display-p3 calc(0.25 * var(--headroom)) calc(0.6 * var(--headroom)) var(--headroom));
+    outline-offset: 2px;
+    box-shadow: 0 0 16px 4px color(display-p3 calc(0.25 * var(--headroom)) calc(0.6 * var(--headroom)) var(--headroom) / .6);
+  }
+  #ui .bar i {
+    background: linear-gradient(90deg, #1f9d5c 40%, color(display-p3 calc(0.3 * var(--headroom)) var(--headroom) calc(0.55 * var(--headroom))));
+    box-shadow: 0 0 12px 1px color(display-p3 calc(0.3 * var(--headroom)) var(--headroom) calc(0.55 * var(--headroom)) / .55);
+  }
+  /* A word at headroom times white on a strip of 1.0 white. It can be read only where the screen shows values above 1.0. */
+  #ui .strip { background: #fff; color: color(display-p3 var(--headroom) var(--headroom) var(--headroom)); }
+  /* #endregion hdr-css */
+
+  #ui { --headroom: 4; position: relative; box-sizing: border-box; width: 100%; height: 100%; padding: 18px; display: flex; flex-direction: column; gap: 12px;
+    background: #0b0d14; color: #e9ecf5; font: 15px/1.4 system-ui, sans-serif; }
+  #stage.plain #ui { --headroom: 1; }
+  #ui header { display: flex; align-items: center; gap: 10px; }
+  #ui header b { font-size: 17px; }
+  #ui .dot { width: 12px; height: 12px; border-radius: 50%; background: #2bd47d; flex: none; }
+  #ui .badge { margin-left: auto; min-width: 26px; height: 26px; box-sizing: border-box; padding: 0 8px; border-radius: 13px; font: 700 14px/26px system-ui; text-align: center; }
+  #ui .badge.pop { animation: pop .5s ease-out; }
+  @keyframes pop { 40% { scale: 1.5; } }
+  #ui p { margin: 0; }
+  #ui .bar { height: 10px; border-radius: 5px; background: #1c2030; }
+  #ui .bar i { display: block; width: 0; height: 100%; border-radius: 5px; }
+  #ui label { display: grid; gap: 4px; font-size: 13px; color: #aab1c5; }
+  #ui input { font: 15px system-ui; padding: 9px 10px; border-radius: 8px; border: 1px solid #39405a; background: #131725; color: #e9ecf5; min-width: 0; }
+  #ui .row { display: flex; gap: 10px; }
+  #ui button { font: 600 15px system-ui; padding: 11px 18px; border-radius: 10px; border: 1px solid #39405a; background: #131725; color: #e9ecf5; }
+  #ui #deploy { width: 128px; border-color: transparent; background: #2a6cf0; color: #fff; }
+  #ui .strip { padding: 5px; border-radius: 6px; font: 800 15px/1.3 system-ui; letter-spacing: .3em; text-align: center; }
+  #ui small { font-size: 12.5px; color: #8e96ad; }
+
+  .tools { display: flex; gap: 10px 18px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .tools output { display: inline-block; width: 2.6em; font-family: var(--mono); }
+  .tools fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 4px 12px; flex-wrap: wrap; }
+  #status, #screen { font: 13px var(--mono); color: var(--muted); min-height: 3em; margin: 6px 0; }
+  #notice { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--warn); border-radius: 8px; font-size: 14px; }
+  #notice[hidden] { display: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>HDR interface: elements brighter than white</h1>
+  <p class="lede">
+    The panel is HTML drawn into a 2D canvas whose pixels are 16-bit floats in Display P3. In that canvas 1.0 is standard white and a value above 1.0 is brighter than white on an HDR screen.
+    The badge, the focus ring and the end of the progress bar get their values from CSS colours with components above 1.0. The <b>Deploy</b> button and the green dot are ordinary sRGB colours
+    that the canvas multiplies after it has drawn them. Press <b>Deploy</b>, tab to the text field, and move the headroom slider.
+  </p>
+  <p id="support"></p>
+
+  <div id="stage">
+    <!-- #region markup -->
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <div id="ui" drawable>
+        <header><span class="dot" data-glow="0.8"></span><b>Build 482</b><span class="badge" id="badge">3</span></header>
+        <p>This text is at 0.9 of standard white. Only the marked parts go higher.</p>
+        <div class="bar"><i id="fill"></i></div>
+        <label>Release name <input id="name" value="release-candidate" autocomplete="off"></label>
+        <div class="row"><button id="deploy" type="button" data-glow="1">Deploy</button><button id="hold" type="button">Hold</button></div>
+        <p class="strip" aria-hidden="true">BRIGHTER</p>
+        <small>The white strip holds a word written above 1.0. If you can read it, this screen shows the extra range.</small>
+      </div>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+  <p id="status">&nbsp;</p>
+  <p id="notice" hidden></p>
+
+  <div class="tools">
+    <label>Headroom <input type="range" id="headroom" min="1" max="8" step="0.5" value="4"> <output id="headroom-out">4.0×</output></label>
+    <fieldset id="views">
+      <label><input type="radio" name="view" value="screen"> As stored</label>
+      <label><input type="radio" name="view" value="exposed"> Exposed down</label>
+      <label><input type="radio" name="view" value="map"> Map of values above 1.0</label>
+    </fieldset>
+    <label><code>dynamic-range-limit</code> <select id="limit"><option>no-limit</option><option>constrained</option><option>standard</option></select></label>
+  </div>
+  <p id="screen">&nbsp;</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>float16 context, CSS colours above 1.0, a multiply pass</small></summary>
+    <ol>
+      <li data-code="#context"><b>The context.</b> A 2D context with 16-bit float pixels in Display P3, and extended tone mapping where the browser accepts the option.</li>
+      <li data-code="#hdr-css"><b>The CSS route.</b> Colours whose components are multiplied by a custom property.</li>
+      <li data-code="#markup"><b>The markup.</b> <code>data-glow</code> marks the two elements that the canvas raises.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Draw the panel, raise the marked elements, then apply the chosen view.</li>
+      <li data-code="#glow"><b>The canvas route.</b> A <code>multiply</code> fill over the element's box and a halo from a canvas shadow.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>The canvas context is created with <code>colorType: 'float16'</code> and <code>colorSpace: 'display-p3'</code>. <code>drawElementImage()</code> then keeps CSS colour values above 1.0 that
+    the element's own styles ask for. The page uses two routes to get such values, because each has limits.</p>
+  <p><b>CSS route.</b> The badge, the focus ring, the bar and the strip use <code>color(display-p3 …)</code> with components multiplied by <code>--headroom</code>. The blur of a
+    <code>box-shadow</code> in such a colour also keeps its values, so the bloom around the badge is CSS. A CSS <code>filter</code> or <code>mix-blend-mode</code> on the element clamps it to 1.0.</p>
+  <p><b>Canvas route.</b> The Deploy button and the dot have sRGB colours. After the draw, the canvas fills their rounded boxes with a grey above 1.0 using the <code>multiply</code> operation,
+    which scales what is there. The halo is the shadow of an off-canvas fill. <code>lighter</code>, <code>ctx.filter</code> and a shadow on <code>drawElementImage()</code> itself all clamp to 1.0, so they are not used.
+    The band of light after a deploy is one more <code>multiply</code> fill with a gradient.</p>
+  <p><b>Views.</b> A standard screen clips everything above 1.0 to white. "Exposed down" multiplies the whole canvas by 1 ÷ headroom, so the brightest value lands on white and the rest of the
+    panel goes dark in proportion. "Map" reads the float pixels back and colours each one: grey for 1.0 or under, yellow through red to magenta for 1.0 up to the headroom. The page picks
+    "As stored" when the screen reports <code>dynamic-range: high</code> and "Exposed down" otherwise.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own small canvases in the corner of the window. Rows marked as expected failures record what the API clamps or refuses in the browser that wrote this page.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul>
+    <li>In Chromium 157 a float16 Display P3 2D canvas keeps CSS colour values above 1.0 through <code>drawElementImage()</code>: backgrounds, text, borders, outlines, gradients,
+      <code>box-shadow</code> and <code>text-shadow</code> blur, and relative colours scaled with <code>calc()</code>. <code>color(display-p3 3 3 3)</code> reads back as 3.0.</li>
+    <li><code>color(srgb-linear 4 4 4)</code> reads back as 1.82 because the readback is in the canvas's encoded space: 4.0 linear is 1.82 after the sRGB transfer curve. It is not a tone curve or a limit.</li>
+    <li><code>rgb()</code> and <code>oklch()</code> values above white clamp to 1.0. Only <code>color()</code> with a predefined space carried values above 1.0.</li>
+    <li>A CSS <code>filter</code> (even <code>blur(0)</code>) or <code>mix-blend-mode</code> on the element clamps its picture to 1.0. <code>opacity</code>, <code>mask</code>, <code>clip-path</code> and transforms do not.</li>
+    <li>On the canvas side, <code>source-over</code> and <code>multiply</code> fills, canvas gradients, shadows of fills and <code>putImageData()</code> keep values above 1.0. <code>lighter</code>, <code>screen</code>,
+      <code>ctx.filter</code>, a shadow on <code>drawElementImage()</code> and <code>drawImage()</code> of another float16 canvas clamp to 1.0. A bloom that blurs a copy of the canvas is therefore not possible in 2D.</li>
+    <li>WebGL and WebGPU do not receive the values. <code>texElementSubImage2D()</code> raises <code>INVALID_OPERATION</code> for an RGBA16F texture, and <code>drawElementImageToTexture()</code> into an
+      <code>rgba16float</code> texture stores 1.0 for a CSS value of 3.0. On those routes a shader has to decide which pixels to raise.</li>
+    <li><code>toneMapping: { mode: 'extended' }</code> is accepted by the 2D context and reported back as <code>standard</code> in Chromium 157 without the experimental features flag. The line under the controls prints what this browser reports.</li>
+    <li>Not verified: whether the values reach the screen above standard white. The test browser has no HDR output. The white strip in the demo answers it on the device that opens the page.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint } from '/shared/support.js';
+  banner();
+
+  const stage = document.getElementById('stage');
+  const canvas = document.getElementById('canvas');
+  const ui = document.getElementById('ui');
+  const status = document.getElementById('status'), notice = document.getElementById('notice'), screenLine = document.getElementById('screen');
+  const slider = document.getElementById('headroom'), sliderOut = document.getElementById('headroom-out'), limit = document.getElementById('limit');
+  const deploy = document.getElementById('deploy'), badge = document.getElementById('badge'), fill = document.getElementById('fill');
+  const say = (text) => { notice.hidden = false; notice.textContent = text; };
+
+  // #region context
+  const FLOAT = { colorType: 'float16', colorSpace: 'display-p3' };
+  function floatContext(target) {
+    // toneMapping is a dictionary in Chromium 157. A browser that does not know the option, or wants
+    // another type for it, gets the context without it.
+    try { return target.getContext('2d', { ...FLOAT, toneMapping: { mode: 'extended' } }); }
+    catch { return target.getContext('2d', FLOAT); }
+  }
+  const ctx = supported ? floatContext(canvas) : null;
+  const attrs = ctx?.getContextAttributes?.() ?? {};
+  const isFloat = attrs.colorType === 'float16';
+  // #endregion context
+
+  const high = matchMedia('(dynamic-range: high)'), wide = matchMedia('(color-gamut: p3)');
+  let headroom = +slider.value;
+  let view = high.matches ? 'screen' : 'exposed';
+  document.querySelector(`input[name="view"][value="${view}"]`).checked = true;
+  function describeScreen() {
+    screenLine.textContent = `Screen: dynamic-range ${high.matches ? 'high' : 'standard'}, colour gamut ${wide.matches ? 'p3 or wider' : 'srgb'}. ` +
+      (ctx ? `Context: ${attrs.colorType ?? 'unorm8'}, ${attrs.colorSpace ?? 'srgb'}, tone mapping ${attrs.toneMapping?.mode ?? 'not reported'}.` : 'No canvas context.');
+  }
+  describeScreen();
+  high.addEventListener('change', describeScreen);
+
+  if (!supported) {
+    // No HTML-in-canvas: show the panel as plain HTML at standard brightness.
+    stage.classList.add('plain');
+    stage.append(ui);
+    say('This browser cannot draw elements into a canvas, so the panel is shown as plain HTML and nothing is raised above 1.0.');
+  } else if (!isFloat) {
+    say('This browser did not give the canvas 16-bit float pixels. The panel is drawn, and every value is clamped to 1.0.');
+  }
+
+  // The elements the canvas raises, with their place in the panel and their colour. Their layout does not change.
+  const glowing = [...ui.querySelectorAll('[data-glow]')].map((el) => {
+    const cs = getComputedStyle(el);
+    const [r, g, b] = cs.backgroundColor.match(/[\d.]+/g).map((v) => +v / 255);
+    return { el, k: +el.dataset.glow, radius: parseFloat(cs.borderRadius) || 0, r, g, b, pulses: el.classList.contains('dot') };
+  });
+  const placeIn = (el) => { let x = 0, y = 0; for (let n = el; n && n !== ui; n = n.offsetParent) { x += n.offsetLeft; y += n.offsetTop; } return { x, y, w: el.offsetWidth, h: el.offsetHeight }; };
+  const grey = (v) => `color(display-p3 ${v} ${v} ${v})`;
+
+  let sweepStart = -1e9, busy = false, wantProbe = true, paints = 0, readout = '';
+  let map = null, mapAt = 0;
+  const SWEEP = 900;
+
+  // #region glow
+  // Raise one element. `gain` is how many times brighter its pixels become.
+  function raise(item, gain, dpr, w, h) {
+    const { x, y, w: bw, h: bh } = placeIn(item.el);
+    const shape = () => { ctx.beginPath(); ctx.roundRect(x, y, bw, bh, Math.min(item.radius, bh / 2)); };
+    // multiply scales the pixels under the fill, and the result may pass 1.0.
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = grey(gain);
+    shape(); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    // The halo: the shadow of a fill that is itself far off the canvas. A shadow on drawElementImage() clamps to 1.0;
+    // the shadow of a fill does not. The clip keeps the halo off the element.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.roundRect(x, y, bw, bh, Math.min(item.radius, bh / 2)); ctx.clip('evenodd');
+    ctx.shadowColor = `color(display-p3 ${item.r * gain} ${item.g * gain} ${item.b * gain} / ${Math.min(0.85, 0.25 * gain)})`;
+    ctx.shadowBlur = (8 + 4 * gain) * dpr;
+    ctx.shadowOffsetX = 4000;                       // shadow offsets are in device pixels
+    ctx.translate(-4000 / dpr, 0);
+    shape(); ctx.fillStyle = '#000'; ctx.fill();
+    ctx.restore();
+  }
+  // #endregion glow
+
+  // #region paint
+  canvas.addEventListener('paint', () => {
+    if (!ctx) return;
+    const w = canvas.clientWidth, h = canvas.clientHeight, dpr = canvas.width / w, now = performance.now();
+    paints++;
+    ctx.reset();
+    ctx.scale(dpr, dpr);
+    // The CSS colours above 1.0 arrive with this call. Drawing at the layout place keeps hit testing right.
+    ctx.drawElementImage(ui, 0, 0, w, h);
+
+    if (isFloat) {
+      for (const item of glowing) {
+        const beat = item.pulses || busy ? 0.6 + 0.4 * Math.sin(now / (item.pulses ? 420 : 160)) : 1;
+        raise(item, 1 + (headroom - 1) * item.k * beat, dpr, w, h);
+      }
+      // After a deploy a band of light crosses the panel: one more multiply fill, with a gradient.
+      const t = (now - sweepStart) / SWEEP;
+      if (t >= 0 && t <= 1) {
+        const cx = -0.3 * w + t * 1.6 * w, peak = 1 + (headroom - 1) * 0.8 * Math.sin(Math.PI * t);
+        const band = ctx.createLinearGradient(cx - 70, 0, cx + 70, 50);
+        band.addColorStop(0, grey(1)); band.addColorStop(0.5, grey(peak)); band.addColorStop(1, grey(1));
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = band; ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+    if (wantProbe) { wantProbe = false; probe(dpr); }
+
+    if (!isFloat) return;
+    if (view === 'exposed' && headroom > 1) {
+      // Scale everything so that the headroom value lands on 1.0.
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = grey(1 / headroom); ctx.fillRect(0, 0, w, h);
+    } else if (view === 'map') {
+      if (!map || now - mapAt > 240 || map.width !== canvas.width) { map = falseColour(); mapAt = now; }
+      if (map) ctx.putImageData(map, 0, 0);
+    }
+  });
+  // #endregion paint
+
+  // Read three pixels back as floats: what the canvas holds before the view is applied.
+  function probe(dpr) {
+    try {
+      const at = (el, dx) => { const p = placeIn(el); return [...ctx.getImageData(Math.round((p.x + dx) * dpr), Math.round((p.y + p.h / 2) * dpr), 1, 1, { pixelFormat: 'rgba-float16' }).data]; };
+      const max = (v) => Math.max(v[0], v[1], v[2]).toFixed(2);
+      readout = `Read back: badge ${max(at(badge, 4))}, Deploy button ${max(at(deploy, 6))}, dot ${max(at(glowing[0].el, 6))}, panel background ${max([...ctx.getImageData(4, canvas.height - 4, 1, 1, { pixelFormat: 'rgba-float16' }).data])}.`;
+    } catch (e) { readout = `Float readback failed: ${e.message}`; }
+    status.textContent = `${readout} ${paints} paint events.`;
+  }
+
+  // Colour every pixel by how far it is above 1.0.
+  function falseColour() {
+    try {
+      const src = ctx.getImageData(0, 0, canvas.width, canvas.height, { pixelFormat: 'rgba-float16' }).data;
+      const out = new ImageData(canvas.width, canvas.height), d = out.data, span = Math.max(headroom - 1, 0.01);
+      for (let i = 0; i < src.length; i += 4) {
+        const v = Math.max(src[i], src[i + 1], src[i + 2]);
+        if (v <= 1.004) { const g = 110 * (0.25 * src[i] + 0.6 * src[i + 1] + 0.15 * src[i + 2]); d[i] = d[i + 1] = d[i + 2] = g; }
+        else { const t = Math.min(1, (v - 1) / span); d[i] = 255; d[i + 1] = t < 0.5 ? 220 - 320 * t : 60 - 120 * (t - 0.5); d[i + 2] = t < 0.5 ? 0 : 400 * (t - 0.5); }
+        d[i + 3] = 255;
+      }
+      return out;
+    } catch (e) { say(`The map needs getImageData() with pixelFormat 'rgba-float16': ${e.message}`); return null; }
+  }
+
+  if (ctx) {
+    new ResizeObserver(([entry]) => {
+      const box = entry.devicePixelContentBoxSize?.[0];
+      const w = box ? box.inlineSize : Math.round(canvas.clientWidth * devicePixelRatio), h = box ? box.blockSize : Math.round(canvas.clientHeight * devicePixelRatio);
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      canvas.requestPaint();
+    }).observe(canvas, { box: 'device-pixel-content-box' });
+    canvas.addEventListener('contextlost', () => say('The canvas lost its context. It is drawn again when the browser gives it back.'));
+    canvas.addEventListener('contextrestored', () => { notice.hidden = true; canvas.requestPaint(); });
+
+    // The dot pulses, so the canvas repaints about 15 times a second while it is on screen, and every frame
+    // during a deploy and the band of light after it.
+    let onScreen = false, last = 0, lastProbe = 0;
+    new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; }).observe(stage);
+    requestAnimationFrame(function frame(now) {
+      requestAnimationFrame(frame);
+      if (!onScreen || document.hidden || !isFloat) return;
+      const fast = busy || now - sweepStart < SWEEP + 100;
+      if (!fast && now - last < 66) return;
+      last = now;
+      if (!fast && now - lastProbe > 1500) { lastProbe = now; wantProbe = true; }
+      canvas.requestPaint();
+    });
+  }
+
+  let count = 3;
+  deploy.addEventListener('click', () => {
+    if (busy) return;
+    busy = true;
+    deploy.textContent = 'Deploying';
+    fill.style.transition = 'width 2s linear'; fill.style.width = '100%';
+    setTimeout(() => {
+      sweepStart = performance.now();
+      badge.textContent = ++count; badge.classList.add('pop');
+      deploy.textContent = 'Deployed'; busy = false;
+      setTimeout(() => { fill.style.transition = 'none'; fill.style.width = '0'; deploy.textContent = 'Deploy'; badge.classList.remove('pop'); }, 1700);
+    }, 2000);
+  });
+  slider.addEventListener('input', () => {
+    headroom = +slider.value; sliderOut.textContent = `${headroom.toFixed(1)}×`;
+    if (!stage.classList.contains('plain')) ui.style.setProperty('--headroom', headroom);
+    map = null; wantProbe = true; canvas.requestPaint?.();
+  });
+  document.getElementById('views').addEventListener('change', (e) => { view = e.target.value; map = null; canvas.requestPaint?.(); });
+  limit.addEventListener('change', () => { canvas.style.setProperty('dynamic-range-limit', limit.value); });
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const SIZE = 100;
+  async function fixture(html, type = '2d') {
+    const cv = document.createElement('canvas');
+    cv.setAttribute('content', 'drawable'); cv.setAttribute('layoutsubtree', '');
+    cv.width = cv.height = SIZE; cv.style.cssText = `width:${SIZE}px;height:${SIZE}px;flex:none`;
+    const el = document.createElement('div');
+    el.setAttribute('drawable', ''); el.style.cssText = `width:${SIZE}px;height:${SIZE}px;overflow:hidden`; el.innerHTML = html;
+    cv.append(el); testStage().append(cv);
+    const x = type === '2d' ? floatContext(cv) : null;
+    if (type === '2d') await nextPaint(cv);
+    const read = (px, py) => [...x.getImageData(px, py, 1, 1, { pixelFormat: 'rgba-float16' }).data];
+    return { cv, el, x, read, draw: () => x.drawElementImage(el, 0, 0, SIZE, SIZE) };
+  }
+  const block = (css) => `<i style="display:block;width:40px;height:40px;margin:30px;${css}"></i>`;
+  const HOT = block('background:color(display-p3 3 3 3)');
+  const show = (v) => v.slice(0, 3).map((n) => n.toFixed(2)).join(', ');
+  const expectAbove = (v, what) => { if (!(Math.max(v[0], v[1], v[2]) > 1.05)) throw new Error(`${what} reads back as ${show(v)}: clamped to 1.0.`); return `${what} reads back as ${show(v)}.`; };
+
+  const tests = [
+    { name: 'The canvas gets a 2D context with 16-bit float pixels in Display P3', expect: 'pass', why: "getContext('2d', { colorType: 'float16', colorSpace: 'display-p3' })",
+      run: async () => {
+        const a = floatContext(document.createElement('canvas')).getContextAttributes();
+        if (a.colorType !== 'float16' || a.colorSpace !== 'display-p3') throw new Error(`The context reports ${a.colorType ?? 'no colorType'}, ${a.colorSpace}.`);
+        return `colorType ${a.colorType}, colorSpace ${a.colorSpace}, toneMapping ${a.toneMapping?.mode ?? 'not reported'}.`;
+      } },
+    { name: 'A CSS colour of 3.0 on a drawn element is 3.0 in the canvas', expect: 'pass', why: 'background: color(display-p3 3 3 3), then drawElementImage()',
+      run: async () => { const f = await fixture(HOT); f.draw(); const v = f.read(50, 50); if (Math.abs(v[0] - 3) > 0.05) throw new Error(`Read back ${show(v)}.`); return `Read back ${show(v)}.`; } },
+    { name: 'A relative colour scaled by a custom property goes above 1.0', expect: 'pass', why: 'color(from #2a6cf0 display-p3 calc(r * var(--gain)) …) with --gain: 3',
+      run: async () => { const f = await fixture(block('--gain:3;background:color(from #2a6cf0 display-p3 calc(r*var(--gain)) calc(g*var(--gain)) calc(b*var(--gain)))')); f.draw(); return expectAbove(f.read(50, 50), 'The background'); } },
+    { name: 'The blur of a box-shadow in a colour of 4.0 keeps the value', expect: 'pass', why: 'box-shadow: 0 0 12px 6px color(display-p3 4 2 1) on a 20 pixel box',
+      run: async () => { const f = await fixture('<i style="display:block;width:20px;height:20px;margin:40px;background:#000;box-shadow:0 0 12px 6px color(display-p3 4 2 1)"></i>'); f.draw(); const v = f.read(30, 50); if (!(v[3] > 0.05 && v[3] < 0.95)) throw new Error(`No blurred shadow at the sample point: alpha ${v[3].toFixed(2)}.`); return `${expectAbove(v, 'The shadow')} Alpha there is ${v[3].toFixed(2)}.`; } },
+    { name: 'An element with a CSS filter keeps values above 1.0', expect: 'fail', why: 'The same 3.0 background with filter: blur(0px)',
+      run: async () => { const f = await fixture(block('background:color(display-p3 3 3 3);filter:blur(0px)')); f.draw(); return expectAbove(f.read(50, 50), 'The filtered element'); } },
+    { name: "A 'multiply' fill raises drawn pixels above 1.0", expect: 'pass', why: 'An element at 0.5, then fillRect() with color(display-p3 4 4 4) and multiply',
+      run: async () => { const f = await fixture(block('background:color(display-p3 0.5 0.5 0.5)')); f.draw(); f.x.globalCompositeOperation = 'multiply'; f.x.fillStyle = 'color(display-p3 4 4 4)'; f.x.fillRect(0, 0, SIZE, SIZE); return expectAbove(f.read(50, 50), 'The element'); } },
+    { name: "'lighter', ctx.filter and a shadow keep values above 1.0 around drawElementImage()", expect: 'fail', why: 'Three draws of the 3.0 element: with globalCompositeOperation lighter, with ctx.filter blur(4px), with shadowBlur',
+      run: async () => {
+        const f = await fixture(HOT), got = {};
+        f.x.globalCompositeOperation = 'lighter'; f.draw(); got.lighter = f.read(50, 50)[0];
+        f.x.reset(); f.x.filter = 'blur(4px)'; f.draw(); got.filter = f.read(50, 50)[0];
+        f.x.reset(); f.x.shadowColor = 'color(display-p3 4 1 0)'; f.x.shadowBlur = 16; f.draw(); got.shadow = f.read(50, 50)[0];
+        const text = Object.entries(got).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(', ');
+        if (Object.values(got).some((v) => v < 1.05)) throw new Error(`The element's 3.0 came out as: ${text}.`);
+        return text;
+      } },
+    { name: 'drawImage() of a float16 canvas into another keeps values above 1.0', expect: 'fail', why: 'A bloom pass would blur a copy of the canvas this way',
+      run: async () => {
+        const a = floatContext(Object.assign(document.createElement('canvas'), { width: 8, height: 8 })), b = floatContext(Object.assign(document.createElement('canvas'), { width: 8, height: 8 }));
+        a.fillStyle = 'color(display-p3 4 4 4)'; a.fillRect(0, 0, 8, 8);
+        const before = [...a.getImageData(4, 4, 1, 1, { pixelFormat: 'rgba-float16' }).data];
+        b.drawImage(a.canvas, 0, 0);
+        const v = [...b.getImageData(4, 4, 1, 1, { pixelFormat: 'rgba-float16' }).data];
+        if (v[0] < 1.05) throw new Error(`The source holds ${show(before)}. The copy holds ${show(v)}.`);
+        return `The copy holds ${show(v)}.`;
+      } },
+    { name: 'WebGL: texElementSubImage2D() fills an RGBA16F texture', expect: 'fail', why: 'A float texture would carry the CSS values to a shader',
+      run: async () => {
+        const f = await fixture(HOT, 'webgl');
+        const gl = f.cv.getContext('webgl2');
+        if (!gl || !gl.texElementSubImage2D) throw new Error('No WebGL 2 context with texElementSubImage2D() here, so this was not measured.');
+        await nextPaint(f.cv);
+        const upload = (format) => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); gl.texStorage2D(gl.TEXTURE_2D, 1, format, SIZE, SIZE); gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, f.el); const e = gl.getError(); gl.deleteTexture(t); return e; };
+        const eight = upload(gl.RGBA8), float = upload(gl.RGBA16F);
+        if (float !== gl.NO_ERROR) throw new Error(`RGBA16F: ${float === gl.INVALID_OPERATION ? 'INVALID_OPERATION' : `error ${float}`}. RGBA8: ${eight === gl.NO_ERROR ? 'accepted, 8 bits, so at most 1.0' : `error ${eight}`}.`);
+        return 'RGBA16F accepted.';
+      } },
+    { name: 'WebGPU: drawElementImageToTexture() into rgba16float keeps values above 1.0', expect: 'fail', why: 'The 3.0 element copied to a float texture and read back',
+      run: async () => {
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (!adapter || !('drawElementImageToTexture' in GPUQueue.prototype)) throw new Error('No WebGPU adapter with drawElementImageToTexture() here, so this was not measured.');
+        const device = await adapter.requestDevice();
+        const f = await fixture(HOT, 'webgpu');
+        f.cv.getContext('webgpu').configure({ device, format: 'rgba16float', colorSpace: 'display-p3', toneMapping: { mode: 'extended' }, alphaMode: 'premultiplied' });
+        await nextPaint(f.cv);
+        const texture = device.createTexture({ size: [SIZE, SIZE], format: 'rgba16float', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT });
+        device.queue.drawElementImageToTexture({ source: f.el }, { texture, colorSpace: 'display-p3' });
+        const row = 1024, buffer = device.createBuffer({ size: row * SIZE, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+        const enc = device.createCommandEncoder(); enc.copyTextureToBuffer({ texture }, { buffer, bytesPerRow: row }, [SIZE, SIZE]); device.queue.submit([enc.finish()]);
+        await buffer.mapAsync(GPUMapMode.READ);
+        const v = [...new Float16Array(buffer.getMappedRange().slice(row * 50 + 50 * 8, row * 50 + 50 * 8 + 8))];
+        buffer.unmap(); texture.destroy(); device.destroy();
+        return expectAbove(v, 'The texture');
+      } },
+  ];
+  runTests(document.getElementById('tests'), supported ? tests : tests.slice(0, 1));
+</script>
+</body>
+</html>
