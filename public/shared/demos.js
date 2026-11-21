@@ -60,6 +60,7 @@ window.DEMOS = [
   { group: 'motion', href: '/transitions/', title: 'Live view transitions', blurb: 'Shatter, fold, burn or morph between two states that are both live DOM. Stop half way and press a button riding a shard.', tags: ['texElementSubImage2D', 'updateElementGeometry'] },
   { group: 'motion', href: '/time-scrubber/', title: 'Time scrubber', blurb: 'A ring buffer of DOM frames. Scrub the interface back in time, leave motion trails, and restore a past moment, form values included.', tags: ['ElementImage', 'changedElements'] },
   { group: 'motion', href: '/particles/', title: 'Typography as particles', blurb: 'Text explodes into glyph particles and reassembles while staying selectable, searchable, linked and editable. No spans.', tags: ['Range rects', 'WebGL instancing'] },
+  { group: 'motion', href: '/selection/', title: 'Text selection effects', blurb: 'Select text that a canvas draws and the canvas draws the highlight: marker strokes, lifted lines, a loupe, trails, glow, fire and a wave, from <code>Range.getClientRects()</code>. Records what the browser paints for a selection inside a canvas.', tags: ['Range.getClientRects()', '::selection', 'CSS Custom Highlight'] },
 
   // --- 3d ---
   { group: '3d', href: '/three-form/', title: 'A form in a three.js scene', blurb: 'A laptop screen, a far-away billboard and a curved wall, each showing a live HTML document you can type in, tab through and select. WebGL or WebGPU.', tags: ['three.js', 'texElementSubImage2D', 'updateElementGeometry'] },

@@ -62,6 +62,7 @@
       '/transitions/': { question: 'Can two states both accept input while a shader blends between them, and which one does a click reach?', first: ['/shader-css/'], api: ['texElementSubImage2D()', 'updateElementGeometry()'] },
       '/time-scrubber/': { question: 'Can a page keep past frames of an element and return to an earlier one, form values included?', first: ['/offscreen/'], api: ['ElementImage', 'changedElements', 'createImageBitmap()'] },
       '/particles/': { question: 'Can each glyph of a paragraph be drawn separately while the paragraph stays selectable, searchable and editable?', first: ['/shader-css/'], api: ['Range.getClientRects()', 'texElementSubImage2D()', 'WebGL instancing'] },
+      '/selection/': { question: 'When text inside a canvas is selected, what does the browser draw, and can the canvas draw its own highlight from the rectangles of the selected text?', first: ['/particles/', '/shader-css/'], api: ['Range.getClientRects()', '::selection', 'CSS.highlights', 'updateElementGeometry()', 'texElementSubImage2D()'] },
 
       // --- 3d ---
       '/three-form/': { question: 'Can an HTML form be a three.js texture and keep typing, Tab and text selection on a 3D surface?', first: ['/shader-css/', '/portal/'], api: ['texElementSubImage2D()', 'drawElementImageToTexture()', 'updateElementGeometry()'] },
