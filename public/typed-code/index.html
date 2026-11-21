@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Code that types itself</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; height: 430px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #0f1117; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: pan-y; }
+
+  #stage.is-plain { height: auto; background: var(--card); padding: 8px 12px; }
+
+  /* #region styles */
+  .typed { box-sizing: border-box; width: 100%; max-width: 560px; margin: 0; padding: 46px 14px 14px; border: 0; border-radius: 0; background: none;
+    white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; color: #d7dae4; font: 12.5px/1.55 ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; }
+  .typed code { font: inherit; color: inherit; background: none; padding: 0; border: 0; }
+  /* The colours are CSS highlights over one text node. There are no spans in the code. */
+  ::highlight(tc-comment) { color: #7d8597; }
+  ::highlight(tc-string) { color: #a5d6a7; }
+  ::highlight(tc-keyword) { color: #ff8f6b; }
+  ::highlight(tc-number) { color: #ffd166; }
+  ::highlight(tc-call) { color: #7cc4ff; }
+  /* #endregion styles */
+
+  .plain-html .typed { color: var(--fg); padding: 12px 0; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 10px 0 4px; min-height: 92px; align-content: flex-start; }
+  .controls label { font-size: 14px; display: inline-flex; align-items: center; gap: 6px; }
+  .controls input[type=range] { width: 130px; }
+  .controls button { min-width: 76px; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 4.2em; margin: 4px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Code that types itself</h1>
+  <p class="lede">
+    The code block below holds all of its text from the start. The canvas draws only the characters that have been typed so far, with a caret, a glow on the newest characters and an occasional wrong key that is
+    corrected. The wrong characters exist only in the picture. Select the text or press Copy while it is typing: the selection and the clipboard get the whole block. The code shown is the function that draws it.
+  </p>
+  <p id="support"></p>
+
+  <div id="stage">
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <!-- #region markup -->
+      <pre id="code" class="typed" drawable><code></code></pre>
+      <!-- #endregion markup -->
+    </canvas>
+  </div>
+
+  <div class="controls">
+    <button type="button" id="play">Pause</button>
+    <button type="button" id="again">Restart</button>
+    <button type="button" id="copy">Copy</button>
+    <label>Speed <input type="range" id="speed" min="6" max="160" value="45" aria-label="Characters a second"></label>
+    <label>Position <input type="range" id="position" min="0" max="100" value="0" aria-label="Characters typed"></label>
+    <label><input type="checkbox" id="typos" checked> Wrong keys</label>
+  </div>
+  <p id="status">&nbsp;</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>a clip over one drawElementImage() call</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The block.</b> A <code>&lt;pre&gt;</code> in the canvas. The script puts the text of <code>reveal()</code> into it.</li>
+      <li data-code="#styles"><b>The styles.</b> Syntax colours are <code>::highlight()</code> rules.</li>
+      <li data-code="#colour"><b>The colours.</b> Ranges over the text node, registered with the CSS Custom Highlight API.</li>
+      <li data-code="/lib/text-canvas.js#boxes"><b>The boxes.</b> One for each character, measured with a <code>Range</code>.</li>
+      <li data-code="#reveal"><b>The reveal.</b> Clip to the boxes of the typed characters, then draw the element. This is the text in the demo.</li>
+      <li data-code="#extras"><b>The glow, the wrong keys and the caret.</b> Pieces of the same element drawn again.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>The <code>&lt;pre&gt;</code> is a child of the canvas and contains the complete code as one text node. The page measures a box for every character with <code>Range.getClientRects()</code>.
+    On each <code>paint</code> it builds a clip path from the boxes of the first <em>n</em> characters and calls <code>drawElementImage()</code> once. The clip hides the characters that are not typed yet.</p>
+  <p>The syntax colours come from the CSS Custom Highlight API: the script registers ranges for comments, strings, keywords, numbers and calls, and <code>::highlight()</code> rules colour them. So the text needs no
+    spans, and character <em>n</em> of the text node is character <em>n</em> of the animation.</p>
+  <p>A wrong key is drawn with the nine-argument <code>drawElementImage()</code>: the box of a different letter somewhere else in the block is copied to the caret position, held for a moment and then removed. The text node never changes.
+    The element's hit region covers the whole block, so text that is not drawn yet can still be selected, and the boxes of the selection are added to the clip so that selected text shows.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own fixtures in the corner of the window, after a tap on the button.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul>
+    <li>A clip path of character boxes over one <code>drawElementImage()</code> call reveals text glyph by glyph. With 16 lines of code the paint took under 1 ms in the test browser.</li>
+    <li>The text that is not drawn is still in the document. A <code>Range</code> over the block returns all of it, <code>elementFromPoint()</code> on an undrawn character returns the <code>&lt;code&gt;</code> element, and a selection can be made there.</li>
+    <li><code>::highlight()</code> colours from the CSS Custom Highlight API are part of the element's picture.</li>
+    <li>A piece of the element drawn at another place with the nine-argument <code>drawElementImage()</code> shows a character that is not in the text at that position. The last draw decides the hit region, so the page ends each paint
+      with <code>updateElementGeometry()</code> for the whole element.</li>
+    <li>Not verified: Chrome 159 for Android, long-press selection of text that is not drawn yet, and find-in-page on it. Pause the demo at the start, long-press in the empty part of the block and check that a selection appears.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage } from '/shared/support.js';
+  import { supported, mount, piece, home, charBoxes, lineBoxes, plain, clamp, seeded, fixtureCanvas } from '/lib/text-canvas.js';
+  banner();
+
+  const canvas = document.getElementById('canvas'), pre = document.getElementById('code'), code = pre.firstElementChild, status = document.getElementById('status');
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // #region reveal
+  function reveal(ctx, pre, boxes, n, sel) {
+    ctx.save();
+    ctx.beginPath();
+    // One rectangle for each typed character.
+    for (const b of boxes.slice(0, n)) {
+      ctx.rect(b.x, b.y - 2, b.w + 1, b.h + 4);
+    }
+    // Selected text shows before it is typed.
+    for (const b of sel) {
+      ctx.rect(b.x, b.y, b.w, b.h);
+    }
+    ctx.clip();
+    // The element holds all of its text. The
+    // clip decides how much of it is drawn.
+    const w = pre.offsetWidth;
+    const h = pre.offsetHeight;
+    ctx.drawElementImage(pre, 0, 0, w, h);
+    ctx.restore();
+  }
+  // #endregion reveal
+
+  // The demo types the function above. Take the two spaces of this script's indent off each line.
+  code.textContent = reveal.toString().replace(/\n {2}/g, '\n');
+
+  // #region colour
+  const TOKENS = /(\/\/[^\n]*)|('[^'\n]*'|`[^`]*`)|\b(function|const|let|for|of|if|else|return)\b|\b(\d+(?:\.\d+)?)\b|\b([A-Za-z_]\w*)(?=\()/g;
+  const KINDS = ['tc-comment', 'tc-string', 'tc-keyword', 'tc-number', 'tc-call'];
+  function colour(node) {
+    if (!globalThis.Highlight || !CSS.highlights) return 0;
+    let count = 0;
+    for (const m of node.data.matchAll(TOKENS)) {
+      const kind = KINDS[m.slice(1).findIndex((group) => group !== undefined)];
+      const range = new Range();
+      range.setStart(node, m.index);
+      range.setEnd(node, m.index + m[0].length);
+      if (!CSS.highlights.has(kind)) CSS.highlights.set(kind, new Highlight());
+      CSS.highlights.get(kind).add(range);
+      count++;
+    }
+    return count;
+  }
+  // #endregion colour
+  colour(code.firstChild);
+
+  // One typist: a canvas and the pre it reveals. The live checks run the same function on fixtures.
+  function typist(canvas, pre, options = {}) {
+    const rnd = seeded(options.seed ?? 11);
+    const state = { typed: 0, wrong: [], playing: false, speed: options.speed ?? 45, typos: options.typos ?? true, erase: false, wait: 0, stamp: 0, total: 0 };
+    let boxes = [], key = '', then = 0, onStep = () => {};
+
+    function measure() {
+      const fresh = pre.textContent.length + ':' + pre.offsetWidth + ':' + pre.offsetHeight;
+      if (fresh === key) return;
+      key = fresh;
+      boxes = charBoxes(pre);
+      state.total = boxes.length;
+    }
+
+    // One key press. Returns how long to wait before the next one, in key times.
+    function step() {
+      const next = boxes[state.typed];
+      if (state.erase) {
+        state.wrong.pop();
+        if (!state.wrong.length) state.erase = false;
+        return 2.2;
+      }
+      if (state.wrong.length) { state.erase = true; return 9; }
+      if (state.typos && next && /[a-z]/i.test(next.ch) && state.typed < state.total - 3 && rnd() < 0.045) {
+        // Pick one or two other letters of the block. Their pictures will stand in for the wrong keys.
+        const letters = boxes.filter((b) => /[a-z]/i.test(b.ch) && b.ch !== next.ch && b.w);
+        for (let n = rnd() < 0.4 ? 2 : 1; n > 0 && letters.length; n--) state.wrong.push(letters[Math.floor(rnd() * letters.length)]);
+        return 1.4;
+      }
+      state.typed++;
+      state.stamp = performance.now();
+      const ch = next?.ch ?? '';
+      if (ch === '\n') {
+        // Indentation arrives with the line break, as it does in an editor.
+        while (boxes[state.typed]?.ch === ' ') state.typed++;
+        return 7;
+      }
+      return ';{},()'.includes(ch) ? 3.2 : 0.5 + rnd();
+    }
+
+    const view = mount(canvas, (ctx, w, h, now) => {
+      const dt = Math.min(0.1, (now - then) / 1000 || 0.016);
+      then = now;
+      measure();
+      if (state.playing) {
+        state.wait -= dt * state.speed;
+        let guard = 0;
+        while (state.wait <= 0 && state.typed < state.total && guard++ < 40) state.wait += step();
+        if (state.typed >= state.total) { state.playing = false; state.wrong.length = 0; }
+        onStep(state);
+      }
+
+      // The editor window: a title bar with three dots.
+      ctx.fillStyle = '#0f1117';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#181b24';
+      ctx.fillRect(0, 0, w, 34);
+      ['#ff5f57', '#febc2e', '#28c840'].forEach((c, i) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(18 + i * 18, 17, 5.5, 0, 7); ctx.fill(); });
+      ctx.fillStyle = '#8a90a2';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillText('reveal.js', 78, 21);
+
+      const ox = Math.max(0, Math.round((w - pre.offsetWidth) / 2));
+      // The boxes of the selection, if it is inside this block.
+      const sel = getSelection(), picked = sel.rangeCount && !sel.isCollapsed && pre.contains(sel.anchorNode) ? lineBoxes(sel.getRangeAt(0), pre) : [];
+      ctx.save();
+      ctx.translate(ox, 0);
+      let drawn = true;
+      try { reveal(ctx, pre, boxes, state.typed, picked); } catch { ctx.restore(); drawn = false; }
+
+      // #region extras
+      const age = (now - state.stamp) / 1000;
+      // The newest characters again, with a glow that fades over 0.45 s.
+      for (let i = Math.max(0, state.typed - 8); i < state.typed && drawn; i++) {
+        const b = boxes[i], fade = clamp(1 - (age + (state.typed - 1 - i) / state.speed) / 0.45);
+        if (!b.w || fade <= 0) continue;
+        ctx.save();
+        ctx.fillStyle = `rgb(124 196 255 / ${0.3 * fade})`;
+        ctx.beginPath(); ctx.roundRect(b.x - 1, b.y, b.w + 2, b.h, 3); ctx.fill();
+        ctx.globalAlpha = fade;
+        // The last one starts 30% larger and settles.
+        const grow = i === state.typed - 1 ? 1 + 0.3 * clamp(1 - age / 0.09) : 1;
+        piece(ctx, pre, b.x, b.y, b.w, b.h, b.x - b.w * (grow - 1) / 2, b.y - b.h * (grow - 1) / 2, b.w * grow, b.h * grow);
+        ctx.restore();
+      }
+      // Where the next character goes: after the last typed one, or at the start of the next line.
+      const place = (k) => {
+        const b = boxes[state.typed + k], last = boxes[state.typed + k - 1];
+        if (b && b.w && b.ch !== '\n') return b;
+        if (last && last.h) return { x: last.x + last.w, y: last.y, w: last.w || 7.5, h: last.h };
+        return boxes.find((c) => c.w) ?? { x: 14, y: 46, w: 7.5, h: 15 };
+      };
+      // A wrong key: the picture of another letter of the block, drawn where the caret is.
+      state.wrong.forEach((from, k) => { const to = place(k); piece(ctx, pre, from.x, from.y, from.w, from.h, to.x, to.y, from.w, from.h); });
+      const caret = place(state.wrong.length);
+      if (state.playing || Math.floor(now / 530) % 2 === 0) {
+        ctx.fillStyle = state.wrong.length ? '#ff6b6b' : '#7cc4ff';
+        ctx.fillRect(caret.x, caret.y, 2, caret.h);
+      }
+      // #endregion extras
+      // The pieces moved the hit region. Put it back over the whole block.
+      if (drawn) home(ctx, pre, 0, 0);
+      ctx.restore();
+      // Keep going while typing. When paused, one frame every half second blinks the caret.
+      if (!state.playing) { clearTimeout(view.blink); view.blink = setTimeout(() => view.visible && view.request(), 530); }
+      return state.playing;
+    });
+
+    return {
+      view, state,
+      boxes: () => { measure(); return boxes; },
+      play(on = true) { if (on && state.typed >= state.total) state.typed = 0; state.playing = on; state.wait = 0; view.request(); },
+      seek(n) { state.typed = clamp(Math.round(n), 0, state.total); state.wrong.length = 0; state.erase = false; state.stamp = 0; view.request(); },
+      onStep(fn) { onStep = fn; },
+    };
+  }
+
+  if (!supported) {
+    plain(canvas);
+  } else {
+    const t = typist(canvas, pre);
+    const play = document.getElementById('play'), position = document.getElementById('position'), speed = document.getElementById('speed');
+    const total = t.boxes().length;
+    position.max = total;
+    const report = (extra = '') => {
+      position.value = t.state.typed;
+      play.textContent = t.state.playing ? 'Pause' : t.state.typed >= total ? 'Play' : 'Resume';
+      status.textContent = `${t.state.typed} of ${total} characters drawn. The block's text is ${code.textContent.length} characters at every moment. ${extra}`;
+    };
+    t.onStep(() => report());
+    play.onclick = () => { t.play(!t.state.playing); report(); };
+    document.getElementById('again').onclick = () => { t.seek(0); t.play(true); report(); };
+    position.oninput = () => { t.state.playing = false; t.seek(+position.value); report(); };
+    speed.oninput = () => { t.state.speed = +speed.value; };
+    document.getElementById('typos').onchange = (e) => { t.state.typos = e.target.checked; };
+    document.getElementById('copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(code.textContent); report(`Copied ${code.textContent.length} characters while ${t.state.typed} were drawn.`); }
+      catch (err) { report(`The clipboard refused: ${err.message}`); }
+    };
+    // A copy of a selection made in the block, with the keyboard or the selection menu.
+    pre.addEventListener('copy', () => report(`Copied a selection of ${getSelection().toString().length} characters while ${t.state.typed} were drawn.`));
+    if (calm) { t.seek(total); report(); } else {
+      // Start typing when the block is on screen.
+      new IntersectionObserver(([entry], io) => { if (entry.isIntersecting) { io.disconnect(); t.play(true); report(); } }, { threshold: 0.5 }).observe(canvas);
+    }
+    report();
+  }
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const PRE = '<pre class="typed" drawable style="width:200px;padding:8px;font-size:16px;color:#fff"><code>const ab = 12;\nreturn mn;</code></pre>';
+  const inkOf = (fx, b) => fx.count(b.x, b.y, b.w, b.h);
+
+  runTests(document.getElementById('tests'), [
+    { name: 'Only the typed characters are drawn', expect: 'pass', why: 'reveal() with 4 of 25 characters typed. Pixels are counted in the boxes of characters 1, 3, 7 and 16.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), PRE, 220, 70), boxes = charBoxes(fx.el);
+        fx.start(); reveal(fx.ctx, fx.el, boxes, 4, []);
+        const got = [0, 2, 6, 15].map((i) => inkOf(fx, boxes[i]));
+        return need(got[0] > 0 && got[1] > 0 && got[2] === 0 && got[3] === 0, `Pixels in the boxes of "c", "n", "a" and "r": ${got.join(', ')}.`);
+      } },
+    { name: 'The text that is not drawn can be read, hit and selected', expect: 'pass', why: 'With 4 characters drawn: a Range over the block, and elementFromPoint() on the box of character 16.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), PRE, 220, 70), boxes = charBoxes(fx.el);
+        fx.start(); reveal(fx.ctx, fx.el, boxes, 4, []);
+        await sleep(60);
+        const range = new Range(); range.selectNodeContents(fx.el);
+        const at = fx.el.getBoundingClientRect(), b = boxes[15];
+        const hit = document.elementFromPoint(at.x + b.x + b.w / 2, at.y + b.y + b.h / 2);
+        const from = document.caretPositionFromPoint?.(at.x + b.x + 1, at.y + b.y + b.h / 2);
+        return need(range.toString().length === 25 && fx.el.contains(hit), `The range returns ${range.toString().length} characters. The point hits <${hit?.localName}>` +
+          (from ? `, and caretPositionFromPoint() gives offset ${from.offset} in the text node.` : '.'));
+      } },
+    { name: '::highlight() colours are in the picture', expect: 'pass', why: 'The keyword "const" has a tc-keyword range. Orange pixels are counted in its boxes.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), PRE, 220, 70), boxes = charBoxes(fx.el);
+        const ranges = colour(fx.el.firstElementChild.firstChild);
+        await sleep(120); await fx.paint();
+        fx.start(); reveal(fx.ctx, fx.el, boxes, 25, []);
+        const orange = fx.count(boxes[0].x, boxes[0].y, boxes[4].x + boxes[4].w - boxes[0].x, boxes[0].h, (r, g, b, a) => a > 200 && r > 220 && g > 100 && g < 190 && b < 150);
+        return need(ranges >= 3 && orange > 20, `${ranges} ranges registered. ${orange} orange pixels in "const".`);
+      } },
+    { name: 'A wrong key is a picture of another character, and the text does not change', expect: 'pass', why: 'The box of "m" is copied to the place of character 7 with the nine-argument drawElementImage().',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), PRE, 220, 70), boxes = charBoxes(fx.el), from = boxes.find((b) => b.ch === 'm'), to = boxes[6];
+        fx.start(); reveal(fx.ctx, fx.el, boxes, 4, []);
+        const before = inkOf(fx, to);
+        piece(fx.ctx, fx.el, from.x, from.y, from.w, from.h, to.x, to.y);
+        const after = inkOf(fx, to);
+        return need(before === 0 && after > 10 && fx.el.textContent === 'const ab = 12;\nreturn mn;', `${before} pixels at character 7 before, ${after} after. textContent is unchanged.`);
+      } },
+    { name: 'Selected boxes are drawn before they are typed', expect: 'pass', why: 'reveal() with nothing typed and the box of character 16 passed as the selection.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), PRE, 220, 70), boxes = charBoxes(fx.el);
+        fx.start(); reveal(fx.ctx, fx.el, boxes, 0, [boxes[15]]);
+        const picked = inkOf(fx, boxes[15]), other = inkOf(fx, boxes[0]);
+        return need(picked > 0 && other === 0, `${picked} pixels in the selected box, ${other} in the first box.`);
+      } },
+    { name: 'A typist reaches the end and stops asking for frames every frame', expect: 'pass', why: 'typist() on a fixture at 400 characters a second with wrong keys on.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), PRE, 220, 70);
+        const t = typist(fx.canvas, fx.el, { speed: 400, seed: 3 });
+        t.view.visible = true;
+        t.play(true);
+        for (let i = 0; i < 50 && t.state.playing; i++) await sleep(100);
+        const frames = t.view.frames;
+        await sleep(400);
+        t.view.visible = false;
+        return need(t.state.typed === 25 && !t.state.playing && t.view.frames === frames, `Typed ${t.state.typed} of 25. requestAnimationFrame calls after the end: ${t.view.frames - frames}. The caret blinks on a 530 ms timer.`);
+      } },
+  ]);
+</script>
+</body>
+</html>

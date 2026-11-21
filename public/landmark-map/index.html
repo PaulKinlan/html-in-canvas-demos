@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Landmark map</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; max-width: 560px; }
+  .bar label { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; }
+  .bar button { font: inherit; min-height: 40px; }
+  #scene { display: block; position: relative; width: 100%; max-width: 560px; height: 620px; border-radius: 16px; background: #10131f; touch-action: pan-y; overflow-anchor: none; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 10.5em; margin: 8px 0; max-width: 560px; white-space: pre-line; }
+  .plain-scene { max-width: 560px; padding: 12px; border-radius: 16px; background: #10131f; }
+  .plain-scene #page { position: static; }
+
+  /* The small page that the canvas draws. */
+  #page { position: absolute; left: 0; top: 0; box-sizing: border-box; width: 356px; margin: 0; padding: 10px; display: grid; gap: 10px;
+    background: #f6f4ef; color: #1d1c1a; font: 14px/1.4 system-ui, sans-serif; border-radius: 10px; }
+  #page > header { display: flex; align-items: center; gap: 12px; padding: 22px 10px 8px; background: #e6dfd0; border-radius: 8px; }
+  #page nav { display: flex; gap: 12px; padding: 20px 8px 6px; }
+  #page > header nav { margin-left: auto; }
+  #page a { color: #b5330c; }
+  #page form { display: flex; gap: 8px; padding: 22px 8px 8px; border-radius: 8px; background: #ebe6da; }
+  #page input { flex: 1; min-width: 0; font: inherit; min-height: 34px; padding: 2px 8px; border: 1px solid #a19c93; border-radius: 8px; }
+  #page button { font: inherit; min-height: 34px; padding: 2px 12px; border: 1px solid #a19c93; border-radius: 8px; background: #fff; color: #1d1c1a; }
+  #page main { display: grid; gap: 8px; margin: 0; max-width: none; padding: 22px 10px 10px; border: 1px solid #c9c2b4; border-radius: 8px; }
+  #page h3, #page h4, #page p { margin: 0; }
+  #page h3 { font-size: 18px; }
+  #page article, #page section { padding: 8px; border-radius: 8px; background: #fff; display: grid; gap: 4px; }
+  #page section[aria-labelledby] { padding-top: 22px; }
+  #page article header { font-weight: 700; }
+  #page article footer { font-size: 12px; color: #6b6760; }
+  #page aside { padding: 22px 10px 8px; border-radius: 8px; background: #ebe6da; }
+  #page aside ul { margin: 0; padding-left: 18px; }
+  #page > footer { display: flex; align-items: end; justify-content: space-between; padding: 22px 10px 8px; background: #e6dfd0; border-radius: 8px; font-size: 13px; }
+  #promo { padding: 8px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Landmark map</h1>
+  <p class="lede">
+    The canvas draws a small page in grey and tints each landmark region: the parts a screen reader lists so that its user can jump
+    between them. Each label is the role and the name. A dashed outline marks an element that looks like a landmark and is not one.
+    Tap a region to read about it. "Add three faults" changes the small page, and the map outlines the faults in red.
+  </p>
+
+  <!-- #region markup -->
+  <canvas id="scene" content="drawable" layoutsubtree>
+    <div id="page" drawable>
+      <header>
+        <strong>Tidewatch</strong>
+        <nav aria-label="Main" id="nav-main"><a href="#">Tides</a><a href="#">Charts</a><a href="#">About</a></nav>
+      </header>
+      <form role="search" aria-label="Ports" id="search"><input type="search" aria-label="Search ports" placeholder="Search ports"><button type="button">Go</button></form>
+      <p id="promo" hidden>The winter timetable starts on 1 December.</p>
+      <main>
+        <h3>Harbour times</h3>
+        <article><header>Monday</header><p>High water at 05:40, low water at 11:52.</p><footer>Updated at 04:00</footer></article>
+        <section aria-labelledby="warn"><h4 id="warn">Warnings</h4><p>Strong wind after 15:00.</p></section>
+        <section><h4>Notes</h4><p>This section has no name.</p></section>
+      </main>
+      <aside aria-label="Nearby ports"><ul><li><a href="#">Port Ellen</a></li><li><a href="#">Craighouse</a></li></ul></aside>
+      <footer>
+        <nav aria-label="Legal" id="nav-legal"><a href="#">Terms</a><a href="#">Privacy</a></nav>
+        <small>Tidewatch 2026</small>
+      </footer>
+    </div>
+  </canvas>
+  <!-- #endregion markup -->
+
+  <div class="bar">
+    <label><input type="checkbox" id="faults"> Add three faults</label>
+    <label><input type="checkbox" id="grey" checked> Grey page</label>
+    <label><input type="checkbox" id="lookalikes" checked> Outline what is not a landmark</label>
+    <label><input type="checkbox" id="alone"> Treat the drawn page as a whole document</label>
+    <button type="button" id="clear">Show all</button>
+  </div>
+
+  <p id="status" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>roles from a rule table, positions from a measuring draw, tints over a grey picture</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> A small page as one drawable child. The map adds nothing to it.</li>
+      <li data-code="/lib/devtools/landmarks.js#roles"><b>Which elements are landmarks.</b> The role and the name of each.</li>
+      <li data-code="/lib/devtools/landmarks.js#problems"><b>What is wrong with them.</b></li>
+      <li data-code="#frame"><b>One frame.</b> Measure, draw the page in grey, draw the map with the same transform.</li>
+      <li data-code="/lib/devtools/layout-boxes.js#identity"><b>The measuring draw.</b> Shared with the layout debugger.</li>
+      <li data-code="/lib/devtools/landmarks.js#draw-landmarks"><b>Drawing the map.</b></li>
+      <li data-code="#watch"><b>When to draw again.</b> A change to <code>aria-label</code> raises no paint event.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The roles come from a rule table in the page's script. <code>main</code>, <code>nav</code>, <code>search</code>, <code>aside</code> and <code>form</code> have a landmark role. <code>header</code> and <code>footer</code> have one only when they are not inside an article, aside, main, nav or section. <code>section</code> has one only when it has a name. A <code>role</code> attribute with a landmark role wins.</li>
+    <li>The small page's own <code>&lt;header&gt;</code> and <code>&lt;footer&gt;</code> get dashed outlines. The canvas is inside this site's <code>&lt;main&gt;</code>, so they are not a banner and a contentinfo for the browser. "Treat the drawn page as a whole document" stops the rules at the drawn element, and the two become landmarks.</li>
+    <li>The name is the text of the elements in <code>aria-labelledby</code>, or <code>aria-label</code>, or <code>title</code>.</li>
+    <li>The small page is drawn once with <code>globalAlpha = 0</code> at 0, 0 to read where each element is, then drawn scaled to fit the canvas with <code>ctx.filter = 'grayscale(1)'</code>. The tints are drawn after it under the same transform.</li>
+    <li>Four faults are checked: more than one main, banner or contentinfo landmark (or no main), two landmarks with the same role that have the same name or no name, a form with no name, and text that is in no landmark.</li>
+    <li>A tap is a <code>click</code> on the element under the finger. The page walks up from it to the nearest landmark.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds a small canvas of its own in a corner of the window. The picture above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157, headless, on 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: the rule table matches the browser.</strong> A script read Chromium's accessibility tree for this page through the DevTools protocol and compared the role and name of every element of the small page with the table, with and without the faults. They agreed. The script is <code>tools/devtools-pages/verify.mjs</code>.</li>
+    <li><strong>Found by that comparison: ancestors outside the canvas count.</strong> The first version of the table stopped at the drawn element and called the small page's header a banner. The browser calls it a section header, because the canvas is inside a <code>&lt;main&gt;</code>. A page drawn inside another page has no banner and no contentinfo of its own.</li>
+    <li><strong>Found by that comparison: a form with no name has the role <code>form</code> in Chromium.</strong> The HTML accessibility mapping says it should have no landmark role. The map follows the browser and reports the missing name as a fault.</li>
+    <li><strong>Limit: the page cannot ask the browser.</strong> <code>element.computedRole</code> and <code>computedName</code> do not exist in Chromium 157 without a flag, so a page has to carry its own rules. A live check uses them when they exist.</li>
+    <li><strong>Found: a change to a name raises no paint event.</strong> Setting <code>aria-label</code> does not change the picture, so the canvas is not told. The page watches attributes with a <code>MutationObserver</code>.</li>
+    <li><strong>Works: <code>ctx.filter</code> on the drawn page.</strong> The page is drawn in grey without changing its CSS, and controls in it still take taps and typing.</li>
+    <li><strong>Seen in the map:</strong> the header and footer of the article, and the section with no name, are not landmarks. The search form is a search landmark because of <code>role="search"</code>. With the faults on it is a form with no name.</li>
+    <li><strong>Not covered:</strong> names from <code>&lt;label&gt;</code> or content, <code>aria-owns</code>, shadow trees and landmarks inside frames.</li>
+    <li><strong>Not verified here:</strong> a screen reader. TalkBack's landmark navigation on the phone should list the same six regions with the same names for the canvas content. That was not run.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { findLandmarks, landmarkProblems, drawLandmarks, landmarkRole, landmarkName, ROLE_COLOURS } from '/lib/devtools/landmarks.js';
+  import { atIdentity } from '/lib/devtools/layout-boxes.js';
+  import { fitCanvas, cssScale } from '/lib/devtools/stage.js';
+  import { rig, pixelBox, sleep } from '/lib/devtools/check-rig.js';
+  import { banner, runTests, supported } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('scene'), page = $('page'), status = $('status');
+  let selected = null;
+
+  // The three faults: two navigation landmarks with no name, a search form that
+  // becomes a form with no name, and a paragraph outside every landmark.
+  function applyFaults() {
+    const on = $('faults').checked;
+    if (on) { $('nav-main').removeAttribute('aria-label'); $('nav-legal').removeAttribute('aria-label'); $('search').removeAttribute('role'); $('search').removeAttribute('aria-label'); }
+    else { $('nav-main').setAttribute('aria-label', 'Main'); $('nav-legal').setAttribute('aria-label', 'Legal'); $('search').setAttribute('role', 'search'); $('search').setAttribute('aria-label', 'Ports'); }
+    $('promo').hidden = !on;
+  }
+  $('faults').addEventListener('change', applyFaults);
+
+  if (!supported) {
+    const plain = document.createElement('div');
+    plain.className = 'plain-scene';
+    plain.append(page);
+    canvas.replaceWith(plain);
+    const { found } = findLandmarks(page);
+    status.textContent = `HTML-in-canvas is not available, so the page is plain HTML and no map is drawn.\n${found.length} landmarks: ${found.map((l) => l.role).join(', ')}.`;
+  } else {
+    const ctx = canvas.getContext('2d');
+    let raf = 0, lost = false;
+    const wake = () => { if (!lost) raf ||= requestAnimationFrame(frame); };
+    // Which ancestors count for <header> and <footer>: the real document, or the drawn page alone.
+    const scope = () => ($('alone').checked ? page : null);
+
+    fitCanvas(canvas, wake);
+    canvas.addEventListener('contextlost', () => { lost = true; status.textContent = 'The canvas lost its graphics context. The picture comes back if the browser restores it.'; });
+    canvas.addEventListener('contextrestored', () => { lost = false; wake(); });
+    for (const id of ['grey', 'lookalikes', 'alone']) $(id).addEventListener('change', wake);
+    $('clear').onclick = () => { selected = null; wake(); };
+
+    // #region watch
+    // A paint event comes when the picture changes. A new aria-label or role changes
+    // the map and not the picture, so attributes are watched as well.
+    canvas.addEventListener('paint', wake);
+    new MutationObserver(wake).observe(page, { subtree: true, childList: true, attributes: true });
+    // #endregion watch
+
+    canvas.addEventListener('click', (e) => {
+      if (e.target.closest('a')) e.preventDefault();
+      let el = e.target;
+      while (el && el !== page && !landmarkRole(el, scope())) el = el.parentElement;
+      selected = el && el !== page && page.contains(el) ? el : null;
+      wake();
+    });
+
+    // #region frame
+    function frame() {
+      raf = 0;
+      const k = cssScale(canvas), W = canvas.clientWidth, H = canvas.clientHeight;
+      const w = page.offsetWidth, h = page.offsetHeight;
+      try {
+        ctx.reset();
+        const map = findLandmarks(page, { scope: scope() });
+        const problems = landmarkProblems(page, map.found);
+        // 1. Where everything is, read while the page is at 0, 0 with no ink.
+        const rects = atIdentity(ctx, page, (origin) => {
+          const out = new Map();
+          for (const el of [...map.found, ...map.lookalikes].map((l) => l.el).concat(problems.flatMap((p) => p.els))) {
+            const r = el.getBoundingClientRect();
+            out.set(el, { x: r.left - origin.left, y: r.top - origin.top, width: r.width, height: r.height });
+          }
+          return out;
+        });
+        // 2. The page, scaled to fit the canvas, in grey.
+        const scale = Math.min(1, (W - 24) / w, (H - 24) / h);
+        ctx.scale(k, k);
+        ctx.translate((W - w * scale) / 2, 12);
+        ctx.scale(scale, scale);
+        ctx.filter = $('grey').checked ? 'grayscale(1) contrast(0.85)' : 'none';
+        ctx.drawElementImage(page, 0, 0, w, h);
+        ctx.filter = 'none';
+        // 3. The map, under the same transform.
+        drawLandmarks(ctx, map, problems, (el) => rects.get(el), { selected, scale, showLookalikes: $('lookalikes').checked });
+        report(map, problems);
+      } catch (err) {
+        // "No cached paint record": the page has not painted yet. Ask, and draw on the paint event.
+        if (/paint record/i.test(err.message)) canvas.requestPaint();
+        else throw err;
+      }
+    }
+    // #endregion frame
+
+    function report({ found, lookalikes }, problems) {
+      const label = (l) => (l.name ? `${l.role} "${l.name}"` : l.role);
+      const lines = [`${found.length} landmarks: ${found.map(label).join(', ')}.`];
+      lines.push(`Not landmarks: ${lookalikes.map((l) => `<${l.el.localName}> (${l.why})`).join(', ') || 'none'}.`);
+      lines.push(problems.length ? `Faults: ${problems.map((p) => p.text).join(' ')}` : 'No faults found.');
+      const picked = selected && found.find((l) => l.el === selected);
+      lines.push(picked ? `Selected: ${label(picked)}, from ${picked.from}${picked.depth ? `, inside ${picked.depth} other landmark${picked.depth > 1 ? 's' : ''}` : ''}.` : 'Tap a region to select it.');
+      const text = lines.join('\n');
+      if (status.textContent !== text) status.textContent = text;
+      const order = [...page.querySelectorAll('*')];
+      window.__landmarks = { found: found.map((l) => ({ tag: l.el.localName, index: order.indexOf(l.el), role: l.role, name: l.name })), lookalikes: lookalikes.map((l) => ({ tag: l.el.localName, why: l.why })), problems: problems.map((p) => p.text) };
+    }
+
+    canvas.requestPaint();
+    wake();
+  }
+
+  // ---- live checks: every one on its own small canvas ----
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const ABS = 'position:absolute;left:0;top:0;margin:0;';
+  const list = (found) => found.map((l) => (l.name ? `${l.role} "${l.name}"` : l.role)).join(', ');
+  const drawRoot = (kids) => (g) => g.drawElementImage(kids[0], 0, 0, kids[0].offsetWidth, kids[0].offsetHeight);
+  const SAMPLE = `<div style="${ABS}width:300px;font:10px sans-serif">
+    <header>h</header><nav aria-label="One">n</nav>
+    <main>m<article><header>ah</header><footer>af</footer></article><section>s</section><section aria-label="Named">s</section><aside>a</aside></main>
+    <form>f</form><form aria-label="Sign in">f</form><search>q</search><div role="region">r</div><div role="navigation" aria-label="Two">n</div><div role="button">b</div>
+    <footer>f</footer></div>`;
+
+  runTests($('results'), [
+    {
+      name: 'The rule table finds the landmarks and leaves out the look-alikes',
+      why: 'A fixture with 15 candidates: header, footer, section and form, with and without names, and three role attributes. The fixture is outside this page\'s <main>. The list must be banner, navigation "One", main, region "Named", complementary, form, form "Sign in", search, navigation "Two", contentinfo.',
+      run: async () => {
+        need();
+        const { paint, kids } = rig(SAMPLE);
+        await paint(drawRoot(kids));
+        const { found, lookalikes } = findLandmarks(kids[0]);
+        const got = list(found), want = 'banner, navigation "One", main, region "Named", complementary, form, form "Sign in", search, navigation "Two", contentinfo';
+        if (got !== want) throw new Error(`found: ${got}`);
+        return `${found.length} landmarks. Left out: ${lookalikes.map((l) => `${l.el.localName} (${l.why})`).join(', ')}, and role="region" with no name`;
+      },
+    },
+    {
+      name: 'Names come from aria-labelledby, then aria-label, then title',
+      why: 'Three sections, one named each way, and one with both aria-labelledby and aria-label.',
+      run: async () => {
+        need();
+        const { paint, kids } = rig(`<div style="${ABS}width:300px;font:10px sans-serif"><section aria-labelledby="lm-h"><h4 id="lm-h">By heading</h4></section><section aria-label="By label">x</section><section title="By title">x</section><section aria-labelledby="lm-h" aria-label="Loses">x</section></div>`);
+        await paint(drawRoot(kids));
+        const got = findLandmarks(kids[0]).found.map((l) => l.name).join(' | ');
+        if (got !== 'By heading | By label | By title | By heading') throw new Error(`names: ${got}`);
+        return `names: ${got}`;
+      },
+    },
+    {
+      name: 'The tint of a landmark covers the pixels of the element at a scaled draw',
+      why: 'A red <nav> of 100 by 40 at 20, 30 inside a root that is drawn at 40, 10 and half size. The measured rectangle, scaled and moved, must match the red pixels.',
+      run: async () => {
+        need();
+        const { g, paint, kids } = rig(`<div style="${ABS}width:300px;height:200px"><nav style="position:absolute;left:20px;top:30px;width:100px;height:40px;background:#f00"></nav></div>`);
+        let r;
+        await paint(() => {
+          const { found } = findLandmarks(kids[0]);
+          r = atIdentity(g, kids[0], (origin) => { const b = found[0].el.getBoundingClientRect(); return { x: b.left - origin.left, y: b.top - origin.top, width: b.width, height: b.height }; });
+          g.translate(40, 10); g.scale(0.5, 0.5);
+          g.drawElementImage(kids[0], 0, 0, 300, 200);
+        });
+        const ink = pixelBox(g, (red, gr, b, a) => a > 200 && red > 200 && gr < 60);
+        const want = { left: 40 + r.x * 0.5, top: 10 + r.y * 0.5, width: r.width * 0.5, height: r.height * 0.5 };
+        if (!ink || Math.abs(ink.left - want.left) > 1 || Math.abs(ink.top - want.top) > 1 || Math.abs(ink.right - ink.left - want.width) > 1 || Math.abs(ink.bottom - ink.top - want.height) > 1) throw new Error(`map ${JSON.stringify(want)}, pixels ${JSON.stringify(ink)}`);
+        return `map: ${want.left}, ${want.top}, ${want.width} × ${want.height}. Red pixels: ${ink.left}, ${ink.top}, ${ink.right - ink.left} × ${ink.bottom - ink.top}`;
+      },
+    },
+    {
+      name: 'The four kinds of fault are found',
+      why: 'A fixture with two <main> elements, two <nav> elements with no name, a form with no name and a paragraph outside every landmark.',
+      run: async () => {
+        need();
+        const { paint, kids } = rig(`<div style="${ABS}width:300px;font:10px sans-serif"><nav>a</nav><nav>b</nav><main>one</main><main>two</main><form>f</form><p>loose text</p></div>`);
+        await paint(drawRoot(kids));
+        const problems = landmarkProblems(kids[0], findLandmarks(kids[0]).found);
+        if (problems.length !== 4) throw new Error(`${problems.length} faults: ${problems.map((p) => p.text).join(' ')}`);
+        return problems.map((p) => p.text).join(' ');
+      },
+    },
+    {
+      name: 'A header inside a main is not a banner, unless the rules stop at the drawn element',
+      why: 'A root that holds <main><div id="lm-inner"><header>. findLandmarks() is run on the inner div twice: with the whole document as scope, and with the inner div as scope.',
+      run: async () => {
+        need();
+        const { paint, kids } = rig(`<div style="${ABS}width:300px;font:10px sans-serif"><main><div id="lm-inner"><header>h</header><footer>f</footer></div></main></div>`);
+        await paint(drawRoot(kids));
+        const inner = kids[0].querySelector('#lm-inner');
+        const real = list(findLandmarks(inner).found), alone = list(findLandmarks(inner, { scope: inner }).found);
+        if (real !== '' || alone !== 'banner, contentinfo') throw new Error(`document scope: ${real || 'none'}. Own scope: ${alone || 'none'}`);
+        return `with the document as scope: no landmarks. With the element as scope: ${alone}`;
+      },
+    },
+    {
+      name: 'A new aria-label changes the list and raises no paint event',
+      why: 'A section with no name gets aria-label. Paint events are counted for 300 ms after the change. This row passes if the list changes. The detail says how many paint events came.',
+      run: async () => {
+        need();
+        const { c, paint, kids } = rig(`<div style="${ABS}width:300px;font:10px sans-serif"><section id="lm-s">text</section></div>`);
+        await paint(drawRoot(kids));
+        await sleep(100);
+        const before = list(findLandmarks(kids[0]).found);
+        let paints = 0;
+        c.addEventListener('paint', () => paints++);
+        kids[0].firstElementChild.setAttribute('aria-label', 'Now named');
+        await sleep(300);
+        const after = list(findLandmarks(kids[0]).found);
+        if (before !== '' || after !== 'region "Now named"') throw new Error(`before: ${before || 'none'}. After: ${after || 'none'}`);
+        return `before: no landmarks. After: ${after}. Paint events in 300 ms: ${paints}`;
+      },
+    },
+    {
+      name: 'element.computedRole agrees with the rule table, where the browser has it',
+      why: 'computedRole is behind a flag in Chromium. If it exists, every element of the first fixture is compared. If it does not, this row passes and says so.',
+      run: async () => {
+        need();
+        const { paint, kids } = rig(SAMPLE);
+        await paint(drawRoot(kids));
+        if (!('computedRole' in Element.prototype)) return 'element.computedRole does not exist in this browser, so there is nothing to compare with';
+        const wrong = [];
+        let n = 0;
+        for (const el of kids[0].querySelectorAll('*')) {
+          const ours = landmarkRole(el), theirs = el.computedRole;
+          const theirLandmark = Object.hasOwn(ROLE_COLOURS, theirs) ? theirs : null;
+          n++;
+          if (ours !== theirLandmark) wrong.push(`${el.localName}: table ${ours}, browser ${theirs}`);
+        }
+        if (wrong.length) throw new Error(wrong.join('; '));
+        return `${n} elements compared, all agree`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

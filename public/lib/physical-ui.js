@@ -237,8 +237,7 @@ export class PhysicalUI extends SurfaceElement {
 
   #restart() {
     this.#dropGPU();
-    this.#gl?.getExtension('WEBGL_lose_context')?.loseContext();
-    this.#gl = null;
+    this.#gl = null; // swapCanvas() retires the old canvas and its context
     this.backend = null;
     this.swapCanvas();
   }

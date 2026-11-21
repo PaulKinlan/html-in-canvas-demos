@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>A share card from a selection</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/lib/selection-article.css">
+<link rel="stylesheet" href="card.css">
+<style>
+  /* #region stage */
+  /* The canvas is shown at the width of the page. Its bitmap is the size of the
+     picture to save. The figure inside is laid out at its own fixed size and
+     takes no pointer events. */
+  .card-stage { margin: 14px 0; overflow: hidden; border-radius: 10px; border: 1px solid var(--line); max-width: 600px; background: #fff; }
+  .card-stage.tall { max-width: 300px; }
+  #card { display: block; width: 100%; aspect-ratio: 1200 / 630; }
+  /* #endregion stage */
+  .card-stage.plain { overflow: auto; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A share card from a selection</h1>
+  <p class="lede">
+    Select a passage in the article. The card under it shows the passage, with its emphasis, in the largest type that fits. The card is an HTML figure styled with CSS and drawn by a canvas, so it can be saved, shared or copied as a PNG.
+  </p>
+
+  <div class="screen">
+    <selection-fx id="demo" effect="marker">
+      <article class="article" id="article">
+        <h3>Commonplace books</h3>
+        <p>A commonplace book is a notebook of passages copied out of other books. Readers have kept them for centuries, and <em>the copying was the point</em>: writing a sentence out by hand was a way to keep it.</p>
+        <p>John Locke published a method for indexing one, so that a passage copied years earlier could be found again by its subject. <strong>A quotation is only useful if it can be found.</strong></p>
+        <p>Sharing a sentence from a web page is the same habit. The reader selects it and sends it to someone, usually as plain text and sometimes as a picture of the text.</p>
+      </article>
+    </selection-fx>
+  </div>
+
+  <div class="bar" id="themes" role="group" aria-label="Card style">
+    <button data-theme="paper">Paper</button>
+    <button data-theme="ink">Ink</button>
+    <button data-theme="dawn">Dawn</button>
+    <label>Size
+      <select id="format">
+        <option value="wide">Link preview, 1200 × 630</option>
+        <option value="square">Square, 1080 × 1080</option>
+        <option value="tall">Story, 1080 × 1920</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="card-stage" id="stage">
+    <!-- #region markup -->
+    <canvas id="card" content="drawable" layoutsubtree width="1200" height="630">
+      <figure class="card-face paper" id="face" drawable inert>
+        <blockquote id="quote"></blockquote>
+        <figcaption><b>Commonplace books</b> <span id="source"></span></figcaption>
+      </figure>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="bar" id="controls">
+    <button id="save">Save PNG</button>
+    <button id="share">Share</button>
+    <button id="copy">Copy picture</button>
+  </div>
+  <div class="readout" id="readout" role="status"></div>
+
+  <details class="show-code">
+    <summary>Show the code <small>the figure, the quote, the fit and the export</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The card is a figure inside a canvas.</b></li>
+      <li data-code="#stage"><b>The canvas on the page.</b></li>
+      <li data-code="card.css#card-css"><b>The three styles are CSS</b>: gradients, <code>background-clip: text</code>, <code>text-wrap: balance</code>, shadows.</li>
+      <li data-code="card.js#quote"><b>The selection as a quote</b>, with emphasis kept and everything else flattened.</li>
+      <li data-code="card.js#fit"><b>The largest type that fits</b>, measured with <code>scrollHeight</code> on the figure.</li>
+      <li data-code="card.js#draw"><b>Draw the figure at the size of the picture.</b></li>
+      <li data-code="card.js#export"><b>Make the PNG.</b></li>
+      <li data-code="#send"><b>Save, share and copy.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    The figure is a <code>drawable</code> child of a canvas with <code>layoutsubtree</code>, so the browser lays it out and styles it like any element, and <code>scrollHeight</code> on it reports whether the quote fits. The figure is 600 by 315 CSS pixels for the link preview size. The canvas bitmap is 1200 by 630, and <code>drawElementImage(figure, 0, 0, 1200, 630)</code> draws the figure at twice its layout size. <code>canvas.toBlob()</code> gives the PNG. The selected text is copied with <code>Range.cloneContents()</code>, keeping <code>em</code>, <code>strong</code> and <code>code</code> and flattening everything else.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These start when you press the button. They build their own cards.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in headless Chromium 157 on Linux with a software renderer, 2026-11-21.</p>
+  <ul class="findings">
+    <li><strong>A figure drawn larger than its layout is drawn again, not stretched.</strong> The check below draws a 1 px line at four times its size and finds hard edges. A card laid out at 600 px therefore exports at 1200 px with sharp type.</li>
+    <li><strong>The canvas is not tainted</strong> by same-origin element content: <code>toBlob()</code> returns a PNG of the requested size for all three formats.</li>
+    <li><strong>Layout queries work on a canvas child.</strong> <code>scrollHeight</code> and <code>clientHeight</code> of the figure drive the type size, with no canvas text measuring.</li>
+    <li><strong>The figure's layout box can be larger than the canvas element.</strong> The canvas is shown at the width of the page (about 396 px on a phone) while the figure is 600 px wide. The picture is complete, and the page does not scroll sideways because the stage clips.</li>
+    <li><strong>The figure is <code>inert</code>.</strong> It is drawn at a different size from its layout, so its hit boxes would be in the wrong place. Nothing in it needs to be pressed.</li>
+  </ul>
+  <p><strong>Not verified:</strong> <code>navigator.share()</code> with a file and writing a PNG to the clipboard (the headless browser has neither a share sheet nor clipboard permission), and how the saved picture looks in a messaging app.</p>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint, stillDrawn, inkFraction } from '/shared/support.js';
+  import '/lib/selection-fx.js';
+  import { snapshot } from '/lib/selection-tools.js';
+  import { createCard, quoteFrom, FORMATS } from './card.js';
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const article = $('article'), canvas = $('card'), face = $('face');
+  $('source').textContent = location.host + location.pathname;
+
+  // ---- the visible demo
+  const card = createCard(canvas, face);
+  const say = () => { $('readout').textContent = `${card.format.width} × ${card.format.height} px, quote set in ${card.fontSize} px type (${(card.fontSize * card.format.scale).toFixed(0)} px in the picture).`; };
+  function firstQuote() {
+    const range = new Range();
+    range.selectNodeContents(article.querySelectorAll('p')[1]);
+    return quoteFrom(range);
+  }
+  if (!supported) {
+    // No HTML-in-canvas: show the figure as plain HTML. There is nothing to export.
+    $('stage').classList.add('plain');
+    $('stage').append(face);
+    canvas.remove();
+    face.querySelector('blockquote').replaceChildren(firstQuote());
+    face.querySelector('blockquote').style.fontSize = '22px';
+    $('readout').textContent = 'This browser cannot draw the card into a canvas, so it is shown as HTML and cannot be saved as a picture.';
+    for (const b of $('controls').querySelectorAll('button')) b.disabled = true;
+  } else {
+    card.setFormat('wide');
+    card.setQuote(firstQuote());
+    say();
+  }
+  function setTheme(name) {
+    if (supported) card.setTheme(name); else face.className = `card-face ${name}`;
+    for (const b of $('themes').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.theme === name));
+    if (supported) say();
+  }
+  $('themes').addEventListener('click', (e) => { const t = e.target.closest('button')?.dataset.theme; if (t) setTheme(t); });
+  for (const b of document.querySelectorAll('.bar button')) b.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the selection
+  setTheme('paper');
+  $('format').addEventListener('change', (e) => {
+    if (!supported) return;
+    $('stage').classList.toggle('tall', e.target.value === 'tall');
+    card.setFormat(e.target.value);
+    say();
+  });
+  // The card follows the selection, a quarter of a second after it last changed.
+  let timer = 0;
+  document.addEventListener('selectionchange', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const s = getSelection();
+      if (!supported || !s.rangeCount || s.isCollapsed || !article.contains(s.anchorNode) || !article.contains(s.focusNode)) return;
+      if (s.toString().trim().length < 3) return;
+      card.setQuote(quoteFrom(s.getRangeAt(0)));
+      say();
+    }, 250);
+  });
+
+  // #region send
+  const file = async () => new File([await card.blob()], 'quote.png', { type: 'image/png' });
+  $('save').addEventListener('click', async () => {
+    const f = await file();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(f);
+    a.download = f.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    $('readout').textContent = `Saved quote.png, ${card.format.width} × ${card.format.height}, ${(f.size / 1024).toFixed(0)} kB.`;
+  });
+  $('share').addEventListener('click', async () => {
+    const f = await file();
+    if (!navigator.canShare?.({ files: [f] })) { $('readout').textContent = 'This browser cannot share a file. Use Save PNG.'; return; }
+    try { await navigator.share({ files: [f], title: 'Commonplace books' }); $('readout').textContent = 'Shared.'; }
+    catch (err) { $('readout').textContent = `Not shared: ${err.message}`; }
+  });
+  $('copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': card.blob() })]);
+      $('readout').textContent = 'The picture is on the clipboard.';
+    } catch (err) { $('readout').textContent = `Not copied: ${err.message}`; }
+  });
+  // #endregion send
+
+  // ------------------------------------------------------------ live checks
+  const settle = (ms = 150) => new Promise((r) => requestAnimationFrame(() => setTimeout(r, ms)));
+  async function fixture(theme = 'paper') {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'width:240px;overflow:hidden';
+    wrap.innerHTML = `<canvas content="drawable" layoutsubtree width="1200" height="630" style="display:block;width:100%;aspect-ratio:1200/630"><figure class="card-face ${theme}" drawable inert><blockquote></blockquote><figcaption><b>Check</b> <span>example</span></figcaption></figure></canvas>`;
+    testStage().append(wrap);
+    const c = wrap.querySelector('canvas');
+    const made = createCard(c, c.firstElementChild);
+    const painted = nextPaint(c);
+    made.setFormat('wide');
+    made.setQuote('A short quote.');
+    await painted;
+    await settle();
+    return { wrap, c, card: made, face: c.firstElementChild };
+  }
+  const tests = [
+    {
+      name: 'toBlob() gives a PNG of the requested size for each format',
+      why: 'Each blob is decoded again and measured. A tainted canvas would throw here.',
+      run: async () => {
+        const { wrap, card: k } = await fixture('dawn');
+        try {
+          const out = [];
+          for (const key of Object.keys(FORMATS)) {
+            k.setFormat(key);
+            await settle();
+            const blob = await k.blob();
+            const bitmap = await createImageBitmap(blob);
+            const copy = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d');
+            copy.drawImage(bitmap, 0, 0);
+            const ink = inkFraction(copy);
+            if (bitmap.width !== FORMATS[key].width || bitmap.height !== FORMATS[key].height || ink < 0.5) throw new Error(`${key}: ${bitmap.width}×${bitmap.height}, ${(ink * 100).toFixed(0)}% drawn`);
+            out.push(`${bitmap.width}×${bitmap.height} ${(blob.size / 1024).toFixed(0)} kB`);
+          }
+          return out.join(', ');
+        } finally { wrap.remove(); }
+      },
+    },
+    {
+      name: 'The type size follows the length of the quote and the quote always fits',
+      why: 'A three-word quote and a 420-character quote in the same card. scrollHeight must not exceed clientHeight.',
+      run: async () => {
+        const { wrap, card: k, face: f } = await fixture();
+        try {
+          k.setQuote('Three short words.');
+          const big = k.fontSize, fitsBig = f.scrollHeight <= f.clientHeight;
+          k.setQuote('A quotation is only useful if it can be found. '.repeat(9).slice(0, 420));
+          const small = k.fontSize, fitsSmall = f.scrollHeight <= f.clientHeight;
+          if (!(big > small * 1.8) || !fitsBig || !fitsSmall) throw new Error(`${big} px (fits: ${fitsBig}) and ${small} px (fits: ${fitsSmall})`);
+          return `${big} px for 3 words, ${small} px for 420 characters, both fit`;
+        } finally { wrap.remove(); }
+      },
+    },
+    {
+      name: 'An element drawn at four times its layout size has hard edges',
+      why: 'A 1 px black line on white, drawn 4 px wide. A stretched bitmap would have a ramp of grey pixels on each side. Counted on one row.',
+      run: async () => {
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable');
+        c.setAttribute('layoutsubtree', '');
+        c.width = 400; c.height = 80;
+        c.style.cssText = 'display:block;width:100px;height:20px';
+        const d = document.createElement('div');
+        d.setAttribute('drawable', '');
+        d.style.cssText = 'width:100px;height:20px;background:#fff;box-sizing:border-box;border-left:1px solid #000;margin-left:0;padding-left:30px';
+        d.innerHTML = '<div style="width:1px;height:20px;background:#000"></div>';
+        c.append(d);
+        testStage().append(c);
+        try {
+          const ctx = c.getContext('2d');
+          const painted = nextPaint(c);
+          c.onpaint = () => { ctx.reset(); ctx.drawElementImage(d, 0, 0, 400, 80); };
+          await painted;
+          await settle();
+          const copy = new OffscreenCanvas(60, 1).getContext('2d');
+          copy.drawImage(c, 100, 40, 60, 1, 0, 0, 60, 1); // read from a copy, not from the drawable canvas
+          const row = copy.getImageData(0, 0, 60, 1).data;
+          let dark = 0, grey = 0;
+          for (let i = 0; i < row.length; i += 4) { if (row[i] < 40) dark++; else if (row[i] < 215) grey++; }
+          if (dark < 3 || dark > 5 || grey > 2) throw new Error(`${dark} black and ${grey} grey pixels across the line`);
+          return `${dark} black pixels and ${grey} grey across a line that is 1 px in layout`;
+        } finally { c.remove(); }
+      },
+    },
+    {
+      name: 'The quote keeps emphasis and drops links and other elements',
+      why: 'A range over a paragraph with em, a link and a span with an inline style.',
+      run: async () => {
+        const p = document.createElement('p');
+        p.innerHTML = 'Plain <em>stressed</em> <a href="https://example.com/">linked</a> <span style="color:red" onclick="1">styled</span> end.';
+        testStage().append(p);
+        try {
+          const range = new Range();
+          range.selectNodeContents(p);
+          const q = quoteFrom(range);
+          const tags = [...q.querySelectorAll('*')].map((e) => e.tagName.toLowerCase()).join(',');
+          if (tags !== 'em' || q.textContent !== 'Plain stressed linked styled end.' || q.querySelector('[style],[onclick],[href]')) throw new Error(`elements: ${tags}; text: ${q.textContent}`);
+          return `elements kept: ${tags}; text: “${q.textContent}”`;
+        } finally { p.remove(); }
+      },
+    },
+    stillDrawn(() => [
+      { name: 'the card', ink: async () => { if (!canvas.isConnected) return null; const copy = new OffscreenCanvas(canvas.width, canvas.height).getContext('2d'); copy.drawImage(canvas, 0, 0); return inkFraction(copy); } },
+      { name: 'the article', ink: async () => { const fx = $('demo'); return !fx.live ? null : inkFraction(snapshot(fx)); }, rescue: () => $('demo').fallBackToPlain('the canvas was blank after the checks') },
+    ]),
+  ];
+  runTests($('tests'), supported ? tests : []);
+</script>
+</body>
+</html>

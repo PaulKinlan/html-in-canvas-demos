@@ -222,6 +222,9 @@ class SurfaceElement extends HTMLElement {
     canvas.append(...old.childNodes);
     this.#canvasRO?.unobserve(old);
     old.replaceWith(canvas);
+    // The old canvas gives its context back once it is out of the page (/shared/context-guard.js).
+    // Never with loseContext(): on a drawable canvas that has crashed the renderer.
+    globalThis.__gfx?.retire(old);
     this.canvas = canvas;
     this.ctx = null;
     this.#painted = false;
@@ -1564,6 +1567,17 @@ async function open({ force = false, compat = false, features = false, byName = 
   }
 }
 
+/**
+ * The device for a live check that needs WebGPU: the page's shared device, or,
+ * where the only adapter is a software one (the test browser), the forced
+ * attempt, which is also made once and shared. A check must not call
+ * adapter.requestDevice() itself: every call makes another device, and
+ * `npm run check:gfx` fails on it.
+ */
+async function checkDevice() {
+  return (await webgpu()) ?? (await webgpu({ force: true }));
+}
+
 // A device that was lost on this phone is likely to be lost again on the next
 // page, and a lost device can take the page's WebGL contexts and large 2D
 // canvases with it. So after a loss the tab uses WebGL for ten minutes.
@@ -1617,9 +1631,14 @@ function webgl2() {
   if (hasWebGL2 !== null) return hasWebGL2;
   try {
     // This canvas is never in a page and has no children, so losing its context is safe.
-    const gl = document.createElement('canvas').getContext('webgl2');
+    const probe = document.createElement('canvas');
+    // gfx-allow: webgl-context one probe per page load, given back below
+    const gl = probe.getContext('webgl2');
     hasWebGL2 = !!gl;
-    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    // The guard gives the context back and does not count it as a loss.
+    if (globalThis.__gfx) globalThis.__gfx.release(probe);
+    // gfx-allow: lose-context only where the guard is not loaded (lib/fx.js on another site); the probe canvas was never in a page and has no children
+    else gl?.getExtension('WEBGL_lose_context')?.loseContext();
   } catch {
     hasWebGL2 = false;
   }
@@ -1638,7 +1657,7 @@ async function pickBackend({ want = '', order = ['webgpu', 'webgl', '2d'] } = {}
   for (const name of order) if (await usable(name)) return name;
   return '2d';
 }
-return { OPTIONAL_FEATURES, webgpu, webgl2, pickBackend };
+return { OPTIONAL_FEATURES, webgpu, checkDevice, webgl2, pickBackend };
 })();
 
 // ---- public/lib/shader-fx.js ----
@@ -1902,7 +1921,8 @@ class FxSurface extends SurfaceElement {
     }
     if (this.backend === 'direct' && this.ctx) {
       liveDirect = Math.max(0, liveDirect - 1);
-      this.ctx.getExtension('WEBGL_lose_context')?.loseContext();
+      // The guard frees the context once the canvas has been out of the page for a moment.
+      globalThis.__gfx?.retire(this.canvas);
       this.ctx = null;
       this.backend = null;
     }
@@ -1937,8 +1957,7 @@ class FxSurface extends SurfaceElement {
 
   #restart() {
     if (this.backend === 'direct') {
-      liveDirect = Math.max(0, liveDirect - 1);
-      this.ctx?.getExtension('WEBGL_lose_context')?.loseContext();
+      liveDirect = Math.max(0, liveDirect - 1); // swapCanvas() retires the old canvas
     }
     this.#dropGPU();
     this.backend = null;

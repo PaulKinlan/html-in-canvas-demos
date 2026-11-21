@@ -91,6 +91,7 @@
 
   // #region source
   /** A drawable canvas with one yellow element, painted and (optionally) drawn. */
+  const taken = [];
   async function source({ draw = true, type = '2d', keepLive = false } = {}) {
     const c = document.createElement('canvas');
     c.setAttribute('content', 'drawable');
@@ -111,7 +112,8 @@
       const id = setInterval(() => { ctx.reset(); ctx.drawElementImage(el, 0, 0, W, H); ctx.fillStyle = `rgb(${n++ % 255},0,0)`; ctx.fillRect(W - 2, H - 2, 2, 2); }, 50);
       c.stop = () => clearInterval(id);
     }
-    return { c, el, ctx, gl, snap: () => c.captureElementImage(el) };
+    // Every snapshot a route takes is closed when the route ends: an open one holds a picture on the GPU.
+    return { c, el, ctx, gl, snap: () => { const image = c.captureElementImage(el); taken.push(image); return image; } };
   }
   // #endregion source
 
@@ -615,9 +617,9 @@
       }],
       ['WebGPU: copyElementImageToTexture(element)', 'DOM straight into a GPUTexture', async () => {
         if (!navigator.gpu) throw skip('WebGPU is not available in this browser');
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) throw skip('no WebGPU adapter on this machine');
-        const device = await adapter.requestDevice();
+        // The page's shared device, not a second one.
+        const device = (await (await import('/shared/backend.js')).checkDevice())?.device;
+        if (!device) throw skip('no WebGPU adapter on this machine');
         const fn = device.queue.copyElementImageToTexture ? 'copyElementImageToTexture' : device.queue.drawElementImageToTexture ? 'drawElementImageToTexture' : null;
         if (!fn) throw new Error('GPUQueue has neither copyElementImageToTexture nor drawElementImageToTexture');
         const s = await source({ type: 'webgpu', draw: 'none' });
@@ -633,9 +635,9 @@
       }],
       ['WebGPU: copyExternalImageToTexture(2D canvas with drawn DOM)', 'pixel route into WebGPU', async () => {
         if (!navigator.gpu) throw skip('WebGPU is not available in this browser');
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) throw skip('no WebGPU adapter on this machine');
-        const device = await adapter.requestDevice();
+        // The page's shared device, not a second one.
+        const device = (await (await import('/shared/backend.js')).checkDevice())?.device;
+        if (!device) throw skip('no WebGPU adapter on this machine');
         const s = await source();
         const texture = device.createTexture({ size: [W, H], format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
         device.pushErrorScope('validation');
@@ -673,6 +675,7 @@
   if (!supported) {
     score.textContent = 'HTML-in-canvas is not available, so nothing can be tested here.';
   } else {
+    window.__checkState = 'running'; // the lab is this page's live checks: the guard counts its readbacks as asked for
     for (const [tbody, list] of Object.entries(routes)) {
       for (const [name, via, run, timeout] of list) {
         const tr = document.createElement('tr');
@@ -691,6 +694,7 @@
           state = err.skip ? 'skip' : 'fail';
           detail = err.skip ? err.message : `${err.name}: ${err.message}`;
         }
+        for (const image of taken.splice(0)) { try { image.close(); } catch {} }
         tally[state]++;
         status.className = 'status ' + state;
         status.textContent = { pass: '✓ works', fail: '✗ fails', skip: '– n/a' }[state];
@@ -701,6 +705,7 @@
       }
     }
     window.__results = results;
+    window.__checkState = 'done';
   }
 </script>
 </body>

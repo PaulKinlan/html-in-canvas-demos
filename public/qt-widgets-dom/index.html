@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DOM elements in a Qt Widgets window</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/qt-widgets-dom/ui.css">
+<meta name="checks" content="tap">
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>DOM elements in a Qt Widgets window</h1>
+  <p class="lede">
+    Qt Quick renders with WebGL, and <a href="/native-ui/">an earlier page</a> gave it DOM elements as textures. Qt Widgets, the older and more
+    widely used Qt toolkit, paints every window in software and copies the changed pixels to a 2D canvas with <code>putImageData()</code>.
+    This page loads a Qt Widgets 6.10 app and draws real elements into the window's canvas with <code>drawElementImage()</code> after each of
+    those copies. Load the app, then tap a field to type, scroll the window, move the slider, or open the Qt combo box above the fields.
+  </p>
+
+  <div class="qtw-stage" id="stage">
+    <div class="qtw-screen" id="screen"></div>
+    <!-- #region markup -->
+    <!-- Qt creates its own canvas, so the elements start outside it. DomWidget moves each one in. -->
+    <div class="qtw-parts">
+      <input class="qtw-dom" data-qtw="email" type="email" autocomplete="email" placeholder="you@example.com" aria-label="Email">
+      <select class="qtw-dom" data-qtw="plan" aria-label="Plan"><option>Free</option><option>Team</option><option>Enterprise</option></select>
+      <textarea class="qtw-dom" data-qtw="notes" rows="3" aria-label="Notes">A real textarea inside a Qt Widgets window.</textarea>
+      <p class="qtw-dom" data-qtw="terms">DOM text with a <a href="/start/">link</a>: مرحبا, 你好, 👋🏽.</p>
+    </div>
+    <!-- #endregion markup -->
+    <p class="stage-msg" id="msg">
+      <button type="button" id="load">Load the Qt Widgets app (14 MB)</button>
+      <span>Qt 6.10 for WebAssembly. It is not loaded until you ask.</span>
+    </p>
+  </div>
+  <p class="note" id="state" style="min-height:3em">The app is not loaded.</p>
+  <details class="show-code">
+    <summary>Show the code <small>a DOM element in a Qt Widgets layout</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The elements.</b> They start outside Qt's canvas, which does not exist yet.</li>
+      <li data-code="/qt-widgets-dom/app/src/main.cpp#app" data-lang="js"><b>C++: the window.</b> A <code>DomWidget</code> is added to a <code>QVBoxLayout</code> like any widget.</li>
+      <li data-code="/qt-widgets-dom/app/src/domwidget.cpp#widget" data-lang="js"><b>C++: the widget.</b> It paints a background and reports its rectangle and its visible part.</li>
+      <li data-code="/qt-widgets-dom/app/src/domwidget.cpp#flush" data-lang="js"><b>JavaScript inside the C++ file: draw after Qt's flush.</b> <code>putImageData()</code> on Qt's context is wrapped.</li>
+      <li data-code="/qt-widgets-dom/app/src/domwidget.cpp#adopt" data-lang="js"><b>Move the elements into Qt's canvas</b> and ask Qt to repaint a widget when the browser repaints its element.</li>
+      <li data-code="/qt-widgets-dom/app/src/domwidget.cpp#place" data-lang="js"><b>Record where the widget is.</b></li>
+      <li data-code="/qt-widgets-dom/start.js#start"><b>Start Qt.</b></li>
+      <li data-code="/qt-widgets-dom/ui.css#widget-css" data-lang="css"><b>CSS for the elements.</b></li>
+      <li data-code="/qt-widgets-dom/app/src/domwidget.cpp" data-lang="js"><b>All of domwidget.cpp.</b></li>
+    </ol>
+  </details>
+
+  <h2>Live checks</h2>
+  <p class="note">The checks load a second copy of the app (14 MB) in a small frame, so they do not touch the one above.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>Yes, with one wrapped method.</strong> Qt for WebAssembly paints a Qt Widgets window with its raster engine and copies the changed rectangles to a 2D canvas with <code>putImageData()</code>. The page wraps <code>putImageData()</code> on that canvas's context and calls <code>drawElementImage()</code> for each element straight after it. Qt 6.10.3 is unchanged. Measured in Chromium 157.</li>
+    <li><strong>No geometry call is needed.</strong> In a 2D canvas <code>drawElementImage()</code> also sets the hit box, so a tap lands on the field where Qt laid out its widget. An element whose widget is scrolled out is not drawn and is made <code>inert</code>.</li>
+    <li><strong>The canvas is Qt's, inside a shadow root.</strong> Qt creates <code>canvas.qt-window-canvas</code> in the shadow root of a child of the container. The page adds the <code>layoutsubtree</code> and <code>content="drawable"</code> attributes after Qt made it and appends the elements to it. Styles from the page do not reach the shadow root, so the page copies each element's computed style inline first.</li>
+    <li><strong>Layout goes both ways through <code>heightForWidth()</code>.</strong> Qt's layout gives the widget a width in <code>resizeEvent()</code>, the element takes that width, and the widget answers <code>heightForWidth()</code> with the element's <code>offsetHeight</code>.</li>
+    <li><strong>A Qt popup covers the fields with no guard code.</strong> The <code>QComboBox</code> list is a second Qt window, which is a second canvas above the first one, so the browser's own hit testing gives the popup the tap.</li>
+    <li><strong>Drawing after the flush does not loop.</strong> <code>drawElementImage()</code> outside a paint event does not cause a paint event. A change in an element fires <code>paint</code>, the widget calls <code>update()</code>, Qt flushes and the elements are drawn again: one paint event, two flushes.</li>
+    <li><strong>Qt overwrites the element on every flush of its rectangle.</strong> The widget fills its background in <code>paintEvent()</code>, so the element has to be drawn again after every flush. The page draws all of them after each one.</li>
+    <li><strong>Touch scrolling is Qt's, and stops at an element.</strong> <code>QScroller::grabGesture()</code> on the viewport makes a touch drag scroll the area. A drag that starts on a DOM element does not scroll it, because the element stops the event before Qt's listeners.</li>
+    <li><strong>Cost: 14 MB.</strong> The WebAssembly file is 14.1 MB before compression, so the app loads after a tap on this page.</li>
+  </ul>
+  <p class="note">
+    Source: <a href="https://github.com/PaulKinlan/html-in-canvas-demos/tree/main/native/qt-widgets-dom">native/qt-widgets-dom</a>.
+    The binary is statically linked against the open-source edition of Qt 6.10.3 (LGPL-3.0 and GPL-3.0). Its complete source is that folder plus Qt from download.qt.io.
+  </p>
+</main>
+<script type="module" src="/qt-widgets-dom/main.js"></script>
+</body>
+</html>

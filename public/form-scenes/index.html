@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Form controls in a drawn setting</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.scene { display: block; width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  canvas.scene[hidden] { display: none; }
+  .idea output { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button { min-height: 40px; font: inherit; }
+  .idea .controls label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+  .plain-fallback { display: grid; gap: 10px; justify-items: start; border: 1px solid var(--line); border-radius: 12px; }
+
+  /* #region exploded-css */
+  #explodedForm label { display: block; box-sizing: border-box; width: max-content; max-width: 132px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); font: 14px/1.25 system-ui, sans-serif; cursor: pointer; }
+  /* An outline is outside an element's picture, so focus is shown with a border and an inset shadow. */
+  #explodedForm label:has(+ :focus-visible) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  #explodedForm input:not([type=checkbox]) { display: block; box-sizing: border-box; width: 240px; height: 40px; margin: 0; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); font: 16px system-ui, sans-serif; outline: none; }
+  #explodedForm input:focus-visible { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+  #explodedForm.tried input:invalid { border-color: var(--bad); }
+  #explodedForm input[type=checkbox] { display: block; width: 24px; height: 24px; margin: 0; }
+  #explodedForm button { display: block; box-sizing: border-box; width: 120px; height: 40px; margin: 0; font: 600 15px system-ui, sans-serif; }
+  /* #endregion exploded-css */
+
+  /* #region calendar-css */
+  /* The calendar is paper in both colour schemes, so the inputs on it are styled light. */
+  #calDate, #calMonth { display: block; box-sizing: border-box; height: 38px; margin: 0; padding: 2px 6px; border: 1px solid #0005; border-radius: 6px; background: #fff; color: #1d1c1a; color-scheme: light; font: 16px system-ui, sans-serif; outline: none; }
+  #calDate { width: 138px; }
+  #calMonth { width: 160px; }
+  #calDate:focus-visible, #calMonth:focus-visible { border-color: #d2491f; box-shadow: inset 0 0 0 2px #d2491f; }
+  /* The element that takes taps on the drawn grid. A faint border, so that it has a picture. */
+  #calGrid { box-sizing: border-box; width: 320px; height: 264px; border: 1px solid #0000000f; cursor: pointer; }
+  #calPrev, #calNext { display: block; box-sizing: border-box; width: 150px; height: 40px; margin: 0; font: 15px system-ui, sans-serif; }
+  /* #endregion calendar-css */
+
+  /* #region letterbox-css */
+  /* The whole input is the slot. Its file-selector button is the flap. */
+  #lbInput { display: block; box-sizing: border-box; width: 248px; height: 46px; margin: 0; padding: 6px; border: 2px solid #5c470f; border-radius: 6px; background: #17140c; color: #f3e3ad; font: 14px system-ui, sans-serif; outline: none; cursor: pointer; }
+  #lbInput:focus-visible { border-color: #fff; }
+  #lbInput::file-selector-button { height: 30px; margin: 0 10px 0 0; padding: 0 12px; border: 0; border-radius: 4px; background: linear-gradient(#ecd177, #a8841f); color: #2a2206; font: 600 14px system-ui, sans-serif; cursor: pointer; }
+  .lb-print, .lb-letter { display: block; box-sizing: border-box; margin: 0; border: 0; border-radius: 2px; cursor: pointer; font: 12px/1.3 system-ui, sans-serif; }
+  .lb-print { padding: 5px 5px 14px; background: #fff; }
+  .lb-print img { display: block; width: 88px; height: auto; max-height: 118px; object-fit: cover; }
+  .lb-letter { width: 104px; height: 64px; padding: 6px 8px; background: #f3ead7 linear-gradient(160deg, #0000 49%, #0002 50%, #0000 51%); color: #2a2206; text-align: left; overflow: hidden; overflow-wrap: anywhere; }
+  .lb-print:focus-visible, .lb-letter:focus-visible { background-color: #ffd34d; outline: none; }
+  /* #endregion letterbox-css */
+
+  /* #region frost-css */
+  #frostSet { display: grid; gap: 10px; align-content: start; box-sizing: border-box; width: 320px; height: 340px; min-width: 0; margin: 0; padding: 10px 16px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); font: 15px system-ui, sans-serif; }
+  #frostSet legend { padding: 0 6px; font-weight: 600; }
+  #frostSet label { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
+  #frostSet label.row, #frostSet legend label { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 15px; color: var(--fg); }
+  #frostSet input:not([type=checkbox], [type=range]), #frostSet select { box-sizing: border-box; min-width: 0; min-height: 40px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: 16px system-ui, sans-serif; }
+  #frostSet input[type=range] { min-height: 32px; margin: 0; }
+  #frostSet input[type=checkbox] { width: 22px; height: 22px; margin: 0; }
+  #frostSet p { display: flex; gap: 8px; margin: 0; }
+  #frostSet button { min-width: 90px; min-height: 40px; font: inherit; }
+  /* The site's button style has no disabled look, so this page gives it one. */
+  #frostSet button:disabled { opacity: 0.45; }
+  /* #endregion frost-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Form controls in a drawn setting</h1>
+  <p class="lede">
+    Four ideas from the <a href="/elements/">element catalogue</a>, built. Each canvas draws a scene and puts real form controls in it:
+    labels pulled away from their fields, a date input on a wall calendar, a file input as the slot of a letter box, and a fieldset
+    under frost. Tap a call-out, tap a day, post some files, and lock the panel. The text under each canvas is read from the form.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#exploded">Exploded form</a><a href="#calendar">Wall calendar</a><a href="#letterbox">Letter box</a><a href="#frost">Disabled panel</a>
+  </nav>
+
+  <section class="idea" id="exploded">
+    <h2>Exploded form diagram</h2>
+    <p>One form. Each <code>&lt;label&gt;</code> is drawn as a call-out, away from its field, and the canvas draws the line between them. The fields are drawn sheared, as layers. Tap a call-out: the browser focuses its field. Type in a field, then press Send with a field empty.</p>
+    <canvas id="explodedCanvas" class="scene" content="drawable" layoutsubtree style="height: 440px">
+      <!-- #region exploded-html -->
+      <form id="explodedForm">
+        <label drawable for="exName">Full name</label>
+        <input drawable id="exName" name="name" required autocomplete="name">
+        <label drawable for="exEmail">Email</label>
+        <input drawable id="exEmail" name="email" type="email" required autocomplete="email">
+        <label drawable for="exSeats">Seats, 1 to 6</label>
+        <input drawable id="exSeats" name="seats" type="number" min="1" max="6" value="2" inputmode="numeric">
+        <label drawable for="exNews">Send me the newsletter</label>
+        <input drawable id="exNews" name="news" type="checkbox">
+        <button drawable>Send</button>
+      </form>
+      <!-- #endregion exploded-html -->
+    </canvas>
+    <div class="controls">
+      <button type="button" id="explodedToggle">Assemble</button>
+      <label>Apart <input id="explodedAmount" type="range" min="0" max="100" value="100"></label>
+    </div>
+    <output id="explodedOut"></output>
+    <p class="found">The labels and fields are separate <code>drawable</code> elements, joined only by <code>for</code>. The canvas decides where each one is drawn. Focus, the checkbox toggle and the validation message come from the browser. The two lines of small text under a call-out are read from the field's <code>type</code>, <code>required</code> and <code>validity</code>.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#exploded-html"><b>Mark every label and every field <code>drawable</code>.</b> The form itself is not drawn.</li>
+      <li data-code="/form-scenes/exploded.js#exploded-draw"><b>Draw each label, its field under a shear, and a line between them.</b></li>
+      <li data-code="/form-scenes/exploded.js#exploded-events"><b>Report what the browser did.</b> No code here focuses anything.</li>
+      <li data-code="#exploded-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="calendar">
+    <h2>Wall calendar around a date input</h2>
+    <p>An <code>&lt;input type="date"&gt;</code> and an <code>&lt;input type="month"&gt;</code> are drawn on the top sheet of a calendar. Tap a day in the grid, type a date, or use the two buttons. When the month changes, the old sheet is torn off and falls, with a picture of the inputs as they were.</p>
+    <canvas id="calCanvas" class="scene" content="drawable" layoutsubtree style="height: 476px">
+      <!-- #region calendar-html -->
+      <form id="calForm">
+        <input drawable id="calDate" type="date" name="day" aria-label="Day">
+        <input drawable id="calMonth" type="month" name="month" aria-label="Month shown">
+        <button drawable type="button" id="calPrev">Previous month</button>
+        <button drawable type="button" id="calNext">Next month</button>
+      </form>
+      <div drawable id="calGrid" aria-hidden="true"></div>
+      <!-- #endregion calendar-html -->
+    </canvas>
+    <output id="calOut" style="min-height: 3em"></output>
+    <p class="found">The two inputs hold the state. The grid, the month name and the red ring are canvas drawing made from their values. The falling sheet shows the old date because <code>captureElementImage()</code> took a picture of each input at the last paint, before the value changed.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#calendar-html"><b>Two inputs, two buttons and one element over the grid.</b></li>
+      <li data-code="/form-scenes/calendar.js#calendar-sheet"><b>Draw one sheet from a month, with the live inputs or with pictures of them.</b></li>
+      <li data-code="/form-scenes/calendar.js#calendar-turn"><b>Tear off the old sheet when the month changes.</b></li>
+      <li data-code="/form-scenes/calendar.js#calendar-events"><b>Typing, the buttons and a tap on the grid all write the inputs.</b></li>
+      <li data-code="#calendar-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="letterbox">
+    <h2>File input on a drawn letter box</h2>
+    <p>The slot in the brass plate is an <code>&lt;input type="file" multiple&gt;</code>. Tap it to choose files, or drop files on it. Each file drops through the slot onto the mat: a picture as a print, any other file as an envelope. Tap one on the mat to take it out of <code>input.files</code>.</p>
+    <canvas id="lbCanvas" class="scene" content="drawable" layoutsubtree style="height: 480px">
+      <!-- #region letterbox-html -->
+      <input drawable id="lbInput" type="file" name="post" multiple accept="image/*" aria-label="Post files through the letter box">
+      <!-- #endregion letterbox-html -->
+    </canvas>
+    <div class="controls">
+      <button type="button" id="lbSamples">Post four sample files</button>
+      <button type="button" id="lbEmpty">Empty the box</button>
+    </div>
+    <output id="lbOut" style="min-height: 3em"></output>
+    <p class="found">The input's button and its count of files are the browser's own picture of the element. The page makes one <code>&lt;button drawable&gt;</code> for each file in <code>input.files</code>, and draws it where it has fallen, so each one can be tapped or reached with the Tab key there.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#letterbox-html"><b>One file input in the canvas.</b></li>
+      <li data-code="/form-scenes/letterbox.js#letterbox-items"><b>Make one element for each chosen file.</b></li>
+      <li data-code="/form-scenes/letterbox.js#letterbox-draw"><b>Draw the input on the plate, and each file on its way from the slot to the mat.</b></li>
+      <li data-code="/form-scenes/letterbox.js#letterbox-events"><b>A tap on a file writes a shorter list to <code>input.files</code>.</b></li>
+      <li data-code="#letterbox-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="frost">
+    <h2>Disabled panel in one step</h2>
+    <p>Tick "Lock this panel". That sets <code>disabled</code> on the <code>&lt;fieldset&gt;</code>, which disables every control in it except the ones in its legend. The canvas grows frost over the panel. Touch the frost: the patch clears and freezes again, and the control under it does not respond.</p>
+    <canvas id="frostCanvas" class="scene" content="drawable" layoutsubtree style="height: 400px">
+      <!-- #region frost-html -->
+      <form id="frostForm">
+        <fieldset drawable id="frostSet">
+          <legend><label><input type="checkbox" id="frostLock"> Lock this panel</label></legend>
+          <label>Room <input name="room" value="Kitchen" required autocomplete="off"></label>
+          <label>Target temperature <input name="temp" type="range" min="10" max="30" value="21"></label>
+          <label>Mode <select name="mode"><option>Heat</option><option>Cool</option><option>Fan</option></select></label>
+          <label class="row"><input type="checkbox" name="boost"> Boost for one hour</label>
+          <p><button type="submit">Apply</button><button type="reset">Reset</button></p>
+        </fieldset>
+      </form>
+      <!-- #endregion frost-html -->
+    </canvas>
+    <output id="frostOut" style="min-height: 4.5em"></output>
+    <p class="found">The browser greys the controls, takes them out of the Tab order and leaves them out of the form data. The page adds the frost: the fieldset drawn a second time through <code>ctx.filter = 'blur()'</code>, a haze and crystal lines, clipped to a shape that grows from the edges.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#frost-html"><b>One <code>drawable</code> fieldset, with the lock in its legend.</b></li>
+      <li data-code="/form-scenes/frost.js#frost-lock"><b>The lock sets one attribute.</b></li>
+      <li data-code="/form-scenes/frost.js#frost-draw"><b>Draw the fieldset, then the frost over it.</b></li>
+      <li data-code="/form-scenes/frost.js#frost-events"><b>A press on a disabled control still reaches the canvas.</b></li>
+      <li data-code="#frost-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>Each canvas holds its controls as descendants marked <code>drawable</code>. A <code>paint</code> handler draws the scene with 2D calls and each control with <code>drawElementImage()</code>, which also moves the control's hit region to where it was drawn. The page uses 2D canvases only. A demo starts when its section comes near the screen.</p>
+  <ul>
+    <li><b>One design space.</b> Every scene is laid out 380 units wide and scaled to the canvas, so a control is drawn smaller on a narrow phone and its hit region is scaled with it.</li>
+    <li><b>The control is the state.</b> No scene keeps a copy of a value. The paint handler reads <code>value</code>, <code>files</code>, <code>validity</code> and <code>disabled</code>.</li>
+    <li><b>A picture of an earlier state.</b> <code>captureElementImage()</code> returns a picture that stays as it was when the element changes. The calendar keeps two and calls <code>close()</code> on each when its sheet has fallen.</li>
+    <li><b>Plain HTML when the canvas cannot draw.</b> Without the API, or after a lost context, the controls are moved out of the canvas and shown as an ordinary form.</li>
+  </ul>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="/form-scenes/scene.js#scene"><b>Scale a 380 unit design space to the canvas.</b></li>
+    <li data-code="/lib/stage-2d.js#mount"><b>The paint loop, the draw helpers and the fallback to plain HTML.</b></li>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window, or runs in a hidden copy of this page, and none of them touches the demos above.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21, with a mouse, a keyboard and emulated touch at 412 px wide. Nothing on this page has been run on a phone.</p>
+  <ul class="findings">
+    <li><b>A label works when it is drawn away from its field.</b> The label and the field are separate <code>drawable</code> elements joined by <code>for</code>. A tap on the drawn label focused the text field, and a tap on the label of the checkbox toggled it. No code on the page moves focus.</li>
+    <li><b>A sheared field is hit inside its parallelogram.</b> <code>getBoundingClientRect()</code> returns the bounding box of the sheared shape (150 by 81 px for a 150 by 36 px field at a shear of -0.3). <code>elementFromPoint()</code> in the empty corner of that box returns the canvas. A tap near the raised end of the field focused it, and typing went into it.</li>
+    <li><b>The browser's validation message appears at the sheared field.</b> After Send with the name empty, the message pointed at the field where the canvas had drawn it (seen in a screenshot).</li>
+    <li><b>A picture from <code>captureElementImage()</code> keeps the old value.</b> A picture of a date input, taken before its value changed, matched the old pixels in every place after the change. The calendar draws those pictures on the sheet that falls.</li>
+    <li><b>Drawing a picture of an element moves the element's hit region.</b> After the picture of an input was drawn 80 px lower, <code>getBoundingClientRect()</code> of the live input reported the lower place. A draw of the input with <code>globalAlpha</code> 0 at its own place put the region back. The calendar does this on every frame of the fall.</li>
+    <li><b>A value written by script raises <code>paint</code> and no <code>input</code> event.</b> That holds for a date value, a month value and <code>stepUp()</code> on a month input.</li>
+    <li><b>A tap on a drawn file input opens the file chooser.</b> The chooser reported <code>multiple</code>. Files chosen there, and a file dropped on the drawn input, arrived in <code>input.files</code> with a <code>change</code> event.</li>
+    <li><b>The file input's own text is in its picture.</b> Writing <code>input.files</code> from a <code>DataTransfer</code> changed the pixels of the input (its count of files) and raised <code>paint</code>. That write raises no <code>change</code> event, so the page updates its scene itself.</li>
+    <li><b>An element made for each file is tapped where it lies.</b> Each print and envelope is a <code>&lt;button drawable&gt;</code> appended to the canvas and drawn turned. A tap on one took its file out of <code>input.files</code>.</li>
+    <li><b>One <code>disabled</code> attribute on a drawn fieldset does what it does outside a canvas.</b> Every control except the checkbox in the legend matched <code>:disabled</code>, was left out of <code>FormData</code> and was not validated. The picture changed to the disabled colours and <code>paint</code> was raised.</li>
+    <li><b>A disabled control is still found, and a press on it still reaches the canvas.</b> <code>elementFromPoint()</code> returns the disabled button. A tap on it raised <code>pointerdown</code> with the button as target, and no <code>click</code> on the button. The frost uses that press to melt a patch.</li>
+    <li><b><code>ctx.filter</code> applies to <code>drawElementImage()</code>.</b> With <code>blur(4px)</code>, a pixel beside a black and white edge read 93 where the plain draw read 0. Drawing the same element twice at the same place leaves its hit region where it was.</li>
+    <li><b>Not verified:</b> everything on a phone. In particular the Android date and month dialogs opened from the calendar, the Android file chooser and camera from the letter box, large photos, the on-screen keyboard over a sheared field, and the speed of the blur. A screen reader has not been tried on any of the four.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  // A demo's script is loaded and started the first time its section comes near the screen.
+  // Without the API the scripts still run: mount() in /lib/stage-2d.js then shows the controls as plain HTML.
+  const started = new Set();
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting || started.has(e.target.id)) continue;
+      started.add(e.target.id);
+      watch.unobserve(e.target);
+      import(`./${e.target.id}.js`).then((m) => m.default()).catch((err) => { window.__gfx?.report?.('error', `${e.target.id}: ${err.message}`); throw err; });
+    }
+  }, { rootMargin: '100px 0px' });
+  document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const need = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+  // A fixture canvas on the test stage. paint(ctx, canvas) runs on every paint event.
+  async function rig(html, paint, w = 260, h = 170) {
+    need();
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, ctx, paints: 0, error: null };
+    canvas.addEventListener('paint', () => { state.paints++; ctx.reset(); try { paint(ctx, canvas, state); state.error = null; } catch (e) { state.error = e; } });
+    state.frame = async () => { const n = state.paints; canvas.requestPaint(); for (let i = 0; i < 80 && state.paints === n; i++) await sleep(25); await sleep(40); };
+    for (let i = 0; i < 12; i++) { await state.frame(); if (state.paints && !state.error) break; }
+    if (state.error) throw state.error;
+    return state;
+  }
+  // Pixels are read from a copy made with drawImage(), never from the drawable canvas itself.
+  const copy = document.createElement('canvas');
+  const read = (state, x, y, w = 1, h = 1) => {
+    copy.width = w; copy.height = h;
+    const c2 = copy.getContext('2d');
+    c2.drawImage(state.canvas, x, y, w, h, 0, 0, w, h);
+    return c2.getImageData(0, 0, w, h).data;
+  };
+  const differ = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) + Math.abs(a[i + 3] - b[i + 3]) > 60) n++; return n; };
+  const draw = (ctx, el, x = 0, y = 0) => ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
+  const middle = (el) => { const b = el.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2, b]; };
+  const q = (state, sel) => state.canvas.querySelector(sel);
+  const FIELD = 'box-sizing:border-box;display:block;width:150px;height:36px;margin:0;font:16px system-ui;background:#fff;color:#000;border:1px solid #888';
+  const CHIP = 'display:block;width:max-content;padding:4px 8px;background:#246;color:#fff;font:14px system-ui';
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'A label drawn away from its field is found where it is drawn and still names the field',
+      why: 'A label and its text field are two drawable elements. The label is drawn at 10,10 and the field at 90,110. elementFromPoint() at the middle of the drawn label must return the label, and label.control must be the field.',
+      run: async () => {
+        const s = await rig(`<form><label drawable for="ckA" style="${CHIP}">Email</label><input drawable id="ckA" inputmode="none" style="${FIELD}"></form>`,
+          (ctx, c) => { draw(ctx, c.querySelector('label'), 10, 10); draw(ctx, c.querySelector('input'), 90, 110); });
+        const label = q(s, 'label'), field = q(s, 'input');
+        const [x, y] = middle(label), [fx, fy] = middle(field);
+        const hit = document.elementFromPoint(x, y);
+        if (hit !== label) throw new Error(`elementFromPoint returned ${hit?.localName ?? 'nothing'} at the label`);
+        if (label.control !== field) throw new Error('label.control is not the field');
+        if (document.elementFromPoint(fx, fy) !== field) throw new Error('the field is not found at its drawn place');
+        return `The label is found at its drawn place, ${Math.round(Math.hypot(fx - x, fy - y))} px from the middle of its field. label.control is the field.`;
+      },
+    },
+    {
+      name: 'A click on a label drawn apart focuses its text field and toggles its checkbox',
+      why: 'The call-outs depend on label activation. The check calls click() on the element found at the drawn label, for a text field and for a checkbox. It moves focus, so it runs in a hidden copy of this page.',
+      apart: true,
+      run: async () => {
+        const s = await rig(`<form><label drawable for="ckB" style="${CHIP}">Email</label><input drawable id="ckB" inputmode="none" style="${FIELD}"><label drawable for="ckC" style="${CHIP}">News</label><input drawable id="ckC" type="checkbox" style="display:block;width:22px;height:22px;margin:0"></form>`,
+          (ctx, c) => { const [l1, l2] = c.querySelectorAll('label'); draw(ctx, l1, 10, 10); draw(ctx, c.querySelector('#ckB'), 90, 60); draw(ctx, l2, 10, 120); draw(ctx, c.querySelector('#ckC'), 200, 130); });
+        const [l1, l2] = s.canvas.querySelectorAll('label');
+        const field = q(s, '#ckB'), box = q(s, '#ckC');
+        document.elementFromPoint(...middle(l1).slice(0, 2))?.click();
+        if (document.activeElement !== field) throw new Error(`after the click, focus is on ${document.activeElement?.localName}`);
+        document.elementFromPoint(...middle(l2).slice(0, 2))?.click();
+        if (!box.checked) throw new Error('the click on the second label did not check the box');
+        return 'The click on the first label moved focus to the text field. The click on the second label checked the box.';
+      },
+    },
+    {
+      name: 'A sheared field is hit inside its parallelogram and not in the empty corner of its bounding box',
+      why: 'The exploded fields are drawn with a shear of -0.3. The check asks elementFromPoint() for a point near the raised right end of the field, and for a point in the top left corner of the bounding box, where the sheared field has no pixels.',
+      run: async () => {
+        const s = await rig(`<input drawable inputmode="none" value="sheared" style="${FIELD}">`, (ctx, c) => { ctx.translate(40, 100); ctx.transform(1, -0.3, 0, 1, 0, 0); draw(ctx, c.querySelector('input')); });
+        const field = q(s, 'input');
+        const cb = s.canvas.getBoundingClientRect(), fb = field.getBoundingClientRect();
+        const inside = document.elementFromPoint(cb.left + 40 + 140, cb.top + 100 - 42 + 18);
+        const corner = document.elementFromPoint(cb.left + 40 + 6, cb.top + 100 - 42 + 4);
+        if (inside !== field) throw new Error(`near the right end, elementFromPoint returned ${inside?.localName ?? 'nothing'}`);
+        if (corner === field) throw new Error('the empty corner of the bounding box is hit as the field');
+        if (Math.abs(fb.height - 81) > 2 || Math.abs(fb.width - 150) > 2) throw new Error(`the bounding box is ${fb.width.toFixed(1)} by ${fb.height.toFixed(1)}`);
+        return `getBoundingClientRect() is ${Math.round(fb.width)} by ${Math.round(fb.height)} px for a 150 by 36 px field. The field is found near its right end, and the empty corner returns <${corner?.localName}>.`;
+      },
+    },
+    {
+      name: 'A picture from captureElementImage() keeps the old value of a date input',
+      why: 'The falling calendar sheet shows the inputs as they were. The check takes a picture of a date input, changes its value, and draws the picture beside the live input. The picture must match the pixels from before the change, and the live input must not.',
+      run: async () => {
+        let snap = null;
+        const s = await rig('<input drawable type="date" value="2026-11-21" style="display:block;margin:0;width:160px;height:36px;font:16px system-ui;background:#fff;color:#000">',
+          (ctx, c) => { const el = c.querySelector('input'); draw(ctx, el, 10, 10); if (snap) ctx.drawElementImage(snap, 10, 90, el.offsetWidth, el.offsetHeight); });
+        const el = q(s, 'input');
+        if (!s.canvas.captureElementImage) throw new Error('canvas.captureElementImage is missing');
+        const before = read(s, 10, 10, 160, 36);
+        snap = s.canvas.captureElementImage(el);
+        el.value = '2031-01-05';
+        await sleep(300); await s.frame(); await s.frame();
+        const kept = differ(read(s, 10, 90, 160, 36), before), live = differ(read(s, 10, 10, 160, 36), before);
+        snap.close(); snap = null;
+        if (kept > 4) throw new Error(`the picture differs from the old pixels in ${kept} places`);
+        if (live < 20) throw new Error('the live input did not change');
+        return `After the value changed, the picture differs from the old pixels in ${kept} of 5,760 places and the live input in ${live}.`;
+      },
+    },
+    {
+      name: 'Drawing a picture of an input moves the input\'s hit region to where the picture was drawn',
+      why: 'The calendar draws the live input first and the picture on the falling sheet after it. The check draws the input at 10,10 and then its picture at 10,90, and asks where the input is. Then it adds a draw of the input with globalAlpha 0 at 10,10.',
+      run: async () => {
+        let snap = null, fix = false;
+        const s = await rig('<input drawable inputmode="none" value="live" style="display:block;margin:0;width:160px;height:36px;font:16px system-ui">',
+          (ctx, c) => { const el = c.querySelector('input'); draw(ctx, el, 10, 10); if (snap) ctx.drawElementImage(snap, 10, 90, 160, 36); if (fix) { ctx.globalAlpha = 0; draw(ctx, el, 10, 10); } });
+        const el = q(s, 'input'), cb = s.canvas.getBoundingClientRect();
+        snap = s.canvas.captureElementImage(el);
+        await s.frame(); await s.frame();
+        const moved = Math.round(el.getBoundingClientRect().top - cb.top);
+        fix = true;
+        await s.frame(); await s.frame();
+        const back = Math.round(el.getBoundingClientRect().top - cb.top);
+        const hit = document.elementFromPoint(cb.left + 60, cb.top + 28);
+        snap.close(); snap = null;
+        if (moved !== 90) throw new Error(`after the picture was drawn at y 90 the input is at y ${moved}`);
+        if (back !== 10 || hit !== el) throw new Error(`after the draw with no alpha the input is at y ${back}`);
+        return `The input was at y ${moved} after its picture was drawn at y 90, and at y ${back} after a draw of the input with no alpha.`;
+      },
+    },
+    {
+      name: 'A date or month value written by script raises paint, and so does stepUp()',
+      why: 'The calendar redraws when the grid or a button writes an input. The check writes a date, writes a month and calls stepUp() on the month, and counts paint events and input events.',
+      run: async () => {
+        const s = await rig('<input drawable type="date" value="2026-11-21" style="display:block;margin:0;height:36px;font:16px system-ui"><input drawable type="month" value="2026-11" style="display:block;margin:0;height:36px;font:16px system-ui">',
+          (ctx, c) => { const [a, b] = c.querySelectorAll('input'); draw(ctx, a, 10, 10); draw(ctx, b, 10, 70); });
+        const [date, month] = s.canvas.querySelectorAll('input');
+        let inputs = 0;
+        s.canvas.addEventListener('input', () => inputs++);
+        const count = async (fn) => { const n = s.paints; fn(); await sleep(350); return s.paints - n; };
+        const a = await count(() => { date.value = '2027-02-03'; });
+        const b = await count(() => { month.value = '2027-02'; });
+        const c = await count(() => month.stepUp());
+        if (!a || !b || !c) throw new Error(`paint events: date ${a}, month ${b}, stepUp ${c}`);
+        if (month.value !== '2027-03') throw new Error(`after stepUp() the month is ${month.value}`);
+        return `Paint events: ${a} for the date, ${b} for the month, ${c} for stepUp(). The month is ${month.value}. Input events: ${inputs}.`;
+      },
+    },
+    {
+      name: 'Files written to a drawn file input change its picture',
+      why: 'The letter box sets input.files from a DataTransfer when a file is taken out. The input\'s own text ("No file chosen", then a name) is part of its picture, so the pixels must change with no requestPaint().',
+      run: async () => {
+        const s = await rig('<form><input drawable type="file" name="post" multiple style="display:block;margin:0;width:240px;height:40px;font:14px system-ui;background:#fff;color:#000"></form>',
+          (ctx, c) => draw(ctx, c.querySelector('input'), 10, 10));
+        const input = q(s, 'input');
+        const before = read(s, 10, 10, 240, 40);
+        const list = new DataTransfer();
+        list.items.add(new File(['a'], 'first.txt', { type: 'text/plain' }));
+        list.items.add(new File(['bb'], 'second.txt', { type: 'text/plain' }));
+        const n = s.paints;
+        input.files = list.files;
+        await sleep(400);
+        const changed = differ(read(s, 10, 10, 240, 40), before);
+        const names = new FormData(q(s, 'form')).getAll('post').map((f) => f.name).join(', ');
+        if (input.files.length !== 2) throw new Error(`input.files has ${input.files.length} files`);
+        if (s.paints === n || changed < 10) throw new Error(`paint events ${s.paints - n}, changed pixels ${changed}`);
+        return `input.files has 2 files (${names}). ${s.paints - n} paint event(s), and ${changed} pixels of the input changed.`;
+      },
+    },
+    {
+      name: 'One disabled attribute on a drawn fieldset disables every control except those in its legend',
+      why: 'A fieldset with a checkbox in its legend and a required text field and a button in its body. With disabled set, the body controls must match :disabled, be left out of FormData and of validation, still be found by elementFromPoint(), and get no click event from click(). The legend checkbox must still work.',
+      run: async () => {
+        const s = await rig('<form><fieldset drawable disabled style="box-sizing:border-box;width:220px;height:130px;margin:0;padding:8px;border:1px solid #888;background:#fff"><legend><input type="checkbox" style="width:20px;height:20px;margin:0"></legend><input name="room" required inputmode="none" style="display:block;width:150px;height:32px;margin:0 0 8px;font:16px system-ui"><button style="width:90px;height:34px">Apply</button></fieldset></form>',
+          (ctx, c) => draw(ctx, c.querySelector('fieldset'), 10, 10));
+        const form = q(s, 'form'), lock = q(s, 'legend input'), field = q(s, 'input[name]'), button = q(s, 'button');
+        if (!field.matches(':disabled') || !button.matches(':disabled')) throw new Error('a body control does not match :disabled');
+        if (lock.matches(':disabled')) throw new Error('the checkbox in the legend is disabled');
+        const hit = document.elementFromPoint(...middle(button).slice(0, 2));
+        if (hit !== button) throw new Error(`elementFromPoint at the disabled button returned ${hit?.localName ?? 'nothing'}`);
+        let clicks = 0;
+        s.canvas.addEventListener('click', (e) => { if (e.target === button) clicks++; });
+        button.click();
+        if (clicks) throw new Error('click() on the disabled button raised a click event');
+        const data = [...new FormData(form).keys()].length;
+        if (data || !form.checkValidity() || field.willValidate) throw new Error(`FormData keys ${data}, checkValidity ${form.checkValidity()}, willValidate ${field.willValidate}`);
+        document.elementFromPoint(...middle(lock).slice(0, 2))?.click();
+        if (!lock.checked) throw new Error('the checkbox in the legend did not take a click');
+        return 'The field and the button match :disabled, the legend checkbox does not and took a click. elementFromPoint() returns the disabled button. click() on it raised no event. FormData is empty, and the empty required field is not validated.';
+      },
+    },
+    {
+      name: 'Setting fieldset.disabled raises paint and changes the picture',
+      why: 'The frost starts from a paint event after the lock is ticked. The check sets disabled on a fieldset that holds a text field and a checkbox, with no requestPaint(), counts paint events, and compares the pixels of the fieldset.',
+      run: async () => {
+        const s = await rig('<fieldset drawable style="box-sizing:border-box;width:200px;height:90px;margin:0;padding:8px;border:1px solid #888;background:#fff"><input value="Kitchen" inputmode="none" style="width:120px;font:16px system-ui"> <input type="checkbox" checked></fieldset>',
+          (ctx, c) => draw(ctx, c.querySelector('fieldset'), 10, 10));
+        const before = read(s, 10, 10, 200, 90);
+        const n = s.paints;
+        q(s, 'fieldset').disabled = true;
+        await sleep(400);
+        const changed = differ(read(s, 10, 10, 200, 90), before);
+        if (s.paints === n) throw new Error('no paint event after disabled was set');
+        if (changed < 10) throw new Error(`only ${changed} pixels changed`);
+        return `${s.paints - n} paint event(s). ${changed} pixels of the fieldset changed to the disabled colours.`;
+      },
+    },
+    {
+      name: 'ctx.filter blurs an element drawn with drawElementImage()',
+      why: 'The frost is the fieldset drawn again through a blur. An element that is black on its left half and white on its right is drawn with and without ctx.filter = "blur(4px)". Beside the edge the plain draw must be black and the blurred draw grey.',
+      run: async () => {
+        const s = await rig('<div drawable style="width:60px;height:40px;background:linear-gradient(90deg,#000 50%,#fff 50%)"></div>',
+          (ctx, c) => { const el = c.querySelector('div'); draw(ctx, el, 10, 10); ctx.filter = 'blur(4px)'; draw(ctx, el, 110, 10); ctx.filter = 'none'; });
+        const plain = read(s, 38, 30)[0], blurred = read(s, 138, 30)[0];
+        if (plain > 20) throw new Error(`the plain draw is ${plain} beside the edge`);
+        if (blurred < 40 || blurred > 215) throw new Error(`the blurred draw is ${blurred} beside the edge`);
+        return `Two pixels left of the edge: ${plain} in the plain draw, ${blurred} in the blurred draw (0 is black, 255 is white).`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

@@ -8,6 +8,9 @@ This repository is a set of experiments with the HTML-in-canvas API, served as a
 |---|---|
 | The goals, what is built, what is planned, who is building it, and what still needs real hardware | [PLAN.md](PLAN.md) |
 | What the API does and does not do, with the browser and page for each result; Chromium bugs; API requests | [FINDINGS.md](FINDINGS.md) for the index, [findings/](findings/) for the tables of each page or strand |
+| Every kind of crash and lost canvas found so far, with steps and evidence for a bug report | `/crashes/` (`public/crashes/cases.js`). Add an entry there when a new one is found |
+| What crashed, threw or lost a context on a real device, by origin and page | `npm run reports`, and [docs/crash-reports.md](docs/crash-reports.md) |
+| Why canvases were lost on the phone, the graphics rules, their limits and exceptions | [docs/graphics-rules.md](docs/graphics-rules.md), and [docs/lost-contexts.md](docs/lost-contexts.md) for the measurements behind the first guard |
 | The repository layout, the Worker, shared modules, the check harness, scripts, local testing, deploy, how to add a page | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Colours, type, components, section order, phone rules, writing rules | [DESIGN.md](DESIGN.md) |
 | The explainer, Chrome documentation, every cited source, live and preview URLs | [KNOWN-LINKS-AND-RESOURCES.md](KNOWN-LINKS-AND-RESOURCES.md) |
@@ -38,6 +41,7 @@ These come from the project owner.
 4. Bring your own ideas as well as the listed ones.
 5. Do not invent results. A result is "measured" only if a check or script produced it. State the browser version and the date. Say "not verified" for anything that was not run, and say what would verify it.
 6. Effects should transform the page's own content and be visually strong. A demo that only moves things to a new position was judged underwhelming.
+7. Read the reports before replying about a page the owner has opened. Every copy of the site sends crashes, lost contexts and script errors to one endpoint. After he demos or tests a page, and whenever he says a page is broken, run `npm run reports -- --since 2h --list` (add `--origin <branch name>` for a preview, `--page /name/` for one page), quote what it shows, and work from that. If nothing was reported for the page, say so. Details: [docs/crash-reports.md](docs/crash-reports.md).
 
 ## Rules for every change
 
@@ -68,13 +72,29 @@ API use:
 - Start a page on its lightest drawing route. Open one graphics context per page where possible. Show a message or plain HTML when a canvas is blank or its context is lost.
 - Method names in Chromium 157: `gl.texElementSubImage2D()` and `GPUQueue.drawElementImageToTexture()`. three.js r187 needs `installThreeShims()` from `public/lib/html3d.js`.
 
+Graphics, so that a phone does not lose the canvases or the tab. These are checked: `npm run build` fails on the first five (`npm run check:gfx`), and `npm run check:jank` measures the rest. The reasons, the limits and how to write an exception are in [docs/graphics-rules.md](docs/graphics-rules.md).
+
+- Never call `loseContext()`. To give a canvas back, remove it and call `window.__gfx?.retire(canvas)`. To test a fallback, dispatch a `webglcontextlost` or `contextlost` event.
+- One WebGL context for a page, made with `new ElementGL(canvas, …)` from `public/lib/element-gl.js`, on one canvas that draws every element. Do not call `getContext('webgl2')` in a page or a new library.
+- One WebGPU device for a page, from `webgpu()` in `public/shared/backend.js`. A live check uses `checkDevice()` from the same file. Do not call `adapter.requestDevice()`.
+- No readback on a timer or in a frame loop: `getImageData()`, `readPixels()`, `mapAsync()`, `toDataURL()`, `toBlob()`. Read back when the person taps, or inside a live check. For pixels that are needed often, copy the canvas with `drawImage()` into a second, plain 2D canvas (never a drawable one) made with `willReadFrequently: true`, and read from the copy. That canvas is kept in ordinary memory.
+- Never make a drawable canvas with `willReadFrequently: true`, in a page or in a live check fixture. Measured on the test phone with `/canvas-loss/` on 2026-11-21 (Chrome 159, Android 10): one `drawElementImage()` into such a canvas, with no read, lost every 2D canvas on the page within 10 ms, and they were lost again every half second for as long as it existed. A read of an accelerated drawable canvas, and a read from a `drawImage()` copy, lost nothing there. The guard removes the option from a canvas that has its drawable attributes when `getContext()` is called, so set those attributes first. To read pixels, `drawImage()` the canvas into a plain canvas and read that.
+- No `getImageData()` with `pixelFormat: 'rgba-float16'` on a canvas that is shown, not even on a tap. On the test phone it lost the canvas each time it ran, on a timer and on a tap. A page whose evidence is the float values (`/hdr-glow/`) may read once on a tap if it replaces the canvas after a loss and does not read again on that device. A `drawImage()` copy into a second float16 canvas does not help: it clamps to 1.0 (measured in Chromium 157).
+- No canvas over 4 megapixels at the test size (412 CSS pixels wide, scale 2.625: 1,410 CSS pixels tall at full width), and no more than 96 MB in all canvases together, as `window.__gfx.memory()` estimates it. Split a tall canvas, and set a canvas that is far off screen to 0 by 0.
+- Free a canvas when it is removed: `window.__gfx?.retire(canvasOrElement)`. `runTests()` does this for check fixtures on the test stage. A page with its own fixtures does it itself.
+- Live checks that make a WebGL or WebGPU context, read pixels back from a GPU canvas, or run for more than a few seconds wait for a tap (`<meta name="checks" content="tap">`). The visible demo starts with nothing else running.
+- Start a demo when its section comes near the screen, not all demos at load.
+- Call `close()` on every picture from `captureElementImage()` when it has been drawn for the last time. A picture taken on a timer and never closed holds GPU memory. `npm run check:jank` fails a page that ends with more than 8 open (`openSnapshots`).
+- Do not catch and hide an error that a reader would need: let it reach `window`, or send it with `window.__gfx.report(type, message, body)`. Do not reload the page or a frame from script when something fails. The guard holds drawing on a page that died, and a second loop defeats it.
+- `/shared/context-guard.js` is the one place that counts contexts, estimates memory and handles a lost canvas. Do not add a second counter or a second rule in a page or a tool: change the guard, `tools/gfx/` or the limits in `tools/jank/check.mjs`, in a pull request that does only that.
+
 Things that crash the renderer in Chromium 157. Do not do them outside an isolated reproduction page:
 
 - `element.startViewTransition()` on a `drawable` child of a drawable canvas.
 - Inserting, moving or removing an iframe inside a `paint` handler or its microtasks.
 - `adoptNode()` of a painted drawable canvas into an iframe.
 - An opacity effect around a drawable canvas inside an iframe that is drawn into a canvas.
-- `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas.
+- `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas. `npm run check:gfx` fails on any call to it.
 
 Generated and vendored files:
 
@@ -109,7 +129,7 @@ It does not edit:
 
 - `FINDINGS.md`, `PLAN.md`, `README.md`, `ARCHITECTURE.md`, `DESIGN.md`, `KNOWN-LINKS-AND-RESOURCES.md`, `AGENTS.md`. Put what they will need in the findings file, under "For the index", "Not verified" and the open ideas. A documentation pass on its own branch copies it across.
 - `package.json`. A new tool is run as `node tools/<name>/<script>.mjs` and described in the comment at the top of the script. `npm run tools` lists them.
-- Shared code: `public/shared/support.js`, `nav.js`, `style.css`, `learn.js`, `show-code.js`, `public/lib/surface.js`, `tools/site/`, `tools/jank/`. If a page needs a change there, make it in a separate small pull request that does only that, and open the page's pull request after it merges. A helper that one page needs goes in a new file.
+- Shared code: `public/shared/support.js`, `nav.js`, `style.css`, `learn.js`, `show-code.js`, `context-guard.js`, `backend.js`, `public/lib/surface.js`, `tools/site/`, `tools/jank/`, `tools/gfx/` (a new page does not add itself to `tools/gfx/known.json`: it writes a `gfx-allow` comment at the call). If a page needs a change there, make it in a separate small pull request that does only that, and open the page's pull request after it merges. A helper that one page needs goes in a new file.
 - Another page's folder or findings file, unless the change is the point of the pull request.
 
 Do not commit generated files that are in `.gitignore` (`public/shared/pages.js`, `public/chrome-apis/data.js`, `public/chrome-apis/plan.md`). Do not create a file that lists every page, every finding or every tool: lists are generated or printed by a script.
