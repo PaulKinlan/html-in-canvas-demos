@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Scroll-linked shaders with no scroll listener</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  #article { display: flex; flex-direction: column; gap: 64px; max-width: 560px; padding: 14px; border-radius: 16px; background: #0f1220; color: #eef; font: 16px/1.5 system-ui, sans-serif; }
+  #article h2, #article h3 { margin: 0 0 6px; }
+  #article p { margin: 0 0 10px; }
+  #article section { padding: 18px; border-radius: 14px; }
+  #article button, #article input[type=text] { font: 600 15px system-ui; min-height: 44px; padding: 6px 14px; border-radius: 10px; border: 0; background: #fff; color: #111; }
+  #article input[type=text] { font-weight: 400; width: 100%; box-sizing: border-box; }
+  #article label { display: flex; gap: 10px; align-items: center; min-height: 44px; }
+  #article input[type=checkbox] { width: 24px; height: 24px; }
+  #article code { font-size: 13px; background: #0004; padding: 1px 4px; border-radius: 4px; }
+  .hero { background: linear-gradient(150deg, #ff5d8f, #ffb347 55%, #ffe66d); color: #2a0f1c; min-height: 210px; }
+  .hero h2 { font: 800 44px/1 system-ui; letter-spacing: -1px; }
+  .s1 { background: linear-gradient(160deg, #173a5e, #0b6e6e); }
+  .s2 { background: linear-gradient(160deg, #4a1d6b, #a01a58); }
+  .s3 { background: linear-gradient(160deg, #1d4d2b, #6a8f1f); }
+  .s4 { background: #f4ecd8; color: #2b2417; }
+  .s5 { background: linear-gradient(160deg, #10254d, #2d5bd1); }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; margin: 8px 0; max-width: 560px; }
+
+  /* #region position */
+  /* 1. How far the page has scrolled, as a number from 0 to 1 that every
+     descendant of #article inherits. A scroll timeline moves it. No script. */
+  @property --scroll { syntax: '<number>'; inherits: true; initial-value: 0; }
+  @keyframes scroll-position { from { --scroll: 0; } to { --scroll: 1; } }
+  #article { animation: scroll-position linear both; animation-timeline: scroll(root block); }
+  /* #endregion position */
+
+  /* #region reveal */
+  /* 2. Each section has its own view timeline. It moves --fx-progress from 0 to 1
+     while the section travels from the bottom edge to 40% of the way up the screen.
+     The fx library gives --fx-progress to the shader as u_progress. */
+  @keyframes reveal { from { --fx-progress: 0; } to { --fx-progress: 1; } }
+  .reveal { animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% cover 40%; }
+  /* The other way round for the first block: 0 until it starts to leave at the top. */
+  .leave { animation: reveal linear both; animation-timeline: view(); animation-range: exit 0% exit 100%; }
+  /* The number in each section's corner is the same property, printed by a CSS counter. */
+  .pct::after { counter-reset: p round(var(--fx-progress) * 100); content: counter(p) '%'; }
+  .pct { float: right; font: 600 12px/1 var(--mono); padding: 5px 7px; border-radius: 6px; background: #0005; color: #fff; margin-left: 8px; }
+  /* #endregion reveal */
+
+  /* #region speed */
+  /* 3. Scroll speed without script. --scroll-lag is declared equal to --scroll, but with
+     a transition, so it arrives 120 ms late. The difference between the two is the
+     distance scrolled in the last 120 ms. It becomes --fx-amount, which the shaders
+     use as the length of a vertical blur. */
+  @property --scroll-lag { syntax: '<number>'; inherits: true; initial-value: 0; }
+  .speed { --scroll-lag: var(--scroll); transition: --scroll-lag 120ms linear; --fx-amount: calc((var(--scroll) - var(--scroll-lag)) * var(--gain, 40)); }
+  @media (prefers-reduced-motion: reduce) { .speed { --fx-amount: 0; } }
+  /* #endregion speed */
+
+  /* #region stuck */
+  /* 4. The bar is sticky. A scroll-state container query matches while it is stuck,
+     and a transition moves --fx-amount to 1. The same rule restyles the bar itself. */
+  .bar-holder { position: sticky; top: 49px; z-index: 5; container-type: scroll-state; }
+  #bar { --fx-amount: 0; --fx-progress: var(--scroll); transition: --fx-amount 450ms ease-out, background-color 450ms;
+    display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-radius: 12px 12px 0 0; background: #2a3050; }
+  @container scroll-state(stuck: top) {
+    #bar { --fx-amount: 1; background: #5b2bd6; }
+  }
+  /* #endregion stuck */
+  #bar b { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #bar .pct { float: none; }
+
+  /* #region trigger */
+  /* 5. A scroll-triggered animation. The view timeline only starts it: once the
+     section is fully on screen the animation runs for 900 ms by the clock, and it
+     is reset when the section has left. */
+  @keyframes shock { from { --fx-progress: 0; } to { --fx-progress: 1; } }
+  .trigger { --fx-progress: 0; }
+  @supports (animation-trigger: --t play-forwards reset) {
+    .trigger { timeline-trigger: --shock view() contain 0% contain 100% / cover 0% cover 100%;
+      animation: shock 900ms cubic-bezier(.2, .7, .2, 1) both; animation-trigger: --shock play-forwards reset; }
+  }
+  @supports not (animation-trigger: --t play-forwards reset) {
+    .trigger { animation: reveal linear both; animation-timeline: view(); animation-range: entry 0% cover 40%; }
+  }
+  /* #endregion trigger */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Scroll-linked shaders with no scroll listener</h1>
+  <p class="lede">
+    Scroll the page. Each block below is HTML drawn through a fragment shader, and the shader's inputs are CSS custom properties that
+    scroll-driven animations, a <code>scroll-state()</code> container query and a scroll-triggered animation set. The page has no scroll
+    listener and no observer. Scroll fast to blur the blocks by the scroll speed. The buttons and fields keep working.
+  </p>
+
+  <!-- #region markup -->
+  <div id="article">
+    <section class="hero leave" fx="melt">
+      <span class="pct"></span>
+      <h2>Scroll this page</h2>
+      <p>This block melts as it leaves the top of the screen. A view timeline moves <code>--fx-progress</code> over the <code>exit</code> range.</p>
+      <button type="button" data-count="Pressed">Pressed 0</button>
+    </section>
+
+    <div class="bar-holder">
+      <header id="bar" fx="stuck">
+        <b>Sticky bar</b>
+        <span class="pct" title="How far the page has scrolled"></span>
+        <button type="button" data-count="Mark">Mark 0</button>
+      </header>
+    </div>
+
+    <section class="s1 reveal speed" fx="burn-in">
+      <span class="pct"></span>
+      <h3>Burn in</h3>
+      <p>A view timeline moves <code>--fx-progress</code> from 0 to 1 as this block comes up from the bottom edge. Scroll back down and it burns away again.</p>
+      <label><input type="checkbox"> A checkbox under the shader</label>
+    </section>
+
+    <section class="s2 reveal speed" fx="mosaic-in">
+      <span class="pct"></span>
+      <h3>Mosaic</h3>
+      <p>The same timeline and the same property. The shader samples the block in square cells that shrink from 40 px to 1 px.</p>
+      <input type="text" aria-label="A text field" placeholder="Type here at any point">
+    </section>
+
+    <section class="s3 reveal speed" fx="rows-in">
+      <span class="pct"></span>
+      <h3>Rows</h3>
+      <p>Rows 14 px tall start off to the left and to the right and slide home. Stop half way and press the button: it is where the layout says, the shader only moves pixels.</p>
+      <button type="button" data-count="Pressed">Pressed 0</button>
+    </section>
+
+    <section class="s4 reveal speed" fx="roll-in">
+      <span class="pct"></span>
+      <h3>Unroll</h3>
+      <p>The block is a sheet rolled up at its top edge. The cylinder rolls down the page as you scroll and winds back up when you scroll the other way.</p>
+      <p>The grey band is the back of the sheet. Its shading is the cylinder's.</p>
+      <label><input type="checkbox"> Another checkbox</label>
+    </section>
+
+    <section class="s5 trigger speed" fx="shock-in">
+      <span class="pct"></span>
+      <h3>Triggered, not scrubbed</h3>
+      <p>This one runs for 900 ms by the clock. A timeline trigger starts it when the whole block is on screen and resets it when the block has left.</p>
+      <button type="button" data-count="Pressed">Pressed 0</button>
+    </section>
+  </div>
+  <!-- #endregion markup -->
+
+  <p id="status" role="status"></p>
+  <div id="route"></div>
+
+  <details class="show-code">
+    <summary>Show the code <small>CSS timelines → custom properties → shader</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Ordinary sections. <code>fx</code> names the shader, the classes name the CSS that drives it.</li>
+      <li data-code="#reveal"><b>A view timeline sets <code>--fx-progress</code>.</b> The fx library registers the property as a number and passes it to the shader as <code>u_progress</code>.</li>
+      <li data-code="#position"><b>The page's scroll position as a property.</b></li>
+      <li data-code="#speed"><b>Scroll speed from a transition.</b> A second property follows the first one 120 ms late. Their difference is the speed.</li>
+      <li data-code="#stuck"><b>A <code>scroll-state()</code> query sets <code>--fx-amount</code> on the sticky bar.</b></li>
+      <li data-code="#trigger"><b>A timeline trigger starts a timed animation.</b></li>
+      <li data-code="/scroll-fx/effects.js#burn" data-lang="glsl"><b>A shader that reads the progress.</b> GLSL for WebGL and WGSL for WebGPU.</li>
+      <li data-code="/scroll-fx/effects.js#smear" data-lang="glsl"><b>The blur that reads the speed.</b></li>
+      <li data-code="/scroll-fx/effects.js#roll" data-lang="glsl"><b>The roll.</b></li>
+      <li data-code="/scroll-fx/effects.js#stuck" data-lang="glsl"><b>The sticky bar's shader.</b></li>
+      <li data-code="#start"><b>The page script.</b> It picks the drawing route and loads the library. Nothing in it reads the scroll position.</li>
+      <li data-code="/lib/shader-fx.js#render"><b>Inside the library: the upload and the draw.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>Each block with an <code>fx</code> attribute is moved into a canvas by <a href="/shader-css/">the fx library</a>. The canvas takes the block's place in the page, so it scrolls with the page on the compositor like any other box.</li>
+    <li>The library reads four registered custom properties from the block once per frame while it is on screen and redraws when one changed. It does not know where the values come from. Here they come from <code>animation-timeline: view()</code>, <code>animation-timeline: scroll()</code>, a <code>scroll-state(stuck: top)</code> query and <code>animation-trigger</code>.</li>
+    <li>The percentage in each block's corner is the same property printed by a CSS counter inside the block. It changes the block's picture, so the block is uploaded to the texture again on those frames.</li>
+    <li>The shaders only move pixels. The blocks stay where layout put them for hit testing, so a button that is half burnt away is pressed at its normal position.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds a small scroller of its own in a corner of the window and scrolls that. The page is not scrolled.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering. The rows above say what your browser does.</p>
+  <ul class="findings" id="findings">
+    <li><strong>Works: a view timeline on an element that is a canvas child.</strong> The element has no box on the page outside its canvas, and its view timeline still follows the scroll position of the page.</li>
+    <li><strong>Works: scroll speed from two custom properties.</strong> A property with a transition that is set to <code>var()</code> of a scroll-animated property follows it late. The transition has to be on a descendant of the element that carries the animation.</li>
+    <li><strong>Works: <code>scroll-state(stuck)</code> across the canvas.</strong> The query container is the sticky holder outside the canvas. The bar it styles is inside the canvas.</li>
+    <li><strong>Works: <code>timeline-trigger</code> with <code>animation-trigger</code>.</strong> The animation runs by the clock and the shader follows it. Where the properties are missing the block falls back to the scrubbed timeline.</li>
+    <li><strong>Not available: the overscroll area.</strong> The plan for this page included a drawer on the overscroll area that stretches with the pull. No <code>overscroll-area</code> property exists in Chromium 157, so it was not built.</li>
+    <li><strong>Not verified here:</strong> whether the effects keep up with a touch scroll on a phone. The scroll moves on the compositor thread and the custom properties are read on the main thread, so the shader may be a frame or more behind the block's position. The WebGPU route on screen is also unverified in the test browser.</li>
+  </ul>
+</main>
+
+<script type="module">
+  // #region start
+  import '/scroll-fx/effects.js';
+  import { loadFx, sameOnWebGPU } from '/shared/fx-route.js';
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  // Loads the fx library, which moves each [fx] block into a canvas. The page
+  // uses one graphics context: the shared WebGPU device when it works, else
+  // one WebGL context that every block is drawn through in turn.
+  await loadFx({ targets: () => document.querySelectorAll('#article [fx]'), mount: $('route') });
+  // #endregion start
+
+  for (const button of document.querySelectorAll('#article button[data-count]')) {
+    let n = 0;
+    button.onclick = () => (button.textContent = `${button.dataset.count} ${++n}`);
+  }
+
+  const has = (prop, value) => CSS.supports(prop, value);
+  const features = [
+    ['view()', has('animation-timeline', 'view()')],
+    ['scroll-state()', has('container-type', 'scroll-state')],
+    ['animation-trigger', has('animation-trigger', '--t play-forwards reset')],
+  ];
+  $('status').textContent = (supported ? '' : 'HTML-in-canvas is not available, so the blocks are plain HTML. The percentages still follow the scroll. ') +
+    features.map(([name, ok]) => `${name}: ${ok ? 'yes' : 'no'}`).join(' · ');
+
+  // ---- live checks: every one on its own fixture ----
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const frames = (n = 2) => new Promise((r) => { const step = () => (n-- > 0 ? requestAnimationFrame(step) : r()); step(); });
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const num = (el, name) => Number(getComputedStyle(el).getPropertyValue(name));
+
+  /** A 300 x 180 scroller on the test stage holding `html` between two spacers. */
+  function scroller(html, css = '') {
+    const box = document.createElement('div');
+    box.style.cssText = 'flex:none;width:300px;height:180px;overflow:auto;scrollbar-width:none;background:#fff;color:#000';
+    box.innerHTML = `<style>${css}</style><div style="height:200px"></div>${html}<div style="height:400px"></div>`;
+    const stage = testStage();
+    stage.style.pointerEvents = 'none';
+    stage.append(box);
+    return box;
+  }
+  async function drawn(el) {
+    let s;
+    for (let i = 0; i < 80; i++) { s = el.closest('fx-surface'); if (s?.ready && s.frames) break; await sleep(25); }
+    if (!s?.ready) throw new Error('the fixture was never drawn');
+    return s;
+  }
+  const CARD = 'width:260px;height:120px;background:linear-gradient(90deg,#173a5e,#e0457b);color:#fff;font:700 26px system-ui;padding:10px;box-sizing:border-box';
+
+  runTests($('results'), [
+    {
+      name: 'A view timeline on a canvas child sets --fx-progress, and the picture follows',
+      why: 'A block with fx="burn-in" and animation-timeline: view() inside a scroller. The scroller is scrolled by script, the property is read, and the canvas is read back.',
+      timeout: 12000,
+      run: async () => {
+        need();
+        const box = scroller(`<div class="t" fx="burn-in" fx-backend="shared" style="${CARD}">View timeline</div>`,
+          '@keyframes t-reveal{from{--fx-progress:0}to{--fx-progress:1}}.t{animation:t-reveal linear both;animation-timeline:view();animation-range:entry 0% cover 50%;--fx-amount:0}');
+        const el = box.querySelector('.t');
+        const s = await drawn(el);
+        const ink = () => { const c = s.snapshot(); const d = c.getImageData(0, 0, c.canvas.width, c.canvas.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 8) n++; return n / (d.length / 4); };
+        const at = async (top) => { box.scrollTop = top; await frames(3); return { p: num(el, '--fx-progress'), ink: ink() }; };
+        const a = await at(30), b = await at(110), c = await at(260);
+        if (!(a.p < b.p && b.p < c.p && c.p > 0.99)) throw new Error(`--fx-progress was ${a.p.toFixed(2)}, ${b.p.toFixed(2)}, ${c.p.toFixed(2)} at three scroll positions`);
+        if (!(a.ink < b.ink && b.ink < c.ink)) throw new Error(`pixels drawn were ${(a.ink * 100).toFixed(0)}%, ${(b.ink * 100).toFixed(0)}%, ${(c.ink * 100).toFixed(0)}%: the picture did not follow`);
+        return `--fx-progress ${a.p.toFixed(2)} → ${b.p.toFixed(2)} → ${c.p.toFixed(2)}; pixels drawn ${(a.ink * 100).toFixed(0)}% → ${(b.ink * 100).toFixed(0)}% → ${(c.ink * 100).toFixed(0)}%`;
+      },
+    },
+    {
+      name: 'Scroll speed from a lagging custom property',
+      why: 'A scroll timeline animates --pos on the scroller content. A child sets --lag: var(--pos) with a 120 ms transition. During a scripted scroll the two must differ, and be equal again 300 ms after it stops.',
+      timeout: 12000,
+      run: async () => {
+        const box = scroller('<div class="in"><div class="k" style="height:40px">speed</div></div>',
+          `@property --pos{syntax:'<number>';inherits:true;initial-value:0}@property --lag{syntax:'<number>';inherits:true;initial-value:0}
+           @keyframes t-pos{from{--pos:0}to{--pos:1}}.in{animation:t-pos linear both;animation-timeline:scroll(nearest)}
+           .k{--lag:var(--pos);transition:--lag 120ms linear}`);
+        const k = box.querySelector('.k');
+        await frames(2);
+        let peak = 0;
+        for (let top = 0; top <= 400; top += 40) { box.scrollTop = top; await frames(1); peak = Math.max(peak, Math.abs(num(k, '--pos') - num(k, '--lag'))); }
+        await sleep(300);
+        const rest = Math.abs(num(k, '--pos') - num(k, '--lag'));
+        if (!(peak > 0.02)) throw new Error(`the lagging property never differed from the animated one (largest difference ${peak.toFixed(3)})`);
+        if (rest > 0.005) throw new Error(`the two properties still differ by ${rest.toFixed(3)} after the scroll stopped`);
+        return `largest difference while scrolling ${peak.toFixed(3)} of the scroll range, ${rest.toFixed(3)} at rest`;
+      },
+    },
+    {
+      name: 'scroll-state(stuck) reaches an element inside the canvas',
+      why: 'A sticky holder with container-type: scroll-state around a block with an fx attribute. The query sets --fx-amount on the block.',
+      timeout: 12000,
+      run: async () => {
+        need();
+        if (!has('container-type', 'scroll-state')) throw new Error('container-type: scroll-state is not supported');
+        const box = scroller('<div class="hold"><div class="h" fx="stuck" fx-backend="shared" style="height:36px;background:#2a3050;color:#fff">bar</div></div>',
+          '.hold{position:sticky;top:0;container-type:scroll-state}.h{--fx-amount:0}@container scroll-state(stuck: top){.h{--fx-amount:1}}');
+        const el = box.querySelector('.h');
+        await drawn(el);
+        const before = num(el, '--fx-amount');
+        box.scrollTop = 300;
+        await frames(4);
+        const stuck = num(el, '--fx-amount');
+        box.scrollTop = 0;
+        await frames(4);
+        const after = num(el, '--fx-amount');
+        if (!(before === 0 && stuck === 1 && after === 0)) throw new Error(`--fx-amount was ${before}, then ${stuck} when stuck, then ${after}`);
+        return '--fx-amount 0 → 1 when stuck → 0';
+      },
+    },
+    {
+      name: 'A timeline trigger starts a timed animation of --fx-progress',
+      why: 'timeline-trigger with a view() source and animation-trigger: play-forwards reset on a canvas child. The property must move over time after the scroll has stopped.',
+      timeout: 12000,
+      run: async () => {
+        need();
+        if (!has('animation-trigger', '--t play-forwards reset')) throw new Error('animation-trigger is not supported');
+        const box = scroller(`<div class="g" fx="shock-in" fx-backend="shared" style="${CARD}">Trigger</div>`,
+          '@keyframes t-shock{from{--fx-progress:0}to{--fx-progress:1}}.g{timeline-trigger:--tt view() contain 0% contain 100% / cover 0% cover 100%;animation:t-shock 400ms linear both;animation-trigger:--tt play-forwards reset}');
+        const el = box.querySelector('.g');
+        await drawn(el);
+        const idle = num(el, '--fx-progress');
+        box.scrollTop = 170; // the whole block is inside the scroller between 140 and 200
+        await sleep(150);
+        const mid = num(el, '--fx-progress');
+        await sleep(500);
+        const end = num(el, '--fx-progress');
+        box.scrollTop = 0;
+        await sleep(200);
+        const reset = num(el, '--fx-progress');
+        if (!(idle === 0 && mid > 0 && mid < 1 && end === 1)) throw new Error(`--fx-progress was ${idle} before, ${mid.toFixed(2)} 150 ms after the scroll and ${end} at the end`);
+        return `0 before, ${mid.toFixed(2)} 150 ms after the scroll stopped, 1 at the end, ${reset} after scrolling back`;
+      },
+    },
+    sameOnWebGPU(['burn-in', 'mosaic-in', 'rows-in', 'roll-in', 'shock-in', 'melt'], { vars: '--fx-progress:0.5;--fx-amount:0.6' }),
+  ]);
+</script>
+</body>
+</html>

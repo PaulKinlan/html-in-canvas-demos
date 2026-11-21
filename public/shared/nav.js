@@ -72,7 +72,10 @@ html.page-loading body>:not(#site-nav){opacity:0}\
         same = h === last ? same + 1 : 0;
         last = h;
         // Also wait for the "About this experiment" box (learnBox below), which adds height under the introduction.
-        if ((same >= 3 && learnDone) || performance.now() - t0 > 800) reveal();
+        // A script that builds the page after an await (see /shared/fx-route.js) sets data-hold on <html>
+        // until it has finished. The 3 second limit below still applies.
+        var held = root.hasAttribute('data-hold');
+        if (!held && ((same >= 3 && learnDone) || performance.now() - t0 > 800)) reveal();
         else requestAnimationFrame(settle);
       })();
     });

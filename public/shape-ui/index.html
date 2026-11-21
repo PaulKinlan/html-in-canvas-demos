@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>CSS shapes lit as solid objects</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; max-width: 560px; }
+  .bar label { display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; min-height: 44px; }
+  .bar button { font: inherit; min-height: 44px; padding: 4px 12px; border-radius: 8px; }
+  .bar input[type=range] { width: 96px; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; max-width: 560px; }
+
+  /* #region stage */
+  /* The light's position is two inherited custom properties on the stage. Every
+     lit piece inside reads them. --fx-amount is the bevel width in units of 7 px. */
+  #stage { --fx-x: -0.45; --fx-y: -0.6; --fx-amount: 1;
+    max-width: 560px; box-sizing: border-box; padding: 26px 18px 30px; border-radius: 18px; touch-action: pan-y;
+    background: radial-gradient(120% 90% at calc(50% + var(--fx-x) * 45%) calc(40% + var(--fx-y) * 40%), #f1f3f8, #c3c9d6);
+    color: #1c2030; font: 16px/1.45 system-ui, sans-serif; display: flex; flex-direction: column; gap: 34px; }
+  /* #endregion stage */
+
+  /* #region shapes */
+  /* The outlines are CSS only. The shader never sees them: it gets the element's
+     picture, and uses the picture's alpha as the height of a solid. */
+  #pad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  #pad output { grid-column: 1 / -1; min-height: 52px; padding: 8px 16px; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end;
+    font: 600 26px/1 var(--mono); letter-spacing: 2px; background: #1d2433; color: #9df3c4; overflow: hidden;
+    border-radius: 16px; corner-shape: bevel; }
+  #pad button { aspect-ratio: 1; min-width: 0; padding: 0; border: 0; font: 700 24px system-ui; color: #fff; background: #3b6cf6;
+    border-radius: 38%; corner-shape: squircle; transition: scale 90ms; }
+  #pad button:nth-of-type(3n + 1) { background: #e0457b; }
+  #pad button:nth-of-type(3n + 2) { background: #f59f1a; }
+  /* A pressed key gets smaller. Its alpha outline changes, so its bevel and shadow change with it. */
+  #pad button:active { scale: 0.9; }
+  #pad button.wide { grid-column: span 2; aspect-ratio: auto; background: #2d3446; border-radius: 22px; corner-shape: notch; }
+
+  #ticket { display: flex; gap: 14px; align-items: center; padding: 16px 22px; background: #ffd66b; color: #3a2a00;
+    border-radius: 24px; corner-shape: scoop; }
+  #ticket b { font: 800 22px/1.1 system-ui; display: block; }
+  #ticket span { flex: 1; min-width: 0; }
+  #ticket button { min-height: 48px; padding: 6px 18px; border: 0; font: 700 16px system-ui; background: #3a2a00; color: #ffd66b;
+    border-radius: 14px; corner-shape: bevel; }
+
+  .wrap p { margin: 0; }
+  /* One outline, used twice: to clip the element, and to wrap the text beside it. */
+  .blob-holder { --outline: shape(from 52% 2%, curve to 97% 36% with 88% 2%, curve to 76% 95% with 104% 76%, curve to 16% 86% with 46% 104%, curve to 4% 40% with -6% 66%, curve to 52% 2% with 12% 6%, close);
+    float: left; width: 150px; height: 150px; margin: 0 16px 6px 0; shape-outside: var(--outline); shape-margin: 10px; }
+  #blob { width: 150px; height: 150px; border: 0; padding: 0; font: 800 20px/1.1 system-ui; color: #fff;
+    background: linear-gradient(140deg, #7b4dff, #17b7c8); clip-path: var(--outline); }
+
+  #row { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+  #dial { width: 96px; height: 96px; box-sizing: border-box; padding: 0; font: 700 18px system-ui; color: #1c2030; background: #fff;
+    border: 12px solid #17a673; border-radius: 50%; }
+  @supports (border-shape: circle(50%)) { #dial { border-radius: 0; border-shape: circle(50%); } }
+  #switch { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px; background: #fff; border-radius: 30px; corner-shape: superellipse(1.6); font-weight: 600; }
+  #switch input { width: 26px; height: 26px; margin: 0; accent-color: #e0457b; }
+  /* #endregion shapes */
+
+  /* #region press */
+  /* A press is a CSS transition of --fx-progress. The shader lowers the piece:
+     narrower bevel, shorter shadow, slightly darker. */
+  #ticket, #blob, #dial, #switch { --fx-progress: 0; transition: --fx-progress 140ms ease-out; }
+  #blob:active, #dial:active, #ticket:has(button:active) { --fx-progress: 1; }
+  /* A checked box holds its piece down. */
+  #switch:has(:checked) { --fx-progress: 0.8; }
+  /* #endregion press */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>CSS shapes lit as solid objects</h1>
+  <p class="lede">
+    The pieces below are buttons and boxes whose outlines come from <code>corner-shape</code>, <code>border-shape</code> and
+    <code>clip-path: shape()</code>. A fragment shader treats each picture's alpha channel as the height of a solid and lights it: the edges
+    are bevelled, and each piece casts a shadow with its own outline. Move the pointer or drag a finger across the panel to move the light.
+    Press the pieces.
+  </p>
+
+  <div class="bar">
+    <button type="button" id="sensor">Use the phone's tilt</button>
+    <label>Bevel <input type="range" id="bevel" min="0.3" max="2.2" step="0.05" value="1" aria-label="Bevel width"></label>
+    <label><input type="checkbox" id="lit" checked> Lit</label>
+  </div>
+
+  <!-- #region markup -->
+  <div id="stage">
+    <div id="pad" fx="solid">
+      <output id="out" aria-label="Keys pressed">0</output>
+      <button type="button">1</button><button type="button">2</button><button type="button">3</button><button type="button">4</button>
+      <button type="button">5</button><button type="button">6</button><button type="button" class="wide" data-clear>Clear</button>
+    </div>
+
+    <div id="ticket" fx="solid">
+      <span><b>Admit one</b>corner-shape: scoop</span>
+      <button type="button" id="stamp">Stamp</button>
+    </div>
+
+    <div class="wrap">
+      <div class="blob-holder"><button type="button" id="blob" fx="solid">shape()<br>0</button></div>
+      <p>This paragraph wraps round the button on the left. The button is clipped with <code>clip-path: shape()</code> and its holder has
+      <code>shape-outside</code> with the same value, from one custom property. The shader gets the clipped picture, so the bevel and the
+      shadow follow the curve.</p>
+    </div>
+
+    <div id="row">
+      <button type="button" id="dial" fx="solid">0</button>
+      <label id="switch" fx="solid"><input type="checkbox"> Hold down</label>
+    </div>
+  </div>
+  <!-- #endregion markup -->
+
+  <p id="status" role="status">The light follows the pointer. With no input for a moment it moves in a circle.</p>
+  <div id="route"></div>
+
+  <details class="show-code">
+    <summary>Show the code <small>alpha → height → light</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Each piece that is lit has <code>fx="solid"</code>. The keypad is one piece: its seven keys share a canvas.</li>
+      <li data-code="#shapes"><b>The outlines, in CSS.</b></li>
+      <li data-code="#solid" data-lang="glsl"><b>The shader.</b> Sixteen samples of alpha around each pixel give a height and a slope. The slope is the surface normal.</li>
+      <li data-code="#stage"><b>The light, as two custom properties.</b></li>
+      <li data-code="#press"><b>Pressing, as a CSS transition.</b></li>
+      <li data-code="#light"><b>The page script.</b> It connects the pointer and the tilt sensor to the two properties.</li>
+      <li data-code="/lib/tilt-light.js#sensor"><b>The tilt sensor.</b></li>
+      <li data-code="/lib/shader-fx.js#render"><b>Inside the fx library: the upload and the draw.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The <a href="/shader-css/">fx library</a> moves each piece into a canvas and gives the shader the piece's picture as a texture with premultiplied alpha. Whatever CSS does to the outline is already in the alpha channel.</li>
+    <li>For each pixel the shader reads alpha at 16 points in a disc of 7 px. The share of points inside the shape is the height: 1 well inside, about 0.5 on the edge. The average of the points' offsets, weighted by alpha, points away from the nearest edge. That gives a normal without a second pass.</li>
+    <li>Labels are embossed with a second, smaller slope taken from the brightness of the picture.</li>
+    <li>The shadow is the same alpha read 16 px towards the light, through 8 jittered samples.</li>
+    <li>The seven keys of the keypad are one picture. A pressed key is scaled to 0.9 by <code>:active</code>, which changes the alpha, and the lighting follows with no code for it.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own fixture in a corner of the window. The panel above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering. The rows above say what your browser does.</p>
+  <ul class="findings" id="findings">
+    <li><strong>Works: every outline is in the alpha channel.</strong> <code>corner-shape</code> (squircle, bevel, scoop, notch, superellipse), <code>border-shape: circle()</code> and <code>clip-path: shape()</code> all change the picture the shader receives, so one shader lights all of them.</li>
+    <li><strong>Works: normals from 16 samples.</strong> The bevel is smooth at 7 px. Below about 3 px the samples land less than a pixel apart and the bevel becomes a plain edge highlight. Above about 14 px the 16 samples show as faint steps.</li>
+    <li><strong>Hit testing follows all three outlines.</strong> A point in a corner that <code>corner-shape</code>, <code>border-shape</code> or <code>clip-path</code> cut away is outside the element for <code>elementFromPoint()</code>, in a canvas and as plain DOM. A click in the gap between a piece's box and its outline does not press it. The shader moves no pixels, so no geometry update is needed.</li>
+    <li><strong>Limit: the shader cannot see behind a piece.</strong> A shadow is drawn in the canvas of the piece that casts it, inside 30 px of extra canvas round the piece. It does not darken a neighbour that is itself a canvas above it.</li>
+    <li><strong>Not verified here:</strong> the tilt sensor (the test browser has none), and the frame rate on a phone, where each piece costs 29 texture reads per pixel while the light moves.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { defineEffect } from '/lib/effects.js';
+  import { loadFx, sameOnWebGPU } from '/shared/fx-route.js';
+  import { tiltLight } from '/lib/tilt-light.js';
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // #region solid
+  // u_xy        --fx-x, --fx-y   where the light is, -1..1 each way
+  // u_amount    --fx-amount      bevel width, in units of 7 px
+  // u_progress  --fx-progress    0 raised, 1 pressed down
+  defineEffect('solid', {
+    bleed: 30,
+    glsl: `
+const int N = 16;
+const vec3 W = vec3(0.3, 0.6, 0.1);
+vec4 fx(vec2 p) {
+  float press = clamp(u_progress, 0.0, 1.0);
+  vec3 L = normalize(vec3(u_xy * 0.95, 0.5));
+  float R = max(1.5, 7.0 * u_amount * (1.0 - 0.55 * press));
+
+  // Height and slope from alpha. The points lie on a spiral that fills a disc of radius R.
+  float h = 0.0;
+  vec2 g = vec2(0.0);
+  for (int i = 0; i < N; i++) {
+    float a = float(i) * 2.39996;
+    vec2 o = vec2(cos(a), sin(a)) * R * sqrt((float(i) + 0.5) / float(N));
+    float s = tex(p + o).a;
+    h += s;
+    g += o * s;
+  }
+  h /= float(N);
+  vec4 col = tex(p);
+
+  // The normal leans away from the inside of the shape, most on the edge.
+  float rim = 1.0 - smoothstep(0.5, 0.98, h);
+  vec2 inward = g / (length(g) + 1e-4);
+  float lum = dot(col.rgb, W);
+  vec2 emboss = vec2(dot(tex(p + vec2(1.0, 0.0)).rgb, W) - lum, dot(tex(p + vec2(0.0, 1.0)).rgb, W) - lum);
+  vec3 n = normalize(vec3(-inward * rim * 1.3 + emboss * 1.6 * (1.0 - rim), 1.0));
+
+  float shade = 1.0 + (dot(n, L) - L.z) * 0.9 - 0.08 * press;
+  float spec = pow(max(reflect(-L, n).z, 0.0), 22.0) * 0.55;
+  vec3 rgb = col.rgb * shade + col.a * spec;
+
+  // The shadow: alpha read towards the light, blurred. Shorter when pressed.
+  float lift = 1.0 - 0.75 * press;
+  float turn = hash(p) * 6.2832;
+  float sh = 0.0;
+  for (int i = 0; i < 8; i++) {
+    float a = turn + float(i) * 0.7854;
+    sh += tex(p + L.xy * 18.0 * lift + vec2(cos(a), sin(a)) * (3.0 + 6.0 * lift) * (0.35 + 0.65 * fract(float(i) * 0.618))).a;
+  }
+  sh *= 0.4 / 8.0;
+  return vec4(rgb, col.a + sh * (1.0 - col.a));
+}`,
+    wgsl: `
+const N = 16;
+const W = vec3f(0.3, 0.6, 0.1);
+fn fx(p: vec2f) -> vec4f {
+  let press = clamp(u.progress, 0.0, 1.0);
+  let L = normalize(vec3f(u.xy * 0.95, 0.5));
+  let R = max(1.5, 7.0 * u.amount * (1.0 - 0.55 * press));
+
+  var h = 0.0;
+  var g = vec2f(0.0);
+  for (var i = 0; i < N; i++) {
+    let a = f32(i) * 2.39996;
+    let o = vec2f(cos(a), sin(a)) * R * sqrt((f32(i) + 0.5) / f32(N));
+    let s = tex(p + o).a;
+    h += s;
+    g += o * s;
+  }
+  h /= f32(N);
+  let col = tex(p);
+
+  let rim = 1.0 - smoothstep(0.5, 0.98, h);
+  let inward = g / (length(g) + 1e-4);
+  let lum = dot(col.rgb, W);
+  let emboss = vec2f(dot(tex(p + vec2f(1.0, 0.0)).rgb, W) - lum, dot(tex(p + vec2f(0.0, 1.0)).rgb, W) - lum);
+  let n = normalize(vec3f(-inward * rim * 1.3 + emboss * 1.6 * (1.0 - rim), 1.0));
+
+  let shade = 1.0 + (dot(n, L) - L.z) * 0.9 - 0.08 * press;
+  let spec = pow(max(reflect(-L, n).z, 0.0), 22.0) * 0.55;
+  let rgb = col.rgb * shade + col.a * spec;
+
+  let lift = 1.0 - 0.75 * press;
+  let turn = hash(p) * 6.2832;
+  var sh = 0.0;
+  for (var i = 0; i < 8; i++) {
+    let a = turn + f32(i) * 0.7854;
+    sh += tex(p + L.xy * 18.0 * lift + vec2f(cos(a), sin(a)) * (3.0 + 6.0 * lift) * (0.35 + 0.65 * fract(f32(i) * 0.618))).a;
+  }
+  sh *= 0.4 / 8.0;
+  return vec4f(rgb, col.a + sh * (1.0 - col.a));
+}`,
+  });
+  // #endregion solid
+
+  const stage = $('stage');
+  const pieces = () => stage.querySelectorAll('[fx]');
+  await loadFx({ targets: pieces, mount: $('route') });
+
+  // #region light
+  // The pointer, or the phone's tilt, sets --fx-x and --fx-y on the stage.
+  const light = tiltLight(stage);
+  light.onchange = () => {
+    const from = { sensor: `the tilt sensor, ${light.sensorRate} events a second`, pointer: 'the pointer', idle: 'the idle circle', rest: 'its rest position' }[light.source];
+    $('status').textContent = `Light at ${light.x.toFixed(2)}, ${light.y.toFixed(2)}, from ${from}.`;
+  };
+  $('sensor').onclick = async () => {
+    if (light.source === 'sensor') {
+      light.stopSensor();
+      $('sensor').textContent = "Use the phone's tilt";
+      return;
+    }
+    $('status').textContent = 'Waiting for the tilt sensor.';
+    const problem = await light.useSensor();
+    if (problem) $('status').textContent = `No tilt: ${problem}. The pointer still moves the light.`;
+    else $('sensor').textContent = 'Stop using tilt';
+  };
+  // #endregion light
+
+  $('bevel').oninput = () => stage.style.setProperty('--fx-amount', $('bevel').value);
+  $('lit').onchange = () => { for (const el of pieces()) el.setAttribute('fx', $('lit').checked ? 'solid' : 'none'); };
+
+  // The pieces do ordinary things, to show they are still controls.
+  const out = $('out');
+  $('pad').addEventListener('click', (e) => {
+    const key = e.target.closest('button');
+    if (!key) return;
+    out.textContent = key.dataset.clear !== undefined ? '0' : (out.textContent === '0' ? '' : out.textContent).slice(-9) + key.textContent;
+  });
+  let stamps = 0, blobs = 0, turns = 0;
+  $('stamp').onclick = () => ($('stamp').textContent = `Stamped ${++stamps}`);
+  $('blob').onclick = () => ($('blob').innerHTML = `shape()<br>${++blobs}`);
+  $('dial').onclick = () => ($('dial').textContent = ++turns);
+  if (!supported) $('status').textContent = 'HTML-in-canvas is not available, so the pieces are plain HTML with their CSS outlines and no lighting.';
+
+  // ---- live checks: every one on its own fixture ----
+  // The idle circle redraws every piece each frame. It waits while the checks run.
+  const need = () => { light.idle = false; if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const hitAt = (x, y) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { s.style.pointerEvents = 'none'; } };
+  async function fixture(style, { fx = 'solid', vars = '--fx-x:-0.7;--fx-y:-0.7;--fx-amount:1;--fx-progress:0' } = {}) {
+    const holder = document.createElement('div');
+    holder.style.cssText = `flex:none;box-sizing:content-box;width:120px;padding:34px;${vars}`; // a width: the surface is a block and fills its holder
+    holder.innerHTML = `<div class="probe" ${fx ? `fx="${fx}" fx-backend="shared"` : ''} style="width:120px;height:120px;background:#e0457b;${style}"></div>`;
+    quietStage().append(holder);
+    const el = holder.firstElementChild;
+    if (!fx) return { el, holder };
+    let s;
+    for (let i = 0; i < 240; i++) { s = el.closest('fx-surface'); if (s?.ready && s.frames) break; await sleep(25); }
+    if (!s?.ready) throw new Error('the fixture was never drawn');
+    return { el, s, holder };
+  }
+  // Read one pixel of a surface's canvas. x and y are in element px, from the element's top-left.
+  function pixelOf(s, x, y) {
+    const ctx = s.snapshot();
+    const k = s.scale;
+    return [...ctx.getImageData(Math.round((x + s.bleed) * k), Math.round((y + s.bleed) * k), 1, 1).data];
+  }
+  const outlineRow = (name, style, prop, value) => ({
+    name: `${name}: the cut corner is clear in the picture, and its hit test`,
+    why: `A 120 px square with ${style} The pixel 4 px in from the top-left corner is read, and elementFromPoint() is asked what is there.`,
+    timeout: 12000,
+    run: async () => {
+      need();
+      if (!CSS.supports(prop, value)) throw new Error(`${prop}: ${value} is not supported`);
+      const { el, s, holder } = await fixture(style, { fx: 'none' });
+      const corner = pixelOf(s, 4, 4), middle = pixelOf(s, 60, 60);
+      if (middle[3] < 200) throw new Error('the middle of the element was not drawn');
+      if (corner[3] > 40) throw new Error(`the corner pixel has alpha ${corner[3]}: the outline is not in the picture`);
+      // The same square again, as plain DOM outside any canvas, for comparison.
+      const plain = document.createElement('div');
+      plain.style.cssText = `width:120px;height:120px;background:#e0457b;${style}`;
+      holder.append(plain);
+      const at = (target) => { const box = target.getBoundingClientRect(); return hitAt(box.left + 4, box.top + 4) === target; };
+      const inCanvas = at(el), outside = at(plain);
+      const middleOf = (target) => { const box = target.getBoundingClientRect(); return hitAt(box.left + 60, box.top + 60) === target; };
+      if (!middleOf(el) || !middleOf(plain)) throw new Error('elementFromPoint() did not find the element at its middle, so the corner result means nothing');
+      const say = (hit) => (hit ? 'the element (the box is used)' : 'not the element (the outline is used)');
+      return `corner alpha ${corner[3]}, middle alpha ${middle[3]}. elementFromPoint() in the cut corner: in a canvas, ${say(inCanvas)}; as plain DOM, ${say(outside)}`;
+    },
+  });
+
+  runTests($('results'), [
+    outlineRow('corner-shape: bevel', 'border-radius:40px;corner-shape:bevel;', 'corner-shape', 'bevel'),
+    outlineRow('border-shape: circle()', 'border:6px solid #17a673;border-shape:circle(50%);', 'border-shape', 'circle(50%)'),
+    outlineRow('clip-path: shape()', 'clip-path:shape(from 50% 0%, line to 100% 50%, line to 50% 100%, line to 0% 50%, close);', 'clip-path', 'shape(from 0 0, line to 1px 1px, close)'),
+    {
+      name: 'The edge facing the light is brighter than the edge facing away',
+      why: 'A plain square through fx="solid" with the light at the top left. A pixel 3 px inside the top edge and one 3 px inside the bottom edge are compared with the middle.',
+      timeout: 12000,
+      run: async () => {
+        need();
+        const { s } = await fixture('');
+        const top = pixelOf(s, 60, 3), bottom = pixelOf(s, 60, 117), middle = pixelOf(s, 60, 60);
+        const sum = (px) => px[0] + px[1] + px[2];
+        if (!(sum(top) > sum(middle) + 20 && sum(bottom) < sum(middle) - 20)) throw new Error(`top ${top.slice(0, 3)}, middle ${middle.slice(0, 3)}, bottom ${bottom.slice(0, 3)}`);
+        return `top edge rgb ${top.slice(0, 3)}, middle ${middle.slice(0, 3)}, bottom edge ${bottom.slice(0, 3)}`;
+      },
+    },
+    {
+      name: 'The shadow has the outline of the shape and falls away from the light',
+      why: 'A diamond cut with clip-path: shape(), light at the top left. Alpha is read outside the diamond, 14 px beyond its lower-right edge and 14 px beyond its upper-left edge.',
+      timeout: 12000,
+      run: async () => {
+        need();
+        const { s } = await fixture('clip-path:shape(from 50% 0%, line to 100% 50%, line to 50% 100%, line to 0% 50%, close);');
+        // The lower-right edge runs from (120,60) to (60,120): its middle is (90,90), and the outward direction is (1,1)/√2.
+        const away = pixelOf(s, 100, 100), toward = pixelOf(s, 20, 20), corner = pixelOf(s, 118, 118);
+        if (!(away[3] > 30 && toward[3] < away[3] / 3)) throw new Error(`alpha beyond the far edge ${away[3]}, beyond the near edge ${toward[3]}`);
+        return `shadow alpha ${away[3]} beyond the edge away from the light, ${toward[3]} beyond the edge facing it, ${corner[3]} in the far corner of the box`;
+      },
+    },
+    {
+      name: 'Pressing shortens the shadow',
+      why: 'The same square with --fx-progress 0 and then 1. Alpha is read 7 px beyond the bottom-right corner.',
+      timeout: 12000,
+      run: async () => {
+        need();
+        const { el, s } = await fixture('');
+        const up = pixelOf(s, 127, 127);
+        el.style.setProperty('--fx-progress', '1');
+        await sleep(120);
+        const down = pixelOf(s, 127, 127);
+        if (!(up[3] > 25 && down[3] < up[3] / 2)) throw new Error(`alpha ${up[3]} raised, ${down[3]} pressed`);
+        return `shadow alpha at that point ${up[3]} raised, ${down[3]} pressed`;
+      },
+    },
+    sameOnWebGPU(['solid'], { vars: '--fx-progress:0.3;--fx-amount:1;--fx-x:-0.6;--fx-y:-0.5', limit: 2.5 }),
+  ]).finally(() => { light.idle = true; });
+</script>
+</body>
+</html>

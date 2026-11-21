@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Tilt the phone to light a live card</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; max-width: 560px; }
+  .bar label { display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; min-height: 44px; }
+  .bar button { font: inherit; min-height: 44px; padding: 4px 12px; border-radius: 8px; }
+  .bar input[type=range] { width: 96px; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; max-width: 560px; }
+
+  /* #region stage */
+  /* The lean is two inherited custom properties on the stage. Every card reads them. */
+  #stage { --fx-x: -0.45; --fx-y: -0.6; --fx-amount: 1;
+    max-width: 560px; box-sizing: border-box; padding: 34px 22px; border-radius: 18px; touch-action: pan-y;
+    background: radial-gradient(120% 90% at 50% 0%, #2a2f45, #0d0f18); color: #fff; font: 15px/1.4 system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 40px; }
+  #stage > * { width: min(100%, 340px); }
+  /* #endregion stage */
+  #stage button { font: 600 14px system-ui; min-height: 44px; padding: 6px 14px; border-radius: 10px; border: 0; background: #fff; color: #111; }
+
+  #pay { box-sizing: border-box; aspect-ratio: 1.586; padding: 18px 20px; border-radius: 16px; background: linear-gradient(135deg, #1b2a6b, #5a1e8c 60%, #b0246a);
+    display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr auto auto; gap: 4px 10px; }
+  #pay .brand { font: 800 18px system-ui; letter-spacing: .5px; }
+  /* #region key */
+  /* The hologram patch is plain magenta in the DOM. The shader replaces that colour. */
+  .holo { background: #f0f; border-radius: 8px; }
+  /* #endregion key */
+  #pay .holo { width: 56px; height: 40px; justify-self: end; }
+  #pay .chip { width: 46px; height: 34px; border-radius: 7px; align-self: center; background: linear-gradient(135deg, #f5d98b, #b8892e); }
+  #pay button { align-self: center; justify-self: end; }
+  #pay .number { grid-column: 1 / -1; font: 600 20px var(--mono); letter-spacing: 2px; }
+  #pay .name { align-self: end; font-size: 13px; opacity: .85; text-transform: uppercase; letter-spacing: 1px; }
+
+  #ticket { box-sizing: border-box; padding: 16px 18px; border-radius: 14px; background: #f3efe4; color: #24202b; display: grid; grid-template-columns: 1fr 96px; gap: 12px; align-items: center; }
+  #ticket b { display: block; font: 800 22px/1.1 system-ui; }
+  #ticket .holo { height: 96px; border-radius: 50%; }
+  #ticket button { background: #24202b; color: #fff; margin-top: 8px; }
+
+  /* #region faces */
+  /* The badge has two faces in the same grid cell. Each is masked to vertical strips
+     6 px apart. --share, from the lean, is how much of each strip shows face B, so
+     the strips of one face widen until the other is gone, as on a printed lenticular. */
+  #badge { --share: clamp(0, calc(var(--fx-x) * 2.5 + 0.5), 1);
+    display: grid; border-radius: 14px; overflow: hidden; background: #111; }
+  #badge .face { grid-area: 1 / 1; box-sizing: border-box; padding: 16px 18px; min-height: 150px; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+  #badge .a { background: linear-gradient(135deg, #0e7c66, #0b3d5c);
+    mask-image: repeating-linear-gradient(90deg, #0000 0 calc(6px * var(--share)), #000 calc(6px * var(--share)) 6px); }
+  #badge .b { background: linear-gradient(135deg, #ffb347, #e0457b); color: #2a0f1c;
+    mask-image: repeating-linear-gradient(90deg, #000 0 calc(6px * var(--share)), #0000 calc(6px * var(--share)) 6px); }
+  /* The face that shows less takes no input. The page script sets data-face when the lean crosses zero. */
+  #badge[data-face="a"] .b, #badge[data-face="b"] .a { pointer-events: none; }
+  /* #endregion faces */
+  #badge b { font: 800 24px/1.1 system-ui; }
+  #badge button { align-self: flex-start; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Tilt the phone to light a live card</h1>
+  <p class="lede">
+    Three cards made of HTML, drawn through foil, hologram and lenticular shaders. Press "Use the phone's tilt" and tilt the phone: the
+    cards lean and their surfaces change with the angle. Without a sensor, move the pointer or drag a finger across the panel. The buttons
+    on the cards work while they lean. The third card has two faces and shows one or the other by angle.
+  </p>
+
+  <div class="bar">
+    <button type="button" id="sensor">Use the phone's tilt</button>
+    <button type="button" id="centre">Recentre</button>
+    <label>Lean <input type="range" id="lean" min="0" max="2" step="0.05" value="1" aria-label="How far the cards lean"></label>
+  </div>
+
+  <!-- #region markup -->
+  <div id="stage">
+    <div id="pay" fx="foil">
+      <span class="brand">Canvas Bank</span>
+      <span class="holo" role="img" aria-label="Hologram"></span>
+      <span class="chip"></span>
+      <button type="button" id="show" aria-pressed="false">Show number</button>
+      <span class="number" id="number">•••• •••• •••• 0042</span>
+      <span class="name">A. Lovelace</span>
+      <span class="name">12/29</span>
+    </div>
+
+    <div id="ticket" fx="hologram">
+      <div>
+        <b>Admit one</b>
+        Row 12, seat 4
+        <div><button type="button" id="scan">Scan 0</button></div>
+      </div>
+      <span class="holo" role="img" aria-label="Hologram seal"></span>
+    </div>
+
+    <div id="badge" fx="lenticular" data-face="a">
+      <div class="face a">
+        <b>Grace Hopper</b>
+        Speaker, hall B
+        <button type="button" id="checkin">Check in 0</button>
+      </div>
+      <div class="face b">
+        <b>Access code 4821</b>
+        Lean the other way for the name
+        <button type="button" id="copy">Mark as used 0</button>
+      </div>
+    </div>
+  </div>
+  <!-- #endregion markup -->
+
+  <p id="status" role="status">The lean follows the pointer. With no input for a moment it moves in a circle.</p>
+  <div id="route"></div>
+
+  <details class="show-code">
+    <summary>Show the code <small>tilt → custom properties → shader and hit box</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Three ordinary blocks. <code>fx</code> names the shader.</li>
+      <li data-code="#tilt"><b>The page script.</b> One call connects the tilt sensor and the pointer to <code>--fx-x</code> and <code>--fx-y</code>. The rest handles the button and the badge's faces.</li>
+      <li data-code="/lib/tilt-light.js#sensor"><b>Reading the sensor.</b> <code>requestPermission()</code> where it exists, then <code>deviceorientation</code> events measured from the first angle.</li>
+      <li data-code="/tilt-card/effects.js#lean"><b>The lean.</b> A perspective matrix from the two numbers. The library uses it for the picture and for hit testing.</li>
+      <li data-code="/tilt-card/effects.js#foil" data-lang="glsl"><b>The foil shader.</b></li>
+      <li data-code="/tilt-card/effects.js#common" data-lang="glsl"><b>The functions the three shaders share.</b></li>
+      <li data-code="#key"><b>Marking the hologram patch.</b></li>
+      <li data-code="/tilt-card/effects.js#hologram" data-lang="glsl"><b>The hologram shader.</b></li>
+      <li data-code="#faces"><b>Two faces, interleaved in CSS.</b></li>
+      <li data-code="/tilt-card/effects.js#lenticular" data-lang="glsl"><b>The lenses over them.</b></li>
+      <li data-code="/lib/shader-fx.js#render"><b>Inside the fx library: the upload and the draw.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li><code>tiltLight()</code> writes the lean to two custom properties on the panel. The <a href="/shader-css/">fx library</a> passes them to each card's shader as <code>u_xy</code> and to the card's <code>geometry</code> function, which returns a perspective matrix.</li>
+    <li>The picture of a card is uploaded once. While the phone tilts only the two numbers change, so the foil and hologram cards cost one draw per frame and no upload.</li>
+    <li>The shader cannot know which part of a card is the hologram. CSS paints that part magenta, and the shader replaces pixels close to magenta.</li>
+    <li>The lenticular card is the exception to "no upload". Its two faces are interleaved by CSS masks whose strip width is computed from <code>--fx-x</code>, so its picture changes with the lean and is uploaded again.</li>
+    <li>When the lean crosses zero the page sets <code>data-face</code> on the badge, which moves <code>pointer-events</code> to the face that shows more, and calls <code>navigator.vibrate(8)</code>.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own fixture in a corner of the window. The cards above are not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering and no orientation sensor. The rows above say what your browser does.</p>
+  <ul class="findings" id="findings">
+    <li><strong>Works: buttons on a leaning card.</strong> The perspective matrix goes to <code>updateElementGeometry()</code>, and <code>elementFromPoint()</code> finds a button at its drawn position at full lean.</li>
+    <li><strong>Works: a colour as a mask.</strong> A magenta block in the DOM is replaced by the shader. The edge of the block is one soft pixel. A card that falls back to plain HTML shows the magenta block.</li>
+    <li><strong>Works: lenticular faces in CSS.</strong> <code>mask-image</code> with a strip width from <code>calc()</code> of a registered property is applied in the picture, and the picture follows the property.</li>
+    <li><strong>Limit: one input face at a time.</strong> Both faces of the badge are in the same place. Which one takes a press is decided by script at the zero crossing, not by what each strip shows.</li>
+    <li><strong>Not verified here:</strong> everything about the sensor. The test browser has none, so the check above sends a synthetic <code>deviceorientation</code> event. Open on the phone: the event rate, the latency, whether Chrome on Android asks for permission, and whether <code>navigator.vibrate()</code> gives a tick at the flip. The web haptics API is not in the test browser and is not used.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/tilt-card/effects.js';
+  import { loadFx, sameOnWebGPU } from '/shared/fx-route.js';
+  import { tiltLight } from '/lib/tilt-light.js';
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const stage = $('stage');
+  await loadFx({ targets: () => stage.querySelectorAll('[fx]'), mount: $('route') });
+
+  // #region tilt
+  const light = tiltLight(stage);
+  const badge = $('badge');
+  light.onchange = () => {
+    const from = { sensor: `the tilt sensor, ${light.sensorRate} events a second`, pointer: 'the pointer', idle: 'the idle circle', rest: 'its rest position' }[light.source];
+    $('status').textContent = `Lean ${light.x.toFixed(2)}, ${light.y.toFixed(2)}, from ${from}.`;
+    // The badge: input goes to the face that shows more. A short buzz marks the flip.
+    const face = light.x > 0 ? 'b' : 'a';
+    if (badge.dataset.face !== face) {
+      badge.dataset.face = face;
+      if (light.source !== 'idle') navigator.vibrate?.(8);
+    }
+  };
+  $('sensor').onclick = async () => {
+    if (light.source === 'sensor') {
+      light.stopSensor();
+      $('sensor').textContent = "Use the phone's tilt";
+      return;
+    }
+    $('status').textContent = 'Waiting for the tilt sensor.';
+    const problem = await light.useSensor(); // asks for permission where the browser has that step
+    if (problem) $('status').textContent = `No tilt: ${problem}. The pointer still leans the cards.`;
+    else $('sensor').textContent = 'Stop using tilt';
+  };
+  $('centre').onclick = () => light.recentre();
+  // #endregion tilt
+
+  $('lean').oninput = () => stage.style.setProperty('--fx-amount', $('lean').value);
+  const counter = (id, label) => { let n = 0; $(id).onclick = () => ($(id).textContent = `${label} ${++n}`); };
+  counter('scan', 'Scan');
+  counter('checkin', 'Check in');
+  counter('copy', 'Mark as used');
+  $('show').onclick = () => {
+    const on = $('show').getAttribute('aria-pressed') !== 'true';
+    $('show').setAttribute('aria-pressed', on);
+    $('show').textContent = on ? 'Hide number' : 'Show number';
+    $('number').textContent = on ? '4821 7730 1954 0042' : '•••• •••• •••• 0042';
+  };
+  if (!supported) $('status').textContent = 'HTML-in-canvas is not available, so the cards are plain HTML and do not lean.';
+
+  // ---- live checks: every one on its own fixture ----
+  const need = () => { light.idle = false; if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const hitAt = (x, y) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { s.style.pointerEvents = 'none'; } };
+  async function fixture(fx, inner, vars) {
+    const holder = document.createElement('div');
+    holder.style.cssText = `flex:none;box-sizing:content-box;width:220px;padding:34px;${vars}`;
+    holder.innerHTML = `<div fx="${fx}" fx-backend="shared" style="width:220px;height:120px;box-sizing:border-box;padding:10px;background:#1b2a6b;color:#fff;font:600 16px system-ui;position:relative">${inner}</div>`;
+    quietStage().append(holder);
+    const el = holder.firstElementChild;
+    let s;
+    for (let i = 0; i < 240; i++) { s = el.closest('fx-surface'); if (s?.ready && s.frames) break; await sleep(25); }
+    if (!s?.ready) throw new Error('the fixture was never drawn');
+    // The first frame can be drawn before the element's picture is uploaded. Wait for a pixel of the card.
+    for (let i = 0; i < 80 && !pixelOf(s, 110, 4)[3]; i++) await sleep(25);
+    return { el, s, holder };
+  }
+  const picture = async (s) => { const c = s.snapshot(); return c.getImageData(0, 0, c.canvas.width, c.canvas.height); };
+  const changed = (a, b) => { let n = 0; for (let i = 0; i < a.data.length; i += 4) if (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2]) > 36) n++; return n / (a.data.length / 4); };
+  const pixelOf = (s, x, y) => { const c = s.snapshot(); return [...c.getImageData(Math.round((x + s.bleed) * s.scale), Math.round((y + s.bleed) * s.scale), 1, 1).data]; };
+
+  runTests($('results'), [
+    {
+      name: 'A button on a leaning card is found where it is drawn',
+      why: 'A card with a button in its right-hand corner, leaning fully to one side. getBoundingClientRect() of the button must move with the lean, and elementFromPoint() at the middle of that box must return the button.',
+      timeout: 12000,
+      run: async () => {
+        need();
+        const { el, holder } = await fixture('foil', '<button type="button" style="position:absolute;right:6px;bottom:6px;width:70px;height:40px;font:inherit">Press</button>', '--fx-x:0;--fx-y:0;--fx-amount:1');
+        const button = el.querySelector('button');
+        const flat = button.getBoundingClientRect();
+        holder.style.setProperty('--fx-x', '1');
+        holder.style.setProperty('--fx-y', '0.8');
+        await sleep(200);
+        const leaning = button.getBoundingClientRect();
+        const moved = Math.hypot(leaning.x - flat.x, leaning.y - flat.y) + Math.abs(leaning.width - flat.width);
+        const hit = hitAt(leaning.x + leaning.width / 2, leaning.y + leaning.height / 2);
+        if (moved < 1) throw new Error('the button box did not change when the card leaned');
+        if (hit !== button) throw new Error(`elementFromPoint() returned ${hit ? `<${hit.localName}>` : 'nothing'} at the drawn button`);
+        return `the button box changed by ${moved.toFixed(1)} px (now ${leaning.width.toFixed(0)} × ${leaning.height.toFixed(0)}); elementFromPoint() at its middle returns the button`;
+      },
+    },
+    {
+      name: 'The foil changes with the lean, with no new upload of the card',
+      why: 'The same card at two leans. The pictures must differ, and the DOM is not changed in between.',
+      timeout: 12000,
+      run: async () => {
+        need();
+        const { s, holder } = await fixture('foil', 'Foil', '--fx-x:-0.6;--fx-y:-0.2;--fx-amount:0');
+        const a = await picture(s);
+        holder.style.setProperty('--fx-x', '0.6');
+        await sleep(150);
+        const b = await picture(s);
+        const part = changed(a, b);
+        if (part < 0.03) throw new Error(`only ${(part * 100).toFixed(1)}% of the pixels changed`);
+        return `${(part * 100).toFixed(0)}% of the pixels changed between lean -0.6 and 0.6 (the card was kept flat with --fx-amount: 0, so this is the surface only)`;
+      },
+    },
+    {
+      name: 'A magenta block is replaced by the hologram',
+      why: 'A 60 px block with background #f0f inside a card. The pixel at its middle is read with fx="none" and with fx="hologram".',
+      timeout: 12000,
+      run: async () => {
+        need();
+        const inner = '<span style="position:absolute;left:20px;top:20px;width:60px;height:60px;background:#f0f"></span>';
+        const plain = await fixture('none', inner, '--fx-x:0.5;--fx-y:0;--fx-amount:0');
+        // A snapshot taken straight after the first frame can be empty, so read until the block is there.
+        let before = pixelOf(plain.s, 50, 50);
+        for (let i = 0; i < 60 && !before[3]; i++) { await sleep(50); before = pixelOf(plain.s, 50, 50); }
+        plain.holder.remove();
+        const holo = await fixture('hologram', inner, '--fx-x:0.5;--fx-y:0;--fx-amount:0');
+        let after = pixelOf(holo.s, 50, 50);
+        for (let i = 0; i < 60 && after[0] + after[1] + after[2] < 12; i++) { await sleep(50); after = pixelOf(holo.s, 50, 50); }
+        const outside = pixelOf(holo.s, 150, 50);
+        const magenta = (px) => px[0] > 220 && px[1] < 40 && px[2] > 220;
+        if (!magenta(before)) throw new Error(`the block was not magenta in the plain picture: ${before.slice(0, 3)}`);
+        if (magenta(after)) throw new Error('the block is still magenta under the shader');
+        if (after[0] + after[1] + after[2] < 12 || !after[3]) throw new Error(`the block is blank under the shader: ${after}`);
+        return `middle of the block: rgb ${before.slice(0, 3)} plain, ${after.slice(0, 3)} under the shader. The card beside it: ${outside.slice(0, 3)}`;
+      },
+    },
+    {
+      name: 'CSS masks interleave two faces by --fx-x',
+      why: 'Two faces in one grid cell, red and blue, masked to 6 px strips whose share comes from calc() of --fx-x. The picture is read at three leans and the red and blue pixels are counted.',
+      timeout: 12000,
+      run: async () => {
+        need();
+        const inner = `<style>.lf{position:absolute;inset:0}.lf.a{background:#f00;mask-image:repeating-linear-gradient(90deg,#0000 0 calc(6px*var(--share)),#000 calc(6px*var(--share)) 6px)}
+          .lf.b{background:#00f;mask-image:repeating-linear-gradient(90deg,#000 0 calc(6px*var(--share)),#0000 calc(6px*var(--share)) 6px)}</style><i class="lf a"></i><i class="lf b"></i>`;
+        const { el, s, holder } = await fixture('none', inner, '--fx-x:-0.4;--fx-y:0;--fx-amount:0');
+        el.style.setProperty('--share', 'clamp(0, calc(var(--fx-x) * 2.5 + 0.5), 1)');
+        const blue = async (x) => {
+          holder.style.setProperty('--fx-x', x);
+          await sleep(150);
+          const d = (await picture(s)).data;
+          let r = 0, b = 0;
+          for (let i = 0; i < d.length; i += 4) { if (d[i] > 150 && d[i + 2] < 100) r++; else if (d[i + 2] > 150 && d[i] < 100) b++; }
+          return b / Math.max(1, r + b);
+        };
+        const left = await blue('-0.4'), mid = await blue('0'), right = await blue('0.4');
+        if (!(left < 0.05 && mid > 0.3 && mid < 0.7 && right > 0.95)) throw new Error(`blue share ${left.toFixed(2)}, ${mid.toFixed(2)}, ${right.toFixed(2)} at lean -0.4, 0, 0.4`);
+        return `share of blue pixels ${left.toFixed(2)} at lean -0.4, ${mid.toFixed(2)} at 0, ${right.toFixed(2)} at 0.4`;
+      },
+    },
+    {
+      name: 'A deviceorientation event sets the lean',
+      why: 'The test cannot tilt the device, so it sends synthetic DeviceOrientationEvents to a tiltLight() of its own: one for the starting angle, one 14 degrees to the right. Also reports what the browser offers.',
+      timeout: 12000,
+      run: async () => {
+        if (!('DeviceOrientationEvent' in window)) throw new Error('this browser has no DeviceOrientationEvent');
+        const target = document.createElement('div');
+        quietStage().append(target);
+        const probe = tiltLight(target, { idle: false });
+        // useSensor() would ask for permission, which needs a tap. Listen the same way without asking.
+        const started = probe.useSensor({ ask: false });
+        dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 0, beta: 40, gamma: 0 }));
+        dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: 0, beta: 40, gamma: 14 }));
+        await sleep(600);
+        const x = Number(target.style.getPropertyValue('--fx-x')), y = Number(target.style.getPropertyValue('--fx-y'));
+        await started;
+        probe.destroy();
+        if (!(Math.abs(x - 0.5) < 0.06 && Math.abs(y) < 0.06)) throw new Error(`--fx-x ${x}, --fx-y ${y} after a 14 degree turn (expected 0.5, 0)`);
+        const offers = [`requestPermission() ${typeof DeviceOrientationEvent.requestPermission === 'function' ? 'exists' : 'does not exist'}`, `navigator.vibrate ${'vibrate' in navigator ? 'exists' : 'does not exist'}`, `navigator.haptics ${'haptics' in navigator ? 'exists' : 'does not exist'}`];
+        return `a 14 degree turn of 28 gives --fx-x ${x.toFixed(2)}, --fx-y ${y.toFixed(2)}. ${offers.join(', ')}. Real events: press "Use the phone's tilt" and read the line under the cards`;
+      },
+    },
+    sameOnWebGPU(['foil', 'hologram', 'lenticular'], { vars: '--fx-progress:0;--fx-amount:1;--fx-x:0.5;--fx-y:-0.3', limit: 2.5 }),
+  ]).finally(() => { light.idle = true; });
+</script>
+</body>
+</html>
