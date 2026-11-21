@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Keycaps drawn from kbd</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; height: 440px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #14161d; }
+  #stage canvas { display: block; width: 100%; height: 100%; touch-action: manipulation; }
+
+  #stage.is-plain { height: auto; background: var(--card); padding: 8px 12px; }
+
+  /* #region styles */
+  .keys { position: relative; box-sizing: border-box; width: 100%; max-width: 560px; margin: 0 auto; padding: 12px 14px; color: #c9cede; font: 14px/1.3 system-ui, sans-serif; outline: none; -webkit-tap-highlight-color: transparent; }
+  .keys ul { list-style: none; margin: 0 0 10px; padding: 0; }
+  .keys li { display: flex; align-items: center; justify-content: space-between; gap: 10px; height: 44px; padding: 0 8px; }
+  .keys .combo { display: flex; gap: 6px; align-items: center; }
+  .keys .hits { font: 12px ui-monospace, Menlo, Consolas, monospace; color: #8f96ab; min-width: 2ch; text-align: right; }
+  .keys .board { display: grid; gap: 8px; }
+  .keys .row { display: flex; gap: 4px; justify-content: center; }
+  /* A kbd has no background of its own here. The canvas draws the cap and moves the legend with it. */
+  .keys kbd { box-sizing: border-box; display: inline-grid; place-items: center; min-width: 32px; height: 32px; padding: 0 9px; margin-bottom: 4px;
+    font: 600 13px/1 system-ui, sans-serif; color: #eef0f8; background: none; border: 0; border-radius: 7px; user-select: none; cursor: pointer; }
+  .keys .board kbd { flex: 1 1 0; min-width: 0; max-width: 46px; padding: 0; }
+  .keys .board kbd.wide { flex-grow: 1.7; max-width: 80px; font-size: 11px; }
+  .keys .board kbd.space { flex-grow: 5; max-width: 260px; }
+  /* #endregion styles */
+
+  /* The same elements as plain HTML, where the canvas cannot draw them. */
+  .plain-html .keys { color: var(--fg); }
+  .plain-html .keys kbd { color: var(--fg); border: 1px solid var(--line); background: var(--card); }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 10px 0 4px; min-height: 44px; }
+  .controls label { font-size: 14px; display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .controls input[type=text] { font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); width: 190px; max-width: 100%; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 4.2em; margin: 4px 0; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Keycaps drawn from kbd</h1>
+  <p class="lede">
+    A list of shortcuts and a small keyboard, written with <code>&lt;kbd&gt;</code> elements. The canvas draws each <code>&lt;kbd&gt;</code> as a keycap. Hold a key on a hardware keyboard and its cap goes down
+    until the key comes up. On a phone, press a cap with a finger, or type in the field under the canvas with the on-screen keyboard. A row of the list lights while all of its keys are down.
+  </p>
+  <p id="support"></p>
+
+  <div id="stage">
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <!-- #region markup -->
+      <section id="sheet" class="keys" drawable tabindex="0" aria-label="Keyboard shortcuts. Press a key to see its cap go down.">
+        <ul>
+          <li class="all"><span class="combo"><kbd>Ctrl</kbd> <kbd>K</kbd></span> <span>Search</span> <span class="hits">0</span></li>
+          <li class="all"><span class="combo"><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>P</kbd></span> <span>Command list</span> <span class="hits">0</span></li>
+          <li class="all"><span class="combo"><kbd>Shift</kbd> <kbd>?</kbd></span> <span>Show shortcuts</span> <span class="hits">0</span></li>
+          <li class="any"><span class="combo"><kbd data-key="arrowleft">←</kbd> <kbd data-key="arrowup">↑</kbd> <kbd data-key="arrowdown">↓</kbd> <kbd data-key="arrowright">→</kbd></span> <span>Move</span> <span class="hits">0</span></li>
+          <li class="all"><span class="combo"><kbd data-key="escape">Esc</kbd></span> <span>Close</span> <span class="hits">0</span></li>
+        </ul>
+        <div class="board" id="board"></div>
+      </section>
+      <!-- #endregion markup -->
+    </canvas>
+  </div>
+
+  <div class="controls">
+    <label>On-screen keyboard: <input type="text" id="soft" placeholder="Type here on a phone" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="enter"></label>
+    <button type="button" id="wave">Send a wave</button>
+  </div>
+  <p id="status">&nbsp;</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>each legend is a piece of the section's picture, moved by key events</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The shortcuts.</b> Plain <code>&lt;kbd&gt;</code> elements in one <code>drawable</code> section.</li>
+      <li data-code="#styles"><b>The styles.</b> A <code>&lt;kbd&gt;</code> keeps its box and its legend and has no background.</li>
+      <li data-code="#input"><b>The input.</b> <code>keydown</code>, <code>keyup</code>, pointer events on the caps and <code>beforeinput</code> from the text field.</li>
+      <li data-code="#cap"><b>One cap.</b> The well, the side, the face, then the legend at the same offset.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> The section once, then every key.</li>
+      <li data-code="#layout"><b>Legends from the keyboard layout</b>, where <code>navigator.keyboard.getLayoutMap()</code> exists.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>The section is one <code>drawable</code> child of the canvas, and its picture holds every label, counter and legend. On <code>paint</code> the canvas draws the section once. Then, for each <code>&lt;kbd&gt;</code>, it draws
+    a dark well, the side of the cap and the face over the legend at rest, and copies the box of the <code>&lt;kbd&gt;</code> from the section's picture onto the face with the nine-argument <code>drawElementImage()</code>.
+    A pressed key gets its face and its legend 5 px lower. <code>offsetLeft</code> and <code>offsetTop</code> give the box of each key.</p>
+  <p>The first version of this page gave every <code>&lt;kbd&gt;</code> the <code>drawable</code> attribute and drew each one with its own call. That works in a small canvas, and a live check below still does it.
+    On this page the keys that were below the bottom edge of the window had empty pictures. The Findings section has the details.</p>
+  <p>A key goes down on <code>keydown</code> and comes up on <code>keyup</code>. The keys of the keyboard block are matched by <code>event.code</code>, which names the physical key. The keys in the list are matched by
+    <code>event.key</code>. A spring moves each cap, and each press starts a ring that travels outward and dips the keys it passes. The page asks for frames only while a cap or a ring is moving.</p>
+  <p>The on-screen keyboard of Chrome for Android reports most keys as <code>key: "Unidentified"</code> in <code>keydown</code>. The text field under the canvas reads the typed character from
+    <code>beforeinput</code> and presses the matching cap for 140 ms. The line under the field shows the last event as the browser reported it.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own fixtures in the corner of the window, after a tap on the button. They send key events to the fixture, not to the page.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul>
+    <li>A piece of the section's picture, drawn with the nine-argument <code>drawElementImage()</code>, moves a legend without making the <code>&lt;kbd&gt;</code> a drawable of its own. Pointer events still reach the
+      <code>&lt;kbd&gt;</code>: hit testing inside the drawn section finds it at its layout position.</li>
+    <li>A <code>&lt;kbd drawable&gt;</code> inside a <code>drawable</code> section is left out of the section's picture and draws with its own call. In Chromium 157 the picture of such a nested drawable holds only the part of it that is
+      inside the window. A direct child of the canvas is recorded whole, wherever it is. The last live check measures both.</li>
+    <li>Changing the text of a <code>&lt;kbd&gt;</code> (the layout map does this) fires <code>paint</code> with no call from the page.</li>
+    <li><code>navigator.keyboard.getLayoutMap()</code> returns the character on each physical key in a top-level page on desktop Chromium. The page uses it to relabel the keyboard block. Chrome for Android does not have it, and the block keeps its QWERTY labels.</li>
+    <li>A <code>keyup</code> can be lost: when the window loses focus while a key is down, and on macOS for keys released while the Command key is held. The page releases every key on <code>blur</code> and when the Meta key comes up.</li>
+    <li>With one drawable per key, the keys below the bottom edge of the window at load were blank on this page, and scrolling them into the window did not paint them. <code>drawElementImage()</code> did not throw.
+      A paint-affecting style change on a key while it was inside the window (<code>text-shadow: 0 0 0 transparent</code>) made the browser record it. The page no longer depends on this.</li>
+    <li>Not verified: Chrome 159 for Android. What the on-screen keyboard reports in <code>keydown</code> and <code>beforeinput</code>, whether a finger press holds a cap down, and whether a hardware keyboard paired with the phone gives <code>event.code</code>.
+      Type in the field and read the line under it.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage } from '/shared/support.js';
+  import { supported, mount, draw, piece, home, plain, fixtureCanvas } from '/lib/text-canvas.js';
+  banner();
+
+  const canvas = document.getElementById('canvas'), sheet = document.getElementById('sheet'), status = document.getElementById('status');
+  const DEPTH = 5;
+
+  // The keyboard block. Each key names its physical key in data-code.
+  const ROWS = ['QWERTYUIOP', 'ASDFGHJKL', 'ZXCVBNM'];
+  const board = document.getElementById('board');
+  const kbd = (label, attrs = {}, cls = '') => { const k = document.createElement('kbd'); k.textContent = label; k.className = cls; Object.assign(k.dataset, attrs); return k; };
+  ROWS.forEach((letters, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    if (i === 2) row.append(kbd('Shift', { key: 'shift' }, 'wide'));
+    for (const ch of letters) row.append(kbd(ch, { code: 'Key' + ch }));
+    if (i === 2) row.append(kbd('⌫', { key: 'backspace' }, 'wide'));
+    board.append(row);
+  });
+  const last = document.createElement('div');
+  last.className = 'row';
+  last.append(kbd('Ctrl', { key: 'control' }, 'wide'), kbd('Space', { key: ' ' }, 'space'), kbd('Enter', { key: 'enter' }, 'wide'));
+  board.append(last);
+
+  const NAMES = { ctrl: 'control', esc: 'escape', space: ' ', cmd: 'meta', '⌘': 'meta', alt: 'alt', '⌥': 'alt', del: 'delete', '⇧': 'shift', '↵': 'enter' };
+  const keyName = (k) => k.dataset.key ?? NAMES[k.textContent.trim().toLowerCase()] ?? k.textContent.trim().toLowerCase();
+
+  // One keyboard: a canvas, the drawn section and the object that key events arrive on.
+  function keyboard(canvas, root, target) {
+    const keys = [...root.querySelectorAll('kbd')].map((el) => ({ el, v: 0, vel: 0, down: new Set(), glow: 0 }));
+    const rows = [...root.querySelectorAll('li.all, li.any')].map((li) => ({ li, keys: keys.filter((k) => li.contains(k.el)), any: li.classList.contains('any'), on: false, light: 0 }));
+    const rings = [];
+    let then = 0, log = '';
+    const find = (e) => keys.filter((k) => (k.el.dataset.code ? k.el.dataset.code === e.code : keyName(k.el) === (e.key ?? '').toLowerCase()));
+
+    // #region input
+    // `why` says who is holding the key: the keyboard, a pointer id or a timer. A key is down while anyone holds it.
+    function hold(key, why, down) {
+      const was = key.down.size > 0;
+      if (down) key.down.add(why); else key.down.delete(why);
+      const now = key.down.size > 0;
+      if (now === was) return;
+      key.el.toggleAttribute('data-down', now);
+      if (now) rings.push({ x: key.el.offsetLeft + key.el.offsetWidth / 2, y: key.el.offsetTop + key.el.offsetHeight / 2, t0: performance.now() });
+      view.request();
+    }
+    const releaseAll = (why) => { for (const k of keys) hold(k, why, false); };
+
+    target.addEventListener('keydown', (e) => {
+      log = `keydown key "${e.key}" code "${e.code}" keyCode ${e.keyCode}`;
+      for (const k of find(e)) hold(k, 'keyboard', true);
+      // Space and the arrows scroll the page. Stop that only while the keyboard picture has focus.
+      if (document.activeElement === root && [' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) e.preventDefault();
+      report();
+    });
+    target.addEventListener('keyup', (e) => {
+      for (const k of find(e)) hold(k, 'keyboard', false);
+      // macOS sends no keyup for keys released while Command is down.
+      if (e.key === 'Meta') releaseAll('keyboard');
+    });
+    target.addEventListener('blur', () => releaseAll('keyboard'));
+
+    // A finger or the mouse on a cap. Hit testing inside the drawn section finds the kbd.
+    root.addEventListener('pointerdown', (e) => {
+      const key = keys.find((k) => k.el === e.target.closest?.('kbd'));
+      if (!key) return;
+      hold(key, e.pointerId, true);
+      root.focus({ preventScroll: true });
+      log = `pointerdown on <kbd>${key.el.textContent}</kbd>`;
+      report();
+    });
+    for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, (e) => { for (const k of keys) hold(k, e.pointerId, false); });
+
+    // The on-screen keyboard: press the cap for the character that was typed.
+    function tap(name, code) {
+      for (const k of find({ key: name, code })) { hold(k, 'tap', true); setTimeout(() => hold(k, 'tap', false), 140); }
+    }
+    // #endregion input
+
+    // #region cap
+    function cap(ctx, key, lit) {
+      const el = key.el, x = el.offsetLeft, y = el.offsetTop, w = el.offsetWidth, h = el.offsetHeight;
+      const v = Math.max(-0.2, key.v + key.glow * 0.4), d = DEPTH * Math.min(1.15, v), press = Math.min(1, Math.max(0, key.v));
+      ctx.fillStyle = '#07080b';
+      ctx.beginPath(); ctx.roundRect(x - 1.5, y, w + 3, h + DEPTH + 2, 9); ctx.fill();
+      // The side of the cap. Less of it shows as the face goes down.
+      ctx.fillStyle = '#1d2030';
+      ctx.beginPath(); ctx.roundRect(x, y + d, w, h + DEPTH - d, 8); ctx.fill();
+      const face = ctx.createLinearGradient(0, y + d, 0, y + d + h);
+      face.addColorStop(0, press > 0.5 ? '#4a4f68' : '#4d5270');
+      face.addColorStop(1, '#343850');
+      ctx.fillStyle = face;
+      ctx.beginPath(); ctx.roundRect(x, y + d, w, h, 7); ctx.fill();
+      const light = Math.min(1, press * 0.75 + key.glow + lit * 0.5);
+      if (light > 0.01) {
+        ctx.fillStyle = `rgb(255 122 77 / ${0.16 * light})`;
+        ctx.beginPath(); ctx.roundRect(x - 4, y + d - 4, w + 8, h + 8, 11); ctx.fill();
+        ctx.fillStyle = `rgb(255 122 77 / ${0.55 * light})`;
+        ctx.beginPath(); ctx.roundRect(x, y + d, w, h, 7); ctx.fill();
+      }
+      ctx.strokeStyle = 'rgb(255 255 255 / .16)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(x + 0.5, y + d + 0.5, w - 1, h - 1, 6.5); ctx.stroke();
+      // The legend: the kbd's box, cut from the section's picture and drawn at the cap's position.
+      piece(ctx, root, x, y, w, h, x, y + d);
+    }
+    // #endregion cap
+
+    // #region paint
+    const view = mount(canvas, (ctx, w, h, now) => {
+      const dt = Math.min(0.032, (now - then) / 1000 || 0.016);
+      then = now;
+      // The section is centred in the canvas.
+      const ox = Math.round((w - root.offsetWidth) / 2);
+      let moving = false;
+      while (rings.length && now - rings[0].t0 > 1100) rings.shift();
+      for (const key of keys) {
+        // A spring pulls the cap to 1 while the key is down and to 0 when it is up.
+        const to = key.down.size ? 1 : 0;
+        key.vel += ((to - key.v) * 900 - key.vel * 36) * dt;
+        key.v += key.vel * dt;
+        if (Math.abs(to - key.v) < 0.002 && Math.abs(key.vel) < 0.02) { key.v = to; key.vel = 0; } else moving = true;
+        // Rings from other presses: a key glows and dips as a ring passes it.
+        key.glow = 0;
+        const cx = key.el.offsetLeft + key.el.offsetWidth / 2, cy = key.el.offsetTop + key.el.offsetHeight / 2;
+        for (const ring of rings) {
+          const age = (now - ring.t0) / 1000, gap = Math.hypot(cx - ring.x, cy - ring.y) - age * 460;
+          key.glow += Math.exp(-((gap / 26) ** 2)) * Math.max(0, 1 - age / 1.1) * 0.8;
+        }
+      }
+      if (rings.length) moving = true;
+      ctx.translate(ox, 0);
+      for (const row of rows) {
+        const on = row.any ? row.keys.some((k) => k.down.size) : row.keys.every((k) => k.down.size);
+        // Count each time a whole shortcut is held. The counter is text in the section, so this fires paint.
+        if (on && !row.on) row.li.querySelector('.hits').textContent = +row.li.querySelector('.hits').textContent + 1;
+        row.on = on;
+        row.light += ((on ? 1 : 0) - row.light) * Math.min(1, dt * 14);
+        if (Math.abs((on ? 1 : 0) - row.light) > 0.01) moving = true;
+        if (row.light > 0.01) {
+          ctx.fillStyle = `rgb(255 122 77 / ${0.2 * row.light})`;
+          ctx.beginPath(); ctx.roundRect(row.li.offsetLeft, row.li.offsetTop + 2, row.li.offsetWidth, row.li.offsetHeight - 4, 10); ctx.fill();
+        }
+      }
+      // The section once: labels, counters and every legend at rest. Each cap is then drawn over its legend.
+      draw(ctx, root, 0, 0);
+      for (const row of rows) for (const key of row.keys) key.lit = row.light;
+      for (const key of keys) cap(ctx, key, key.lit ?? 0);
+      // Drawing pieces moved the section's hit region. Put it back.
+      home(ctx, root, 0, 0);
+      return moving;
+    });
+    // #endregion paint
+
+    let report = () => {};
+    return { view, keys, hold, tap, rings, find, onReport: (fn) => { report = () => fn(log, [...new Set(keys.filter((k) => k.down.size).map((k) => k.el.textContent))]); } };
+  }
+
+  if (!supported) {
+    plain(canvas);
+  } else {
+    const kb = keyboard(canvas, sheet, window);
+    let layoutNote = 'navigator.keyboard.getLayoutMap() is not in this browser. The block keeps its QWERTY labels.';
+    const say = (log, down) => { status.textContent = `Last event: ${log || 'none yet'}. Keys down: ${down.join(' ') || 'none'}. ${layoutNote}`; };
+    kb.onReport(say);
+    say('', []);
+
+    // #region layout
+    // Relabel the keyboard block with the characters of the person's own layout (AZERTY, Dvorak and so on).
+    navigator.keyboard?.getLayoutMap?.().then((map) => {
+      let changed = 0;
+      for (const { el } of kb.keys) {
+        const ch = el.dataset.code && map.get(el.dataset.code);
+        if (ch && ch.length === 1 && ch.toUpperCase() !== el.textContent) { el.textContent = ch.toUpperCase(); changed++; }
+      }
+      layoutNote = `getLayoutMap() returned ${map.size} keys. ${changed} labels changed.`;
+      say('', []);
+    }, (err) => { layoutNote = `getLayoutMap() failed: ${err.message}`; say('', []); });
+    // #endregion layout
+
+    const soft = document.getElementById('soft');
+    soft.addEventListener('beforeinput', (e) => {
+      const ch = e.data ? e.data.slice(-1) : '';
+      if (e.inputType === 'deleteContentBackward') kb.tap('backspace');
+      else if (e.inputType === 'insertLineBreak') kb.tap('enter');
+      else if (ch) kb.tap(ch.toLowerCase(), /[a-z]/i.test(ch) ? 'Key' + ch.toUpperCase() : '');
+      say(`beforeinput ${e.inputType} data "${e.data ?? ''}"`, ch ? [ch.toUpperCase()] : []);
+      if (soft.value.length > 24) soft.value = '';
+    });
+    document.getElementById('wave').onclick = () => {
+      const c = kb.keys[Math.floor(Math.random() * kb.keys.length)].el;
+      kb.rings.push({ x: c.offsetLeft + c.offsetWidth / 2, y: c.offsetTop + c.offsetHeight / 2, t0: performance.now() });
+      kb.view.request();
+    };
+  }
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const NESTED = '<section class="keys" drawable style="width:200px;padding:10px;margin:0"><ul><li class="all"><span class="combo"><kbd drawable>Ctrl</kbd> <kbd drawable>K</kbd></span> <span>Search</span></li></ul></section>';
+  const SHEET = '<section class="keys" drawable style="width:200px;padding:10px;margin:0"><ul><li class="all"><span class="combo"><kbd>Ctrl</kbd> <kbd>K</kbd></span> <span>Search</span> <span class="hits">0</span></li></ul></section>';
+  const light = (r, g, b, a) => a > 200 && r > 215 && g > 215 && b > 215;
+  // The first row of a rectangle that has legend pixels in it.
+  const inkTop = (fx, x, y, w, h) => { for (let row = 0; row < h; row += 0.5) if (fx.count(x, y + row, w, 0.5, light) > 0) return row; return -1; };
+
+  runTests(document.getElementById('tests'), [
+    { name: 'The route tried first: a kbd with drawable is left out of its parent\'s picture and draws on its own', expect: 'pass', why: 'Draw the section alone and count pixels in the box of the K key. Then draw the kbd alone.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), NESTED, 220, 80), k = fx.el.querySelectorAll('kbd')[1];
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        const inParent = fx.count(k.offsetLeft, k.offsetTop, k.offsetWidth, k.offsetHeight);
+        const labels = fx.count(0, 0, 220, 80);
+        fx.start(); draw(fx.ctx, k, k.offsetLeft, k.offsetTop);
+        const alone = fx.count(k.offsetLeft, k.offsetTop, k.offsetWidth, k.offsetHeight);
+        return need(inParent === 0 && labels > 50 && alone > 10, `Section alone: ${inParent} pixels in the key's box, ${labels} elsewhere. The kbd alone: ${alone} pixels.`);
+      } },
+    { name: 'keydown moves the legend down by 5 px and keyup returns it', expect: 'pass', why: 'A KeyboardEvent with key "k" is dispatched on the fixture. The legend\'s top row of pixels is found before, during and after.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), SHEET, 220, 80), k = fx.el.querySelectorAll('kbd')[1];
+        const kb = keyboard(fx.canvas, fx.el, fx.canvas);
+        const top = async () => { await fx.paint(); await sleep(450); await fx.paint(); return inkTop(fx, k.offsetLeft + 10, k.offsetTop - 2, k.offsetWidth, k.offsetHeight + 12); };
+        const up = await top();
+        fx.canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK' }));
+        const down = await top();
+        fx.canvas.dispatchEvent(new KeyboardEvent('keyup', { key: 'k', code: 'KeyK' }));
+        const back = await top();
+        return need(up >= 0 && Math.abs(down - up - DEPTH) <= 1 && Math.abs(back - up) <= 0.5, `Legend top at ${up} px, ${down} px while down, ${back} px after keyup.`);
+      } },
+    { name: 'Holding every key of a shortcut lights its row and adds one to its counter', expect: 'pass', why: 'keydown for Control, then for K, on the fixture. The counter is text in the drawn section.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), SHEET, 220, 80);
+        keyboard(fx.canvas, fx.el, fx.canvas);
+        fx.canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'Control', code: 'ControlLeft' }));
+        await sleep(200);
+        const one = fx.el.querySelector('.hits').textContent;
+        fx.canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', code: 'KeyK' }));
+        await sleep(400);
+        const both = fx.el.querySelector('.hits').textContent;
+        const orange = fx.count(4, 12, 200, 40, (r, g, b, a) => a > 200 && r > 60 && r > b * 1.5 && g < r);
+        return need(one === '0' && both === '1' && orange > 200, `Counter ${one} with Control alone, ${both} with both. ${orange} lit pixels in the row.`);
+      } },
+    { name: 'A point on a cap hit tests to its kbd', expect: 'pass', why: 'Only the section is a drawable. elementFromPoint() at the middle of the K cap, up and held down.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), SHEET, 220, 80), k = fx.el.querySelectorAll('kbd')[1];
+        const kb = keyboard(fx.canvas, fx.el, fx.canvas);
+        await fx.paint(); await sleep(100);
+        const at = fx.canvas.getBoundingClientRect();
+        const probe = () => document.elementFromPoint(at.x + (220 - fx.el.offsetWidth) / 2 + k.offsetLeft + k.offsetWidth / 2, at.y + k.offsetTop + k.offsetHeight / 2);
+        const up = probe();
+        kb.hold(kb.keys[1], 'check', true);
+        await sleep(450);
+        const down = probe();
+        return need(up === k && down === k, `Up: <${up?.localName}>. Down: <${down?.localName}>.`);
+      } },
+    { name: 'Changing a legend fires paint', expect: 'pass', why: 'kbd.textContent is set, as the layout map does. No requestPaint() call.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), SHEET, 220, 80), k = fx.el.querySelectorAll('kbd')[1];
+        fx.start(); draw(fx.ctx, fx.el, 0, 0);
+        await sleep(100);
+        let changed = [];
+        fx.canvas.addEventListener('paint', (e) => { changed = (e.changedElements ?? []).map((el) => el.localName); }, { once: true });
+        k.textContent = 'Q';
+        const n = await fx.quiet(300);
+        return need(n > 0, `${n} paint events. changedElements: ${changed.join(', ') || 'empty'}.`);
+      } },
+    { name: 'navigator.keyboard.getLayoutMap() resolves with the characters on the physical keys', expect: navigator.keyboard?.getLayoutMap ? 'pass' : 'fail',
+      why: 'Desktop Chromium has it in a top-level page. Chrome for Android does not. A headless browser has no keyboard and returns an empty map.',
+      run: async () => {
+        need(navigator.keyboard?.getLayoutMap, 'navigator.keyboard.getLayoutMap is not defined.');
+        const map = await navigator.keyboard.getLayoutMap();
+        return `${map.size} keys.` + (map.size ? ` KeyQ is "${map.get('KeyQ')}", KeyZ is "${map.get('KeyZ')}".` : '');
+      } },
+    { name: 'A nested drawable wider than the window has a whole picture', expect: 'fail',
+      why: 'A line of 700 letters, about 6700 px wide. Letter 3 and letter 690 are each copied to the canvas. First with the line nested in a drawable section, then with the line as a direct child of the canvas.',
+      run: async () => {
+        const line = '<div class="fx-line" drawable style="position:absolute;left:0;top:0;width:max-content;white-space:pre;font:16px monospace;color:#fff">' + 'M'.repeat(700) + '</div>';
+        const measure = async (html, pick) => {
+          const fx = await fixtureCanvas(testStage(), html, 220, 60), el = pick(fx);
+          const w = el.offsetWidth / 700, h = el.offsetHeight;
+          const ink = (i) => { fx.start(); piece(fx.ctx, el, i * w, 0, w, h, 20, 10); return fx.count(20, 10, w, h); };
+          const out = [ink(3), ink(690)];
+          fx.canvas.remove();
+          return out;
+        };
+        const nested = await measure('<section drawable style="position:relative;width:200px;height:50px">' + line + '</section>', (fx) => fx.el.firstElementChild);
+        const direct = await measure(line, (fx) => fx.el);
+        need(direct[0] > 0 && direct[1] > 0, `As a direct child of the canvas, letter 3 drew ${direct[0]} pixels and letter 690 drew ${direct[1]}.`);
+        return need(nested[0] > 0 && nested[1] > 0, `Nested: letter 3 drew ${nested[0]} pixels, letter 690 drew ${nested[1]}. Direct child of the canvas: ${direct[0]} and ${direct[1]}.`);
+      } },
+  ]);
+</script>
+</body>
+</html>
