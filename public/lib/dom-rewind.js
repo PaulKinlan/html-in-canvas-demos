@@ -198,6 +198,7 @@ export class DomRewind extends HTMLElement {
     return true;
   }
 
+  // #region frames
   /**
    * The recorded history as pictures, oldest first, for recording or export:
    *   for await (const { time, bitmap } of rw.frames({ seconds: 5, fps: 30 })) { … bitmap.close(); }
@@ -222,6 +223,7 @@ export class DomRewind extends HTMLElement {
       this.#dirty = true;
     }
   }
+  // #endregion frames
 
   /** Forget the history. */
   clear() {
