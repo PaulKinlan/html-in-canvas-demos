@@ -118,8 +118,8 @@ One row per main result. "Section" is the section of this file with the detail.
 | A page gets about 16 WebGL contexts. Past six to eight shaded elements, sharing one context (draw to 2D, upload, shade, copy back) gives pixel-identical output. | measured | C157 | `/shader-css/`, `/slot-effects/` | UI primitives; Named effects and shader slots |
 | A canvas keeps its first context type. Switching between 2D, WebGL and WebGPU means swapping the canvas. | measured | C157 | `/slot-effects/` | Named effects and shader slots |
 | A dying WebGL context fails shader compiles with an empty log before `isContextLost()` is true. | measured | C157 | `/shader-css/` | UI primitives, Touch, top layer and live checks |
-| A WebGL canvas losing its context fires `webglcontextlost`, not `contextlost`. | measured | C157 | `/selection/` | PR #49 |
-| `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas that holds an element texture crashed the tab in two check fixtures. A smaller case did not crash. | measured | C157 | `/selection/`, `/player-fx/` | PR #49; PR #51 |
+| A WebGL canvas losing its context fires `webglcontextlost`, not `contextlost`. | measured | C157 | `/selection/` | Text selection |
+| `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas that holds an element texture crashed the tab in two check fixtures. A smaller case did not crash. | measured | C157 | `/selection/`, `/player-fx/` | Text selection; Video and sound |
 | An animated transparent WebGL canvas with drawable children became a solid white block on the phone. | reported | A159 | `/particles/` | Transitions and motion |
 
 ### WebGPU: drawElementImageToTexture()
@@ -141,14 +141,14 @@ One row per main result. "Section" is the section of this file with the detail.
 | Result | Label | Browser | Page | Section |
 |---|---|---|---|---|
 | Every element that lays out a box draws and hit tests: 150 of 180 entries work, 4 partly, 3 are blank, 22 have no box, 1 could not be measured. | measured | C157 | `/elements/` | PR #48 |
-| Focus rings, carets, typed text, selection highlight, `::selection` colours, `::highlight()`, IME composing text, forced colours and system colours are painted. | measured | C157 | `/a11y/`, `/selection/` | Accessibility; PR #49 |
+| Focus rings, carets, typed text, selection highlight, `::selection` colours, `::highlight()`, IME composing text, forced colours and system colours are painted. | measured | C157 | `/a11y/`, `/selection/` | Accessibility; Text selection |
 | The top layer is not in the picture: a modal `<dialog>`, a popover, and the picker of a `base-select` select are painted by the page. | measured | C157 | `/transitions/`, `/select/`, `/elements/` | Transitions and motion; Customisable select; PR #48 |
 | A cross-origin iframe, a cross-origin image or video without CORS, and a sandboxed opaque-origin iframe are left out. The canvas stays readable. A blank cross-origin iframe still takes clicks where it is drawn. | measured | C157 | `/cross-origin/`, `/capture/`, `/video/`, `/elements/` | Tabs and origins; Capture; Video and sound; PR #48 |
 | Clear Key encrypted video is drawn black. The canvas is not tainted. | measured | C157 | `/video/` | Video and sound |
 | Same-origin iframes paint, take input at any zoom and nest. | measured | C157 | `/board/` | 3D and spatial |
 | Links are drawn as unvisited. | measured | C153 | `/chrome-apis/probes.html` | PR #50 |
 | Spelling markers on a `spellcheck` textarea are not drawn. | measured | C157 | `/native-ui/` | Native UI toolkits |
-| Find-in-page marks, `::target-text`, autofill previews. | not verified | | | Transitions and motion; PR #49 |
+| Find-in-page marks, `::target-text`, autofill previews. | not verified | | | Transitions and motion; Text selection |
 | Permission elements (`<geolocation>` and others) are drawn and report themselves invalid (`intersection_occluded_or_distorted`). | measured | C157 | `/elements/`, `/chrome-apis/probes.html` | PR #48; PR #50 |
 | A `float16` `display-p3` 2D canvas keeps values above 1.0 from a drawn element (4.0 read back as 1.82). | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
 | Recent CSS is applied in the picture: `corner-shape`, `border-shape`, `clip-path: shape()`, gap decorations, `text-fit`, `caret-shape`, `::scroll-marker`, `::scroll-button()`. | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
@@ -189,7 +189,7 @@ One row per main result. "Section" is the section of this file with the detail.
 | Tab order is DOM order. `window.find()` finds and highlights text. Mouse drag and double click select. | measured | C157 | `/a11y/` | Accessibility |
 | A drawable child that is never drawn is still a Tab stop and in the accessibility tree, at the canvas origin. `inert` fixes it. | measured | C157 | `/a11y/` | Accessibility |
 | A pixel mirror (another tab, another origin, a video) has no role, name, focus or text. | measured | C157 | `/a11y/` | Accessibility |
-| Selection hit testing follows the drawn geometry, also rotated and scaled. `Range.getClientRects()` follows the drawn position and returns upright bounding boxes under rotation. | measured | C157 | `/selection/` | PR #49 |
+| Selection hit testing follows the drawn geometry, also rotated and scaled. `Range.getClientRects()` follows the drawn position and returns upright bounding boxes under rotation. | measured | C157 | `/selection/` | Text selection |
 | Screen reader output, IME candidate windows, the find bar, OS magnifiers. | not verified | | `/a11y/` section C | Accessibility |
 
 ### Form controls and pickers
@@ -250,7 +250,7 @@ One row per main result. "Section" is the section of this file with the detail.
 | After the fixes all 28 pages measured hold still on load. | measured, phone emulation | C157 | `npm run check:jank` | Pages that hold still |
 | Paul tried the fixes on his phone and said "I think it all works". No pages were named. | reported | A159 | | not in a section; project notes, 2026-11-20 |
 | `/embed/` ended as a white box on the phone. The cause was not reproduced. | reported | A159 | `/embed/` | Cross-context, Live checks and lost pictures |
-| New pages showed a white box with a broken-picture icon on first load: a canvas with a lost context. | reported | A159 | `/selection/` and other new pages | PR #49 |
+| New pages showed a white box with a broken-picture icon on first load: a canvas with a lost context. | reported | A159 | `/selection/` and other new pages | Text selection |
 | The cause is several WebGL contexts and a WebGPU device opened at once. | inferred | | | PLAN.md, Site-wide work that is open |
 | `dvh` on a canvas stage resizes it each time the URL bar moves. Assigning `canvas.width` clears the canvas even when the value is unchanged. | measured | C157 | `/board/` | Pages that hold still |
 | An opacity effect around a drawable canvas inside an iframe that is itself drawn into a canvas crashes the tab. | measured | C157 | `/board/` | Pages that hold still |
@@ -317,7 +317,7 @@ Form controls:
 
 Geometry:
 
-- `getBoxQuads()`, or `Range.getClientRects()` that returns quads, so a selection on a rotated element can be measured. (PR #49)
+- `getBoxQuads()`, or `Range.getClientRects()` that returns quads, so a selection on a rotated element can be measured. (Text selection)
 
 Libraries:
 

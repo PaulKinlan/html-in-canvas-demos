@@ -54,34 +54,32 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 | WebGPU across the shader pages | the six shader pages and `/lens/` | `shared/backend.js`, `shared/route-switch.js`, `gpu-util.js` | #33, #37, #42 | Built. Confirmed on screen on the phone for `/shader-css/` only. Demo 26 is assigned to this thread. |
 | 3D and spatial | `/three-form/`, `/board/`, `/xr/` | `html3d.js`, `check-fixture.js` | #11, #21, #25 | Built. three `WebGPURenderer`, a real headset and Android AR are not verified. Demo 24 is assigned to this thread. |
 | Native UI toolkits | `/native-ui/` | `native/egui-dom/`, `native/qt-dom/`, `docs/native-frameworks.md` | #47 | Built for egui and Qt Quick. Eight follow-up experiments are listed below. Demo 28 is assigned to this thread. |
-| Video and sound | `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/` | `video-export.js`, `webm-mux.js` | #46, #51 (open) | Built. Hardware decoding and sound are not verified. Demo 19 is assigned to this thread. |
+| Video and sound | `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/` | `video-export.js`, `webm-mux.js` | #46, #51 | Built. Hardware decoding and sound are not verified. Demo 19 (media state) landed in #51 as additions to the media pages. |
 | Accessibility, capture, performance | `/a11y/`, `/capture/`, `/perf/` | `a11y-audit.js`, `element-capture.js` | #7, #13, #14, #16, #22, #24 | Built. By-hand results (screen reader, IME, flicker, frame rates) are still wanted. Demos 10, 17 and 20 are assigned to this thread. |
 | Pages that hold still | every page | `tools/jank/`, `shared/support.js`, `shared/nav.js` | #29 and the per-page fixes #23 to #28 | Done. All pages hold still on load. Gated pages are listed in `CHECKS_WAIT_FOR_TAP`. |
 | Show the code | every page | `shared/show-code.js`, `shared/source-view.js` | #30, #34 | Done. The two listing components could be unified. |
 | Learning resource | `/start/`, homepage, `shared/learn.js` | | #36, #38, #39, #40, #41 | Done. Open recommendations are listed below. |
 | Element catalogue | `/elements/`, `ELEMENTS.md` | `tools/elements/` | #48 (open) | Built, waiting to merge. 121 ideas, none built. |
-| Text selection | `/selection/` | `selection-fx.js` | #49 (open) | Built, waiting to merge. Demo 9 is assigned to this thread. |
+| Text selection | `/selection/`, `/caret/` | `selection-fx.js` | #49, #52 | Built. Demo 9 (carets and highlights) landed in #52 as `/caret/`. Touch selection is not verified. |
 | Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `docs/chrome-apis-plan.md` | `tools/chrome-apis/` | #50 (open) | Plan written, 27 probes recorded. Building the 28 demos started on 2026-11-21. |
 | Lost canvases on new pages | new pages | shared fix | none yet | In progress in its own thread. See "Site-wide work that is open". |
 
 ## Open pull requests
 
-On 2026-11-21 at 14:00 UTC:
+On 2026-11-21 at 14:40 UTC:
 
 | PR | Title | Adds |
 |---|---|---|
 | #48 | `/elements/`: every HTML element inside a drawable canvas, measured | `public/elements/`, `ELEMENTS.md`, `tools/elements/record.mjs`, `npm run record:elements` |
-| #49 | Text selection effects: `/selection/` and the selection-fx element | `public/selection/`, `public/lib/selection-fx.js` |
 | #50 | Plan: Chrome 130 to 160 features combined with HTML-in-canvas, with probes | `public/chrome-apis/`, `docs/chrome-apis-plan.md`, `tools/chrome-apis/`, `npm run build:plan`, `npm run record:probes` |
-| #51 | Add `/player-fx/`: one shader over the native controls and the video frame | `public/player-fx/` |
 
-Each of them appends a section to FINDINGS.md.
+Each of them appends a section to FINDINGS.md. Merged the same day while this file was being written: #49 (`/selection/`), #51 (`/player-fx/` and the media state additions) and #52 (`/caret/`).
 
 ## Planned demos from the Chrome APIs plan
 
 Source: `tools/chrome-apis/demos.json` and `docs/chrome-apis-plan.md` (PR #50). The plan surveys the 678 features that chromestatus.com lists for Chrome 130 to 160, has an idea for 359 of them, and ranks 28 demos in three tiers. The full description of each demo (what it shows, how to build it, what was measured, what is uncertain) is in the plan document. When a demo ships, set `"built": "/path/"` on its entry in `demos.json` and run `npm run build:plan`.
 
-"Thread" is the project thread the demo was assigned to on 2026-11-21. None had shipped when this file was written.
+"Thread" is the project thread the demo was assigned to on 2026-11-21. By 14:40 UTC that day two had shipped: demo 9 as `/caret/` (PR #52) and demo 19 as additions to the media pages (PR #51, FINDINGS.md "Media state, lazy loading, the iframe policy, output latency"). Check `demos.json` and the open pull requests for the current state.
 
 | # | Key | Demo | Tier | Thread |
 |---|---|---|---|---|
@@ -159,7 +157,7 @@ Source: FINDINGS.md, "Video and sound", "Further experiments". Each item has a p
 - Customisable media controls mocked with a custom element.
 - State pseudo-classes on other elements (`:open`, `:popover-open`, `:user-invalid`, `:checked`) driving `--fx-*` through `:has()`.
 - Word-by-word highlighting from `SpeechSynthesis` boundary events.
-- A WebGPU version of the `/player-fx/` shader. Source: PR #51.
+- A WebGPU version of the `/player-fx/` shader. Source: FINDINGS.md, "One shader over the controls and the frame".
 
 ### Customisable select, datalist and inputs
 
@@ -180,7 +178,7 @@ Source: the "ideas" lists on `/select/`, `/datalist/` and `/inputs/` (PR #45).
 
 ### Text selection
 
-Source: the ideas list on `/selection/` (PR #49).
+Source: the ideas list on `/selection/`.
 
 - Other people's selections, selected glyphs as particles, a share card, selection in 3D, a heat map, a minimap, redaction, translate in place, haptics, selection effects for form controls.
 
@@ -257,11 +255,11 @@ Rank 2 and rank 3 are in `ELEMENTS.md` under "Ideas". Rank 2 includes developer 
 | Item | Source | Notes |
 |---|---|---|
 | Canvases losing their graphics context on load on the phone | Phone reports 2026-11-21, thread "Fix lost canvases on new pages" | New pages showed a white box with a broken-picture icon on Chrome 159 on Android. The suspected cause is several WebGL contexts and a WebGPU device opened at once. The cause is not confirmed. A shared fix is being built. Until it lands, follow the rules in ARCHITECTURE.md, "How to add a page", step 8. |
-| Pages whose checks wait for a tap | `CHECKS_WAIT_FOR_TAP` in `shared/support.js` | Fifteen pages. `/portal/`, `/lens/`, `/shader-css/`, `/physical/` shift by 0.25 to 1.03 with checks forced on because `#check-bench` grows and shrinks. `/slot-effects/` shifts by 1.40 and covers over 40% of the screen. `/cross-origin/` scrolls 990 px. `/remote/` moves focus four times. A fixed-size bench would probably fix the bench cases. |
+| Pages whose checks wait for a tap | `CHECKS_WAIT_FOR_TAP` in `shared/support.js` | Eighteen pages on 2026-11-21. `/portal/`, `/lens/`, `/shader-css/`, `/physical/` shift by 0.25 to 1.03 with checks forced on because `#check-bench` grows and shrinks. `/slot-effects/` shifts by 1.40 and covers over 40% of the screen. `/cross-origin/` scrolls 990 px. `/remote/` moves focus four times. A fixed-size bench would probably fix the bench cases. |
 | A flaky check | project notes | `/lens/`: "Pinned lens: clicks land on the magnified drawing". |
 | `<dom-portal>` in viewport mode resizes its canvas on every `innerHeight` change | project notes | This clears the canvas when a phone's URL bar moves. |
 | `testStage()` takes taps while checks run | FINDINGS.md, "Video and sound" | The media pages wrap it with `pointer-events: none`. Other pages still have the problem. |
-| `SurfaceElement` listens for `contextlost` only | PR #49 | WebGL fires `webglcontextlost`. Subclasses listen themselves today. |
+| `SurfaceElement` listens for `contextlost` only | FINDINGS.md, "Text selection" | WebGL fires `webglcontextlost`. Subclasses listen themselves today. |
 | Canvases that go soft at 150% zoom | FINDINGS.md, "Accessibility" | `/slot-bare/`, `/offscreen/`, `/cross-origin/`, `/transitions/`, `/time-scrubber/`, `/particles/` at the time of the audit. PR #43 fixed the motion elements under CSS zoom. Re-run the audit to confirm which remain. |
 | No `prefers-reduced-motion` handling | FINDINGS.md, "Accessibility" | `/slot/`, `/transitions/`, `/particles/`. |
 | Unlabelled pixel-only canvases | FINDINGS.md, "Accessibility" | `/cross-origin/`, `/transports/`. |

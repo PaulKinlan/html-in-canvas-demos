@@ -58,7 +58,7 @@ The site needs Chrome 148 or later with `chrome://flags/#canvas-draw-element` en
     └── media/            make.sh and encrypt-webm.mjs for public/media/
 ```
 
-Open pull requests on 2026-11-21 add more (see [PLAN.md](PLAN.md) for their status): `public/elements/`, `ELEMENTS.md` and `tools/elements/` (PR #48), `public/selection/` and `public/lib/selection-fx.js` (PR #49), `public/chrome-apis/`, `docs/chrome-apis-plan.md` and `tools/chrome-apis/` (PR #50), `public/player-fx/` (PR #51).
+Open pull requests on 2026-11-21 add more (see [PLAN.md](PLAN.md) for their status): `public/elements/`, `ELEMENTS.md` and `tools/elements/` (PR #48), and `public/chrome-apis/`, `docs/chrome-apis-plan.md` and `tools/chrome-apis/` (PR #50).
 
 ### Pages on main
 
@@ -67,8 +67,8 @@ Open pull requests on 2026-11-21 add more (see [PLAN.md](PLAN.md) for their stat
 | `contexts`: workers, tabs and origins | `/offscreen/`, `/cross-tab/`, `/cross-origin/`, `/transports/`, `/tear-off/`, `/remote/`, `/embed/`, `/support/`, `/slot-view/`, `/pip/` |
 | `slots` | `/slot/`, `/slot-bare/`, `/slot-bare/plain.html` |
 | `primitives`: UI primitives | `/portal/`, `/lens/`, `/shader-css/`, `/slot-effects/`, `/physical/`, `/select/`, `/datalist/`, `/inputs/` |
-| `motion` | `/transitions/`, `/view-transitions/`, `/time-scrubber/`, `/particles/` |
-| `media`: video and sound | `/video/`, `/overlay/`, `/audio/`, `/player-parts/` |
+| `motion` | `/transitions/`, `/view-transitions/`, `/time-scrubber/`, `/particles/`, `/selection/`, `/caret/` |
+| `media`: video and sound | `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/` |
 | `3d`: 3D and shaders | `/three-form/`, `/board/`, `/xr/`, `/native-ui/` |
 | `audit`: measurements | `/a11y/`, `/capture/`, `/perf/` |
 | `start`: tutorial | `/start/` |
@@ -191,6 +191,7 @@ Each file starts with a comment that documents its attributes and methods. `READ
 | `live-transition.js` | `<live-transition>`: transitions between states that stay live. |
 | `dom-rewind.js` | `<dom-rewind>`: a ring buffer of `ElementImage` frames. |
 | `glyph-field.js` | `<glyph-field>`: text as glyph particles. |
+| `selection-fx.js` | `<selection-fx effect>`: the canvas draws the text selection highlight from `Range` rectangles, with 2D and shader effects. Extends `SurfaceElement`. |
 | `html3d.js` | Live HTML on three.js meshes: `installThreeShims()`, hit testing through `updateElementGeometry()`, `RayPointer` for XR controllers. |
 | `element-capture.js`, `webm-mux.js` | `captureElement()`, `capturePage()`, `recordElement()`, `exportVideo()`, `encodeFrames()`, `printElement()`, `copyElement()`; a WebM muxer with `addAudio()`. |
 | `video-export.js` | `recordCanvas()`, `exportFrames()`, `decodeSound()`, `loopback()` for a canvas that draws video and HTML. |
@@ -248,7 +249,7 @@ Where fixtures go, from most to least preferred:
 When checks start:
 
 - By default on load.
-- On the pages in `CHECKS_WAIT_FOR_TAP` they wait for a "Run these N checks" button. On 2026-11-21 the list is `/cross-origin/`, `/remote/`, `/portal/`, `/lens/`, `/shader-css/`, `/slot-effects/`, `/physical/`, `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/native-ui/`, `/select/`, `/datalist/`, `/inputs/`. A page comes off the list when `npm run check:jank -- --checks /page/` passes.
+- On the pages in `CHECKS_WAIT_FOR_TAP` they wait for a "Run these N checks" button. On 2026-11-21 the list is `/cross-origin/`, `/remote/`, `/portal/`, `/lens/`, `/shader-css/`, `/slot-effects/`, `/physical/`, `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/`, `/native-ui/`, `/select/`, `/datalist/`, `/inputs/`, `/selection/`, `/caret/`. A page comes off the list when `npm run check:jank -- --checks /page/` passes.
 - `/a11y/` and `/capture/` wait for a tap on touch devices.
 - A page loaded in a frame runs its checks at once, unless the URL has `?autochecks=0` (the board loads its page tiles that way).
 
