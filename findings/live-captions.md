@@ -6,7 +6,7 @@ Chromium 157 headless (C157), 2026-11-21. The test browser has no speech recogni
 | --- | --- | --- |
 | Interim and final results as a caption element drawn over the frame, translation under it | measured, works | Results go through one `feed({ text, final })` function. The caption element holds two paragraphs and is drawn twice with a clip, so the first is over the frame and the second under the bar. |
 | Only revised words change | measured, works | "the page reeds" then "the page reads the": two `<span>` elements kept, the third replaced and marked, a fourth added. Kept words do not run their CSS animation again. |
-| Recorded transcript fed in step with the video | measured, works | `replayCues()` reads the time stamps of `talk.vtt` and feeds each word as an interim result at its time and the sentence as a final result. 8 interim results, then the final one. |
+| Recorded transcript fed in step with the video | measured, works | `replayCues()` reads the time stamps of `talk.vtt` and feeds each word as an interim result at its time and the sentence as a final result. 9 interim results, then the final one. |
 | WebVTT from final results | measured, works | `toVtt()` output loaded through a blob URL into a `<track>`: 2 cues read back with their times. A literal `-->` in a caption has to be replaced, or the cue fails to parse. |
 | Captions in a `MediaRecorder` file of the canvas | measured, works | 320×260 VP9 with Opus. 981 caption pixels in the bottom of the recorded frame. |
 | `SpeechRecognition` surface | measured | `continuous`, `interimResults`, `processLocally`, `phrases`, `available()`, `install()` are all present in C157. |

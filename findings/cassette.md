@@ -9,7 +9,7 @@ Measured in Chromium 157 headless (C157), 2026-11-21, with emulated touch at 412
 | An audio element 290 px tall | works | `max-height: none; height: 100%` on `::-webkit-media-controls-enclosure` lets the panel fill it. |
 | Pieces of the element with the nine-argument `drawElementImage()` | works | Timeline row as laid out, counter row with a shadow glow, key cells 4 px lower while down, and the play glyph copied onto the cassette label at twice the size. |
 | The browser's glyph as a state display | works | 1482 label pixels changed on `play()` and 0 differed after `pause()`. No state code draws it. |
-| Hit testing after the partial draws | right with the restoring draw | With a final full-size draw inside an empty clip, the play key, mute key and timeline answered `<audio>`. Without it they did not. |
+| Hit testing after the partial draws | right with the restoring draw | With a final full-size draw inside an empty clip, the play key, mute key and timeline answered `<audio>`. Without it all three answered the canvas. |
 | Which element is on top for hits | the one drawn last | The audio element's box covers the deck. When its restoring draw came after the Rewind and Forward buttons, taps on them went to the audio element. Drawing the buttons afterwards fixed it. |
 | Real touch on the drawn play key and timeline (test driver) | works | Playback started, the key was drawn down, the label showed the pause glyph, and a tap on the timeline moved `currentTime` to 19.1 s. A live check cannot produce trusted input, so this is not a row in the page's table. |
 | Reels and counter from `currentTime` | works | Tape pixels on the left reel went from 2775 at 6 s to 1060 at 18 s. The shown position eases towards `currentTime`, so a seek winds the reels. |

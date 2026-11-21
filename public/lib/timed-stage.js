@@ -1,6 +1,6 @@
-// stage-2d.js: small helpers shared by the caption and timing pages.
+// timed-stage.js: small helpers shared by the caption and timing pages.
 //
-//   import { fit, blobUrl, quietStage, hitAt, sleep, until } from '/lib/stage-2d.js';
+//   import { fit, blobUrl, quietStage, hitAt, sleep, until } from '/lib/timed-stage.js';
 //
 //   fit(canvas);                       // backing store in device pixels, requestPaint() on resize
 //   const url = await blobUrl('/media/talk.webm');   // a URL that can always be seeked
