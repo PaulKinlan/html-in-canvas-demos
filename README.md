@@ -164,6 +164,8 @@ For a new page or library:
 - Handle the loss in the library when a better answer than the note exists: listen for `webglcontextlost` (WebGL), `contextlost` (2D) and the window event `webgpulost` (WebGPU, sent by `shared/backend.js`), then move the content to a new canvas or show it as plain HTML. `SurfaceElement` in `lib/surface.js` shows plain HTML for both canvas events when its subclass does nothing.
 - To see what a page does on a loss, call `getExtension('WEBGL_lose_context').loseContext()` on a canvas in the console, or make 16 more WebGL contexts.
 
+The measurements behind these rules, and what still needs a real phone, are in [docs/lost-contexts.md](docs/lost-contexts.md).
+
 ## Show the code
 
 Every demo has a "Show the code" listing under it: numbered steps, each with the code that does it, a Copy button and a link to the lines on GitHub. The listings are cut from the files the page is running when someone opens one, so they cannot drift. `public/shared/show-code.js` does it (loaded by `nav.js`, styles in `shared/style.css`).
