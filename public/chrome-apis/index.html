@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan: features from Chrome 130 to 160 combined with HTML-in-canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1000px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 14px 0; padding: 0; list-style: none; font-size: 14px; color: var(--muted); }
+  .stats b { color: var(--fg); font: 600 18px var(--mono); margin-right: 5px; }
+  h2 { margin-top: 40px; }
+  h3.tier { margin: 28px 0 4px; }
+  .demo { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 12px 14px; margin: 12px 0; }
+  .demo h4 { margin: 0 0 6px; font-size: 17px; }
+  .demo p { margin: 6px 0; font-size: 15px; }
+  .demo p b { font-weight: 600; }
+  .demo details { margin-top: 8px; font-size: 14px; }
+  .demo details ul { margin: 6px 0 0; padding-left: 18px; }
+  .demo .pages a { margin-right: 8px; font: 13px var(--mono); }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0; }
+  .filters input[type=search] { flex: 1 1 200px; min-width: 0; font: inherit; padding: 6px 8px; }
+  .filters select { font: inherit; padding: 5px; max-width: 100%; }
+  .filters label { font-size: 14px; white-space: nowrap; }
+  details.area { border-top: 1px solid var(--line); }
+  details.area > summary { cursor: pointer; padding: 10px 0; font-weight: 600; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+  details.area > summary small { font: 13px var(--mono); color: var(--muted); font-weight: 400; }
+  details.area[data-empty] { display: none; }
+  ul.feat { list-style: none; margin: 0 0 14px; padding: 0; }
+  ul.feat > li { padding: 9px 0 9px 10px; border-left: 3px solid var(--line); margin: 6px 0; overflow-wrap: anywhere; }
+  ul.feat > li.fit3 { border-left-color: var(--accent); }
+  ul.feat > li.fit2 { border-left-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  ul.feat > li:target { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .feat .head { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+  .ms { font: 600 12px var(--mono); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+  .stage, .measured { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+  .measured { color: var(--ok); }
+  .feat p { margin: 4px 0 0; font-size: 15px; }
+  .feat p.sum { color: var(--muted); font-size: 13px; }
+  .feat p.links { font-size: 13px; }
+  details.none { margin: 0 0 14px 13px; font-size: 14px; }
+  details.none ul { columns: 2 300px; padding-left: 18px; margin: 6px 0; }
+  details.none li { break-inside: avoid; overflow-wrap: anywhere; }
+  td.status.works { color: var(--ok); } td.status.fails { color: var(--bad); } td.status.unsupported, td.status.info { color: var(--muted); }
+  #shown { font: 13px var(--mono); color: var(--muted); }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Plan: features from Chrome 130 to 160 combined with HTML-in-canvas</h1>
+  <p class="lede">
+    Every feature that <a href="https://chromestatus.com/roadmap">chromestatus.com</a> lists for Chrome 130 to 160, with a note on how it could be used
+    with a canvas that draws live DOM, and a ranked list of demos to build from those notes. Where a short test could settle a question it was run;
+    those rows are marked <i>measured</i>, and the tests are on the <a href="/chrome-apis/probes.html">probes page</a>.
+  </p>
+  <ul class="stats" id="stats"></ul>
+
+  <h2 id="demos">Planned demos</h2>
+  <p class="note">In rank order. An entry with a <b>Built</b> line links to its page; the others are not built yet. Each entry says what the demo would show, how, what was measured and what is not known.</p>
+  <div id="demo-list"></div>
+
+  <h2 id="probes">What the probes found</h2>
+  <p class="note" id="probe-note"></p>
+  <table class="results" id="probe-table"><thead><tr><th>Probe</th><th id="pa"></th><th id="pb"></th><th>Detail</th></tr></thead><tbody></tbody></table>
+
+  <h2 id="features">Features by area</h2>
+  <div class="filters">
+    <input type="search" id="q" placeholder="Filter by name or idea, for example scroll or WebGPU" aria-label="Filter features">
+    <select id="fit" aria-label="Which features">
+      <option value="1">Features with an idea</option>
+      <option value="3">Rated 3 only</option>
+      <option value="0">All features</option>
+    </select>
+    <select id="from" aria-label="From milestone"></select>
+    <label><input type="checkbox" id="measured"> measured only</label>
+    <span id="shown"></span>
+  </div>
+  <p class="note">The number is the first Chrome milestone with the feature on by default, or the first milestone of its trial. A blue bar marks rating 3: the feature changes what a canvas draws, or gives a drawn element a new input or output.</p>
+  <div id="areas"></div>
+
+  <h2>Findings</h2>
+  <ul>
+    <li>CSS that changes an element's outline or paint is applied in the element picture: <code>corner-shape</code>, <code>border-shape</code>, <code>clip-path: shape()</code>, gap decorations, <code>text-fit</code>, <code>caret-shape</code> and custom highlights were all measured.</li>
+    <li>Scroll-driven animations and <code>scroll-state()</code> queries inside a drawn element raise the canvas's <code>paint</code> event with no script. <code>streamAppendHTML()</code> raises one <code>paint</code> event per chunk.</li>
+    <li><code>::scroll-marker</code> and <code>::scroll-button()</code> pseudo-elements of a scroller in a canvas are drawn, and a real click on a drawn marker scrolls the list.</li>
+    <li>In Chromium 157 the browser tracks where an element is drawn: an element outside the canvas that is anchored to a canvas child follows the drawn position, an <code>interestfor</code> hint opens on hover at the drawn position, and <code>highlightsFromPoint()</code> and <code>OpaqueRange</code> rects use it. In Chromium 153 all four use the layout box.</li>
+    <li>A popover that is a descendant of a drawn element is not in its picture. It is shown in the top layer and hit tested there.</li>
+    <li>A float16 Display P3 canvas keeps a drawn element's wide-gamut colours and values above 1.0 (1.82 read back for an input of 4.0).</li>
+    <li>The browser protects two things from the canvas. Links are drawn as unvisited while the screen shows the <code>:visited</code> colour. Permission elements such as <code>&lt;geolocation&gt;</code> are drawn, and report <code>isValid</code> false with the reason <code>intersection_occluded_or_distorted</code>.</li>
+    <li>Not measured here: anything that needs a GPU, a headset, a sensor, a peripheral, an on-device model or a permission prompt. Those demos are in the hardware tier or name the requirement.</li>
+  </ul>
+  <p class="note">The same content as one document: <a href="https://github.com/PaulKinlan/html-in-canvas-demos/blob/main/docs/chrome-apis-plan.md">docs/chrome-apis-plan.md</a>. To change an idea, edit <code>tools/chrome-apis/ideas.json</code> and run <code>npm run build:plan</code>.</p>
+</main>
+
+<script src="./data.js"></script>
+<script>
+(function () {
+  var D = window.CHROME_APIS;
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  // Feature text is plain; wrap things that read as code.
+  var rich = function (s) { return esc(s).replace(/(&lt;[a-z-]+&gt;|::?[a-z-]+\([^)]*\)|::[a-z-]+|--[a-z-]+|\b[a-zA-Z][a-zA-Z.-]*\(\)|\b[a-z]+-[a-z-]+: [a-z-]+(?:\([^)]*\))?)/g, '<code>$1</code>'); };
+  var byId = {};
+  D.features.forEach(function (f) { byId[f.id] = f; });
+  var demoByKey = {};
+  D.demos.forEach(function (d, i) { d.rank = i + 1; demoByKey[d.key] = d; });
+
+  // ---- numbers
+  var c = D.counts;
+  document.getElementById('stats').innerHTML = [
+    [c.total, 'features in Chrome ' + D.milestones[0] + ' to ' + D.milestones[1]],
+    [c.withIdea, 'with an idea'],
+    [c.direct, 'rated 3'],
+    [c.measured, 'measured by a probe'],
+    [D.demos.length, 'planned demos'],
+  ].map(function (x) { return '<li><b>' + x[0] + '</b>' + x[1] + '</li>'; }).join('');
+
+  // ---- demos
+  var TIERS = [
+    ['next', 'Build next', 'These run in Chrome 157 to 159 today, and most have a measured result behind them.'],
+    ['then', 'Then', 'These depend on a model, a trial, a newer Chrome or a larger build.'],
+    ['hardware', 'Needs hardware the test browser does not have', 'A headset, a foldable, a real GPU, a peripheral or an installed app.'],
+  ];
+  var html = '';
+  TIERS.forEach(function (t) {
+    html += '<h3 class="tier">' + t[1] + '</h3><p class="note">' + t[2] + '</p>';
+    D.demos.filter(function (d) { return d.tier === t[0]; }).forEach(function (d) {
+      var used = D.features.filter(function (f) { return f.d.indexOf(d.key) >= 0; }).sort(function (a, b) { return b.f - a.f || a.m - b.m; });
+      html += '<article class="demo" id="demo-' + d.key + '"><h4>' + d.rank + '. ' + esc(d.title) + '</h4>' +
+        (d.built ? '<p><b>Built.</b> <a href="' + d.built + '">' + d.built + '</a></p>' : '') +
+        '<p><b>Shows.</b> ' + rich(d.shows) + '</p>' +
+        '<p><b>Build.</b> ' + rich(d.build) + '</p>' +
+        (d.measured ? '<p><b>Measured.</b> ' + rich(d.measured) + '</p>' : '') +
+        '<p><b>Uncertain.</b> ' + rich(d.uncertain) + '</p>' +
+        (d.needs ? '<p><b>Needs.</b> ' + esc(d.needs) + '</p>' : '') +
+        (d.pages.length ? '<p class="pages"><b>Builds on.</b> ' + d.pages.map(function (p) { return '<a href="' + p + '">' + p + '</a>'; }).join('') + '</p>' : '') +
+        '<details><summary>' + used.length + ' features</summary><ul>' + used.map(function (f) {
+          return '<li><a href="#f-' + f.id + '">' + esc(f.n) + '</a> <span class="stage">Chrome ' + f.m + (f.st === 'shipped' ? '' : ', ' + f.st) + '</span></li>';
+        }).join('') + '</ul></details></article>';
+    });
+  });
+  document.getElementById('demo-list').innerHTML = html;
+
+  // ---- probes
+  var runs = (D.probes && D.probes.runs) || [];
+  if (runs.length) {
+    var second = {};
+    (runs[1] ? runs[1].results : []).forEach(function (r) { second[r.id] = r; });
+    document.getElementById('pa').textContent = runs[0].browser;
+    document.getElementById('pb').textContent = runs[1] ? runs[1].browser : '';
+    document.getElementById('probe-note').innerHTML = 'Recorded on ' + esc(D.probes.date) + ' in two headless Chromium builds. <a href="/chrome-apis/probes.html">Run the probes in this browser</a> to compare. ' +
+      '<i>works</i>: the feature takes effect on the drawn element. <i>fails</i>: the browser has the feature and it does not carry into the canvas. <i>info</i>: a measurement with no pass or fail.';
+    document.querySelector('#probe-table tbody').innerHTML = runs[0].results.map(function (r) {
+      var b = second[r.id];
+      return '<tr><td>' + rich(r.title) + '</td><td class="status ' + r.status + '">' + r.status + '</td><td class="status ' + (b ? b.status : '') + '">' + (b ? b.status : '') + '</td><td>' + rich(r.detail) +
+        (b && b.status !== r.status && b.detail ? '<br><span class="note">' + esc(runs[1].browser) + ': ' + rich(b.detail) + '</span>' : '') + '</td></tr>';
+    }).join('');
+  }
+
+  // ---- features
+  var from = document.getElementById('from');
+  for (var m = D.milestones[0]; m <= D.milestones[1]; m++) from.insertAdjacentHTML('beforeend', '<option value="' + m + '">From Chrome ' + m + '</option>');
+  var q = document.getElementById('q'), fit = document.getElementById('fit'), measured = document.getElementById('measured');
+
+  function row(f) {
+    var links = [];
+    if (f.d.length) links.push('Demo: ' + f.d.map(function (k) { return '<a href="#demo-' + k + '">' + demoByKey[k].rank + '. ' + esc(demoByKey[k].title) + '</a>'; }).join(', '));
+    if (f.see.length) links.push('See ' + f.see.map(function (p) { return '<a href="' + p + '">' + p + '</a>'; }).join(' '));
+    return '<li id="f-' + f.id + '" class="fit' + f.f + '"><div class="head"><span class="ms">' + f.m + '</span>' +
+      '<a href="https://chromestatus.com/feature/' + f.id + '">' + esc(f.n) + '</a>' +
+      (f.st === 'shipped' ? '' : '<span class="stage">' + f.st + '</span>') +
+      (f.p.length ? '<a class="measured" href="/chrome-apis/probes.html">measured</a>' : '') + '</div>' +
+      (f.i ? '<p>' + rich(f.i) + '</p>' : '<p class="sum">' + esc(f.s) + '</p>') +
+      (links.length ? '<p class="links">' + links.join(' · ') + '</p>' : '') + '</li>';
+  }
+
+  var areas = document.getElementById('areas');
+  function render(openAll) {
+    var text = q.value.trim().toLowerCase(), minFit = +fit.value, minM = +from.value, onlyMeasured = measured.checked;
+    var match = function (f) {
+      if (f.m < minM) return false;
+      if (onlyMeasured && !f.p.length) return false;
+      if (text && (f.n + ' ' + f.i + ' ' + f.s).toLowerCase().indexOf(text) < 0) return false;
+      return true;
+    };
+    var shown = 0, out = '';
+    var wasOpen = {};
+    areas.querySelectorAll('details.area[open]').forEach(function (d) { wasOpen[d.dataset.area] = true; });
+    D.areas.forEach(function (a, i) {
+      var all = D.features.filter(function (f) { return f.a === i && match(f); });
+      var some = all.filter(function (f) { return f.f >= Math.max(1, minFit); });
+      var rest = minFit === 0 ? all.filter(function (f) { return f.f === 0; }) : [];
+      var total = D.features.filter(function (f) { return f.a === i; });
+      shown += some.length + rest.length;
+      var open = openAll || text || onlyMeasured || wasOpen[i];
+      out += '<details class="area" data-area="' + i + '"' + (some.length + rest.length ? '' : ' data-empty') + (open ? ' open' : '') + '><summary>' + esc(a.name) +
+        ' <small>' + some.length + ' shown · ' + total.length + ' features, ' + total.filter(function (f) { return f.f > 0; }).length + ' with an idea</small></summary>' +
+        '<ul class="feat">' + some.map(row).join('') + '</ul>' +
+        (rest.length ? '<details class="none"' + (text ? ' open' : '') + '><summary>No combination planned (' + rest.length + ')</summary><p class="note">' + esc(a.none) + '</p><ul>' +
+          rest.map(function (f) { return '<li id="f-' + f.id + '"><span class="ms">' + f.m + '</span> <a href="https://chromestatus.com/feature/' + f.id + '">' + esc(f.n) + '</a>' + (f.st === 'shipped' ? '' : ' <span class="stage">' + f.st + '</span>') + '</li>'; }).join('') + '</ul></details>' : '') +
+        '</details>';
+    });
+    areas.innerHTML = out;
+    document.getElementById('shown').textContent = shown + ' shown';
+  }
+  render(false);
+  [q, fit, from, measured].forEach(function (el) { el.addEventListener('input', function () { render(false); }); });
+
+  // A link to #f-<id> opens the area that holds the feature.
+  function reveal() {
+    var id = location.hash.slice(1);
+    if (id.indexOf('f-') !== 0) return;
+    var f = byId[id.slice(2)];
+    if (!f) return;
+    if (!document.getElementById(id)) { q.value = ''; fit.value = f.f ? '1' : '0'; from.value = D.milestones[0]; measured.checked = false; render(false); }
+    var el = document.getElementById(id);
+    if (!el) return;
+    for (var p = el.parentElement; p; p = p.parentElement) if (p.tagName === 'DETAILS') p.open = true;
+    el.scrollIntoView({ block: 'center' });
+  }
+  addEventListener('hashchange', reveal);
+  if (location.hash) reveal();
+
+  window.__results = { total: D.features.length };
+})();
+</script>
+</body>
+</html>

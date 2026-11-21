@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTML panels in a real room: fingertips, walls, depth and XR layers</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/xr/xr.css">
+<link rel="stylesheet" href="/xr-room/xr-room.css">
+<script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js" } }</script>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>HTML panels in a real room</h1>
+  <p class="lede">
+    Two HTML panels for a WebXR session that knows about the room. A tracked fingertip presses buttons the way it would on a touch screen.
+    The panels attach to walls and tables from plane detection and stay there with anchors. Depth sensing hides them behind real objects.
+    One panel can be given to the headset's compositor as an <code>XRQuadLayer</code>.
+  </p>
+  <p class="note">
+    None of this has run on a device yet. The scene below is a simulated room that drives the same code: your pointer moves a fingertip,
+    and the wall, table and column stand in for detected planes and a real object. The table under the demo says what a real session reports.
+  </p>
+
+  <div class="row toolbar">
+    <button id="enter-ar" disabled>Enter AR</button>
+    <button id="enter-vr" disabled>Enter VR</button>
+    <a class="btn" id="emu-link" href="?emulate=1">Emulate a headset</a>
+    <button id="place" type="button">Put panels on surfaces</button>
+    <button id="float" type="button">Float in front of me</button>
+    <label class="ctl"><input id="opt-depth" type="checkbox" checked> Depth occlusion</label>
+    <label class="ctl"><input id="opt-layer" type="checkbox"> XR layer for the status panel</label>
+    <span class="ctl" id="xr-status"></span>
+  </div>
+
+  <div class="stage-xr" id="stage">
+    <!-- #region canvas -->
+    <canvas id="scene" content="drawable" layoutsubtree aria-label="A simulated room with two HTML panels, a wall, a table and a column"></canvas>
+    <!-- #endregion canvas -->
+    <div id="hud" class="hud"></div>
+  </div>
+  <details class="show-code">
+    <summary>Show the code <small>fingertip presses, planes, anchors, depth, quad layer</small></summary>
+    <ol>
+      <li data-code="/xr-room/main.js#session"><b>Ask the session for the room features.</b> Each one is optional, and the page reports which were granted.</li>
+      <li data-code="/xr-room/main.js#hands"><b>Give each hand's index fingertip a pointer.</b> The tip's position is read from the hand joints every frame.</li>
+      <li data-code="/lib/xr-room.js#finger"><b>Inside the library: a fingertip as a pointer.</b> Distance to the panel decides hover, press and release. The ray pointer from <code>html3d.js</code> turns that into events on the element.</li>
+      <li data-code="/xr-room/main.js#place"><b>Put a panel on the nearest wall or table, then anchor it.</b></li>
+      <li data-code="/lib/xr-room.js#planes"><b>Inside the library: planes and anchors.</b></li>
+      <li data-code="/lib/xr-room.js#layer"><b>Inside the library: a panel as an XRQuadLayer.</b> It first tries to upload the element straight into the layer's texture.</li>
+      <li data-code="/lib/xr-room.js"><b>The whole library.</b></li>
+    </ol>
+  </details>
+  <p class="note sim-note" id="hint">
+    Move the pointer over a panel to bring the fingertip near it, and press to push it in. Drag on the list to scroll it. Drag empty space to look around.
+    On a phone, a touch is the fingertip.
+  </p>
+
+  <!-- The panels. Plain HTML first, so the page works without the API. -->
+  <section id="uis" class="uis" aria-label="The panels shown in the scene">
+    <section id="p-controls" class="xp controls">
+      <header><b>Room controls</b><span id="c-src">nothing pressed yet</span></header>
+      <div class="grid">
+        <button id="c-lamp" type="button" aria-pressed="false">Lamp</button>
+        <div class="count"><button id="c-less" type="button" aria-label="Fewer">−</button><output id="c-count">3</output><button id="c-more" type="button" aria-label="More">+</button></div>
+        <label class="wide">Brightness <input id="c-bright" type="range" min="0" max="10" value="6"> <output id="c-bright-out">6</output></label>
+        <div class="wide two"><button id="c-place" type="button">Put panels on surfaces</button><button id="c-float" type="button">Float in front of me</button></div>
+      </div>
+    </section>
+
+    <section id="p-status" class="xp status">
+      <header><b>What this session has</b><span id="s-mode">simulated room</span></header>
+      <dl id="s-rows"></dl>
+      <h3>Presses</h3>
+      <ol id="s-log" class="scroll" tabindex="0" reversed></ol>
+    </section>
+  </section>
+
+  <h2>What a session reports</h2>
+  <p class="note">Filled in while a session runs and kept after it ends. The same rows show on the status panel inside the headset.</p>
+  <table class="results session"><thead><tr><th>Feature</th><th>Simulated room</th><th>Last real or emulated session</th></tr></thead><tbody id="session-rows"></tbody></table>
+
+  <h2>Checks</h2>
+  <p class="note">These move the simulated fingertip and the panels on this page, so they wait for a tap.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>Measured in the simulated room.</strong> A fingertip position is enough to drive DOM controls: distance to the panel gives hover, press and release, and the ray pointer from <code>html3d.js</code> supplies the events. Buttons, a slider and a scrolling list work. Snapping to a plane is a pose change, and hit testing does not notice because rays are mapped through UV coordinates.</li>
+    <li><strong>Not measured: everything that needs a device.</strong> Hand joints, detected planes, anchors, the depth texture and quad layers do not exist in the browser this was written in. Each has a row in the table above that a real session fills in.</li>
+    <li><strong>Open: can <code>texElementSubImage2D()</code> write into a layer's texture?</strong> The layer code tries it and falls back to copying the texture it already has. The "layer" row says which path ran.</li>
+    <li><strong>Open: does <code>paint</code> fire during an AR session on a phone?</strong> The "paints" row counts them. If they stop, textures are uploaded from the last paint record instead.</li>
+    <li><strong>Depth occlusion hides pixels, not input.</strong> three.js draws the sensed depth into the depth buffer, so a panel behind a chair is not drawn there. A ray or fingertip still reaches the panel, because the page has no depth values to test against unless it asks for CPU depth.</li>
+  </ul>
+</main>
+
+<script type="module" src="/xr-room/main.js"></script>
+</body>
+</html>

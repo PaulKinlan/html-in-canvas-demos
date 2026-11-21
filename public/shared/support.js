@@ -136,6 +136,7 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/inputs/',
   '/selection/',
   '/caret/',
+  '/xr-room/',
   '/scroll-fx/',
   '/shape-ui/',
   '/tilt-card/',
