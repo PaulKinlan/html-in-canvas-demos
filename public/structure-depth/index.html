@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page structure drawn in depth</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .idea output { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button { min-height: 40px; font: inherit; }
+  .idea .controls label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* #region scroll-css */
+  /* A native scroller that holds a canvas which stays in place, and a spacer that gives the scroll length. */
+  .scroller { height: 440px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+  .scroller > canvas.idea-canvas { position: sticky; top: 0; height: 100%; border: 0; border-radius: 0; }
+  /* #endregion scroll-css */
+
+  /* #region plain-css */
+  /* The elements as plain HTML: with no API, or after a canvas lost its context. */
+  .plain-html { display: grid; gap: 10px; justify-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .scroller.is-plain { height: auto; max-height: 440px; }
+  .scroller.is-plain .spacer { display: none; }
+  .scroller.is-plain .plain-html { border: 0; }
+  .plain-html #cubeFaces { display: grid; gap: 10px; }
+  .plain-html #ribbonNav { flex-wrap: wrap; width: auto; background: hsl(14 68% 42%); border-radius: 8px; }
+  .plain-html #noteDoc p { margin-right: 0; }
+  .plain-html #noteDoc aside { position: static; width: auto; margin: 0 0 14px; }
+  .plain-html #foldHeader, .plain-html #foldArticle { width: 100%; }
+  .plain-note { margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-html > button { min-height: 40px; font: inherit; }
+  /* #endregion plain-css */
+
+  /* #region cube-css */
+  #cubeNav { display: flex; gap: 4px; width: max-content; }
+  #cubeNav a { display: block; height: 40px; padding: 0 11px; border: 1px solid var(--line); border-radius: 20px; background: var(--card); color: var(--fg); font: 14px/40px system-ui, sans-serif; text-decoration: none; }
+  #cubeNav a[aria-current] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #cubeNav a:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--fg); }
+  #cubeFaces section { box-sizing: border-box; width: 250px; height: 226px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-top: 6px solid var(--accent); font: 14px/1.4 system-ui, sans-serif; user-select: none; }
+  #cubeFaces section:nth-child(2) { border-top-color: #2a9d8f; }
+  #cubeFaces section:nth-child(3) { border-top-color: #e9a03b; }
+  #cubeFaces section:nth-child(4) { border-top-color: #5b6ee1; }
+  #cubeFaces h3 { margin: 0; font-size: 18px; }
+  #cubeFaces p { margin: 0; }
+  #cubeFaces label { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+  #cubeFaces :is(button, input[type=text]) { min-height: 40px; font: inherit; box-sizing: border-box; max-width: 100%; }
+  #cubeFaces input[type=range] { width: 100%; height: 32px; margin: 0; }
+  /* #endregion cube-css */
+
+  /* #region ribbon-css */
+  #ribbonNav { display: flex; width: max-content; }
+  #ribbonNav a { display: block; box-sizing: border-box; height: 44px; padding: 0 12px; border-radius: 8px; color: #fff; font: 600 17px/44px system-ui, sans-serif; text-decoration: none; white-space: nowrap; }
+  /* An outline is outside an element's picture, so focus is shown with an inset shadow. */
+  #ribbonNav a:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #fff; }
+  /* #endregion ribbon-css */
+
+  /* #region slices-css */
+  #slicesDoc { position: relative; box-sizing: border-box; width: min(300px, 100%); padding: 2px 14px; background: var(--card); color: var(--fg); font: 14px/1.45 system-ui, sans-serif; }
+  #slicesDoc h3 { margin: 10px 0 6px; font-size: 17px; }
+  #slicesDoc p { margin: 8px 0 10px; }
+  #slicesDoc hr { height: 0; margin: 0 -14px; border: 0; border-top: 2px dashed var(--line); }
+  #slicesDoc button { min-height: 38px; font: inherit; }
+  #slicesDoc label { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; }
+  /* #endregion slices-css */
+
+  /* #region header-css */
+  #foldHeader { box-sizing: border-box; width: 100%; height: 96px; padding: 6px 14px; display: grid; grid-template-rows: 1fr 1fr; align-items: center; background: #2f4858; color: #fff; font: 14px/1.3 system-ui, sans-serif; }
+  #foldHeader h3 { margin: 0; font-size: 20px; }
+  #foldHeader nav { display: flex; gap: 10px; align-items: center; }
+  #foldHeader button { min-height: 36px; font: inherit; }
+  #foldArticle { box-sizing: border-box; width: 100%; padding: 6px 14px 28px; background: var(--card); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  #foldArticle p { margin: 10px 0; }
+  #foldArticle button { min-height: 38px; font: inherit; }
+  /* #endregion header-css */
+
+  /* #region cabinet-css */
+  #cabinetForm, #cabinetForm details { width: 260px; }
+  #cabinetForm summary { box-sizing: border-box; height: 52px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; list-style: none; background: #c9a36b; border: 2px solid #8a6a3f; border-radius: 6px; color: #2b1d0e; font: 600 16px system-ui, sans-serif; cursor: pointer; }
+  #cabinetForm summary::-webkit-details-marker { display: none; }
+  #cabinetForm summary::after { content: ''; width: 56px; height: 10px; border-radius: 5px; background: #5b4632; }
+  #cabinetForm details[open] summary { background: #dcb981; }
+  #cabinetForm summary:focus-visible { outline: none; border-color: #fff; box-shadow: inset 0 0 0 2px #2b1d0e; }
+  #cabinetForm .inside { box-sizing: border-box; height: 104px; padding: 8px 14px; display: grid; gap: 4px; align-content: start; background: #efe6d6; color: #2b1d0e; font: 14px/1.35 system-ui, sans-serif; }
+  #cabinetForm .inside label { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+  #cabinetForm .inside :is(button, input[type=text]) { min-height: 38px; font: inherit; box-sizing: border-box; max-width: 100%; }
+  #cabinetForm .inside p { margin: 0; }
+  /* #endregion cabinet-css */
+
+  /* #region aside-css */
+  #noteDoc { position: relative; box-sizing: border-box; width: 100%; padding: 12px 14px; color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  #noteDoc p { margin: 0 44% 14px 0; }
+  #noteDoc aside { position: absolute; left: 0; top: 0; box-sizing: border-box; width: 136px; padding: 8px 10px; background: #fff3b0; border: 1px solid #d6c35a; border-radius: 4px; color: #3a3000; font: 13px/1.35 system-ui, sans-serif; touch-action: pan-y; }
+  #noteDoc aside b { display: block; }
+  #noteDoc aside label { display: flex; align-items: center; gap: 6px; min-height: 30px; }
+  /* #endregion aside-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Page structure drawn in depth</h1>
+  <p class="lede">
+    Six ideas from the <a href="/elements/">element catalogue</a>, built. Each canvas draws structural elements
+    (<code>&lt;section&gt;</code>, <code>&lt;nav&gt;</code>, <code>&lt;hr&gt;</code>, <code>&lt;header&gt;</code>, <code>&lt;details&gt;</code>, <code>&lt;aside&gt;</code>)
+    in a position the page layout does not have: on the faces of a cube, along a curve, at different depths, folded, pulled out towards the reader, and hanging from a string.
+    The elements stay in the document, and the buttons, links and checkboxes inside them are pressed where they are drawn. Drag the cube and the ribbon sideways, and scroll inside the two framed pages.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#cube">Cube</a><a href="#ribbon">Ribbon</a><a href="#slices">Slices</a><a href="#header">Folding header</a><a href="#cabinet">Drawer cabinet</a><a href="#aside">Aside on a string</a>
+  </nav>
+
+  <section class="idea" id="cube">
+    <h2>Sections on a cube</h2>
+    <p>Four <code>&lt;section&gt;</code> elements, one on each side face. Drag a face sideways, press a link in the <code>&lt;nav&gt;</code> under the cube, or press Tab through the controls: focus that moves into a hidden section turns it to the front.</p>
+    <canvas id="cubeCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 340px">
+      <!-- #region cube-html -->
+      <nav id="cubeNav" drawable aria-label="Faces of the cube">
+        <a href="#face-overview">Overview</a><a href="#face-plan">Plan</a><a href="#face-sizes">Sizes</a><a href="#face-contact">Contact</a>
+      </nav>
+      <div id="cubeFaces">
+        <section drawable id="face-overview" aria-labelledby="h-overview">
+          <h3 id="h-overview">Overview</h3>
+          <p>This face is a section with a heading. The button is a real button, drawn here.</p>
+          <p><button type="button" id="cubeCount">Press</button></p>
+        </section>
+        <section drawable id="face-plan" aria-labelledby="h-plan">
+          <h3 id="h-plan">Plan</h3>
+          <label><input type="checkbox" checked> Measure the room</label>
+          <label><input type="checkbox"> Order the shelves</label>
+          <label><input type="checkbox"> Book the fitter</label>
+        </section>
+        <section drawable id="face-sizes" aria-labelledby="h-sizes">
+          <h3 id="h-sizes">Sizes</h3>
+          <p>Shelf depth</p>
+          <input type="range" id="cubeSize" min="200" max="600" step="10" value="350" aria-label="Shelf depth">
+          <p id="cubeSizeOut">350 px</p>
+        </section>
+        <section drawable id="face-contact" aria-labelledby="h-contact">
+          <h3 id="h-contact">Contact</h3>
+          <label>Name <input type="text" size="12" autocomplete="off"></label>
+          <p>The API is described in the <a href="/start/">tutorial</a>.</p>
+        </section>
+      </div>
+      <!-- #endregion cube-html -->
+    </canvas>
+    <div class="controls"><button type="button" id="cubePrev">Turn left</button><button type="button" id="cubeNext">Turn right</button></div>
+    <output id="cubeOut"></output>
+    <p class="found">While the cube rests, the front face is one flat draw. While it turns, the two visible faces are drawn in 26 vertical strips each, and the face that is most towards the reader takes input at its flat place.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#cube-html"><b>A <code>&lt;nav&gt;</code> and four <code>drawable</code> sections.</b></li>
+      <li data-code="/structure-depth/cube.js#cube"><b>Draw the visible faces in strips while the cube turns, and flat when it rests.</b></li>
+      <li data-code="/structure-depth/kit.js#strips"><b>The strips.</b></li>
+      <li data-code="/structure-depth/cube.js#cube-turn"><b>Turn on a link, on focus and on a drag.</b></li>
+      <li data-code="#cube-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="ribbon">
+    <h2>Navigation on a ribbon</h2>
+    <p>A <code>&lt;nav&gt;</code> with eight links to pages of this site, drawn along a moving curve. Drag sideways to pull the ribbon through. Tap a link to follow it, or long-press it for the browser's link menu.</p>
+    <canvas id="ribbonCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 220px">
+      <!-- #region ribbon-html -->
+      <nav id="ribbonNav" aria-label="Other pages">
+        <a drawable href="/start/">Tutorial</a><a drawable href="/accordion/">Accordion</a><a drawable href="/sort-table/">Sort table</a><a drawable href="/minimap/">Minimap</a><a drawable href="/tab-fan/">Tab fan</a><a drawable href="/heat-map/">Heat map</a><a drawable href="/instruments/">Instruments</a><a drawable href="/elements/">Elements</a>
+      </nav>
+      <!-- #endregion ribbon-html -->
+    </canvas>
+    <div class="controls"><label><input type="checkbox" id="ribbonStill"> Hold the ribbon still</label></div>
+    <output id="ribbonOut"></output>
+    <p class="found">Each link is drawn in strips 4 px wide, and each strip is turned to the angle of the curve at its place. The link's hit region is its whole box, turned to the angle at its middle.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#ribbon-html"><b>Each link is <code>drawable</code>. The <code>&lt;nav&gt;</code> is not drawn.</b></li>
+      <li data-code="/structure-depth/ribbon.js#ribbon"><b>Measure the curve, draw the band, then each link in strips.</b></li>
+      <li data-code="/structure-depth/ribbon.js#ribbon-drag"><b>A drag pulls the ribbon. A tap is left to the link.</b></li>
+      <li data-code="#ribbon-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="slices">
+    <h2>Slices between hr elements</h2>
+    <p>One <code>&lt;article&gt;</code> with three <code>&lt;hr&gt;</code> elements. The paint handler reads where each <code>&lt;hr&gt;</code> is, cuts the article's picture there, and draws the four slices at different depths. Drag sideways to look from another side.</p>
+    <canvas id="slicesCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 470px">
+      <!-- #region slices-html -->
+      <article drawable id="slicesDoc">
+        <h3>Release notes</h3>
+        <p>Version 4 draws its sidebar in a canvas. The four parts of this article are divided by three rules.</p>
+        <hr>
+        <p>The first rule ends here. This button is in the second slice.</p>
+        <p><button type="button" id="slicesLike">Like (0)</button></p>
+        <hr>
+        <p>The third slice holds a link to the <a href="/accordion/">accordion page</a> and a checkbox.</p>
+        <label><input type="checkbox" id="slicesRead"> Read</label>
+        <hr>
+        <p>The last slice. Nothing in the markup says which slice is near and which is far.</p>
+      </article>
+      <!-- #endregion slices-html -->
+    </canvas>
+    <div class="controls">
+      <label>Depth <input type="range" id="slicesSpread" min="0" max="100" value="75"></label>
+      <label><input type="checkbox" id="slicesSway" checked> Sway</label>
+    </div>
+    <output id="slicesOut"></output>
+    <p class="found">The article is one element and has one hit region, and the four slices are drawn with four transforms. On each <code>pointerdown</code>, before the browser picks the element for the tap, the page moves the region to the slice under the pointer.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#slices-html"><b>One <code>drawable</code> article.</b></li>
+      <li data-code="/structure-depth/slices.js#slices"><b>Cut at each <code>&lt;hr&gt;</code> and draw the slices, far ones first.</b></li>
+      <li data-code="/structure-depth/slices.js#slices-point"><b>Move the hit region to the slice under the pointer.</b></li>
+      <li data-code="/structure-depth/kit.js#hit"><b>A draw with no alpha, outside a paint event.</b></li>
+      <li data-code="#slices-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="header">
+    <h2>Header that folds away</h2>
+    <p>Scroll inside the frame. The <code>&lt;header&gt;</code> folds up as the article moves down, and unfolds as soon as the scroll turns back, wherever the reader is in the article.</p>
+    <div class="scroller" id="headScroll" tabindex="0" aria-label="Field notes, a scrolling page">
+      <canvas id="headCanvas" class="idea-canvas" content="drawable" layoutsubtree>
+        <!-- #region header-html -->
+        <header drawable id="foldHeader">
+          <h3>Field notes</h3>
+          <nav aria-label="Field notes"><button type="button" id="foldTop">Back to top</button><span id="foldCount">0 marked</span></nav>
+        </header>
+        <article drawable id="foldArticle">
+          <p><b>Monday.</b> The header above is 96 px tall. It is one element with a heading and a nav, and the canvas draws it over the article.</p>
+          <p>Scrolling down by 96 px folds it shut. The fold is four strips of the header's picture, each one squashed and leaned to one side, with a shade over it.</p>
+          <p><button type="button" class="mark">Mark this entry</button></p>
+          <p><b>Tuesday.</b> The article is taller than the canvas. The canvas does not scroll. It sits in a scroller with an empty block under it, and it draws the article at minus the scroll position.</p>
+          <p>That keeps the browser's own scrolling: a finger, a wheel, the keyboard and the scroll bar.</p>
+          <p><button type="button" class="mark">Mark this entry</button></p>
+          <p><b>Wednesday.</b> Scroll up by any amount and the header starts to unfold, by the same distance.</p>
+          <p>If the scroll stops while it is half open, it finishes opening or closing by itself.</p>
+          <p><button type="button" class="mark">Mark this entry</button></p>
+          <p><b>Thursday.</b> While the header is folded its buttons take no input. When it is flat again it is one plain draw, and Back to top works.</p>
+          <p><b>Friday.</b> This is the end of the article.</p>
+        </article>
+        <!-- #endregion header-html -->
+      </canvas>
+      <div class="spacer"></div>
+    </div>
+    <output id="headOut"></output>
+    <p class="found">The scroller is ordinary HTML outside the canvas. A touch that starts on a drawn element scrolls it, because the canvas and everything drawn in it are inside the scroller.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#header-html"><b>A scroller, a canvas that stays in place, a header and an article.</b></li>
+      <li data-code="/structure-depth/header.js#header"><b>Fold by the distance scrolled, and draw.</b></li>
+      <li data-code="/structure-depth/kit.js#strips"><b>The fold.</b></li>
+      <li data-code="/structure-depth/kit.js#scroll"><b>The scroll length.</b></li>
+      <li data-code="#scroll-css"><b>Scroller styles.</b></li>
+      <li data-code="#header-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="cabinet">
+    <h2>Drawer cabinet from details</h2>
+    <p>Four <code>&lt;details&gt;</code> elements with one <code>name</code>. Each <code>&lt;summary&gt;</code> is a drawer front. Tap one: the drawer comes out towards you and its content is the inside of the drawer. The controls inside work.</p>
+    <canvas id="cabinetCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 400px">
+      <!-- #region cabinet-html -->
+      <form id="cabinetForm">
+        <details drawable name="drawer">
+          <summary>Receipts</summary>
+          <div class="inside"><label><input type="checkbox" name="filed" value="march" checked> March, filed</label><label><input type="checkbox" name="filed" value="april"> April</label><label><input type="checkbox" name="filed" value="may"> May</label></div>
+        </details>
+        <details drawable name="drawer">
+          <summary>Cables</summary>
+          <div class="inside"><p>USB-C cables kept</p><input type="range" name="cables" min="0" max="12" value="4" aria-label="Cables kept"><p>A range input, drawn squashed.</p></div>
+        </details>
+        <details drawable name="drawer">
+          <summary>Keys</summary>
+          <div class="inside"><p>Shed, bike lock, spare front door.</p><p><button type="button" id="cabinetKey">Take a key</button></p></div>
+        </details>
+        <details drawable name="drawer">
+          <summary>Labels</summary>
+          <div class="inside"><label>Text <input type="text" name="label" size="12" value="Fragile" autocomplete="off"></label><p>Typed text is submitted with the form.</p></div>
+        </details>
+      </form>
+      <!-- #endregion cabinet-html -->
+    </canvas>
+    <output id="cabinetOut"></output>
+    <p class="found">The open drawer is one element drawn in two parts: its body as ten rows that get wider towards the reader, and its summary under the body, larger. A closing drawer's body is drawn from a snapshot taken while it was open.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#cabinet-html"><b>Four <code>&lt;details name&gt;</code> elements in a form.</b></li>
+      <li data-code="/structure-depth/cabinet.js#cabinet"><b>Draw the fronts, then the drawer that is out.</b></li>
+      <li data-code="/structure-depth/cabinet.js#cabinet-point"><b>Move the hit region to the part under the pointer.</b></li>
+      <li data-code="#cabinet-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="aside">
+    <h2>Aside as a margin note on a string</h2>
+    <p>Scroll inside the frame. Each <code>&lt;aside&gt;</code> hangs from a pin beside the paragraph it follows in the markup. A change in scroll speed swings it and stretches its string. Press a note to push it.</p>
+    <div class="scroller" id="noteScroll" tabindex="0" aria-label="An article with margin notes">
+      <canvas id="noteCanvas" class="idea-canvas" content="drawable" layoutsubtree>
+        <!-- #region aside-html -->
+        <div id="noteDoc">
+          <p drawable>A canal lock raises a boat by filling a chamber with water from the higher side. Nothing is pumped.</p>
+          <aside drawable><b>Pound lock</b>The kind with two gates. <label><input type="checkbox"> Seen one</label></aside>
+          <p drawable>The gates meet at an angle that points upstream, so the weight of the water holds them shut.</p>
+          <p drawable>A paddle in each gate lets water through. The crew winds it open with a handle called a windlass.</p>
+          <aside drawable><b>Windlass</b>Easy to drop in the canal. <label><input type="checkbox"> Have one</label></aside>
+          <p drawable>When the levels are equal the gate opens with a push on its long beam.</p>
+          <p drawable>A flight is a run of locks close together. The longest in Britain has 30.</p>
+          <aside drawable><b>Tardebigge</b>30 locks in about two miles. <label><input type="checkbox"> Walked it</label></aside>
+          <p drawable>Going down, the order is reversed: the chamber is emptied into the lower side.</p>
+          <p drawable>Each use of a lock moves one chamber of water downhill, so summits need reservoirs.</p>
+          <p drawable>This is the last paragraph.</p>
+        </div>
+        <!-- #endregion aside-html -->
+      </canvas>
+      <div class="spacer"></div>
+    </div>
+    <output id="noteOut"></output>
+    <p class="found">The aside is drawn turned about its pin with one <code>drawElementImage()</code> call under a rotation, so its hit region turns with it and the checkbox can be pressed while it swings.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#aside-html"><b>Paragraphs and asides, each <code>drawable</code>, in a scroller.</b></li>
+      <li data-code="/structure-depth/aside.js#aside"><b>Draw the paragraphs in view, then each aside on its string. The scroll pushes them.</b></li>
+      <li data-code="#aside-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>Each canvas holds the real elements as descendants marked <code>drawable</code>. A <code>paint</code> handler draws them with <code>drawElementImage()</code> under a transform, or in clipped pieces under several transforms. The call also moves the element's hit region to where it was drawn. Four techniques are used more than once:</p>
+  <ul>
+    <li><b>Strips.</b> A 2D context has affine transforms only. Perspective (the cube, the inside of a drawer), a fold (the header) and a bend (the ribbon) are made by drawing the same element many times, each time clipped to a narrow strip with its own transform.</li>
+    <li><b>One region, several pieces.</b> An element has one hit region, at the place of its last draw. The article in slices and the open drawer are shown in pieces that no single transform covers. A <code>pointerdown</code> listener on the canvas, in the capture phase, finds the piece under the pointer and makes one draw of the element there with <code>globalAlpha = 0</code>. That draw is allowed outside a <code>paint</code> event and moves the region before the browser picks the target of the tap.</li>
+    <li><b>A canvas inside a scroller.</b> The folding header and the margin notes need a scroll position. The canvas is <code>position: sticky</code> in an ordinary scroller with a spacer under it, and draws the content at minus <code>scrollTop</code>. The browser scrolls it by touch, wheel and keyboard.</li>
+    <li><b>The element is the state.</b> The cabinet reads <code>open</code> on each paint and the notes read the scroll position. A closed <code>&lt;details&gt;</code> has no picture of its body, so the cabinet keeps a <code>captureElementImage()</code> snapshot of each open drawer and closes the old snapshot when it takes a new one.</li>
+  </ul>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="/structure-depth/kit.js#mount"><b>The paint loop shared by the six demos.</b></li>
+    <li data-code="/structure-depth/kit.js#hit"><b>Move a hit region without drawing.</b></li>
+    <li data-code="/structure-depth/kit.js#point"><b>Run before the tap is handled.</b></li>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/structure-depth/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/structure-depth/kit.js#plain"><b>The elements are then shown as plain HTML.</b></li>
+    <li data-code="#plain-css"><b>Styles for the plain HTML.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window, and none of them touches the demos above.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21, at 412 px wide with emulated touch, and at 1000 px wide with a mouse and a keyboard.</p>
+  <ul class="findings">
+    <li><b>An element has one hit region, and a canvas can move it before a tap is resolved.</b> A call to <code>drawElementImage()</code> with <code>globalAlpha = 0</code> made in a <code>pointerdown</code> listener, outside any <code>paint</code> event, moved the region. A touch tap sent with no delay between touch start and touch end then pressed the button in the piece under the finger: in the slices (button, checkbox) and in the drawer body (checkbox, range input, button).</li>
+    <li><b>The same draw needs an attribute toggle after it.</b> <code>elementFromPoint()</code> at the same point still returned the old answer until an attribute on the element changed. The check "A draw with globalAlpha 0 outside a paint event" shows both answers.</li>
+    <li><b>Two other routes for the same job were tried on a test page.</b> <code>updateElementGeometry()</code> in the <code>pointerdown</code> listener also worked. Asking for a paint and moving the region in the next <code>paint</code> event was too late for a tap with no delay (the click went to the canvas) and worked for a tap held for 60 ms.</li>
+    <li><b>A canvas that is <code>position: sticky</code> in a scroller is scrolled natively from its drawn content.</b> A touch drag that started on a drawn paragraph scrolled the scroller, a wheel did too, and the page did not move. A scroll raises no <code>paint</code> event, so the page asks for one in its <code>scroll</code> listener. An element taller than the canvas, inside the canvas, did not add to the scroll length.</li>
+    <li><b>Landmarks and headings stay in the accessibility tree.</b> Chromium's tree (read over the DevTools protocol) lists four regions named Overview, Plan, Sizes and Contact with their headings, the three <code>&lt;nav&gt;</code> elements as navigation landmarks, and all eight ribbon links, including the faces that are turned away and the links that are outside the canvas.</li>
+    <li><b>Focus can drive the drawing.</b> Tab from the first face moved focus into the second section, which was parked, and the <code>focusin</code> listener turned the cube to it.</li>
+    <li><b>A link drawn in turned strips is still a link.</b> Its one hit region is its box turned to the angle of the curve. A click on it navigated. A drag of more than 8 px pulled the ribbon and did not navigate.</li>
+    <li><b><code>offsetTop</code> of an <code>&lt;hr&gt;</code> inside a positioned <code>drawable</code> article gives the cut.</b> A clipped draw of the article shows the rows between two cuts and nothing else.</li>
+    <li><b>A horizontal drag on a canvas with <code>touch-action: pan-y</code> reaches the page, and a vertical one scrolls it.</b> The drag turned the cube by two faces with no page scroll. A vertical swipe on the same face scrolled the page by the length of the swipe.</li>
+    <li><b>The open drawer hides the drawer below it.</b> Its front is drawn over the next slot and takes the taps there. That matches the picture, and it means the hidden drawer cannot be opened until the open one is closed or another visible one is tapped.</li>
+    <li><b>Not verified:</b> everything on a phone. In particular whether a real finger tap is resolved after the <code>pointerdown</code> listener has moved the region, the frame rate of the ribbon (about 100 clipped draws a frame), the long-press link menu on a ribbon link, scroll momentum inside the two scrollers and how it drives the notes, and what TalkBack announces on the cube.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  // A demo's script is loaded and started the first time its section comes near the screen.
+  const demos = window.__depth = {};
+  const started = new Set();
+  const begin = (section) => {
+    if (started.has(section.id)) return;
+    started.add(section.id);
+    watch.unobserve(section);
+    import(`./${section.id}.js`).then((m) => { demos[section.id] = m.default(); }).catch((err) => { window.__gfx?.report?.('demo-failed', `${section.id}: ${err.message}`); throw err; });
+  };
+  const watch = new IntersectionObserver((entries) => { for (const e of entries) if (e.isIntersecting) begin(e.target); }, { rootMargin: '100px 0px' });
+  document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const need = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+  // A fixture canvas on the test stage. paint(ctx, canvas) runs on every paint event.
+  async function rig(html, paint, w = 240, h = 170, parent = testStage(), css = '') {
+    need();
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `flex:none;display:block;width:${w}px;height:${h}px;${css}`;
+    canvas.innerHTML = html;
+    parent.append(canvas);
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, ctx, paints: 0, error: null };
+    canvas.addEventListener('paint', () => { state.paints++; ctx.reset(); try { paint(ctx, canvas); state.error = null; } catch (e) { state.error = e; } });
+    state.frame = async () => { const n = state.paints; canvas.requestPaint(); for (let i = 0; i < 80 && state.paints === n; i++) await sleep(25); await sleep(40); };
+    for (let i = 0; i < 12; i++) { await state.frame(); if (state.paints && !state.error) break; }
+    if (state.error) throw state.error;
+    return state;
+  }
+  // Pixels are read from a small copy made with drawImage(), never from the drawable canvas itself.
+  const copy = document.createElement('canvas');
+  const read = (state, x, y) => {
+    copy.width = 1; copy.height = 1;
+    const c2 = copy.getContext('2d');
+    c2.drawImage(state.canvas, x, y, 1, 1, 0, 0, 1, 1);
+    return [...c2.getImageData(0, 0, 1, 1).data];
+  };
+  const draw = (ctx, el, x = 0, y = 0) => ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
+  const q = (state, sel) => state.canvas.querySelector(sel);
+  // elementFromPoint() at a point given in the fixture canvas's own pixels.
+  const at = (state, x, y) => { const b = state.canvas.getBoundingClientRect(); return document.elementFromPoint(b.left + x, b.top + y); };
+  const name = (el) => (el ? `<${el.localName}${el.id ? ` id=${el.id}` : ''}>` : 'nothing');
+
+  // One element, drawn as two pieces 60 px apart. Button "one" is in the upper piece, "two" in the lower.
+  const TWO = '<div drawable style="position:relative;width:200px;height:100px;background:#abc"><button id="one" style="position:absolute;left:10px;top:10px;width:80px;height:30px">one</button><button id="two" style="position:absolute;left:10px;top:60px;width:80px;height:30px">two</button></div>';
+  const twoPieces = (ctx, c) => {
+    const d = c.querySelector('div');
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 200, 50); ctx.clip(); draw(ctx, d, 0, 0); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 110, 200, 50); ctx.clip(); draw(ctx, d, 0, 60); ctx.restore();
+    ctx.globalAlpha = 0; draw(ctx, d, 0, 0); ctx.globalAlpha = 1;       // the region ends on the upper piece
+  };
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'A section that is parked is not found, and one flat draw brings it back',
+      why: 'The cube parks the faces that are turned away with updateElementGeometry() at a scale of 0.001, and draws a face flat when it comes to the front. elementFromPoint() at the face must return the canvas while it is parked and the button inside it after the draw.',
+      run: async () => {
+        let parked = true;
+        const s = await rig('<section drawable aria-labelledby="fh" style="box-sizing:border-box;width:200px;height:120px;padding:10px;background:#246;color:#fff"><h3 id="fh" style="margin:0">Plan</h3><button style="margin-top:20px;width:90px;height:34px">b</button></section>', (ctx, c) => {
+          const f = c.querySelector('section');
+          if (parked) { draw(ctx, f, 20, 20); c.updateElementGeometry(f, { canvasTransform: new DOMMatrix().translate(120, 85).scale(0.001) }); } else draw(ctx, f, 20, 20);
+        });
+        const away = at(s, 75, 100);
+        parked = false;
+        await s.frame();
+        q(s, 'section').toggleAttribute('data-rest');
+        const back = at(s, 75, 100);
+        if (away !== s.canvas) throw new Error(`while parked, elementFromPoint returned ${name(away)}`);
+        if (back !== q(s, 'button')) throw new Error(`after the flat draw, elementFromPoint returned ${name(back)}`);
+        const role = 'computedRole' in Element.prototype ? ` computedRole is "${q(s, 'section').computedRole}".` : ' This browser has no Element.computedRole to read the landmark role from script.';
+        return `Parked: ${name(away)}. After one draw: ${name(back)}.${role}`;
+      },
+    },
+    {
+      name: 'A link drawn turned by 0.5 radians is found in its turned box and keeps its href',
+      why: 'The ribbon gives each link one hit region, turned to the angle of the curve. The check tests the middle, a point that is inside the turned box only, and a point that is inside the box only before the turn.',
+      run: async () => {
+        const s = await rig('<nav><a drawable href="/start/" style="display:inline-block;box-sizing:border-box;width:80px;height:40px;background:#246;color:#fff;font:600 16px/40px system-ui;text-align:center">Start</a></nav>',
+          (ctx, c) => { ctx.translate(120, 85); ctx.rotate(0.5); draw(ctx, c.querySelector('a'), -40, -20); });
+        const a = q(s, 'a');
+        const to = (x, y) => [120 + x * Math.cos(0.5) - y * Math.sin(0.5), 85 + x * Math.sin(0.5) + y * Math.cos(0.5)];
+        const mid = at(s, 120, 85), turned = at(s, ...to(35, 15)), flat = at(s, 120 + 36, 85 - 16);
+        if (mid !== a || turned !== a) throw new Error(`middle: ${name(mid)}, corner of the turned box: ${name(turned)}`);
+        if (flat === a) throw new Error('a point outside the turned box still returned the link');
+        return `Found at the middle and at a corner of the turned box, not at a corner of the box before the turn. href is ${new URL(a.href).pathname}.`;
+      },
+    },
+    {
+      name: 'One element drawn as two pieces is hit in both',
+      expect: 'fail',
+      why: 'An article cut at an <hr> is one element drawn at two places. After a paint that ends with the region on the upper piece, elementFromPoint() on a button drawn in the lower piece would have to return that button.',
+      run: async () => {
+        const s = await rig(TWO, twoPieces);
+        const upper = at(s, 50, 25), lower = at(s, 50, 135);
+        if (upper !== q(s, '#one')) throw new Error(`the upper piece returned ${name(upper)}`);
+        if (lower !== q(s, '#two')) throw new Error(`On the lower piece elementFromPoint() returned ${name(lower)}, not the button drawn there. An element has one hit region.`);
+        return 'Both pieces are hit.';
+      },
+    },
+    {
+      name: 'A draw with globalAlpha 0 outside a paint event moves the hit region',
+      why: 'The route used for the slices and the drawer: in a pointerdown handler, draw the element once more with no alpha at the piece under the pointer. The check does that draw from ordinary script, with no paint event, and tests the lower piece before and after.',
+      run: async () => {
+        const s = await rig(TWO, twoPieces);
+        const d = q(s, 'div');
+        const before = at(s, 50, 135);
+        s.ctx.save(); s.ctx.globalAlpha = 0; draw(s.ctx, d, 0, 60); s.ctx.restore();
+        const stale = at(s, 50, 135);
+        d.toggleAttribute('data-point');
+        const after = at(s, 50, 135), upper = at(s, 50, 25);
+        if (after !== q(s, '#two')) throw new Error(`after the draw, the lower piece returned ${name(after)}`);
+        if (upper === q(s, '#one')) throw new Error('the upper piece is still hit as well');
+        return `Before: ${name(before)}. After the draw: ${name(stale)} at the same point${stale === after ? '' : ', the remembered answer'}. After toggling an attribute: ${name(after)}. The upper piece now returns ${name(upper)}.`;
+      },
+    },
+    {
+      name: 'offsetTop of an <hr> gives the cut, and a clipped draw shows one slice only',
+      why: 'An article with a red paragraph, an <hr> and a blue paragraph. The part above the cut is drawn at the top, the part below it 40 px lower and 1.2 times larger. Pixels are read in the first slice, in the gap and in the second slice.',
+      run: async () => {
+        let cut = 0;
+        const s = await rig('<article drawable style="position:relative;width:200px;margin:0"><p style="margin:0;height:40px;background:#c00"></p><hr style="margin:0;border:0;height:4px;background:#000"><p style="margin:0;height:40px;background:#00c"></p></article>', (ctx, c) => {
+          const art = c.querySelector('article'), hr = c.querySelector('hr'), H = art.offsetHeight;
+          cut = hr.offsetTop + hr.offsetHeight;
+          ctx.save(); ctx.translate(10, 10); ctx.beginPath(); ctx.rect(0, 0, 200, cut); ctx.clip(); draw(ctx, art); ctx.restore();
+          ctx.save(); ctx.translate(10, 50); ctx.scale(1.2, 1.2); ctx.beginPath(); ctx.rect(0, cut, 200, H - cut); ctx.clip(); draw(ctx, art); ctx.restore();
+        });
+        const first = read(s, 20, 20), gap = read(s, 20, 70), second = read(s, 20, 50 + Math.round(cut * 1.2) + 20);
+        if (cut !== 44) throw new Error(`the cut is at ${cut} px, expected 44`);
+        if (!(first[0] > 150 && first[2] < 60)) throw new Error(`first slice pixel is ${first}`);
+        if (gap[3] > 8) throw new Error(`the gap between the slices has ink: ${gap}`);
+        if (!(second[2] > 150 && second[0] < 60)) throw new Error(`second slice pixel is ${second}`);
+        return `Cut at ${cut} px. First slice rgb ${first.slice(0, 3)}, gap alpha ${gap[3]}, second slice rgb ${second.slice(0, 3)}.`;
+      },
+    },
+    {
+      name: 'An element drawn at minus scrollTop in a canvas that stays in place is hit where it is drawn',
+      why: 'The folding header and the margin notes: a scroller holds a position: sticky canvas and a spacer. The fixture scroller is scrolled by script to 120 px. The check also counts paint events raised by the scroll alone, and reads whether the tall element inside the canvas adds to the scroll length.',
+      run: async () => {
+        const sc = document.createElement('div');
+        sc.style.cssText = 'flex:none;width:240px;height:150px;overflow-y:auto';
+        testStage().append(sc);
+        let top = 0;
+        const s = await rig('<article drawable style="width:220px;height:450px;background:linear-gradient(#fc0,#06c)"><button style="margin-top:200px;width:100px;height:36px">deep</button></article>',
+          (ctx, c) => { top = sc.scrollTop; draw(ctx, c.querySelector('article'), 0, -top); }, 240, 150, sc, 'position:sticky;top:0');
+        const spacer = document.createElement('div');
+        spacer.style.height = '300px';
+        sc.append(spacer);
+        await s.frame();
+        const length = sc.scrollHeight, n = s.paints;
+        sc.scrollTop = 120;
+        await sleep(300);
+        const byScroll = s.paints - n;
+        await s.frame();
+        q(s, 'article').toggleAttribute('data-rest');
+        const b = q(s, 'button').getBoundingClientRect(), cb = s.canvas.getBoundingClientRect(), sb = sc.getBoundingClientRect();
+        const hit = at(s, 50, 98);
+        if (Math.abs(cb.top - sb.top) > 1) throw new Error(`the canvas moved ${Math.round(cb.top - sb.top)} px with the scroll`);
+        if (Math.abs(b.top - cb.top - 80) > 1.5) throw new Error(`the button is ${Math.round(b.top - cb.top)} px down the canvas, expected 80`);
+        if (hit !== q(s, 'button')) throw new Error(`elementFromPoint returned ${name(hit)}`);
+        return `scrollTop 120: the button is drawn and found ${Math.round(b.top - cb.top)} px down the canvas. The scroll raised ${byScroll} paint event(s) by itself. scrollHeight is ${length} px for a 150 px canvas, a 300 px spacer and a 450 px element in the canvas.`;
+      },
+    },
+    {
+      name: 'The body of an open <details>, drawn squashed above its summary, takes input there',
+      why: 'The drawer: the body rows are drawn above the summary with a different transform. After the paint the region is on the summary. Then one draw with no alpha puts it on the body, and the button inside the body must be found where it is drawn.',
+      run: async () => {
+        const body = (ctx) => { ctx.translate(120, 10); ctx.scale(1.1, 0.7); ctx.translate(-100, -30); };
+        const s = await rig('<details drawable open style="width:200px"><summary style="box-sizing:border-box;height:30px;background:#ca6;list-style:none">S</summary><div style="height:80px;background:#eee"><button type="button" style="margin:20px 0 0 20px;width:80px;height:30px">in</button></div></details>', (ctx, c) => {
+          const d = c.querySelector('details');
+          ctx.save(); body(ctx); ctx.beginPath(); ctx.rect(0, 30, 200, 80); ctx.clip(); draw(ctx, d); ctx.restore();
+          ctx.save(); ctx.translate(120, 66); ctx.scale(1.2, 1.2); ctx.translate(-100, 0); ctx.beginPath(); ctx.rect(0, 0, 200, 30); ctx.clip(); draw(ctx, d); ctx.restore();
+        });
+        const d = q(s, 'details');
+        const front = at(s, 120, 84);
+        if (front !== q(s, 'summary')) throw new Error(`at the drawn summary, elementFromPoint returned ${name(front)}`);
+        s.ctx.save(); body(s.ctx); s.ctx.globalAlpha = 0; draw(s.ctx, d); s.ctx.restore();
+        d.toggleAttribute('data-point');
+        const inBody = at(s, 120 + 1.1 * (60 - 100), 10 + 0.7 * 35);
+        if (inBody !== q(s, 'button')) throw new Error(`at the drawn button, elementFromPoint returned ${name(inBody)}`);
+        return `Summary found at its drawn place. After the draw with no alpha, the button in the body is found at its drawn place, 0.7 times its height.`;
+      },
+    },
+    {
+      name: 'The client rect of an aside drawn turned about a pin is the box around the turned aside',
+      why: 'An aside of 100 by 60 px hangs 30 px under a pin at 120,20 and is turned by 0.4 radians. Its getBoundingClientRect() must be the bounding box of the turned rectangle, 116 by 94 px, and elementFromPoint() at its drawn middle must return it.',
+      run: async () => {
+        const s = await rig('<aside drawable style="box-sizing:border-box;width:100px;height:60px;background:#fe8">note</aside>', (ctx, c) => { ctx.translate(120, 20); ctx.rotate(-0.4); draw(ctx, c.querySelector('aside'), -50, 30); });
+        const a = q(s, 'aside'), b = a.getBoundingClientRect();
+        const w = 100 * Math.cos(0.4) + 60 * Math.sin(0.4), h = 100 * Math.sin(0.4) + 60 * Math.cos(0.4);
+        const hit = at(s, 120 + Math.sin(0.4) * 60, 20 + Math.cos(0.4) * 60);
+        if (Math.abs(b.width - w) > 1.5 || Math.abs(b.height - h) > 1.5) throw new Error(`rect is ${b.width.toFixed(1)} by ${b.height.toFixed(1)}, expected ${w.toFixed(1)} by ${h.toFixed(1)}`);
+        if (hit !== a) throw new Error(`elementFromPoint returned ${name(hit)}`);
+        return `Rect ${b.width.toFixed(1)} by ${b.height.toFixed(1)} px, and the aside is found at its drawn middle.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
