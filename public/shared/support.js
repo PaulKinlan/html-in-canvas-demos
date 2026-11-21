@@ -124,6 +124,7 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/shader-css/',
   '/slot-effects/',
   '/physical/',
+  '/native-ui/',
   '/select/',
   '/datalist/',
   '/inputs/',
