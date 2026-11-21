@@ -112,10 +112,24 @@ export class DomPortalSource extends HTMLElement {
     if (isItem) for (const p of ['flex', 'align-self', 'justify-self', 'order', 'grid-area']) host.style.setProperty(p, cs.getPropertyValue(p));
     host.style.margin = cs.margin;
     host.setAttribute('adopted', '');
+    // #region move
+    // moveBefore() moves a connected node without removing it: focus, a loaded
+    // iframe and running transitions inside the element carry on. Older
+    // browsers remove and re-insert it, and focus is put back by hand.
+    if ('moveBefore' in Element.prototype && target.isConnected) {
+      target.before(host);
+      try {
+        host.moveBefore(target, null);
+        return host;
+      } catch {
+        host.remove();
+      }
+    }
     const focused = target.contains(document.activeElement) ? document.activeElement : null;
     target.replaceWith(host);
     host.append(target);
     focused?.focus({ preventScroll: true });
+    // #endregion move
     return host;
   }
 
