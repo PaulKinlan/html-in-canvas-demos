@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paint clocks</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .idea output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button { min-height: 40px; font: inherit; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* #region plain-css */
+  /* The controls as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: flex; flex-wrap: wrap; gap: 10px; align-content: start; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .plain-note { margin: 0; flex-basis: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+  /* #endregion plain-css */
+
+  /* #region loading-css */
+  #loadBar { box-sizing: border-box; display: block; width: 340px; height: 16px; margin: 0; appearance: none; border: 0; border-radius: 8px; overflow: hidden; background: var(--line); }
+  #loadBar::-webkit-progress-bar { background: transparent; }
+  #loadBar::-webkit-progress-value { background: var(--ok); }
+  /* With no value the bar moves its stripes. This animation is what repaints the element. */
+  #loadBar:indeterminate { background: repeating-linear-gradient(90deg, var(--accent) 0 16px, var(--line) 16px 32px); background-size: 32px 100%; animation: load-stripes 0.5s linear infinite; }
+  @keyframes load-stripes { to { background-position: 32px 0; } }
+  #loadCard { box-sizing: border-box; width: 340px; margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
+  #loadCard h3 { margin: 0 0 6px; font-size: 19px; }
+  #loadCard p { margin: 0 0 8px; }
+  #loadCard table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  #loadCard td, #loadCard th { text-align: left; padding: 3px 0; border-top: 1px solid var(--line); }
+  /* #endregion loading-css */
+
+  /* #region caret-css */
+  #caretCard { box-sizing: border-box; width: 300px; height: 112px; margin: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--fg); font: 15px system-ui, sans-serif; }
+  #caretField { box-sizing: border-box; display: block; width: 268px; height: 46px; margin: 0; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; outline: none; background: var(--bg); color: var(--fg); font: 20px system-ui, sans-serif; caret-color: var(--bad); }
+  #caretField:focus { border-color: var(--bad); }
+  /* #endregion caret-css */
+
+  /* #region film-css */
+  #filmVideo { display: block; width: 160px; height: 90px; margin: 0; background: #000; border-radius: 6px; object-fit: cover; }
+  #filmCanvas .swing { box-sizing: border-box; width: 96px; height: 54px; margin: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: 600 14px/1.25 system-ui, sans-serif; }
+  #filmCanvas .swing small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+  #filmCredits { box-sizing: border-box; width: 260px; margin: 0; padding: 0; list-style: none; text-align: center; color: var(--fg); font: 15px/1.9 system-ui, sans-serif; }
+  #filmCredits b { display: block; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); line-height: 1.2; margin-top: 8px; }
+  .idea .controls input[type=range] { flex: 1; min-width: 140px; min-height: 40px; }
+  /* #endregion film-css */
+
+  /* #region image-css */
+  #imageClock { display: block; width: 64px; height: 64px; margin: 0; border-radius: 8px; }
+  #imageFlag { box-sizing: border-box; width: 250px; height: 150px; margin: 0; padding: 14px 16px; background: #14532d; color: #fff; font: 15px/1.4 system-ui, sans-serif; border-left: 6px solid #facc15; }
+  #imageFlag h3 { margin: 0 0 6px; font-size: 22px; color: #fff; }
+  #imageFlag p { margin: 0 0 8px; }
+  #imageFlag a { color: #facc15; }
+  .idea .controls label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+  /* #endregion image-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Paint clocks</h1>
+  <p class="lede">
+    Four ideas from the <a href="/elements/">element catalogue</a>. Some elements repaint by themselves: an indeterminate progress bar, a
+    blinking caret, a playing video, an animated image. Each repaint raises <code>paint</code> on the canvas that holds the element. On this
+    page that event is the only clock. No demo calls <code>requestAnimationFrame()</code>, starts a timer or asks for paints in a loop, so
+    each effect runs at the rate of its element and stops when the element stops. The line under each canvas counts the paint events.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#loading">Loading state</a><a href="#caret">Caret as a heartbeat</a><a href="#film">Video as a frame clock</a><a href="#image">Animated image</a>
+  </nav>
+
+  <section class="idea" id="loading">
+    <h2>Loading state that stops by itself</h2>
+    <p>A <code>&lt;progress&gt;</code> bar above an article. Press Start loading: the bar loses its value, its stripes move, and the article sways, grey and blurred, under a band of light. Press Finish: the bar gets a value, and the drawing stops with the finished article.</p>
+    <canvas id="loadCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 250px">
+      <!-- #region loading-html -->
+      <progress id="loadBar" drawable max="100" value="100" aria-label="Loading the article">loaded</progress>
+      <article id="loadCard" drawable>
+        <h3>Tide table, Thursday</h3>
+        <p>Times for the harbour gauge. Heights are above chart datum.</p>
+        <table>
+          <tr><th>High</th><td>04:12</td><td>5.1 m</td></tr>
+          <tr><th>Low</th><td>10:31</td><td>0.9 m</td></tr>
+          <tr><th>High</th><td>16:40</td><td>5.3 m</td></tr>
+        </table>
+      </article>
+      <!-- #endregion loading-html -->
+    </canvas>
+    <div class="controls">
+      <button type="button" id="loadStart">Start loading</button><button type="button" id="loadFinish">Finish</button>
+    </div>
+    <output class="line" id="loadOut"></output>
+    <p class="found">Nothing has to be cancelled when loading ends. The page has no loop to stop: the bar stops repainting, so <code>paint</code> stops. The stripes are a CSS animation on the bar. The browser's own indeterminate bar repaints too, at a lower rate, which the live checks measure.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#loading-html"><b>The bar and the article are <code>drawable</code> children of the canvas.</b></li>
+      <li data-code="/paint-clocks/loading.js#loading"><b>Draw the loading effect on each <code>paint</code> while the bar has no value.</b></li>
+      <li data-code="#loading-css"><b>Styles. The stripes are a CSS animation on the bar.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="caret">
+    <h2>Caret as a heartbeat</h2>
+    <p>Tap the field. The caret blinks, and each time it goes on or off the card beats and the trace moves one step. Type, and each letter adds a beat. Tap outside the field and the trace goes flat and stops.</p>
+    <canvas id="caretCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 250px">
+      <!-- #region caret-html -->
+      <div id="caretCard" drawable><label for="caretField">Patient's name</label></div>
+      <input id="caretField" drawable name="patient" autocomplete="off" spellcheck="false" enterkeyhint="done">
+      <!-- #endregion caret-html -->
+    </canvas>
+    <output class="line" id="caretOut">Not focused: no caret, so no paint events. Tap the field.</output>
+    <p class="found">The card has two states and no animation between them, because between two blinks nothing raises <code>paint</code>. The time between paint events printed above is the caret's blink interval on this device.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#caret-html"><b>The card and the field are separate <code>drawable</code> children, so the field can stay still while the card beats.</b></li>
+      <li data-code="/paint-clocks/caret.js#caret"><b>Treat each <code>paint</code> that the field raised as half a beat.</b></li>
+      <li data-code="/paint-clocks/kit.js#ticked"><b>Tell the clock's paint events from the others.</b></li>
+      <li data-code="#caret-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="film">
+    <h2>Video as a frame clock for a whole scene</h2>
+    <p>Press Play. The video is drawn in the canvas, and the three cards and the credits are placed from <code>video.currentTime</code> each time the video shows a new frame. Pause, and everything holds. Drag the slider while paused, and the whole scene moves to that moment.</p>
+    <canvas id="filmCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 340px">
+      <!-- #region film-html -->
+      <video id="filmVideo" drawable muted loop playsinline preload="auto" data-src="/media/clip.webm" aria-label="Test film, 10 seconds"></video>
+      <div class="swing" drawable>Scene 1<small>Harbour</small></div>
+      <div class="swing" drawable>Scene 2<small>Sea wall</small></div>
+      <div class="swing" drawable>Scene 3<small>Lighthouse</small></div>
+      <ul id="filmCredits" drawable>
+        <li><b>Clock</b>The video element</li>
+        <li><b>Frames</b>One paint event each</li>
+        <li><b>Timers</b>None</li>
+        <li><b>Animation frames</b>None</li>
+        <li><b>Position</b>video.currentTime</li>
+      </ul>
+      <!-- #endregion film-html -->
+    </canvas>
+    <div class="controls">
+      <button type="button" id="filmPlay">Play</button>
+      <input type="range" id="filmSeek" min="0" max="100" value="0" aria-label="Position in the film">
+    </div>
+    <output class="line" id="filmOut"></output>
+    <p class="found">The scene cannot run ahead of the film or behind it, because it has no time of its own. A stalled video stalls the scene, and a seek is a seek for everything.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#film-html"><b>The video, the cards and the credits are <code>drawable</code> children of the canvas.</b></li>
+      <li data-code="/paint-clocks/film.js#film"><b>Place everything from <code>currentTime</code> on each <code>paint</code>.</b></li>
+      <li data-code="#film-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="image">
+    <h2>Animated image as the only clock</h2>
+    <p>The spinner is an animated GIF of 12 frames. Each frame of it moves the wave in the flag by one step. Swap in the slow file and the flag slows down by the same factor. Remove the image and the flag stops. The checkbox gives the image <code>opacity: 0</code>, to see whether a clock that cannot be seen still runs.</p>
+    <canvas id="imageCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 230px">
+      <!-- #region image-html -->
+      <img id="imageClock" drawable src="/paint-clocks/clock-80ms.gif" data-name="80 ms per frame" width="64" height="64" alt="Spinner, the clock for this canvas">
+      <div id="imageFlag" drawable>
+        <h3>Regatta, Saturday</h3>
+        <p>First gun at 10:30. Course cards at the club house.</p>
+        <a href="/start/">How this page is drawn</a>
+      </div>
+      <!-- #endregion image-html -->
+    </canvas>
+    <div class="controls">
+      <button type="button" data-clock="/paint-clocks/clock-80ms.gif">80 ms per frame</button><button type="button" data-clock="/paint-clocks/clock-240ms.gif">240 ms per frame</button>
+      <button type="button" id="imageRemove">Remove the image</button>
+      <label><input type="checkbox" id="imageHide"> opacity: 0</label>
+    </div>
+    <output class="line" id="imageOut"></output>
+    <p class="found">The handler counts paint events and never reads the time, so the frame delay stored in the image file sets the speed of the scene. A clock that should not be seen can be left out of the drawing: the image raises <code>paint</code> whether or not the handler draws it.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#image-html"><b>The image and the flag are <code>drawable</code> children of the canvas.</b></li>
+      <li data-code="/paint-clocks/image.js#image"><b>Move the wave one step on each <code>paint</code>.</b></li>
+      <li data-code="#image-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>A drawable canvas gets a <code>paint</code> event when the picture of one of its <code>drawable</code> descendants changes. An element that animates by itself therefore raises a steady run of <code>paint</code> events, at its own rate, for as long as it animates. Each demo has one paint handler and nothing else that runs over time:</p>
+  <ul>
+    <li><b>Where the time comes from.</b> The loading effect reads <code>performance.now()</code> inside the handler, so it moves at the right speed at any paint rate. The film reads <code>video.currentTime</code>. The flag and the heartbeat count paint events, so their speed is the element's rate.</li>
+    <li><b>Stopping.</b> There is nothing to stop. When the bar gets a value, the field loses focus, the video pauses or the image is removed, the element stops repainting and the handler is not called again.</li>
+    <li><b>The clock does not have to be drawn.</b> A <code>drawable</code> element raises <code>paint</code> whether or not the handler draws it. It does have to be painted by the browser at least once: an image that has <code>opacity: 0</code> from the start raised no events, and an element with <code>visibility: hidden</code> has no picture. An image that was already running kept raising events after it was given <code>opacity: 0</code>.</li>
+    <li><b>One exception.</b> An element has no picture until the browser has painted it once. If a draw fails for that reason, the handler asks for one more paint, at most 30 times, when the page starts.</li>
+  </ul>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="/paint-clocks/kit.js#mount"><b>The paint handler shared by the four demos. It has no frame loop.</b></li>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/paint-clocks/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/paint-clocks/kit.js#plain"><b>The elements are then shown as plain HTML.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap and take about 25 seconds, because each one counts paint events for a second or more. Each builds its own small canvas in a corner of the window, and none of them touches the demos above. The caret is not checked here, because a check must not move focus: its rate is printed under the heartbeat demo.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21. Not yet run on a phone.</p>
+  <ul class="findings">
+    <li><b>All four elements work as the only clock.</b> Measured paint rates: 60 per second from a bar with a CSS animation, 8 from the browser's own indeterminate bar, 2 from a caret (one event each 500 ms), 30 from a 30 frames per second video, and 12.5 and 4.2 from GIFs with 80 ms and 240 ms frames. A canvas with no changing element got 0 in a second.</li>
+    <li><b>Each effect stops with its element.</b> A bar that gets a value, a field that loses focus, a paused video and a removed image raised no further <code>paint</code>. The page cancels nothing.</li>
+    <li><b>Drawing an element at a new place raises a second <code>paint</code> one frame later.</b> Its <code>changedElements</code> names the element that was moved, not the clock. Before this was handled, the flag ran at twice the rate of its image and the card beat twice for each blink. Each handler now counts a tick only when <code>changedElements</code> holds the clock, and redraws the same frame for any other event.</li>
+    <li><b>The clock has to stay still to be told apart.</b> When the video was drawn with a small tilt that changed each frame, 42 events a second named the video for 30 frames of film. Drawn at a fixed place it gives 30. The caret's field is a separate <code>drawable</code> element from the card that beats, for the same reason.</li>
+    <li><b>A clock does not have to be drawn.</b> An image that the handler never draws raised 12.0 events a second. An image that had <code>opacity: 0</code> from the start raised none, and an element with <code>visibility: hidden</code> has no picture. An image that was already running kept raising about 12 events a second after it was given <code>opacity: 0</code>.</li>
+    <li><b>A video raises one <code>paint</code> for each frame it shows:</b> 46 paint events for 45 frames reported by <code>requestVideoFrameCallback()</code> in 1.5 s. A seek while paused raises <code>paint</code> for the new frame, so the scene follows the slider with no <code>seeked</code> listener.</li>
+    <li><b>A clock with two paint events a second gives an effect two states.</b> Nothing raises <code>paint</code> between two blinks of the caret, so the heartbeat cannot ease from one state to the other without a second clock.</li>
+    <li><b>Counting events and reading the time give different effects.</b> The flag counts, so the file's frame delay sets its speed. The loading effect reads <code>performance.now()</code>, so its speed is the same at 8 and at 60 events a second and only its smoothness changes.</li>
+    <li><b>Not verified:</b> everything on a phone. In particular the caret's blink interval on Android (printed under the demo), whether the on-screen keyboard changes it, whether Chrome on Android pauses an animated image or a video's paint events when the canvas scrolls off screen, and the paint rate of a video decoded in hardware.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  // A demo's script is loaded and started the first time its section comes near the screen.
+  const started = new Set();
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting || started.has(e.target.id)) continue;
+      started.add(e.target.id);
+      watch.unobserve(e.target);
+      import(`./${e.target.id}.js`).then((m) => m.default()).catch((err) => console.error(e.target.id, err));
+    }
+  }, { rootMargin: '100px 0px' });
+  if (supported) document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const need = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+  // A fixture canvas on the test stage that counts paint events. mode: 'draw' draws the first child on
+  // each paint, 'none' draws nothing.
+  async function rig(html, mode = 'draw') {
+    need();
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = 220; canvas.height = 110;
+    canvas.style.cssText = 'flex:none;width:220px;height:110px';
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, paints: 0, el: canvas.firstElementChild };
+    canvas.addEventListener('paint', (event) => {
+      state.paints++;
+      ctx.reset();
+      const el = canvas.firstElementChild;
+      if (typeof mode === 'function') { try { mode(ctx, canvas, event, state); } catch {} return; }
+      if (mode === 'draw' && el) try { ctx.drawElementImage(el, 10, 10, el.offsetWidth, el.offsetHeight); } catch {}
+    });
+    canvas.requestPaint();
+    await sleep(500);
+    return state;
+  }
+  // Paint events per second over ms milliseconds, with no requestPaint().
+  const rate = async (state, ms = 1500) => { const n = state.paints; await sleep(ms); return (state.paints - n) * 1000 / ms; };
+  const GIF = (name, style = '') => `<img drawable src="/paint-clocks/clock-${name}.gif" width="64" height="64" style="display:block;${style}">`;
+  const f = (n) => n.toFixed(1);
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'A canvas whose elements do not change gets no paint events',
+      why: 'The base line for the other checks. A drawable div with a plain background is drawn once. No paint event is expected in the next second.',
+      timeout: 9000,
+      run: async () => {
+        const s = await rig('<div drawable style="width:120px;height:40px;background:#246"></div>');
+        const r = await rate(s, 1000);
+        if (r) throw new Error(`${f(r)} paint events per second`);
+        return '0 paint events in 1 s.';
+      },
+    },
+    {
+      name: 'An animated GIF raises paint at its frame rate',
+      why: 'Two files with the same 12 frames, one with 80 ms per frame (12.5 per second) and one with 240 ms (4.2 per second). The paint rate of each must be within 25% of its frame rate.',
+      timeout: 9000,
+      run: async () => {
+        const fast = await rate(await rig(GIF('80ms'))), slow = await rate(await rig(GIF('240ms')), 2400);
+        if (Math.abs(fast - 12.5) > 3.1 || Math.abs(slow - 4.17) > 1.05) throw new Error(`${f(fast)} and ${f(slow)} paint events per second`);
+        return `${f(fast)} paint events per second for the 80 ms file and ${f(slow)} for the 240 ms file.`;
+      },
+    },
+    {
+      name: 'The image raises paint when the handler does not draw it',
+      why: 'A clock that should not be seen can be left out of the drawing. The handler here draws nothing. The paint rate must still be near 12.5 per second.',
+      timeout: 9000,
+      run: async () => {
+        const r = await rate(await rig(GIF('80ms'), 'none'));
+        if (Math.abs(r - 12.5) > 3.1) throw new Error(`${f(r)} paint events per second`);
+        return `${f(r)} paint events per second with no drawElementImage() call.`;
+      },
+    },
+    {
+      name: 'Removing the image stops the paint events. opacity: 0 stops them only if it was there from the start',
+      why: 'The flag stops when its image is removed. The check removes one image and counts for 0.8 s. It then counts for an image that has opacity: 0 from the start, and for a running image that is given opacity: 0.',
+      timeout: 9000,
+      run: async () => {
+        const s = await rig(GIF('80ms'));
+        const before = await rate(s, 800);
+        s.el.remove();
+        await sleep(200);
+        const after = await rate(s, 800);
+        const hidden = await rate(await rig(GIF('80ms', 'opacity:0')), 800);
+        const late = await rig(GIF('80ms'));
+        late.el.style.opacity = '0';
+        await sleep(200);
+        const later = await rate(late, 800);
+        if (!before || after) throw new Error(`${f(before)} per second before removal and ${f(after)} after`);
+        return `${f(before)} per second with the image and ${f(after)} after it was removed. ${f(hidden)} for an image with opacity: 0 from the start, and ${f(later)} for a running image given opacity: 0.`;
+      },
+    },
+    {
+      name: 'Drawing an element at a new place raises a second paint event that names that element',
+      why: 'The reason each demo keeps its clock element still and reads changedElements. A 240 ms image is the clock, and a div is drawn 5 px further along each time the image raises paint. The check counts paint events that name the image and paint events that name only the div.',
+      timeout: 9000,
+      run: async () => {
+        let fromImage = 0, fromDiv = 0, step = 0;
+        const s = await rig(GIF('240ms') + '<div drawable style="width:60px;height:30px;background:#246"></div>', (ctx, canvas, event) => {
+          const [img, div] = canvas.children, changed = [...(event.changedElements ?? [])];
+          if (changed.includes(img)) { fromImage++; step++; } else if (changed.includes(div)) fromDiv++;
+          ctx.drawElementImage(img, 0, 0, 64, 64);
+          ctx.drawElementImage(div, 80 + (step % 8) * 5, 40, 60, 30);
+        });
+        fromImage = 0; fromDiv = 0;
+        await sleep(2400);
+        void s;
+        if (!fromImage) throw new Error('no paint event named the image');
+        if (!fromDiv) return `${fromImage} paint events named the image and none named only the div: this browser raises no second event.`;
+        return `In 2.4 s, ${fromImage} paint events named the image and ${fromDiv} more named only the div that was drawn at a new place.`;
+      },
+    },
+    {
+      name: 'An indeterminate progress bar raises paint until it has a value',
+      why: 'The loading effect runs from the bar. The check counts for the browser\'s own bar and for a bar with a CSS animation, then gives each a value and counts again.',
+      timeout: 9000,
+      run: async () => {
+        const own = await rig('<progress drawable style="display:block;width:180px;height:18px;margin:0"></progress>');
+        const css = await rig('<progress drawable style="display:block;appearance:none;width:180px;height:18px;margin:0;border:0;background:repeating-linear-gradient(90deg,#f60 0 16px,#222 16px 32px);background-size:32px 100%;animation:load-stripes .5s linear infinite"></progress>');
+        const r1 = await rate(own), r2 = await rate(css);
+        own.el.value = 0.5; css.el.value = 0.5; css.el.style.animation = 'none';
+        await sleep(250);
+        const a1 = await rate(own, 800), a2 = await rate(css, 800);
+        if (!r1 || !r2) throw new Error(`rates: browser's bar ${f(r1)}, animated bar ${f(r2)}`);
+        if (a1 || a2) throw new Error(`still painting with a value: ${f(a1)} and ${f(a2)} per second`);
+        return `Browser's own bar: ${f(r1)} paint events per second. Bar with a CSS animation: ${f(r2)}. With a value: ${f(a1)} and ${f(a2)}.`;
+      },
+    },
+    {
+      name: 'A playing video raises one paint event for each frame it shows',
+      why: 'A muted video plays in a fixture canvas for 1.5 s. The number of paint events is compared with the number of frames reported by requestVideoFrameCallback(). Then the video is paused and no more paint events are expected.',
+      timeout: 9000,
+      run: async () => {
+        const s = await rig('<video drawable muted loop playsinline src="/media/clip.webm" style="display:block;width:160px;height:90px"></video>');
+        const video = s.el;
+        let frames = 0, counting = true;
+        const each = () => { if (!counting) return; frames++; video.requestVideoFrameCallback(each); };
+        await video.play();
+        await sleep(400);
+        video.requestVideoFrameCallback?.(each);
+        const n = s.paints; frames = 0;
+        await sleep(1500);
+        const paints = s.paints - n, seen = frames;
+        counting = false;
+        video.pause();
+        await sleep(250);
+        const paused = await rate(s, 800);
+        video.removeAttribute('src'); video.load();
+        if (!paints) throw new Error('no paint events while the video played');
+        if (paused) throw new Error(`${f(paused)} paint events per second while paused`);
+        if (seen && Math.abs(paints - seen) > seen * 0.25 + 2) throw new Error(`${paints} paint events for ${seen} video frames`);
+        return `${paints} paint events and ${seen || 'an unknown number of'} video frames in 1.5 s (${f(paints / 1.5)} per second). 0 while paused.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
