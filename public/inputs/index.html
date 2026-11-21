@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Date, time and colour pickers drawn by a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  /* #region css */
+  .fields input {
+    font: inherit; min-height: 44px; box-sizing: border-box; min-width: 0;
+    padding: 6px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--card); color: var(--fg);
+  }
+  .fields input[type="color"] { padding: 4px; width: 72px; }
+  /* The popover's colours. */
+  .placed-popover { --picker-bg: var(--card); --picker-ink: var(--fg); --picker-accent: var(--accent); }
+  /* #endregion css */
+
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+  .field { display: grid; gap: 4px; align-content: start; justify-items: start; font-size: 14px; }
+  .field b { font-size: 15px; }
+  .field small { color: var(--muted); }
+  output.form-data { display: block; margin-top: 14px; font: 13px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; min-height: 1.5em; }
+  .canvas-note { font-size: 14px; color: var(--muted); margin: 6px 0 0; }
+  .canvas-note:empty { display: none; }
+  #sheet { display: block; width: 100%; height: 520px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); touch-action: pan-y; }
+  #nativeForm { box-sizing: border-box; width: 300px; padding: 14px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 10px; align-items: center; font-size: 13px; }
+  #nativeForm input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]) { font: inherit; min-height: 32px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); min-width: 0; width: 100%; box-sizing: border-box; }
+  #nativeForm input[type="range"], #nativeForm progress, #nativeForm meter { width: 100%; min-width: 0; }
+  #nativeForm input[type="file"] { font-size: 12px; min-width: 0; width: 100%; }
+  #nativeValues { font: 12px/1.5 var(--mono); color: var(--muted); overflow-wrap: anywhere; min-height: 3em; }
+  table.types { border-collapse: collapse; font-size: 14px; width: 100%; }
+  table.types th, table.types td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .scroll-x { overflow-x: auto; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Date, time and colour pickers drawn by a canvas</h1>
+  <p class="lede">
+    <code>&lt;input type="date"&gt;</code>, <code>type="time"</code> and <code>type="color"</code> open pickers that the browser draws. A page cannot
+    style them, and unlike a customisable select they have no part a canvas can go in. This page tests two things. First, a replacement
+    picker in which every day, hour and swatch is a real button drawn by a canvas, on the same input element. Second, what happens to the
+    built-in controls and pickers when the input itself is drawn in a canvas.
+  </p>
+
+  <h2 id="pickers">Three pickers made of buttons in a canvas</h2>
+  <p>
+    Tap a field. The time field opens a clock: choose an hour, the hours fold into the centre and the minutes come out. Drag round the face
+    for single minutes. The date field opens a month: the arrows, a sideways swipe or Page Up and Page Down slide to another month. The
+    colour field shows the colours of its <code>&lt;datalist&gt;</code> in rings. On a keyboard, type in the field as usual, or press
+    Alt and Arrow Down to move into the picker.
+  </p>
+  <!-- #region markup -->
+  <form id="bookForm" class="fields">
+    <label class="field"><b>Time</b>
+      <input type="time" name="time" value="09:30" picker="clock">
+      <small>A clock face with 24 hour buttons and 12 minute buttons.</small>
+    </label>
+    <label class="field"><b>Date</b>
+      <input type="date" name="date" picker="calendar" min="2026-01-01" max="2027-12-31">
+      <small>Two sets of 42 day buttons. One slides out as the other slides in.</small>
+    </label>
+    <label class="field"><b>Colour</b>
+      <input type="color" name="colour" value="#2e8b57" picker="swatches" list="palette">
+      <small>One button for each option of the datalist.</small>
+    </label>
+    <datalist id="palette">
+      <option value="#dc143c"><option value="#ff7f50"><option value="#ff8c00"><option value="#ffd700"><option value="#9acd32"><option value="#2e8b57">
+      <option value="#008080"><option value="#40e0d0"><option value="#4682b4"><option value="#4169e1"><option value="#000080"><option value="#4b0082">
+      <option value="#da70d6"><option value="#ff69b4"><option value="#a0522d"><option value="#708090"><option value="#222222"><option value="#f5f5f5">
+    </datalist>
+  </form>
+  <!-- #endregion markup -->
+  <output id="book" class="form-data"></output>
+  <p class="canvas-note" id="pickersNote"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>pickers made of buttons in a canvas</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Ordinary inputs with a <code>picker</code> attribute.</b> <code>min</code> and <code>max</code> on the date input disable the days outside them.</li>
+      <li data-code="#page"><b>Load the library.</b></li>
+      <li data-code="/lib/input-pickers.js#open"><b>Inside the library: open the popover in place of the browser's picker.</b></li>
+      <li data-code="/lib/input-pickers.js#clock"><b>The clock.</b> <code>place()</code> says where each button goes. The buttons of the ring that is not in use get a target at the centre with no opacity, so they move there and fade.</li>
+      <li data-code="/lib/input-pickers.js#calendar"><b>The calendar.</b> <code>from()</code> gives the incoming buttons a starting point off to one side.</li>
+      <li data-code="/lib/input-pickers.js#swatches"><b>The swatches.</b></li>
+      <li data-code="/lib/placed-popover.js#draw"><b>The shared part: each frame, move every button a little towards its target and draw it.</b> <code>drawElementImage()</code> puts the button's hit box where it was drawn, so taps, hover and the focus ring follow.</li>
+      <li data-code="/lib/input-pickers.js#write"><b>Writing the value back</b> fires <code>input</code> and <code>change</code> on the input.</li>
+    </ol>
+  </details>
+
+  <h2 id="native">The built-in controls drawn in a canvas</h2>
+  <p>
+    This form is one drawable child of a canvas, drawn rotated. Every control in it is the browser's own. Type in the date, drag the range,
+    tick the box, and open the pickers. The table below lists what was seen in the test browser.
+  </p>
+  <!-- #region native-markup -->
+  <canvas id="sheet" content="drawable" layoutsubtree>
+    <form id="nativeForm" drawable>
+      <label for="n-date">date</label><input id="n-date" type="date" value="2026-11-21">
+      <label for="n-time">time</label><input id="n-time" type="time" value="13:30">
+      <label for="n-dt">datetime-local</label><input id="n-dt" type="datetime-local" value="2026-11-21T13:30">
+      <label for="n-month">month</label><input id="n-month" type="month" value="2026-11">
+      <label for="n-week">week</label><input id="n-week" type="week" value="2026-W47">
+      <label for="n-number">number</label><input id="n-number" type="number" value="42" min="0" max="100">
+      <label for="n-color">color</label><input id="n-color" type="color" value="#d2491f">
+      <label for="n-range">range</label><input id="n-range" type="range" value="40" list="n-ticks">
+      <label for="n-file">file</label><input id="n-file" type="file">
+      <label for="n-check">checkbox</label><span><input id="n-check" type="checkbox" checked> <input type="radio" name="r" checked aria-label="radio one"> <input type="radio" name="r" aria-label="radio two"></span>
+      <label for="n-progress">progress</label><progress id="n-progress" value="0.4"></progress>
+      <label for="n-meter">meter</label><meter id="n-meter" value="0.7" low="0.3" high="0.8" optimum="1"></meter>
+      <datalist id="n-ticks"><option value="0"><option value="25"><option value="50"><option value="75"><option value="100"></datalist>
+    </form>
+  </canvas>
+  <!-- #endregion native-markup -->
+  <p class="canvas-note" id="sheetNote"></p>
+  <div class="controls">
+    <label for="angle">Rotation</label>
+    <input id="angle" type="range" min="-30" max="30" value="-8">
+    <span id="angleText">-8°</span>
+  </div>
+  <p id="nativeValues"></p>
+  <details class="show-code">
+    <summary>Show the code <small>a form of built-in controls as a drawable child</small></summary>
+    <ol>
+      <li data-code="#native-markup"><b>The form is a drawable child of the canvas.</b></li>
+      <li data-code="#native-page"><b>One rotated <code>drawElementImage()</code>.</b> Nothing is done for any control.</li>
+    </ol>
+  </details>
+
+  <div class="scroll-x">
+  <table class="types">
+    <thead><tr><th>Control</th><th>Drawn rotated</th><th>Used where it is drawn</th><th>Its picker</th></tr></thead>
+    <tbody>
+      <tr><td>date, time, datetime-local, month, week</td><td>Yes, with the segment that has focus highlighted</td><td>A click on a segment focuses that segment, and typing changes it</td><td>Not observed (see the findings)</td></tr>
+      <tr><td>number</td><td>Yes, with its spin buttons</td><td>Typing works</td><td>None</td></tr>
+      <tr><td>color</td><td>Yes</td><td>A click opens the chooser</td><td>Opens upright next to the bounding box of the drawn swatch. Not drawn by the canvas</td></tr>
+      <tr><td>range with a datalist</td><td>Yes, with tick marks</td><td>A click on the track sets the value at that point along the rotated track</td><td>None</td></tr>
+      <tr><td>file</td><td>Yes</td><td>The button takes the click</td><td>The operating system's dialog</td></tr>
+      <tr><td>checkbox, radio</td><td>Yes</td><td>Yes</td><td>None</td></tr>
+      <tr><td>progress, meter</td><td>Yes</td><td>Not interactive</td><td>None</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li><strong>The built-in date, time and colour pickers have no element.</strong> There is no <code>::picker()</code> for an input, <code>appearance: base-select</code> does nothing on one, and nothing can be put inside an <code>&lt;input&gt;</code>. A canvas can draw the control but not its picker.</li>
+    <li><strong>Built-in controls draw and work in a canvas.</strong> All thirteen kinds in the form above are drawn by one <code>drawElementImage()</code> under a rotation. Focus, typing in date segments, the range thumb and the checkbox follow the drawing with no code.</li>
+    <li><strong>A built-in picker opens upright at the bounding box.</strong> The colour chooser opens next to the bounding box of the rotated swatch and is not in the canvas's picture. This is the same as the <a href="/select/#in-canvas">picker of a select in a canvas</a>.</li>
+    <li><strong>A replacement picker can be made of real buttons.</strong> In the three pickers at the top each hour, day and swatch is a <code>&lt;button&gt;</code> that is a child of a canvas in a popover. They keep focus, <code>:hover</code>, <code>:focus-visible</code>, <code>aria-pressed</code> and their accessible names while the canvas moves, scales and fades them. A button with no opacity is not drawn, and its hit box is moved away with <code>updateElementGeometry()</code>.</li>
+    <li><strong>The canvas draws what is not a control.</strong> The clock face, the hand and the disc under the chosen day are 2D drawing in the same canvas, under the buttons. They animate between values, which CSS on the buttons alone cannot do.</li>
+    <li><strong>Stopping the browser's picker.</strong> With a mouse, the date and time pickers open only from the small icon in the field, which the library hides with <code>::-webkit-calendar-picker-indicator</code>. For a touch, the library makes the input <code>readonly</code> while its own picker is open, because a read-only date or time input opens no picker. For <code>type="color"</code> it cancels the <code>click</code> event.</li>
+    <li><strong>Not verified on real hardware.</strong> These results are from Chromium 157 driven by Playwright with a mouse and emulated touch. That browser has no window, so the built-in date and time pickers were never seen, and whether the <code>readonly</code> step stops the Android date and time dialogs has not been tried on a phone.</li>
+  </ul>
+
+  <h2 id="ideas">More to try with inputs</h2>
+  <ul class="ideas">
+    <li><strong>A range input bent round a dial.</strong> Draw the input in thin slices along an arc, and map the pointer's angle back to a value. The hit box is a rectangle, so the pointer mapping has to be written by hand.</li>
+    <li><strong>A date range on one calendar.</strong> Two <code>&lt;input type="date"&gt;</code> elements share one canvas calendar, and the canvas draws the band between the two chosen days.</li>
+    <li><strong>A colour wheel that reads its own pixels.</strong> Draw a gradient in the popover canvas and read back the pixel under the pointer, with the datalist swatches drawn on top of it at the positions of their colours.</li>
+    <li><strong>A week picker on a year view.</strong> 53 week buttons drawn small as a year, with the weeks near the pointer magnified as in the <a href="/select/">fisheye select</a>.</li>
+    <li><strong>A file input that shows the files.</strong> After a choice, draw thumbnails of the chosen files as a fan of cards next to the drawn input.</li>
+    <li><strong>The controls of a <code>&lt;video&gt;</code> or <code>&lt;audio&gt;</code> element.</strong> These are built-in controls too. See <a href="/select/">/select/</a> and the media experiments in the menu for related work.</li>
+  </ul>
+
+  <h2 id="checks">Live checks</h2>
+  <p class="note">These run on test inputs in a panel at the bottom of the window, not on the fields above. They wait for a tap because they open test pickers on top of the page.</p>
+  <table class="results"><tbody id="results"></tbody></table>
+</main>
+
+<!-- #region page -->
+<script type="module" src="/lib/input-pickers.js"></script>
+<!-- #endregion page -->
+<script type="module">
+  import { banner, supported } from '/shared/support.js';
+  import { pickerFor } from '/lib/input-pickers.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+
+  const form = $('bookForm');
+  const showBook = () => { $('book').textContent = 'FormData: ' + new URLSearchParams(new FormData(form)).toString(); };
+  form.addEventListener('input', showBook);
+  form.addEventListener('submit', (e) => e.preventDefault());
+  showBook();
+  if (!supported) $('pickersNote').textContent = 'HTML-in-canvas is not available, so these three fields open the browser\'s own pickers.';
+  setInterval(() => {
+    const bad = [...form.querySelectorAll('input[picker]')].map(pickerFor).find((p) => p?.pop?.note);
+    if (bad) $('pickersNote').textContent = `A picker canvas reported: ${bad.pop.note}.`;
+  }, 2000);
+
+  // ---- Built-in controls in a canvas ---------------------------------------
+  const sheet = $('sheet'), native = $('nativeForm'), angle = $('angle');
+  const showNative = () => { $('nativeValues').textContent = [...native.elements].filter((e) => e.id && e.type !== 'file').map((e) => `${e.type}=${e.type === 'checkbox' ? e.checked : e.value}`).join('  '); };
+  native.addEventListener('input', showNative);
+  native.addEventListener('submit', (e) => e.preventDefault());
+  showNative();
+  if (supported) {
+    // #region native-page
+    const ctx = sheet.getContext('2d');
+    new ResizeObserver(([entry]) => {
+      const size = entry.devicePixelContentBoxSize[0];
+      if (sheet.width !== size.inlineSize) sheet.width = size.inlineSize;
+      if (sheet.height !== size.blockSize) sheet.height = size.blockSize;
+      sheet.requestPaint();
+    }).observe(sheet, { box: 'device-pixel-content-box' });
+
+    sheet.onpaint = () => {
+      const dpr = sheet.width / sheet.clientWidth;
+      const w = native.offsetWidth, h = native.offsetHeight;
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      ctx.translate(sheet.clientWidth / 2, sheet.clientHeight / 2);
+      ctx.rotate((angle.value * Math.PI) / 180);
+      ctx.drawElementImage(native, -w / 2, -h / 2, w, h);
+    };
+    // #endregion native-page
+    angle.addEventListener('input', () => { $('angleText').textContent = `${angle.value}°`; sheet.requestPaint(); });
+    sheet.addEventListener('contextlost', () => { $('sheetNote').textContent = 'This canvas lost its context, so the form is not drawn. Reload the page to draw it again.'; });
+  } else {
+    $('sheetNote').textContent = 'HTML-in-canvas is not available, so the form is not drawn.';
+  }
+</script>
+<script type="module" src="/inputs/checks.js"></script>
+</body>
+</html>
