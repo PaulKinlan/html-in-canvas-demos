@@ -166,6 +166,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 12. A lens that translates, simplifies or summarises what is under it
 
+- **Built:** [/translate-lens/](https://html-in-canvas.page/translate-lens/)
 - **Shows:** Move a lens over a page and read the text under it in another language, in simpler words, or as a summary. On the board, a tile that is too small to read is replaced by a summary drawn at a readable size.
 - **Build:** A hidden twin of the subtree is a second drawable child. Its text nodes are translated with Translator (source language from LanguageDetector) or rewritten with Rewriter. The lens draws the twin, clipped to the lens circle, at the same position as the original. Results are cached per text node.
 - **Measured:** In the test browser Translator.availability() returned downloadable in Chromium 153; LanguageModel and Summarizer returned downloadable in 157. No model can be downloaded there.
@@ -176,6 +177,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 13. An agent operating a canvas UI, drawn as it happens
 
+- **Built:** [/agent-view/](https://html-in-canvas.page/agent-view/)
 - **Shows:** A form in a 3D scene that exposes WebMCP tools. When an agent calls a tool, the canvas draws the action on the live DOM: a marker travels to the field, the value types in, the panel turns to face the camera. A second mode gives the Prompt API a picture of the drawn UI and asks it what it sees.
 - **Build:** navigator.modelContext tools wrap the form's actions. Each tool call returns after its animation. ariaNotify() announces the same steps. The picture for the multimodal prompt comes from canvas.toBlob(), after the shader.
 - **Measured:** navigator.modelContext is missing from both test browsers.
@@ -186,6 +188,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 14. Speak a label to press what the canvas draws
 
+- **Built:** [/voice/](https://html-in-canvas.page/voice/)
 - **Shows:** On-device speech recognition biased to the labels of the controls drawn this frame. Saying a label presses the control, wherever the shader has put it. A transcript is drawn as DOM, with each word highlighted at its spoken time.
 - **Build:** Collect accessible names of visible controls into SpeechRecognition phrases. Match results to controls and call click(). Result timestamps (Chrome 159) drive custom highlights on the transcript.
 - **Uncertain:** On-device recognition availability on Android. Timestamps need Chrome 159.
@@ -195,6 +198,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 15. Page navigations drawn by a shader that starts at the clicked link
 
+- **Built:** [/nav-shader/](https://html-in-canvas.page/nav-shader/)
 - **Shows:** A small multi-view site where every navigation is intercepted. The old view is kept as an ElementImage, the new view loads during the precommit phase, and a shader runs between the two pictures, starting from the box of the link that was clicked. Both views are live during the transition.
 - **Build:** navigation.addEventListener('navigate') with a precommitHandler. NavigateEvent.sourceElement gives the origin point. Compare with element-scoped view transitions on the view transitions page.
 - **Uncertain:** Whether an ElementImage of the old view stays drawable after its element is removed. Soft navigation and LCP accounting for a canvas-drawn view.

@@ -155,6 +155,8 @@ One row per main result. "Section" is the section of this file with the detail.
 | A `float16` `display-p3` 2D canvas keeps values above 1.0 from a drawn element (4.0 read back as 1.82). | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
 | Recent CSS is applied in the picture: `corner-shape`, `border-shape`, `clip-path: shape()`, gap decorations, `text-fit`, `caret-shape`, `::scroll-marker`, `::scroll-button()`. | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
 | A custom highlight (`CSS.highlights`) on a text node is in the element's texture, and a shader bends it with the text. | measured | C157 | `/voice/` | Language models, voice and input |
+| An `ElementImage` from `captureElementImage()` still draws after its element is removed from the canvas. | measured | C157 | `/nav-shader/` | Navigations drawn by a shader |
+| A navigation inside an iframe adds entries to the tab's joint history, and `history.back()` in the iframe can undo a navigation the top page made after them. Checks that navigate in a hidden copy must not run while the reader navigates. | measured | C157 | `/nav-shader/` | Navigations drawn by a shader |
 | Native media controls, `::cue` captions and rules on `::-webkit-media-controls-*` are drawn. | measured | C157 | `/video/`, `/player-parts/` | Video and sound |
 
 ### Slots and shadow DOM
@@ -383,6 +385,7 @@ The main results. Each is backed by the tables in the sections below.
 - [Native UI toolkits (/native-ui/)](#native-ui-toolkits-native-ui)
 - [Recent platform features on drawn elements (/chrome-apis/)](#recent-platform-features-on-drawn-elements-chrome-apis)
 - [Language models, voice and input (/translate-lens/, /agent-view/, /voice/)](#language-models-voice-and-input-translate-lens-agent-view-voice)
+- [Navigations drawn by a shader (/nav-shader/)](#navigations-drawn-by-a-shader-nav-shader)
 
 ## Slots
 
@@ -1335,3 +1338,20 @@ Measured in headless Chromium 157 on 2026-11-21. The built-in AI interfaces had 
 | `SpeechRecognition`, `phrases`, `SpeechRecognitionPhrase`, `install()` | present | Headless Chromium 157. `SpeechRecognitionResult` is not a global there, so `speechStartTime` cannot be detected. |
 
 Not verified: every path that calls a model (`Translator`, `Rewriter`, `Summarizer`, the Prompt API planner and image prompt), WebMCP with a real agent, speech recognition of any kind (no microphone), whether `phrases` changes what is recognised, result timestamps, WebGPU on screen, and touch dragging of the lens on a real phone.
+
+## Navigations drawn by a shader (`/nav-shader/`)
+
+Measured in headless Chromium 157 on 2026-11-21. A four-view site is the children of one `<live-transition>`; a `navigate` listener turns each same-page navigation into a shader transition.
+
+| What | Result | Detail |
+|---|---|---|
+| `NavigationPrecommitController`, `controller.addHandler()`, `NavigateEvent.sourceElement` | present | All three in Chromium 157. |
+| Fetch the new view and append it as a canvas child in `precommitHandler` | works | The view loaded in 45 to 91 ms while `location.search` was still the old query. The URL changed after the promise resolved. |
+| The transition origin from `sourceElement` | works | The link's `getBoundingClientRect()` centre, minus the element's rect, was within 2 px of the card centre. A GET form gives its submit button. A traversal has no source element. |
+| Both views live while the shader blends them | works | At 41% of a 4 s transition the old view's clock had counted from 0 to 2 s and a text field in the new view took a value. |
+| Back intercepted and drawn | works | One `traverse` navigation ran the shader. The view was already a child, so its precommit step took 0 ms. |
+| `drawElementImage()` of a snapshot after its element was removed | works | `captureElementImage()` in a paint handler, `remove()`, then the snapshot drew rgba(192,20,60,255). |
+| Navigating checks in a hidden same-origin iframe | share the tab's history | `history.length` went from 2 to 4. After the iframe was removed, one Back from the top page skipped its entries. While it was attached, its `history.back()` undid a navigation made by the top page. |
+| The ink shader in WGSL | not verified | No WebGPU adapter. The page compares the WebGPU and WebGL pictures on a device that has one. |
+
+Not verified: WebGPU on screen, the phone's Back gesture and its preview animation, cross-document navigations, and what a screen reader announces when the view changes.
