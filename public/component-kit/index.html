@@ -1,0 +1,564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Component kit: newer DOM features in a drawable element</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  table.kit { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.kit th, table.kit td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+  table.kit td.has { white-space: nowrap; font-weight: 600; }
+  table.kit td.has.yes { color: #1a7f37; }
+  table.kit td.has.no { color: #b3261e; }
+  table.kit td.lines { white-space: nowrap; font: 12px var(--mono); }
+  @media (max-width: 640px) {
+    table.kit thead { display: none; }
+    table.kit, table.kit tbody, table.kit tr, table.kit td { display: block; }
+    table.kit tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+    table.kit td { border: 0; padding: 2px 0; }
+  }
+
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .pair { grid-template-columns: 1fr; } }
+  .version { border: 1px solid var(--line); border-radius: 10px; background: var(--card); padding: 12px; min-height: 236px; }
+  .version h3 { margin: 0 0 8px; font-size: 15px; }
+  .status { font: 12px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0 0; }
+  .field { border: 1px solid var(--line); border-radius: 10px; background: var(--card); padding: 12px; max-width: 420px; }
+  .field label { display: inline-block; padding: 10px 0; font-weight: 600; cursor: pointer; }
+  kit-field { height: 52px; }
+  .movebox { border: 1px solid var(--line); border-radius: 10px; background: var(--card); padding: 12px; max-width: 420px; min-height: 230px; }
+  .movebox .card { background: #1f3a5f; color: #fff; border-radius: 8px; padding: 10px 12px; height: 96px; box-sizing: border-box; }
+  .movebox .card input { font: inherit; width: 9em; }
+  .movebox .card iframe { border: 0; width: 100%; height: 24px; background: #fff; border-radius: 4px; margin-top: 6px; display: block; }
+  .movebox kit-slot { height: 96px; outline: 2px dashed var(--accent); outline-offset: 3px; border-radius: 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
+  .row button { min-height: 40px; }
+  #fixtures { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+  .chip { background: rgb(255, 204, 0); color: #000; width: 140px; height: 50px; box-sizing: border-box; padding: 6px; font: 13px system-ui; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Component kit: newer DOM features in a drawable element</h1>
+  <p class="lede">
+    <code>&lt;kit-slot&gt;</code> is a small custom element that draws one of its children in a canvas. It is written twice in
+    one file: once with six DOM features that shipped between Chrome 133 and 152, and once with the code those features replace.
+    This page runs both versions and counts the lines.
+  </p>
+
+  <table class="kit">
+    <thead><tr><th>Feature</th><th>In this browser</th><th>What it replaces in the element</th><th>Lines, old → new</th></tr></thead>
+    <tbody id="features">
+      <tr data-key="scopedRegistry" data-region="registry"><td><a href="https://chromestatus.com/feature/5090435261792256">Scoped custom element registry</a></td><td class="has">…</td><td>A version suffix on the tag name, and a guard against defining the element twice.</td><td class="lines">…</td></tr>
+      <tr data-key="manualSlots" data-region="slots"><td><a href="https://chromestatus.com/feature/5178682139344896">Manual slot assignment</a></td><td class="has">…</td><td>Writing <code>slot="…"</code> on the page's own elements, and a MutationObserver that keeps the attribute right.</td><td class="lines">…</td></tr>
+      <tr data-key="referenceTarget" data-region="label"><td><a href="https://chromestatus.com/feature/5188237101891584">Reference Target</a></td><td class="has">…</td><td>Finding <code>&lt;label for&gt;</code> by hand, copying its text to <code>aria-label</code> and forwarding its clicks.</td><td class="lines">…</td></tr>
+      <tr data-key="disposable" data-region="dispose"><td><a href="https://chromestatus.com/feature/5071680358842368">Explicit resource management</a></td><td class="has">…</td><td><code>try</code>/<code>finally</code> around every <code>ElementImage.close()</code>.</td><td class="lines">…</td></tr>
+      <tr data-key="observable" data-region="paint"><td><a href="https://chromestatus.com/feature/5154593776599040">Observable</a></td><td class="has">…</td><td>Keeping each <code>paint</code> and <code>contextlost</code> handler in a field so it can be removed later.</td><td class="lines">…</td></tr>
+      <tr data-key="moveBefore" data-region="move"><td><a href="https://chromestatus.com/feature/5135990159835136"><code>moveBefore()</code></a></td><td class="has">…</td><td>Putting focus back after an element is wrapped. A reloaded iframe had no fix.</td><td class="lines">…</td></tr>
+    </tbody>
+  </table>
+  <p class="note">The line counts are taken from the <code>#region old-…</code> and <code>#region new-…</code> comments in the files this page is running. Blank lines and comments are not counted.</p>
+
+  <h2>Two versions of one element on one page</h2>
+  <p>
+    Each box below is a shadow root with its own <code>CustomElementRegistry</code>. Both define the tag <code>kit-slot</code>, with different
+    classes: the left one uses the older code for every part, the right one uses each feature this browser has. Press a button to
+    draw another child. The outgoing child fades out from an <code>ElementImage</code> snapshot.
+  </p>
+  <div class="pair">
+    <!-- #region two-versions -->
+    <div class="version" id="oldBox"></div>
+    <div class="version" id="newBox"></div>
+    <!-- #endregion two-versions -->
+  </div>
+
+  <h2>A label outside, a field inside a canvas</h2>
+  <p><code>&lt;kit-field&gt;</code> keeps its <code>&lt;input&gt;</code> in the shadow root, as a child of the canvas that draws it. Press the label text.</p>
+  <div class="field">
+    <!-- #region label-markup -->
+    <label for="nameField">Name on the ticket</label>
+    <kit-field id="nameField"></kit-field>
+    <!-- #endregion label-markup -->
+    <p class="status" id="labelStatus" role="status"></p>
+  </div>
+
+  <h2>Wrapping an element that is in use</h2>
+  <p>
+    The card holds a text field and an iframe that counts the seconds since it loaded. Type in the field, then wrap the card in a
+    <code>&lt;kit-slot&gt;</code>. With <code>moveBefore()</code> the caret stays in the field and the counter keeps going.
+    With <code>replaceWith()</code> the iframe loads again and the counter restarts.
+  </p>
+  <div class="movebox">
+    <div id="moveStage">
+      <div class="card" id="moveCard">
+        <input type="text" placeholder="Type here" aria-label="Type here">
+        <iframe title="Seconds since this frame loaded" srcdoc="<body style='margin:0;font:13px system-ui;padding:3px 6px'><script>parent.postMessage('kit-frame-load','*');let s=0;const show=()=>document.body.firstChild.textContent='loaded '+s+++'s ago';document.body.prepend('');show();setInterval(show,1000)</script>"></iframe>
+      </div>
+    </div>
+    <div class="row">
+      <button type="button" id="wrapNew">Wrap with moveBefore()</button>
+      <button type="button" id="wrapOld">Wrap with replaceWith()</button>
+      <button type="button" id="unwrap" disabled>Unwrap</button>
+    </div>
+    <p class="status" id="moveStatus" role="status"></p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>each part, old and new</small></summary>
+    <ol>
+      <li data-code="/component-kit/kit.js#new-registry"><b>Scoped registry: define the tag in the registry that is passed in.</b></li>
+      <li data-code="/component-kit/kit.js#old-registry"><b>Before: one global registry, so a second version needs another tag name.</b></li>
+      <li data-code="#two-versions-page"><b>This page: two shadow roots, two registries, the same tag.</b></li>
+      <li data-code="/component-kit/kit.js#new-slots"><b>Manual slot assignment: <code>slot.assign(child)</code>.</b></li>
+      <li data-code="/component-kit/kit.js#old-slots"><b>Before: named slots and <code>slot</code> attributes written on the children.</b></li>
+      <li data-code="/component-kit/kit.js#new-label"><b>Reference Target: one line forwards <code>&lt;label for&gt;</code> into the shadow root.</b></li>
+      <li data-code="/component-kit/kit.js#old-label"><b>Before: find the labels, copy the text, forward the clicks.</b></li>
+      <li data-code="/component-kit/kit.js#new-dispose"><b><code>DisposableStack</code>: adopt the snapshot once, dispose once.</b></li>
+      <li data-code="/component-kit/kit.js#old-dispose"><b>Before: <code>try</code>/<code>finally</code> at each place the fade can end.</b></li>
+      <li data-code="/component-kit/using.js#new-using"><b>The <code>using</code> declaration, in a module of its own.</b> A browser without the syntax cannot parse the file, so it is imported only after a check.</li>
+      <li data-code="/component-kit/using-old.js#old-using"><b>Before: the same function with <code>try</code>/<code>finally</code>.</b></li>
+      <li data-code="/component-kit/kit.js#new-paint"><b>Observable: <code>canvas.when('paint')</code>, ended by an AbortSignal.</b></li>
+      <li data-code="/component-kit/kit.js#old-paint"><b>Before: handlers kept in fields and removed by hand.</b></li>
+      <li data-code="/component-kit/kit.js#new-move"><b><code>moveBefore()</code>: wrap an element without removing it.</b></li>
+      <li data-code="/component-kit/kit.js#old-move"><b>Before: remove, insert, put focus back.</b></li>
+      <li data-code="/lib/surface.js#move"><b>The same change in the library behind <code>fx</code>, <code>&lt;dom-lens&gt;</code> and <code>&lt;physical-ui&gt;</code>.</b> <a href="/lib/dom-portal.js">dom-portal.js</a> has it too.</li>
+      <li data-code="/component-kit/kit.js"><b>The whole element.</b></li>
+    </ol>
+  </details>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>A scoped registry does not change how a canvas finds slotted children.</strong> An element defined only in a shadow root's own registry draws its slotted children, and <code>elementFromPoint()</code> on that shadow root returns them at the drawn position. Two classes can share the tag name <code>kit-slot</code> on one page.</li>
+    <li><strong>A manually assigned child is drawn, and an unassigned child has no box.</strong> The children carry no <code>slot</code> attribute. They still need the <code>drawable</code> attribute, which the element adds.</li>
+    <li><strong>Reference Target reaches a control that is a child of a canvas.</strong> A <code>&lt;label for&gt;</code> in the page focuses the input in the shadow root and is its accessible label. The target has to be inside the shadow root: an id of a slotted light-DOM child is not found, so <code>&lt;kit-slot&gt;</code> cannot use it for its children.</li>
+    <li><strong><code>ElementImage</code> has <code>close()</code> but no <code>[Symbol.dispose]</code>.</strong> <code>using image = canvas.captureElementImage(el)</code> throws a TypeError. It needs a wrapper object or <code>DisposableStack.adopt(image, (i) =&gt; i.close())</code>.</li>
+    <li><strong><code>using</code> is syntax, so it cannot be feature-checked inside the file that uses it.</strong> The function that uses it is in its own module and is loaded with <code>import()</code> after <code>new Function()</code> has parsed a test statement.</li>
+    <li><strong><code>canvas.when('paint')</code> delivers the same events as <code>addEventListener</code>,</strong> in the same frame, and <code>take()</code>, <code>map()</code> and an AbortSignal work on them.</li>
+    <li><strong><code>moveBefore()</code> into a host whose shadow root slots the node into a canvas keeps focus and does not reload an iframe.</strong> The <code>fx</code> attribute, <code>&lt;dom-portal&gt;</code>, <code>&lt;dom-lens&gt;</code> and <code>&lt;physical-ui&gt;</code> now wrap elements this way where the method exists.</li>
+    <li><strong>Not tested here:</strong> <code>:has-slotted</code> is not in the test browser (Chromium 157). The phone results for all six features are unknown until this page is opened there: the first table column reports them.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+</main>
+
+<script type="module">
+  import { features, supported, defineKit, defineKitGlobal, makeKitSlot, makeKitField, wrap } from '/component-kit/kit.js';
+  import { DomPortalSource } from '/lib/dom-portal.js';
+  import { banner, checkBench, inkFraction, nav, onBench, runTests, stillDrawn } from '/shared/support.js';
+  nav('/component-kit/');
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const OLD = { scopedRegistry: false, manualSlots: false, referenceTarget: false, disposable: false, observable: false, moveBefore: false };
+  const usingSyntax = (() => { try { new Function('{ using x = { [Symbol.dispose]() {} }; }'); return true; } catch { return false; } })();
+
+  // ---- The table: which features are here, and the line counts ----
+  for (const row of $('features').rows) {
+    const has = row.dataset.key === 'disposable' ? features.disposable && usingSyntax : features[row.dataset.key];
+    const cell = row.querySelector('.has');
+    cell.textContent = has ? 'yes' : 'no, older code runs';
+    cell.classList.add(has ? 'yes' : 'no');
+  }
+  const sources = Promise.all(['/component-kit/kit.js', '/component-kit/using.js', '/component-kit/using-old.js'].map((u) => fetch(u).then((r) => r.text()))).then((t) => t.join('\n'));
+  // Lines of code between "#region name" and "#endregion name", without blank lines and comments.
+  function regionLines(text, name) {
+    let inside = false, count = 0;
+    for (const line of text.split('\n')) {
+      const t = line.trim();
+      if (new RegExp(`#region ${name}$`).test(t)) inside = true;
+      else if (new RegExp(`#endregion ${name}$`).test(t)) inside = false;
+      else if (inside && t && !t.startsWith('//') && !t.startsWith('/*') && !t.startsWith('*') && !/#(end)?region/.test(t)) count++;
+    }
+    return count;
+  }
+  const lineCounts = sources.then((text) => {
+    const counts = {};
+    for (const row of $('features').rows) {
+      const r = row.dataset.region;
+      const extra = r === 'dispose' ? 'using' : null;
+      const o = regionLines(text, `old-${r}`) + (extra ? regionLines(text, `old-${extra}`) : 0);
+      const n = regionLines(text, `new-${r}`) + (extra ? regionLines(text, `new-${extra}`) : 0);
+      counts[r] = [o, n];
+      row.querySelector('.lines').textContent = `${o} → ${n}`;
+    }
+    return counts;
+  });
+
+  // ---- Two versions on one page ----
+  const CHILDREN = `
+    <section style="padding:10px;background:#1f3a5f;color:#fff;border-radius:8px;height:110px;box-sizing:border-box"><b>First child</b><br>A real <button type="button">button</button></section>
+    <section style="padding:10px;background:#5f1f3a;color:#fff;border-radius:8px;height:110px;box-sizing:border-box"><b>Second child</b><br><input type="text" placeholder="A real field" aria-label="A real field" style="font:inherit;width:9em"></section>
+    <section style="padding:10px;background:#1f5f3a;color:#fff;border-radius:8px;height:110px;box-sizing:border-box"><b>Third child</b><br><a href="#features" style="color:#fff">A real link</a></section>`;
+  // #region two-versions-page
+  function version(box, title, use) {
+    let root = box, tag = 'kit-slot';
+    if (features.scopedRegistry) {
+      // The same tag name, looked up in this shadow root's own registry.
+      const registry = new CustomElementRegistry();
+      defineKit(registry, use);
+      root = box.attachShadow({ mode: 'open', customElementRegistry: registry });
+    } else {
+      // One registry for the page: the second version needs another name.
+      tag = use === OLD ? 'kit-slot-old' : 'kit-slot';
+      if (!customElements.get(tag)) defineKitGlobal(use, use === OLD ? 'old' : '');
+    }
+    root.innerHTML = `<style>h3 { margin: 0 0 8px; font: 600 15px system-ui; } ${tag} { height: 110px; } .row { display: flex; gap: 8px; margin-top: 10px; } button { font: inherit; min-height: 40px; } p { font: 12px/1.5 ui-monospace, monospace; opacity: .75; min-height: 3em; margin: 8px 0 0; }</style>
+      <h3>${title}</h3><${tag}>${CHILDREN}</${tag}>
+      <div class="row"><button type="button">1</button><button type="button">2</button><button type="button">3</button></div><p role="status"></p>`;
+    const slot = root.querySelector(tag);
+    root.querySelectorAll('.row button').forEach((b, i) => (b.onclick = () => slot.show(slot.children[i])));
+    return { slot, status: root.querySelector('p'), tag };
+  }
+  const versions = [version($('oldBox'), 'Older code', OLD), version($('newBox'), 'With the features', features)];
+  // #endregion two-versions-page
+  setInterval(() => {
+    for (const v of versions) {
+      const attrs = [...v.slot.children].filter((c) => c.hasAttribute('slot')).length;
+      v.status.textContent = `<${v.tag}> in ${features.scopedRegistry ? 'its own registry' : 'the page registry'} · ${v.slot.paintCount} paints · children with a slot attribute: ${attrs}${v.slot.hasAttribute('plain') ? ' · plain HTML' : ''}`;
+    }
+  }, 400);
+
+  // ---- The label ----
+  // #region label-page
+  defineKit(); // <kit-field> and <kit-slot> in the page's registry, with every feature this browser has
+  // #endregion label-page
+  const field = $('nameField');
+  const labelStatus = () => {
+    const focused = field.shadowRoot.activeElement === field.control;
+    $('labelStatus').textContent = `${features.referenceTarget ? 'Reference Target: shadowRoot.referenceTarget = "control"' : 'No Reference Target: clicks forwarded by script'} · field focused: ${focused ? 'yes' : 'no'}`;
+  };
+  field.control.addEventListener('focus', labelStatus);
+  field.control.addEventListener('blur', labelStatus);
+  labelStatus();
+
+  // ---- Wrapping ----
+  let frameLoads = 0;
+  addEventListener('message', (e) => { if (e.data === 'kit-frame-load') frameLoads++; });
+  const card = $('moveCard');
+  function wrapCard(use) {
+    if (card.parentElement.localName === 'kit-slot') return;
+    const before = frameLoads;
+    const hadFocus = document.activeElement === card.querySelector('input');
+    const host = document.createElement('kit-slot');
+    wrap(card, host, use);
+    $('unwrap').disabled = false;
+    $('wrapNew').disabled = $('wrapOld').disabled = true;
+    setTimeout(() => {
+      const kept = document.activeElement === card.querySelector('input');
+      $('moveStatus').textContent = `${use.moveBefore ? 'moveBefore()' : 'replaceWith() and append()'}: the iframe ${frameLoads > before ? 'loaded again' : 'did not reload'}${hadFocus ? `, focus ${kept ? 'stayed in the field' : 'was lost'}` : ''}. The card is now drawn by a canvas.`;
+    }, 500);
+  }
+  $('wrapNew').disabled = !features.moveBefore;
+  $('wrapNew').onclick = () => wrapCard(features);
+  $('wrapOld').onclick = () => wrapCard(OLD);
+  // Buttons take focus when pressed; keep it in the field so the difference shows.
+  for (const b of [$('wrapNew'), $('wrapOld')]) b.addEventListener('mousedown', (e) => e.preventDefault());
+  $('unwrap').onclick = () => {
+    const host = card.parentElement;
+    if (host.localName !== 'kit-slot') return;
+    card.removeAttribute('drawable');
+    if (features.moveBefore) { host.before(card); try { host.parentNode.moveBefore(card, host); } catch {} } else host.before(card);
+    host.remove();
+    $('unwrap').disabled = true;
+    $('wrapOld').disabled = false;
+    $('wrapNew').disabled = !features.moveBefore;
+    $('moveStatus').textContent = 'Unwrapped.';
+  };
+  if (!features.moveBefore) $('moveStatus').textContent = 'moveBefore() is not in this browser.';
+
+  // ---- Live checks ----
+  const fixtures = supported ? checkBench() : null;
+  const isYellow = (p) => p[0] > 235 && p[1] > 185 && p[1] < 225 && p[2] < 30 && p[3] > 245;
+  const pixel = (slot, x, y) => {
+    const k = slot.canvas.width / slot.canvas.clientWidth;
+    return Array.from(slot.canvas.getContext('2d').getImageData(Math.round(x * k), Math.round(y * k), 1, 1).data);
+  };
+  const painted = async (slot, more = 1) => {
+    const start = slot.paintCount;
+    slot.canvas.requestPaint();
+    for (let i = 0; i < 80 && slot.paintCount < start + more; i++) await sleep(25);
+    if (slot.paintCount < start + more) throw new Error('the element never painted');
+    await sleep(40);
+  };
+  const KIDS = '<div class="chip">a <button>b</button></div><div class="chip" style="background:rgb(0,120,255)">second</div>';
+  // A <kit-slot> of the given flavour in the bench, inside its own shadow root where registries can be scoped.
+  async function fixture(use, inner = KIDS) {
+    const box = document.createElement('div');
+    box.style.cssText = 'width:160px';
+    fixtures.append(box);
+    let root = box, tag = 'kit-slot';
+    if (features.scopedRegistry) {
+      const registry = new CustomElementRegistry();
+      defineKit(registry, use);
+      root = box.attachShadow({ mode: 'open', customElementRegistry: registry });
+    } else {
+      tag = `kit-slot-t${++fixture.n}`;
+      customElements.define(tag, makeKitSlot(use));
+    }
+    root.innerHTML = `<style>.chip { background: rgb(255, 204, 0); color: #000; width: 140px; height: 50px; box-sizing: border-box; padding: 6px; font: 13px system-ui; } ${tag} { height: 70px; }</style><${tag}>${inner}</${tag}>`;
+    const slot = root.querySelector(tag);
+    await painted(slot);
+    return { slot, root, box };
+  }
+  fixture.n = 0;
+  const need = (key, name) => { if (!features[key]) throw new Error(`${name} is not in this browser, so only the older code runs here`); };
+  const frameCard = () => {
+    const el = document.createElement('div');
+    el.className = 'chip';
+    el.innerHTML = `<input aria-label="Test field" inputmode="none" style="width:60px"><iframe title="Test frame" style="width:20px;height:16px;border:0" srcdoc="<script>parent.postMessage('kit-frame-load','*')<\/script>"></iframe>`;
+    fixtures.append(el);
+    return el;
+  };
+  // Focus is only taken when nobody is using it, and never with a keyboard (inputmode="none").
+  const focusFree = () => !document.activeElement || document.activeElement === document.body;
+
+  if (supported) {
+    runTests($('results'), onBench(fixtures, [
+      {
+        name: 'Scoped registry: the element draws its slotted child and is hit tested there',
+        why: 'kit-slot is defined only in a CustomElementRegistry given to one shadow root. The plan listed this as uncertain.',
+        run: async () => {
+          need('scopedRegistry', 'A scoped CustomElementRegistry');
+          const { slot, root } = await fixture(features);
+          const p = pixel(slot, 4, 30);
+          const b = slot.querySelector('button'), r = b.getBoundingClientRect();
+          const hit = root.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          if (root.customElementRegistry === customElements) throw new Error('the shadow root uses the page registry');
+          if (!isYellow(p)) throw new Error(`pixel ${p}`);
+          if (hit !== b) throw new Error(`elementFromPoint found ${hit?.localName}`);
+          return `drawn (${p.slice(0, 3)}), button found by elementFromPoint; the class is ${slot.constructor === customElements.get('kit-slot') ? 'the page one' : 'not the one in the page registry'}`;
+        },
+      },
+      {
+        name: 'Two classes share one tag name',
+        why: 'Two shadow roots, two registries, both defining kit-slot: one with the older code paths, one with the new.',
+        run: async () => {
+          need('scopedRegistry', 'A scoped CustomElementRegistry');
+          const a = await fixture(OLD), b = await fixture(features);
+          if (a.slot.localName !== b.slot.localName || a.slot.constructor === b.slot.constructor) throw new Error('the two elements are the same class or have different names');
+          const pa = pixel(a.slot, 4, 30), pb = pixel(b.slot, 4, 30);
+          if (!isYellow(pa) || !isYellow(pb)) throw new Error(`pixels ${pa} and ${pb}`);
+          return `both are <${a.slot.localName}>, different classes, both drawn`;
+        },
+      },
+      {
+        name: 'Manual slot assignment: no slot attributes on the children',
+        why: 'slot.assign(child) picks the child to draw. The older code writes slot="shown" on it.',
+        run: async () => {
+          need('manualSlots', 'Manual slot assignment');
+          const made = await fixture(features), old = await fixture(OLD);
+          const count = (s) => [...s.children].filter((c) => c.hasAttribute('slot')).length;
+          made.slot.show(made.slot.children[1], { fade: false });
+          old.slot.show(old.slot.children[1], { fade: false });
+          await painted(made.slot); await painted(old.slot);
+          const p = pixel(made.slot, 4, 30), po = pixel(old.slot, 4, 30);
+          const hidden = made.slot.children[0].getBoundingClientRect().width;
+          const blue = (q) => q[2] > 240 && q[0] < 20;
+          if (!blue(p) || !blue(po)) throw new Error(`second child not drawn: ${p} (new), ${po} (old)`);
+          if (count(made.slot) !== 0 || count(old.slot) !== 1) throw new Error(`slot attributes: ${count(made.slot)} (new), ${count(old.slot)} (old)`);
+          if (hidden !== 0) throw new Error(`the unassigned child still has a ${hidden}px box`);
+          return `second child drawn by both; slot attributes on children: 0 with assign(), ${count(old.slot)} with named slots; the unassigned child has no box`;
+        },
+      },
+      {
+        name: 'Reference Target: a label in the page reaches the field in the canvas',
+        why: 'label.control, the accessible relation and a click on the label, for an <input> that is a canvas child inside a shadow root.',
+        run: async () => {
+          need('referenceTarget', 'Reference Target');
+          const wrapEl = document.createElement('div');
+          wrapEl.innerHTML = '<label for="kitTestField">Label text</label><kit-field id="kitTestField" style="width:160px;height:48px"></kit-field>';
+          fixtures.append(wrapEl);
+          const f = wrapEl.querySelector('kit-field'), label = wrapEl.querySelector('label');
+          await sleep(120);
+          const labelled = f.control.labels?.length ?? 0;
+          let focused = 'not tried (focus was in use)';
+          if (focusFree()) {
+            f.control.inputMode = 'none';
+            label.click();
+            await sleep(40);
+            focused = f.shadowRoot.activeElement === f.control ? 'yes' : 'no';
+            f.control.blur();
+          }
+          if (label.control !== f) throw new Error(`label.control is ${label.control?.localName ?? 'null'}`);
+          if (focused === 'no') throw new Error('clicking the label did not focus the field');
+          return `label.control is the host; the input reports ${labelled} label(s); label click focused the field: ${focused}`;
+        },
+      },
+      {
+        name: 'Older code: the label is forwarded by script',
+        why: 'The same element with Reference Target turned off: aria-label is copied and the click is passed on.',
+        run: async () => {
+          const tag = `kit-field-t${++fixture.n}`;
+          customElements.define(tag, makeKitField(OLD));
+          const wrapEl = document.createElement('div');
+          wrapEl.innerHTML = `<label for="kitOldField">Label text</label><${tag} id="kitOldField" style="width:160px;height:48px"></${tag}>`;
+          fixtures.append(wrapEl);
+          const f = wrapEl.querySelector(tag);
+          await sleep(120);
+          const name = f.control.getAttribute('aria-label');
+          let focused = 'not tried (focus was in use)';
+          if (focusFree()) {
+            f.control.inputMode = 'none';
+            wrapEl.querySelector('label').click();
+            await sleep(40);
+            focused = f.shadowRoot.activeElement === f.control ? 'yes' : 'no';
+            f.control.blur();
+          }
+          if (name !== 'Label text' || focused === 'no') throw new Error(`aria-label "${name}", focused ${focused}`);
+          return `aria-label copied ("${name}"); label click focused the field: ${focused}`;
+        },
+      },
+      {
+        name: 'ElementImage is not disposable by itself',
+        why: 'using needs [Symbol.dispose]. ElementImage has close() only, so it needs a wrapper or DisposableStack.adopt().',
+        run: async () => {
+          const { slot } = await fixture(features);
+          const image = slot.canvas.captureElementImage(slot.shown);
+          const own = typeof Symbol.dispose === 'symbol' && Symbol.dispose in image;
+          const before = image.width;
+          image.close();
+          let afterClose;
+          try { slot.canvas.getContext('2d').drawElementImage(image, 0, 0, 10, 10); afterClose = `drawing it still works, width ${image.width}`; } catch (err) { afterClose = `drawing it throws ${err.name}`; }
+          if (own) return `ElementImage has [Symbol.dispose] in this browser, so using works on it directly. After close(): ${afterClose}`;
+          return `no [Symbol.dispose] on ElementImage (width ${before}). After close(): ${afterClose}`;
+        },
+      },
+      {
+        name: 'DisposableStack closes the fade snapshot whichever way the fade ends',
+        why: 'show() captures the outgoing child. The image must be closed when the fade finishes and when the element is removed mid-fade.',
+        run: async () => {
+          need('disposable', 'DisposableStack');
+          const closedBy = async (end) => {
+            const { slot } = await fixture(features);
+            const real = slot.canvas.captureElementImage.bind(slot.canvas);
+            let image = null, closed = 0;
+            slot.canvas.captureElementImage = (el) => { image = real(el); const c = image.close.bind(image); image.close = () => { closed++; c(); }; return image; };
+            slot.show(slot.children[1]);
+            await end(slot);
+            if (!image) throw new Error('show() took no snapshot');
+            return closed;
+          };
+          const finished = await closedBy(async (slot) => { for (let i = 0; i < 40; i++) { await sleep(25); slot.canvas.requestPaint(); } });
+          const removed = await closedBy(async (slot) => { await sleep(40); slot.remove(); await sleep(40); });
+          if (finished !== 1 || removed !== 1) throw new Error(`close() calls: ${finished} after a finished fade, ${removed} after removal mid-fade`);
+          return 'close() called once after a finished fade and once after removal mid-fade';
+        },
+      },
+      {
+        name: 'using: the snapshot is closed at the end, at an early return and on a throw',
+        why: 'The function is in /component-kit/using.js, imported only when the syntax parses. The older version in using-old.js is run the same way.',
+        run: async () => {
+          const { slot } = await fixture(features);
+          const ctx = slot.canvas.getContext('2d');
+          const run = async (mod) => {
+            const { drawEcho } = await import(mod);
+            const closed = [];
+            const real = slot.canvas.captureElementImage.bind(slot.canvas);
+            slot.canvas.captureElementImage = (el) => { const image = real(el); const c = image.close.bind(image); image.close = () => { closed.push(1); c(); }; return image; };
+            drawEcho(ctx, slot.canvas, slot.shown, 2);
+            drawEcho(ctx, slot.canvas, slot.shown, 0);
+            const broken = { globalAlpha: 1, drawElementImage() { throw new Error('boom'); } };
+            let threw = false;
+            try { drawEcho(broken, slot.canvas, slot.shown, 1); } catch { threw = true; }
+            delete slot.canvas.captureElementImage;
+            return { closed: closed.length, threw };
+          };
+          const old = await run('/component-kit/using-old.js');
+          if (old.closed !== 3 || !old.threw) throw new Error(`try/finally version closed ${old.closed} of 3`);
+          if (!usingSyntax) throw new Error('the using declaration does not parse in this browser; the try/finally version closed 3 of 3');
+          const fresh = await run('/component-kit/using.js');
+          if (fresh.closed !== 3 || !fresh.threw) throw new Error(`using version closed ${fresh.closed} of 3`);
+          return 'both versions closed 3 of 3 snapshots: normal end, early return, throw';
+        },
+      },
+      {
+        name: 'Observable: canvas.when(\'paint\') delivers the paint events',
+        why: 'The new code draws from an Observable subscription. take(2) ends a second subscription, and removing the element ends the first.',
+        run: async () => {
+          need('observable', 'Observable (EventTarget.when)');
+          const { slot } = await fixture(features);
+          const seen = [];
+          slot.paints.take(2).subscribe((p) => seen.push(p.count));
+          let listener = 0;
+          slot.canvas.addEventListener('paint', () => listener++);
+          for (let i = 0; i < 4; i++) { slot.shown.firstChild.textContent = `a${i} `; await painted(slot); }
+          const drawn = slot.paintCount;
+          slot.remove();
+          fixtures.append(slot.canvas.getRootNode().host ?? slot); // keep the canvas rendered
+          if (seen.length !== 2) throw new Error(`take(2) delivered ${seen.length} values`);
+          if (listener < 4 || drawn < listener) throw new Error(`addEventListener saw ${listener} paints, the Observable drew ${drawn}`);
+          return `4 DOM changes: addEventListener saw ${listener} paints and the subscription drew each one; take(2) stopped after 2`;
+        },
+      },
+      {
+        name: 'moveBefore(): wrapping keeps focus and does not reload an iframe',
+        why: 'wrap() from kit.js with the feature, then with replaceWith() and append(). The card holds a focused field and an iframe that reports each load.',
+        timeout: 8000,
+        run: async () => {
+          need('moveBefore', 'moveBefore()');
+          const measure = async (use) => {
+            const el = frameCard();
+            const start = frameLoads;
+            for (let i = 0; i < 40 && frameLoads === start; i++) await sleep(25);
+            const free = focusFree();
+            if (free) el.querySelector('input').focus({ preventScroll: true });
+            const before = frameLoads;
+            const host = document.createElement('kit-slot');
+            host.style.cssText = 'width:160px;height:60px';
+            wrap(el, host, use);
+            await sleep(400);
+            const kept = free ? document.activeElement === el.querySelector('input') : null;
+            if (free) el.querySelector('input').blur();
+            await painted(host);
+            const p = pixel(host, 130, 40);
+            host.remove();
+            return { reloads: frameLoads - before, kept, drawn: isYellow(p) };
+          };
+          const fresh = await measure(features), old = await measure(OLD);
+          if (fresh.reloads !== 0 || fresh.kept === false || !fresh.drawn) throw new Error(`moveBefore(): ${fresh.reloads} reloads, focus kept ${fresh.kept}, drawn ${fresh.drawn}`);
+          return `moveBefore(): 0 reloads, focus ${fresh.kept === null ? 'not tried' : 'kept'}, drawn. replaceWith(): ${old.reloads} reload(s), focus ${old.kept === null ? 'not tried' : old.kept ? 'put back by script' : 'lost'}`;
+        },
+      },
+      {
+        name: 'The libraries wrap with moveBefore() too',
+        why: 'DomPortalSource.adopt(), which <dom-portal for> uses, on a card with an iframe. The same code is in surface.js for fx, dom-lens and physical-ui.',
+        timeout: 8000,
+        run: async () => {
+          need('moveBefore', 'moveBefore()');
+          const el = frameCard();
+          const start = frameLoads;
+          for (let i = 0; i < 40 && frameLoads === start; i++) await sleep(25);
+          const before = frameLoads;
+          const source = DomPortalSource.adopt(el);
+          await sleep(400);
+          if (el.parentElement !== source) throw new Error('the element was not wrapped');
+          if (frameLoads !== before) throw new Error(`the iframe loaded ${frameLoads - before} more time(s)`);
+          return 'wrapped in <dom-portal-source>, the iframe did not reload';
+        },
+      },
+      {
+        name: 'Lines of code, old against new',
+        why: 'Counted from the #region comments in the running files. A feature that adds lines is reported as it is.',
+        run: async () => {
+          const counts = await lineCounts;
+          const rows = Object.entries(counts).map(([k, [o, n]]) => `${k} ${o} → ${n}`);
+          const empty = Object.entries(counts).filter(([, [o, n]]) => !o || !n).map(([k]) => k);
+          if (empty.length) throw new Error(`no lines found for: ${empty.join(', ')}`);
+          const [o, n] = Object.values(counts).reduce((a, [x, y]) => [a[0] + x, a[1] + y], [0, 0]);
+          return `${rows.join('; ')}. Total ${o} → ${n}`;
+        },
+      },
+      stillDrawn(() => [...versions.map((v, i) => ({ name: i ? 'new version' : 'old version', el: v.slot })), { name: 'label field', el: field }].map(({ name, el }) => ({
+        name,
+        note: 'plain HTML',
+        ink: () => (el.hasAttribute('plain') ? null : inkFraction(el.canvas.getContext('2d'))),
+      }))),
+    ])).then(() => fixtures.done());
+  }
+</script>
+</body>
+</html>
