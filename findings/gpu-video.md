@@ -34,7 +34,7 @@ The page draws two `drawable` HTML cards and a `<video>` in one shader pass. The
 
 ## Cost per frame ("Measure on this device", software adapter and software GL)
 
-40 draws, one per presented video frame, plain shader, 640×360 target that is not shown. "calls" is CPU time inside the upload and draw calls. "done" runs until `onSubmittedWorkDone()` (WebGPU) or a one pixel `readPixels()` (WebGL). "pass" is the render pass from a `timestamp-query` query set on a second device. These numbers are from a software rasterizer and say nothing about a GPU.
+40 draws, one per presented video frame, plain shader, 640×360 target that is not shown. "calls" is CPU time inside the upload and draw calls. "done" runs until `onSubmittedWorkDone()` (WebGPU) or a one pixel `readPixels()` (WebGL, since replaced by `gl.finish()`). "pass" is the render pass from a `timestamp-query` query set on a second device. These numbers are from a software rasterizer and say nothing about a GPU.
 
 | Route | Uploaded each frame | calls | done | pass |
 | --- | --- | --- | --- | --- |
@@ -54,7 +54,7 @@ The WebGL numbers moved between runs (done 26.83 to 43.47 ms for the first row, 
 
 - Both cards were drawn in the top left corner at first. CSS `left`, `top` and percentages do nothing for a canvas child, and `offsetLeft` is -1. The page now computes positions and passes them to the shader and to `updateElementGeometry()`.
 - Every translucent control was drawn solid white. The element texture has straight alpha and the shader added its colour to the frame without multiplying. A check with a half transparent box over black found it.
-- `requestDevice()` a second time on the same adapter throws `adapter is "consumed"`. The measurement asks for a new adapter to make its `timestamp-query` device.
+- `requestDevice()` a second time on the same adapter throws `adapter is "consumed"`. An earlier version of the measurement made a second device with `timestamp-query` from a new adapter, and the pass times in the table come from it. The page now uses only the shared device, which has no `timestamp-query`, so the pass column reads "not timed".
 - A canvas keeps the kind of context it first gave, so changing route needs a new canvas. Moving the children to a clone that is not yet in the document pauses the video. The clone is inserted first and the children are moved after.
 - `GPUElementTexture` textures have no `COPY_SRC` usage, so a check cannot read one directly. The checks draw it to a target and read that.
 - The two measured arrangements first used different shaders (glass against plain), which made "done" and "pass" measure the shader. Both now draw with the plain effect.

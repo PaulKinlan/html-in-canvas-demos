@@ -4,7 +4,7 @@
 // one draw per video frame, and three things are timed:
 //   calls   CPU time inside the upload calls and the draw or submit
 //   done    CPU time from the first upload until the GPU says the work is finished
-//           (WebGPU: queue.onSubmittedWorkDone(); WebGL: a one pixel readPixels())
+//           (WebGPU: queue.onSubmittedWorkDone(); WebGL: gl.finish())
 //   pass    GPU time of the render pass, from a 'timestamp-query' query set, when the adapter has the feature
 // Nothing is presented: WebGPU and WebGL draw into textures, so a software adapter can run it too.
 
@@ -104,16 +104,9 @@ async function measureGPU(stage, clipUrl, frames, say) {
   if (!gpu) return [{ route: 'WebGPU', what: 'not run', result: webgpu.reason || 'no device' }];
   if (!gpuMethod) return [{ route: label, what: 'not run', result: 'GPUQueue has no drawElementImageToTexture()' }];
 
-  // A second device for the timing, with timestamp queries when the adapter has them. The page's shared device is made without features.
-  let device = gpu.device, own = null, stamps = false;
-  try {
-    const adapter = await navigator.gpu.requestAdapter(gpu.software ? {} : { powerPreference: 'high-performance' });
-    if (adapter?.features.has('timestamp-query')) {
-      own = await adapter.requestDevice({ requiredFeatures: ['timestamp-query'] });
-      device = own;
-      stamps = true;
-    }
-  } catch {}
+  // The page's one shared device is used. A second device would count against a phone's GPU budget.
+  // GPU timestamps are read only when that device was made with 'timestamp-query'.
+  const device = gpu.device, stamps = device.features.has('timestamp-query');
 
   const f = buildFixture(clipUrl);
   f.canvas.width = 640; f.canvas.height = 360; // the same buffer on every route, so the element textures have the same size
@@ -192,7 +185,6 @@ async function measureGPU(stage, clipUrl, frames, say) {
     querySet?.destroy(); resolveBuffer?.destroy(); readBuffer?.destroy();
     try { context.unconfigure(); } catch {}
     f.canvas.remove();
-    own?.destroy();
   }
   return rows;
 }
@@ -208,7 +200,6 @@ async function measureGL(stage, clipUrl, frames, say) {
   try {
     const gl = f.canvas.getContext('webgl2', { alpha: false, antialias: false });
     const composer = glComposer(gl);
-    const px = new Uint8Array(4);
     await f.video.play();
     await nextFrame(f.video);
     await inPaint(f.canvas);
@@ -221,7 +212,7 @@ async function measureGL(stage, clipUrl, frames, say) {
     for (const mode of modes) {
       say(`WebGL 2: ${mode.what}`);
       try {
-        const t = await timed(frames, f, mode.work, () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px));
+        const t = await timed(frames, f, mode.work, () => gl.finish());
         rows.push({ route: 'WebGL 2', what: mode.what, result: `calls ${ms(t.calls)}, done ${ms(t.done)}`, note: mode.note(), calls: t.calls, done: t.done });
       } catch (err) {
         rows.push({ route: 'WebGL 2', what: mode.what, result: `failed: ${short(err)}`, failed: true });
