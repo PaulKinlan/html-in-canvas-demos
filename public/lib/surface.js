@@ -88,10 +88,24 @@ export class SurfaceElement extends HTMLElement {
       for (const p of ['flex', 'align-self', 'justify-self', 'order', 'grid-area']) host.style.setProperty(p, cs.getPropertyValue(p));
     }
     for (const [k, v] of Object.entries(attributes)) host.setAttribute(k, v);
+    // #region move
+    // moveBefore() moves a connected node without removing it: focus, a loaded
+    // iframe and running transitions inside the element carry on. Older
+    // browsers remove and re-insert it, and focus is put back by hand.
+    if ('moveBefore' in Element.prototype && target.isConnected) {
+      target.before(host);
+      try {
+        host.moveBefore(target, null);
+        return host;
+      } catch {
+        host.remove();
+      }
+    }
     const hadFocus = target.contains(document.activeElement) ? document.activeElement : null;
     target.replaceWith(host);
     host.append(target);
     hadFocus?.focus({ preventScroll: true });
+    // #endregion move
     return host;
   }
 
