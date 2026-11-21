@@ -70,6 +70,7 @@ window.DEMOS = [
   { group: 'audit', href: '/a11y/', title: 'Accessibility audit', blurb: 'Is DOM in a canvas still DOM? Probes of focus, selection, find, zoom and forced colours, a table of how each pattern on this site holds up, the same audit run over every demo, and a short list to try with a screen reader.', tags: ['accessibility tree', 'focus', 'forced-colors'] },
   { group: 'audit', href: '/capture/', title: 'Element capture', blurb: 'One call turns any element, or a whole ordinary page, into a PNG, a video or a printed page: <code>captureElement()</code>, <code>capturePage()</code>, <code>exportVideo()</code> with WebCodecs.', tags: ['moveBefore', 'WebCodecs', 'print'] },
   { group: 'audit', href: '/perf/', title: 'Performance wall', blurb: 'How many live elements a canvas can carry before frames drop, as plain DOM, a 2D canvas and a worker, measured on your device.', tags: ['requestPaint', 'worker', 'fps'] },
+  { group: 'audit', href: '/elements/', title: 'Every HTML element in a canvas', blurb: 'Each HTML element, input type and a few attributes, put inside a drawable canvas and measured: is it drawn, can it be hit, does it take real clicks and keys. With one thing to build for each.', tags: ['drawElementImage', 'elementsFromPoint', 'top layer'] },
 ];
 
 // Put the entries in group order, keeping the order within each group, so the
