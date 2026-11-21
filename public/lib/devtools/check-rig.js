@@ -20,7 +20,9 @@ export function rig(html, { width = 320, height = 200, hits = false } = {}) {
   const stage = testStage();
   stage.style.pointerEvents = hits ? 'auto' : 'none';
   stage.append(c);
-  const g = c.getContext('2d', { willReadFrequently: true });
+  // No willReadFrequently here: on Chrome 159 for Android a drawable canvas made with it, drawn
+  // into and then read, lost every 2D context on the page. Pixels are read from a copy (readable()).
+  const g = c.getContext('2d');
   const paint = (draw) => new Promise((resolve, reject) => {
     c.addEventListener('paint', (event) => {
       try { g.reset(); draw(g, event); resolve(event); } catch (err) { reject(err); }
@@ -32,9 +34,22 @@ export function rig(html, { width = 320, height = 200, hits = false } = {}) {
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** The box of pixels that match `test(r, g, b, a)`, in canvas px, or null. */
+/** A copy of a drawable canvas made with drawImage(), as a 2D context that is safe to read from. */
+export function readable(g) {
+  const copy = document.createElement('canvas');
+  copy.width = g.canvas.width;
+  copy.height = g.canvas.height;
+  const out = copy.getContext('2d', { willReadFrequently: true });
+  out.drawImage(g.canvas, 0, 0);
+  return out;
+}
+
+/** The alpha of one pixel of a drawable canvas, read from a copy. */
+export const alphaAt = (g, x, y) => readable(g).getImageData(x, y, 1, 1).data[3];
+
+/** The box of pixels that match `test(r, g, b, a)`, in canvas px, or null. Read from a copy of the canvas. */
 export function pixelBox(g, test = (r, gr, b, a) => a > 60) {
-  const { width, height } = g.canvas, d = g.getImageData(0, 0, width, height).data;
+  const { width, height } = g.canvas, d = readable(g).getImageData(0, 0, width, height).data;
   let left = width, top = height, right = -1, bottom = -1;
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const i = (y * width + x) * 4;
