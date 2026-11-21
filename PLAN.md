@@ -61,7 +61,7 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 | Learning resource | `/start/`, homepage, `shared/learn.js` | | #36, #38, #39, #40, #41 | Done. Open recommendations are listed below. |
 | Element catalogue | `/elements/`, `ELEMENTS.md` | `tools/elements/` | #48 (open) | Built, waiting to merge. 121 ideas, none built. |
 | Text selection | `/selection/`, `/caret/` | `selection-fx.js` | #49, #52 | Built. Demo 9 (carets and highlights) landed in #52 as `/caret/`. Touch selection is not verified. |
-| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `docs/chrome-apis-plan.md` | `tools/chrome-apis/` | #50 (open) | Plan written, 27 probes recorded. Building the 28 demos started on 2026-11-21. |
+| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `docs/chrome-apis-plan.md`, `/stream/`, `/carousel/`, `/patch/`, `/popovers/` | `tools/chrome-apis/`, `element-gl.js` | #50 | Plan written, 27 probes recorded. Built from it in this strand: `/stream/`, `/carousel/`, `/popovers/`, and `/patch/` (declarative partial updates and `moveBefore()`, added to the plan as `partial-updates`). Still to build here: `hdr-glow`, `css-uniforms`. None of the four pages has run on the test phone. |
 | Lost canvases on new pages | new pages | shared fix | none yet | In progress in its own thread. See "Site-wide work that is open". |
 
 ## Open pull requests
@@ -83,9 +83,9 @@ Source: `tools/chrome-apis/demos.json` and `docs/chrome-apis-plan.md` (PR #50). 
 
 | # | Key | Demo | Tier | Thread |
 |---|---|---|---|---|
-| 1 | `stream-materialise` | Streamed HTML that the canvas draws as it arrives (`streamAppendHTML()`, Prompt API or Workers AI) | next | Build demos from Chrome APIs plan |
-| 2 | `carousel-3d` | A CSS-only carousel (`::scroll-marker`, `::scroll-button()`) drawn as a cover flow | next | Build demos from Chrome APIs plan |
-| 3 | `popover-tips` | Native popovers, hints (`interestfor`) and commands (`commandfor`) on warped surfaces | next | Build demos from Chrome APIs plan |
+| 1 | `stream-materialise` | Streamed HTML that the canvas draws as it arrives (`streamAppendHTML()`, Prompt API or Workers AI). Built: `/stream/`. | next | Build demos from Chrome APIs plan |
+| 2 | `carousel-3d` | A CSS-only carousel (`::scroll-marker`, `::scroll-button()`) drawn as a cover flow. Built: `/carousel/`. | next | Build demos from Chrome APIs plan |
+| 3 | `popover-tips` | Native popovers, hints (`interestfor`) and commands (`commandfor`) on warped surfaces. Built: `/popovers/`. | next | Build demos from Chrome APIs plan |
 | 4 | `hdr-glow` | HDR interface: elements brighter than white in a `float16` canvas | next | Build demos from Chrome APIs plan |
 | 5 | `css-uniforms` | Shader uniforms written in CSS only (typed `attr()`, `@function`, `if()`, `sibling-index()`, `random()`) | next | Build demos from Chrome APIs plan |
 | 6 | `scroll-fx` | Scroll-linked shaders with no scroll listener | next | Build visual effect demos from plan |

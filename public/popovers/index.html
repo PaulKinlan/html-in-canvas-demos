@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Native popovers anchored to controls on a tilted panel</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; max-width: 560px; height: 470px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: radial-gradient(120% 90% at 50% 20%, #2a2440 0%, #0c0b14 75%); }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #stage.plain #panel { position: absolute; left: calc(50% - 140px); top: 50px; }
+
+  /* The panel that the canvas draws on a tilted quad. */
+  #panel { --c: #ffb86b; box-sizing: border-box; width: 280px; height: 350px; padding: 16px; border-radius: 22px; color: #fff; font: 15px/1.35 system-ui;
+    background: linear-gradient(160deg, color-mix(in srgb, var(--c) 55%, #1b1b2b), #1b1b2b 70%); border: 1px solid #ffffff55;
+    display: flex; flex-direction: column; gap: 10px; transition: background .4s, opacity .4s; }
+  #panel[data-scene="film"] { --c: #7aa2ff; } #panel[data-scene="away"] { --c: #6ee7b7; } #panel[data-scene="evening"] { --c: #ffb86b; }
+  #panel.off { --c: #555b6e; } #panel.off .big { opacity: .4; }
+  #panel header { display: flex; justify-content: space-between; align-items: center; }
+  #panel h2 { margin: 0; font-size: 18px; }
+  #panel .big { margin: 0; font: 800 54px/1 system-ui; letter-spacing: -2px; }
+  #panel .sub { margin: 0; font-size: 13px; opacity: .8; }
+  #panel label { display: grid; gap: 2px; font-size: 13px; }
+  #panel input[type=range] { width: 100%; margin: 0; accent-color: var(--c); }
+  #panel .row { display: flex; gap: 8px; margin-top: auto; }
+  #panel button { font: 600 14px system-ui; padding: 9px 14px; border-radius: 999px; border: 1px solid #ffffff88; background: #00000055; color: #fff; }
+  #panel #help { width: 34px; height: 34px; padding: 0; }
+
+  /* #region anchors */
+  /* The buttons are inside the canvas. Their popovers are outside it, in the top layer, and are placed with
+     CSS anchor positioning against the buttons. */
+  #scenes { anchor-name: --scenes; }
+  #help { anchor-name: --help; }
+  #menu { position-anchor: --scenes; position-area: bottom; position-try-fallbacks: flip-block; margin: 10px 0; container-type: anchored; }
+  #tip { position-anchor: --help; position-area: top; position-try-fallbacks: flip-block; margin: 8px 0; }
+  /* #endregion anchors */
+
+  [popover] { border: 1px solid #ffffff40; border-radius: 14px; padding: 8px; background: #14131fee; color: #fff; font: 14px/1.35 system-ui; box-shadow: 0 12px 40px #000a;
+    opacity: 1; scale: 1; transition: opacity .18s, scale .18s, display .18s allow-discrete, overlay .18s allow-discrete; }
+  [popover]:not(:popover-open) { opacity: 0; scale: .9; }
+  @starting-style { [popover]:popover-open { opacity: 0; scale: .9; } }
+  #menu { width: 190px; overflow: visible; }
+  #menu button { display: block; width: 100%; text-align: left; font: inherit; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: #fff; }
+  #menu button:hover, #menu button:focus-visible { background: #ffffff22; }
+  /* The arrow points at the button. When the popover has flipped above the button, the arrow moves to the bottom edge. */
+  #menu::before { content: ""; position: absolute; left: calc(50% - 7px); top: -7px; width: 14px; height: 14px; rotate: 45deg; background: #14131f; border: solid #ffffff40; border-width: 1px 0 0 1px; }
+  @container anchored(fallback: flip-block) { #menu::before { top: auto; bottom: -7px; border-width: 0 1px 1px 0; } }
+  #tip { max-width: 230px; padding: 8px 12px; }
+  dialog { border: 1px solid #ffffff40; border-radius: 16px; padding: 18px; background: #14131f; color: #fff; font: 15px/1.4 system-ui; max-width: min(320px, 86vw); }
+  dialog::backdrop { background: #000a; }
+  dialog form { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  dialog button { font: inherit; padding: 7px 14px; border-radius: 999px; border: 1px solid #ffffff66; background: transparent; color: #fff; }
+
+  .tools { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; margin: 6px 0; }
+  #notice { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--warn); border-radius: 8px; font-size: 14px; }
+  #notice[hidden] { display: none; }
+  td.status.ok { color: var(--ok); } td.status.fail { color: var(--bad); } td.status.idle { color: var(--muted); }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Native popovers anchored to controls on a tilted panel</h1>
+  <p class="lede">
+    The panel is HTML that a canvas draws on a quad in perspective. Its buttons open browser-native top-layer UI with no script: <b>Scenes</b> opens a <code>popover</code> through
+    <code>commandfor</code>, <b>?</b> shows a <code>popover="hint"</code> through <code>interestfor</code> (hover, keyboard focus, or a long press on touch), and <b>Turn off</b> opens a modal
+    <code>&lt;dialog&gt;</code>. The popovers are placed with CSS anchor positioning against buttons that are only pictures on a texture. Move the two sliders on the panel, or switch on the swing,
+    and an open popover follows its button.
+  </p>
+
+  <div id="stage">
+    <!-- #region markup -->
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <div id="panel" drawable data-scene="evening">
+        <header><h2>Living room</h2><button id="help" type="button" interestfor="tip" aria-label="About this panel">?</button></header>
+        <p class="big">21.5°</p>
+        <p class="sub" id="scene-name">Scene: Evening</p>
+        <label>Turn left and right <input type="range" id="ry" min="-55" max="55" value="-26"></label>
+        <label>Turn up and down <input type="range" id="rx" min="-40" max="40" value="10"></label>
+        <div class="row">
+          <button id="scenes" type="button" commandfor="menu" command="toggle-popover">Scenes</button>
+          <button id="off" type="button" commandfor="confirm" command="show-modal">Turn off</button>
+        </div>
+      </div>
+    </canvas>
+    <!-- The popovers are not in the canvas. A popover inside a drawn element is not in its picture. -->
+    <div id="menu" popover>
+      <button type="button" commandfor="menu" command="hide-popover" value="evening">Evening</button>
+      <button type="button" commandfor="menu" command="hide-popover" value="film">Film</button>
+      <button type="button" commandfor="menu" command="hide-popover" value="away">Away</button>
+    </div>
+    <div id="tip" popover="hint">This panel is one element drawn by a canvas. The hint is anchored to the place where the ? button is drawn.</div>
+    <dialog id="confirm" aria-labelledby="confirm-title">
+      <b id="confirm-title">Turn everything off?</b>
+      <form method="dialog"><button value="cancel">Cancel</button><button value="off">Turn off</button></form>
+    </dialog>
+    <!-- #endregion markup -->
+  </div>
+  <p id="status">&nbsp;</p>
+  <p id="notice" hidden></p>
+  <p class="checks-gate"><button id="run-checks" type="button">Run these 4 checks</button> <span class="note">The results are in the Live checks table below.</span></p>
+
+  <div class="tools">
+    <label><input type="checkbox" id="swing"> Swing the panel</label>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>buttons in the canvas, popovers outside it, anchors</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> <code>commandfor</code>, <code>command</code> and <code>interestfor</code> on buttons inside the canvas, pointing at elements outside it.</li>
+      <li data-code="#anchors"><b>The anchors.</b> <code>anchor-name</code> on a button in the canvas, <code>position-anchor</code> on its popover.</li>
+      <li data-code="#matrix"><b>The panel's matrix.</b> One matrix draws the quad and, through <code>updateElementGeometry()</code>, tells the browser where the panel is. Anchors and hit tests use that place.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Upload the panel when it changed, draw its shadow and the panel.</li>
+      <li data-code="#shader"><b>The fragment shader.</b> A highlight that depends on the tilt, and a ring around the button whose popover is open.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>The panel is one <code>drawable</code> child of the canvas, uploaded as a texture and drawn on a quad through a matrix with perspective. The same matrix goes to <code>updateElementGeometry()</code> in each <code>paint</code> event. From then on the browser's hit tests, focus rings and anchor rectangles for the panel's buttons use the drawn place. The popovers and the dialog are ordinary elements outside the canvas; <code>commandfor</code> and <code>interestfor</code> open them and CSS anchor positioning places them. The canvas repaints every frame only while the panel swings or a popover is open.</p>
+
+  <h2>Live checks</h2>
+  <p>The button under the demo runs these. They use the demo itself, so it has to be on screen: a point outside the window cannot be hit tested.</p>
+  <table class="results" id="checks">
+    <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>A point on the drawn Scenes button hit tests to the button</td><td class="status idle">not run</td><td></td></tr>
+      <tr><td>The button's rectangle is the bounding box of its drawn quad</td><td class="status idle">not run</td><td></td></tr>
+      <tr><td>The popover opens next to the drawn button</td><td class="status idle">not run</td><td></td></tr>
+      <tr><td>The open popover follows the button when the panel turns</td><td class="status idle">not run</td><td></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul>
+    <li>In Chromium 157 the anchor rectangle of an element inside a drawn canvas child is the bounding box of its drawn quad. With a 50 degree turn and perspective, a 60 by 30 pixel button gave an
+      anchor of 34 by 29 pixels at the projected place, and a popover with <code>position-area: bottom</code> sat under it.</li>
+    <li>An open popover moves with its button when the panel's matrix changes. The page calls <code>updateElementGeometry()</code> in each <code>paint</code> event and does nothing else for the popover.</li>
+    <li><code>commandfor</code> with <code>toggle-popover</code>, <code>hide-popover</code> and <code>show-modal</code> works from a button drawn in perspective, by mouse, touch and keyboard. The target does not
+      have to be in the canvas.</li>
+    <li>The range inputs on the panel can be dragged while the panel turns under the pointer, because each new matrix moves the hit box as well.</li>
+    <li>The popover's arrow flips with an <code>anchored(fallback: flip-block)</code> container query when <code>position-try-fallbacks</code> moves the popover above the button.</li>
+    <li>Chromium 153 keeps the anchor at the element's layout box, so there the popovers open at the panel's untransformed place. Chrome 159 on the phone is not verified.</li>
+    <li>The popovers and the dialog are drawn by the browser above the canvas. The canvas cannot draw over them or bend them.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { ElementGL, supported } from '/lib/element-gl.js';
+
+  const stageBox = document.getElementById('stage');
+  const canvas = document.getElementById('canvas');
+  const panel = document.getElementById('panel');
+  const menu = document.getElementById('menu'), tip = document.getElementById('tip'), confirmBox = document.getElementById('confirm');
+  const scenes = document.getElementById('scenes'), help = document.getElementById('help');
+  const rx = document.getElementById('rx'), ry = document.getElementById('ry'), swing = document.getElementById('swing');
+  const status = document.getElementById('status'), notice = document.getElementById('notice');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // What the popovers do to the panel. Opening and closing them needs no script.
+  menu.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    panel.dataset.scene = b.value; panel.classList.remove('off');
+    document.getElementById('scene-name').textContent = `Scene: ${b.textContent}`;
+  });
+  confirmBox.addEventListener('close', () => {
+    if (confirmBox.returnValue !== 'off') return;
+    panel.classList.add('off'); document.getElementById('scene-name').textContent = 'Everything is off';
+  });
+
+  // #region shader
+  const FRAGMENT = `#version 300 es
+  precision mediump float;
+  uniform sampler2D uTex;
+  uniform vec2 uSize, uLight;
+  uniform float uTime, uKind;     // uKind: 1 the panel, 2 its shadow
+  uniform vec4 uSpot;             // the button whose popover is open, in panel pixels: x, y, width, height
+  uniform float uSpotOn;
+  in vec2 vUv;
+  out vec4 outColor;
+  void main() {
+    vec4 c = texture(uTex, vUv);
+    vec2 e = min(vUv, 1.0 - vUv) / max(fwidth(vUv), vec2(1e-5));
+    float edge = clamp(min(e.x, e.y), 0.0, 1.0);
+    if (uKind > 1.5) { outColor = vec4(0.0, 0.0, 0.0, c.a * 0.4) * edge; return; }
+    // A soft highlight whose place depends on how the panel is turned.
+    float glow = pow(max(0.0, 1.0 - length(vUv - (vec2(0.5) + uLight)) * 1.5), 2.0);
+    c.rgb += vec3(0.30) * glow * c.a;
+    // A ring that pulses around the button whose popover is open.
+    vec2 px = vUv * uSize, centre = uSpot.xy + uSpot.zw * 0.5;
+    vec2 q = abs(px - centre) - uSpot.zw * 0.5 + 12.0;
+    float dist = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - 12.0;
+    float ring = smoothstep(9.0, 0.0, abs(dist - 4.0 - 3.0 * sin(uTime * 5.0)));
+    c.rgb += vec3(1.0, 0.85, 0.5) * ring * uSpotOn * c.a;
+    outColor = c * edge;
+  }`;
+  // #endregion shader
+
+  // #region matrix
+  const PERSPECTIVE = 700;
+  let angleX = +rx.value, angleY = +ry.value;
+  // Panel pixels to canvas CSS pixels: centre of the stage, perspective, the two turns.
+  function panelMatrix(dy = 0, dz = 0) {
+    const persp = new DOMMatrix(); persp.m34 = -1 / PERSPECTIVE;
+    return new DOMMatrix().translate(canvas.clientWidth / 2, canvas.clientHeight / 2 + dy).multiply(persp).translate(0, 0, dz)
+      .rotate(angleX, angleY, 0).translate(-panel.offsetWidth / 2, -panel.offsetHeight / 2);
+  }
+  function toClip(m) {
+    const c = new DOMMatrix().translate(-1, 1).scale(2 / canvas.clientWidth, -2 / canvas.clientHeight).multiply(m).scale(panel.offsetWidth, panel.offsetHeight);
+    c.m13 = 0; c.m23 = 0; c.m33 = 0; c.m43 = 0;
+    return c.toFloat32Array();
+  }
+  // #endregion matrix
+
+  let gl = null, paints = 0, uploads = 0, matrix = new DOMMatrix(), lastKey = '';
+  function plain(reason) {
+    if (!stageBox.classList.contains('plain')) { stageBox.classList.add('plain'); stageBox.prepend(panel); canvas.hidden = true; }
+    notice.hidden = false; notice.textContent = reason;
+  }
+  function drawn() {
+    if (!stageBox.classList.contains('plain')) return;
+    stageBox.classList.remove('plain'); canvas.hidden = false; canvas.append(panel); notice.hidden = true;
+  }
+  if (!supported) {
+    plain('This browser does not have HTML-in-canvas for WebGL (texElementSubImage2D). The panel is shown flat as plain HTML; the popovers still work.');
+  } else {
+    try {
+      gl = new ElementGL(canvas, {
+        fragment: FRAGMENT,
+        onLost: () => plain('The browser took the WebGL context away. The panel is shown as plain HTML until the context returns.'),
+        onRestored: () => { drawn(); canvas.requestPaint(); },
+      });
+    } catch (e) {
+      plain(`WebGL could not start (${e.message}). The panel is shown as plain HTML.`);
+    }
+  }
+
+  // #region paint
+  const openInvoker = () => (menu.matches(':popover-open') ? scenes : tip.matches(':popover-open') ? help : null);
+  canvas.addEventListener('paint', (e) => {
+    if (!gl || gl.lost) return;
+    paints++;
+    if (!gl.has(panel) || (e.changedElements ?? [panel]).includes(panel)) { gl.upload(panel); uploads++; }
+    if (!gl.begin([0, 0, 0, 0])) return;
+    if (swing.checked) { const t = performance.now() / 1000; angleY = Math.sin(t * 0.9) * 34; angleX = Math.sin(t * 0.6) * 12; }
+    matrix = panelMatrix();
+    const spot = openInvoker();
+    const set = (kind) => (g, u) => {
+      g.uniform1f(u('uKind'), kind);
+      g.uniform2f(u('uLight'), -angleY / 140, angleX / 120 - 0.15);
+      g.uniform4f(u('uSpot'), spot?.offsetLeft ?? 0, spot?.offsetTop ?? 0, spot?.offsetWidth ?? 0, spot?.offsetHeight ?? 0);
+      g.uniform1f(u('uSpotOn'), spot ? 1 : 0);
+    };
+    gl.quad(panel, toClip(panelMatrix(26, -60)), set(2));
+    gl.quad(panel, toClip(matrix), set(1));
+    // The browser now treats the panel as being where it is drawn: hit tests, focus rings and anchors.
+    canvas.updateElementGeometry(panel, { canvasTransform: matrix });
+    // Chromium 157 remembers its last hit-test answer for a point until the DOM changes, so mark the move.
+    const key = `${angleX.toFixed(1)},${angleY.toFixed(1)},${canvas.clientWidth}`;
+    if (key !== lastKey) { lastKey = key; canvas.toggleAttribute('data-moved'); }
+    status.textContent = `${paints} paint events, ${uploads} uploads. Turned ${angleY.toFixed(0)}° and ${angleX.toFixed(0)}°.`;
+  });
+  // #endregion paint
+
+  // The canvas repaints every frame only while the panel swings or a popover is open (the ring pulses).
+  let running = false;
+  function animate() {
+    if (running) return;
+    running = true;
+    requestAnimationFrame(function frame() {
+      if (!gl || gl.lost || !(swing.checked || openInvoker())) { running = false; canvas.requestPaint?.(); return; }
+      canvas.requestPaint?.();
+      requestAnimationFrame(frame);
+    });
+  }
+  for (const input of [rx, ry]) input.addEventListener('input', () => { angleX = +rx.value; angleY = +ry.value; canvas.requestPaint?.(); });
+  swing.addEventListener('change', () => { if (!swing.checked) { angleX = +rx.value; angleY = +ry.value; } animate(); });
+  for (const p of [menu, tip]) p.addEventListener('toggle', animate);
+  new ResizeObserver(() => canvas.requestPaint?.()).observe(canvas);
+  canvas.requestPaint?.();
+
+  // ---------------------------------------------------------------- live checks (run on a tap)
+  const rows = [...document.querySelectorAll('#checks tbody tr')];
+  const set = (i, ok, detail) => { rows[i].children[1].className = `status ${ok ? 'ok' : 'fail'}`; rows[i].children[1].textContent = ok ? 'pass' : 'fail'; rows[i].children[2].textContent = detail; };
+  document.getElementById('run-checks').onclick = async () => {
+    const results = [];
+    const check = (i, name, ok, detail) => { set(i, ok, detail); results.push({ name, ok }); };
+    if (!gl || gl.lost) { for (let i = 0; i < rows.length; i++) check(i, `check ${i}`, false, 'No WebGL context with texElementSubImage2D.'); window.__results = results; return; }
+    const was = swing.checked; swing.checked = false;
+    const turn = async (x, y) => { angleX = x; angleY = y; canvas.requestPaint(); await sleep(250); };
+    // The bounding box, in the viewport, of the Scenes button's four corners taken through the panel's matrix.
+    const projected = () => {
+      const box = canvas.getBoundingClientRect(), l = scenes.offsetLeft, t = scenes.offsetTop, w = scenes.offsetWidth, h = scenes.offsetHeight;
+      const pts = [[l, t], [l + w, t], [l + w, t + h], [l, t + h]].map(([u, v]) => { const q = matrix.transformPoint(new DOMPoint(u, v)); return [box.left + q.x / q.w, box.top + q.y / q.w]; });
+      const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+      return { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+    };
+    const near = (a, b, by = 3) => Math.abs(a - b) <= by;
+    await turn(10, -30);
+    let want = projected();
+    const hit = document.elementFromPoint((want.left + want.right) / 2, (want.top + want.bottom) / 2);
+    check(0, 'hit test', hit === scenes, `elementFromPoint() at the middle of the drawn button returned <${hit?.tagName.toLowerCase() ?? 'nothing'}${hit?.id ? ` id="${hit.id}"` : ''}>.`);
+    const r = scenes.getBoundingClientRect();
+    check(1, 'rectangle', near(r.left, want.left) && near(r.right, want.right) && near(r.top, want.top) && near(r.bottom, want.bottom),
+      `getBoundingClientRect(): ${r.left.toFixed(0)}, ${r.top.toFixed(0)}, ${r.width.toFixed(0)} by ${r.height.toFixed(0)}. Projected quad: ${want.left.toFixed(0)}, ${want.top.toFixed(0)}, ${(want.right - want.left).toFixed(0)} by ${(want.bottom - want.top).toFixed(0)}. Layout size: ${scenes.offsetWidth} by ${scenes.offsetHeight}.`);
+    const placed = (m, w) => {
+      const below = near(m.top, w.bottom + 10, 4), above = near(m.bottom, w.top - 10, 4);
+      return { ok: (below || above) && near((m.left + m.right) / 2, (w.left + w.right) / 2, 12), side: below ? 'below' : above ? 'above' : 'away from' };
+    };
+    menu.showPopover({ source: scenes }); await sleep(350);
+    let m = menu.getBoundingClientRect(), first = placed(m, want);
+    check(2, 'anchor', first.ok, `The popover is ${first.side} the drawn button: popover top ${m.top.toFixed(0)}, bottom ${m.bottom.toFixed(0)}; button top ${want.top.toFixed(0)}, bottom ${want.bottom.toFixed(0)}.`);
+    const before = m.left;
+    await turn(-12, 34); await sleep(150);
+    want = projected(); m = menu.getBoundingClientRect();
+    const second = placed(m, want);
+    check(3, 'follows', second.ok && Math.abs(m.left - before) > 4, `After the turn the popover moved ${(m.left - before).toFixed(0)} px sideways and is ${second.side} the button.`);
+    menu.hidePopover();
+    swing.checked = was; angleX = +rx.value; angleY = +ry.value; canvas.requestPaint(); animate();
+    window.__results = results;
+  };
+  if (new URLSearchParams(location.search).get('autochecks') === '1') document.getElementById('run-checks').click();
+  else window.__results = [];
+</script>
+</body>
+</html>

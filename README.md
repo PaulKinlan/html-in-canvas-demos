@@ -75,6 +75,10 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
 | `/selection/` | `<selection-fx>`: the canvas draws the highlight of selected text (2D and shader effects), plus measurements of what the browser paints for a selection in a canvas |
 | `/caret/` | An editable block in a canvas: CSS caret shape and animation in the picture, a caret streak and wavy typo lines drawn by the canvas, `highlightsFromPoint()` |
+| `/stream/` | Markup streamed into a canvas child with `streamAppendHTML()`; a shader draws the newest blocks through a scan line, a blur or spreading ink |
+| `/carousel/` | A CSS-only carousel (scroll snap, `::scroll-button()`, `::scroll-marker`) drawn as a cover flow, a wheel or a fan |
+| `/patch/` | Streamed `<template for>` patches and `moveBefore()` on tiles that a canvas draws, each tile its own texture |
+| `/popovers/` | Native popovers, a hint and a dialog opened from a panel drawn in perspective, placed with CSS anchor positioning |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
 | `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
 | `/embed/` | Cross-origin cards the host distorts and restyles without DOM access |

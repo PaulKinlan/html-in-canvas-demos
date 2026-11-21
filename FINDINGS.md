@@ -55,6 +55,11 @@ One row per main result. "Section" is the section of this file with the detail.
 | A video, an animated image, a `marquee`, an indeterminate `progress`, a focused input, a scroll-driven animation and a `scroll-state()` change each raise `paint` with no `requestPaint()`. | measured | C157 | `/video/`, `/elements/`, `/chrome-apis/probes.html` | Video and sound; PR #48; PR #50 |
 | Becoming a canvas descendant restarts an element's CSS animations. | measured | C157 | `/capture/` | Capture |
 | Inserting, moving or removing an iframe inside a `paint` handler crashes the tab. | measured | C157 | `/capture/` | Capture |
+| A `drawable` element nested inside another drawable element has its own picture and is left out of the outer one. | measured | C157 | `/carousel/`, `/patch/` | CSS carousel as a cover flow |
+| A nested drawable element inside a scroller is clipped by the scroller, and scroll snap uses the place given to `updateElementGeometry()`. | measured | C157 | `/carousel/` | CSS carousel as a cover flow |
+| Each chunk of a streamed `<template for>` patch raises one `paint` event, and `changedElements` names only the nearest drawable element around the range. | measured | C157 | `/patch/` | Declarative partial updates and moveBefore() |
+| `moveBefore()` keeps the focus, animation time and uploaded texture of a drawable element. | measured | C157 | `/patch/` | Declarative partial updates and moveBefore() |
+| The CSS anchor rectangle of an element in a drawn canvas child is the bounding box of its drawn quad, also under perspective. | measured | C157 | `/popovers/` | Native popovers on a tilted panel |
 
 ### drawElementImage() in a 2D context
 
@@ -377,6 +382,10 @@ The main results. Each is backed by the tables in the sections below.
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
 - [Native UI toolkits (/native-ui/)](#native-ui-toolkits-native-ui)
 - [Recent platform features on drawn elements (/chrome-apis/)](#recent-platform-features-on-drawn-elements-chrome-apis)
+- [Streamed HTML (/stream/, lib/element-gl.js)](#streamed-html-stream-libelement-gljs)
+- [CSS carousel as a cover flow (/carousel/)](#css-carousel-as-a-cover-flow-carousel)
+- [Declarative partial updates and moveBefore() (/patch/)](#declarative-partial-updates-and-movebefore-patch)
+- [Native popovers on a tilted panel (/popovers/)](#native-popovers-on-a-tilted-panel-popovers)
 
 ## Slots
 
@@ -1317,3 +1326,17 @@ Measured in Chromium 157 (headless shell). Not yet run on the test phone.
 | A new `drawable` element inside a patch | drawn at the next paint | It has a picture when the `paint` event that follows its insertion runs. |
 | `moveBefore()` on a drawable tile | state kept | Focus and selection of an input inside it, and the time of a CSS animation, are kept. The texture uploaded before the move is still the tile's picture. `insertBefore()` drops the focus and restarts the animation. |
 | `moveBefore()` to a child of another canvas | works | Focus is kept and the second canvas gets `paint` events. |
+
+## Native popovers on a tilted panel (`/popovers/`)
+
+Measured in Chromium 157 (headless shell), 2026-11-21, with synthetic mouse, touch and keyboard input. Not yet run on the test phone.
+
+| Question | Result | Notes |
+|---|---|---|
+| Anchor rectangle of an element inside a drawn canvas child | the bounding box of its drawn quad | With a 50 degree turn and perspective, a 60 by 30 pixel button anchored a popover at a 34 by 29 pixel box at the projected place. `getBoundingClientRect()` returns the same box. Chromium 153 uses the layout box. |
+| An open popover while the matrix changes | follows | `updateElementGeometry()` in each `paint` event is enough. No script positions the popover. |
+| `commandfor` with `toggle-popover`, `hide-popover`, `show-modal` from a button drawn in perspective | works | By mouse, tap and keyboard. The target is outside the canvas. |
+| `interestfor` on a drawn button | works | The hint opened on hover over the drawn place and on keyboard focus. Long press on touch is not verified. |
+| Dragging a range input on a panel that turns under the pointer | works | The thumb moved with a synthetic mouse drag while each `input` event changed the matrix. |
+| `anchored(fallback: flip-block)` container query on a popover anchored into a canvas | applies | The arrow moves to the other edge when `position-try-fallbacks` flips the popover. Seen in screenshots; no live check. |
+| Hit testing a point of the demo that is outside the window | returns nothing | `elementFromPoint()` needs the point in the viewport. The run button for checks that hit test the visible demo sits under the demo, not in the checks section. |

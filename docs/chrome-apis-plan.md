@@ -90,6 +90,7 @@ These run in Chrome 157 to 159 today, and most have a measured result behind the
 
 #### 4. Native popovers, hints and commands on warped surfaces
 
+- **Built:** [/popovers/](https://html-in-canvas.page/popovers/)
 - **Shows:** Controls drawn on a 3D panel, a cloth or under a lens that open real top-layer UI: a popover=hint from interestfor, a popover or dialog from commandfor, a customisable select. The popover is positioned with CSS anchor positioning and stays attached to the place where its control is drawn.
 - **Build:** Popovers live outside the canvas, because a popover inside a drawn element is not in its picture. Each one uses position-anchor on the drawn control. The page records, for every surface type on the site (2D transform, perspective quad, deforming mesh, lens), whether the anchored popover follows. anchored(fallback) queries flip the popover's arrow when the surface turns away.
 - **Measured:** In Chromium 157 an element anchored to a canvas child follows the drawn position (moved by 100,50 when the child was drawn at 100,50), and hovering a drawn interestfor button opened its hint. Both failed in Chromium 153, where the anchor stays at the layout box. commandfor on a drawn button opened a popover in both.
