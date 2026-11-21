@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Video lab: title editor, cinema sound, wide gamut, timeline skin, WebGPU player</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  [hidden] { display: none !important; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+  .bar button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .frame { position: relative; }
+  .frame canvas { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #0b0c10; touch-action: manipulation; }
+  /* A taller canvas on a phone, so the seats and the title text are large enough to tap. */
+  @media (max-width: 600px) { #stage { aspect-ratio: 4 / 3; } }
+  .blank { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; border-radius: 10px; background: #0f1116; color: #fff; font-size: 14px; }
+  .say { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; overflow-wrap: anywhere; }
+  .panel { min-height: 150px; }
+
+  /* ---- title editor: the shots are children of the canvas ---- */
+  /* #region card-css */
+  .shot { width: 100%; height: 100%; overflow: hidden; background: #000; }
+  .shot video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .card { display: grid; place-items: center; text-align: center; color: #fff; container-type: size; --t: 0; }
+  .card-in { width: 86%; }
+  /* Every moving part of a card is a function of --t, so one frame of the export is one value of --t. */
+  .card h3 { margin: 0; font: 800 9cqw/1.05 system-ui, sans-serif; outline: none;
+    letter-spacing: calc((1 - min(1, var(--t) * 3)) * 0.35em); opacity: min(1, var(--t) * 5); }
+  .card .rule { display: block; height: 0.9cqw; width: 60%; margin: 3cqw auto; background: currentColor; transform: scaleX(min(1, var(--t) * 2.5)); }
+  .card p { margin: 0; font: 500 3.8cqw/1.3 system-ui, sans-serif; outline: none;
+    opacity: clamp(0, (var(--t) - 0.2) * 4, 1); translate: 0 calc((1 - clamp(0, (var(--t) - 0.2) * 4, 1)) * 1em); }
+  /* #endregion card-css */
+  .look-dawn { background: linear-gradient(135deg, #ff7a4d, #b0246e 60%, #2b1a57); }
+  .look-ink { background: #10131c; color: #ffd166; }
+  .look-mint { background: linear-gradient(160deg, #0b6e5f, #14213d); color: #d8fff3; }
+
+  .transport { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  .transport input[type=range] { flex: 1 1 140px; min-width: 0; }
+  .transport output { font: 13px var(--mono); color: var(--muted); min-width: 9ch; }
+  .shots { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+  .shots li { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 14px; }
+  .shots .kind { font: 12px var(--mono); color: var(--muted); width: 4ch; }
+  .shots .name { flex: 1 1 110px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shots input[type=number] { width: 4.5em; font: inherit; }
+  .shots select { font: inherit; }
+  .shots .acts { display: flex; gap: 4px; }
+  .shots .acts button { padding: 4px 9px; }
+  .exported video { display: block; width: min(100%, 420px); border-radius: 8px; margin: 8px 0 4px; }
+
+  /* ---- cinema ---- */
+  /* 400 CSS pixels wide, so the native controls are large on the screen in the room and can be tapped on a phone. */
+  .cin-screen { width: 400px; height: 225px; background: #000; }
+  .cin-screen video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .cin-floor { width: 420px; height: 420px; box-sizing: border-box; padding: 12px 34px 22px; display: flex; flex-direction: column; color: #b9bdd6;
+    background: #1d2030 repeating-linear-gradient(90deg, transparent 0 40px, rgb(255 255 255 / .04) 40px 42px); font: 600 13px system-ui, sans-serif; }
+  .cin-floor p { margin: 0 0 10px; text-align: center; letter-spacing: .2em; text-transform: uppercase; }
+  .seats { flex: 1; display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(4, 1fr); gap: 16px 12px; }
+  .seats button { padding: 0; border-radius: 12px 12px 4px 4px; border: 2px solid #a8323f; background: #7a1f2b; color: transparent; font-size: 24px; line-height: 1; }
+  .seats button[aria-pressed="true"] { background: #ffd166; border-color: #fff; color: #3a2500; }
+  .seats button span { display: inline-block; rotate: var(--turn, 0deg); }
+  .hud { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 4px 16px; font: 13px/1.6 var(--mono); color: var(--muted); margin: 8px 0; }
+  .meter { display: inline-block; vertical-align: middle; width: 90px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--ok); }
+
+  /* ---- timeline skin ---- */
+  .skin-player { width: 100%; height: 100%; background: #000; }
+  .skin-player video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  /* #region skin-css */
+  /* Chrome fades the controls during playback. These two rules keep the timeline. */
+  .skin-player video::-webkit-media-controls-panel, .skin-player video::-webkit-media-controls-timeline { opacity: 1 !important; }
+  /* The timeline cannot be reached from script. For one paint it gets a flat colour, and the page looks for that colour. */
+  .probe video::-webkit-media-controls-timeline { background: rgb(255 0 255) !important; }
+  /* #endregion skin-css */
+
+  /* ---- wide gamut ---- */
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .pair figure { margin: 0; }
+  .pair canvas { display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: 8px; background: #000; }
+  .pair figcaption { font: 12px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin-top: 4px; }
+  .p3-el { width: 100%; height: 100%; display: flex; flex-direction: column; background: #000; }
+  .p3-el video { display: block; flex: 1; min-height: 0; width: 100%; object-fit: fill; }
+  .p3-el .swatches { display: flex; height: 16%; }
+  .p3-el .swatches i { flex: 1; }
+  #p3Read { min-height: 9.5em; }
+  #p3Read table { font: 12px/1.5 var(--mono); border-collapse: collapse; }
+  #p3Read td, #p3Read th { padding: 2px 10px 2px 0; text-align: left; font-weight: 400; }
+
+  /* ---- WebGPU player ---- */
+  /* #region gpu-css */
+  /* The frame is moved out of the video's box, so the element's picture is the controls on a clear background. */
+  .controls-layer { width: 100%; height: 100%; }
+  .controls-layer video { display: block; width: 100%; height: 100%; background: transparent; object-fit: none; object-position: -9999px 0; }
+  .controls-layer video::-webkit-media-controls-panel { background: none; }
+  .probe video::-webkit-media-controls-play-button { background: rgb(0 0 255) !important; }
+  .probe video::-webkit-media-controls-mute-button { background: rgb(0 255 0) !important; }
+  .probe video::-webkit-media-controls-fullscreen-button { background: rgb(255 0 0) !important; }
+  /* #endregion gpu-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Video lab: title editor, cinema sound, wide gamut, timeline skin, WebGPU player</h1>
+  <p class="lede">Five experiments with a <code>&lt;video&gt;</code> as a canvas child. The first three share one WebGL canvas: choose a scene with the buttons. In the editor, tap the text of a title card on the canvas and type. In the cinema, tap play on the screen, then tap a seat. The last two sections have their own canvases further down.</p>
+
+  <div class="bar" role="group" aria-label="Scene">
+    <button type="button" data-scene="editor" aria-pressed="true">Title editor</button>
+    <button type="button" data-scene="cinema" aria-pressed="false">Cinema screen</button>
+    <button type="button" data-scene="skin" aria-pressed="false">Timeline skin</button>
+  </div>
+  <div class="frame">
+    <!-- #region stage-markup -->
+    <canvas id="stage" content="drawable" layoutsubtree aria-label="Scene drawn with WebGL: title editor, cinema screen or video player"></canvas>
+    <!-- #endregion stage-markup -->
+    <div class="blank" id="stageBlank" hidden role="status"></div>
+  </div>
+
+  <div class="panel" id="panel-editor"></div>
+  <div class="panel" id="panel-cinema" hidden>
+    <div class="transport">
+      <button type="button" id="cinPlay" aria-pressed="false">Play</button>
+      <label for="head">Turn the head</label>
+      <input id="head" type="range" min="-180" max="180" step="5" value="0">
+      <output id="headOut">0°</output>
+    </div>
+    <div class="hud" role="status">
+      <span id="cinSeat">Seat: not chosen</span>
+      <span id="cinDist">Distance to the screen:</span>
+      <span>Left <span class="meter"><i id="cinL"></i></span></span>
+      <span>Right <span class="meter"><i id="cinR"></i></span></span>
+      <span id="cinSound">Sound: starts when the video plays</span>
+    </div>
+    <p class="note">The controls on the screen in the room are the video's own and take taps there. The Play button here does the same as the one on the screen. Headphones make the position of the sound clearer. The yellow seat is the listener, and the arrow on it is the way the head faces.</p>
+  </div>
+  <div class="panel" id="panel-skin" hidden>
+    <div class="bar" role="group" aria-label="Skin" id="skins"></div>
+    <p class="say" id="skinSay" role="status">The timeline has not been found yet.</p>
+    <p class="note">Play, seek and the other controls are the browser's own. Only the pixels of the timeline strip are changed.</p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>one WebGL canvas for three scenes: shots and transitions, export, the room and its sound, the timeline skin</small></summary>
+    <ol>
+      <li data-code="#stage-markup"><b>One drawable canvas.</b> Every shot, the cinema screen, the seat map and the player are its children.</li>
+      <li data-code="/video-lab/editor.js#card-markup"><b>A title card is HTML.</b> Its text is <code>contenteditable</code>.</li>
+      <li data-code="#card-css"><b>The card's motion is CSS driven by one custom property.</b></li>
+      <li data-code="/video-lab/editor.js#timeline"><b>Which shots are on screen at a time.</b> Two shots overlap for the length of a transition.</li>
+      <li data-code="/video-lab/editor.js#editor-paint"><b>The editor's paint.</b> Upload one or two shots with <code>texElementSubImage2D()</code> and draw one quad.</li>
+      <li data-code="/video-lab/gl.js#shader" data-lang="glsl"><b>The fragment shader.</b> The transitions (three of them from <code>lib/live-transition.js</code>), the timeline skin, the screen and the floor.</li>
+      <li data-code="/video-lab/editor.js#export"><b>Export.</b> <code>exportFrames()</code> is given an object that seeks the whole timeline.</li>
+      <li data-code="/video-lab/cinema.js#seats"><b>The seat map.</b> Buttons whose place in the grid is their place in the room.</li>
+      <li data-code="/video-lab/cinema.js#cinema-matrices"><b>The room.</b> Three planes and a camera.</li>
+      <li data-code="/video-lab/cinema.js#cinema-paint"><b>The cinema's paint.</b> The same matrix draws a quad and places its hit box.</li>
+      <li data-code="/video-lab/gl.js#place"><b>From a clip-space matrix to <code>updateElementGeometry()</code>.</b></li>
+      <li data-code="/video-lab/cinema.js#panner"><b>The sound.</b> The video element through a <code>PannerNode</code> at the screen.</li>
+      <li data-code="#skin-css"><b>The timeline skin: the CSS.</b></li>
+      <li data-code="/video-lab/skin.js#skin-measure"><b>The timeline skin: finding the strip.</b></li>
+      <li data-code="/video-lab/skin.js#skin-paint"><b>The timeline skin: the paint.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="p3">Wide-gamut video in a Display P3 canvas</h2>
+  <p>The same element (a video and three CSS swatches at the Display P3 primaries) is a child of two 2D canvases. The left context is sRGB and the right one is Display P3. On a wide-gamut screen the right canvas is more saturated. On any screen, "Read the pixels" reports the values and marks the pixels that sRGB cannot hold.</p>
+  <div class="bar">
+    <label>Clip
+      <select id="p3Clip">
+        <option value="wide">BT.2020 primaries, 8 bit</option>
+        <option value="hdr">HDR10: BT.2020, PQ, 10 bit</option>
+      </select>
+    </label>
+    <button type="button" id="p3Go">Read the pixels</button>
+  </div>
+  <div class="pair">
+    <figure><canvas id="p3Srgb" content="drawable" layoutsubtree aria-label="Video and swatches in an sRGB canvas"></canvas><figcaption id="p3SrgbCap">sRGB context</figcaption></figure>
+    <figure><canvas id="p3Wide" content="drawable" layoutsubtree aria-label="Video and swatches in a Display P3 canvas"></canvas><figcaption id="p3WideCap">Display P3 context</figcaption></figure>
+    <figure><canvas id="p3Map" width="16" height="10" aria-label="Map of pixels outside sRGB"></canvas><figcaption id="p3MapCap">Map: pink marks a pixel of the Display P3 canvas that is outside sRGB. Empty until the pixels are read.</figcaption></figure>
+  </div>
+  <div class="say" id="p3Read" role="status">Not read yet.</div>
+  <details class="show-code">
+    <summary>Show the code <small>a Display P3 context, and reading its pixels from a copy</small></summary>
+    <ol>
+      <li data-code="/video-lab/p3.js#p3-context"><b>The canvas.</b> <code>getContext('2d', { colorSpace: 'display-p3' })</code> and one <code>drawElementImage()</code> per paint.</li>
+      <li data-code="/video-lab/p3.js#p3-read"><b>Reading.</b> A <code>drawImage()</code> copy in a plain canvas, read as Display P3 values.</li>
+    </ol>
+  </details>
+
+  <h2 id="gpu">The player shader in WebGPU</h2>
+  <p>The shader of <a href="/player-fx/">/player-fx/</a> in WGSL. The controls of the video are one texture and its frame is another. "Meld" draws the play button's glyph large as a lens over the frame while the video is paused: tap play to see it shrink into the button.</p>
+  <div class="bar" role="group" aria-label="Effect" id="gpuEffects"></div>
+  <div class="frame">
+    <!-- #region gpu-markup -->
+    <canvas id="gpuCanvas" content="drawable" layoutsubtree aria-label="Video player drawn by a WebGPU shader">
+      <div class="controls-layer" drawable>
+        <video data-src="/media/clip.webm" controls muted playsinline loop preload="metadata"></video>
+      </div>
+    </canvas>
+    <!-- #endregion gpu-markup -->
+    <div class="blank" id="gpuBlank" hidden role="status"></div>
+  </div>
+  <p class="say" id="gpuSay" role="status">Starts when this section is near the screen.</p>
+  <details class="show-code">
+    <summary>Show the code <small>two textures from one video in WebGPU, the WGSL shader</small></summary>
+    <ol>
+      <li data-code="#gpu-markup"><b>The markup.</b></li>
+      <li data-code="#gpu-css"><b>The CSS that leaves only the controls in the element's picture, and the probe colours.</b></li>
+      <li data-code="#gpu-start"><b>The device.</b> From <code>webgpu()</code> in <code>/shared/backend.js</code>, with a 2D fallback.</li>
+      <li data-code="/video-lab/gpu-player.js#gpu-upload"><b>The frame texture.</b></li>
+      <li data-code="/video-lab/gpu-player.js#gpu-paint"><b>The paint.</b> <code>drawElementImageToTexture()</code> for the controls, then one render pass.</li>
+      <li data-code="/video-lab/gpu-player.js#gpu-measure"><b>Finding the parts.</b> The probe picture is copied out of its texture once.</li>
+      <li data-code="/video-lab/gpu-player.js#wgsl" data-lang="wgsl"><b>The shader.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li><strong>One WebGL context.</strong> The three scenes are sets of children of one canvas. A scene that is not chosen has its elements hidden, so they are not painted and take no taps. One fragment shader has a mode for each kind of quad.</li>
+    <li><strong>Title editor.</strong> Each shot is an element the size of the canvas: a <code>&lt;video&gt;</code> in a wrapper, or a title card. At any time one or two shots are uploaded with <code>texElementSubImage2D()</code>. Where two overlap, the shader mixes them with the chosen transition. The shot in front has its hit box on the canvas, so a title card is edited in place.</li>
+    <li><strong>Export.</strong> <code>exportFrames()</code> from <code>lib/video-export.js</code> seeks one video per frame. Here it is given an object with <code>currentTime</code>, <code>pause()</code> and a <code>seeked</code> event that seeks every video on the timeline and sets each card's <code>--t</code>. Each frame is one <code>paint</code> and one <code>VideoFrame</code> from the canvas.</li>
+    <li><strong>Cinema screen.</strong> The screen, its reflection and the floor are three quads with perspective matrices. The same matrix, with the conversion to CSS pixels, goes to <code>updateElementGeometry()</code>, so the video's native controls and the seat buttons take taps where they are drawn. The page does not use three.js here: the site allows one WebGL context per page and the scenes share it.</li>
+    <li><strong>Sound.</strong> <code>createMediaElementSource(video)</code> feeds a <code>PannerNode</code> at the centre of the screen. The <code>AudioListener</code> is at the chosen seat. The two meters are the level of each output channel, measured by two <code>AnalyserNode</code>s.</li>
+    <li><strong>Timeline skin.</strong> For one paint, <code>::-webkit-media-controls-timeline</code> gets a magenta background. That picture goes into a spare texture, the bottom quarter is read once, and the box of the magenta pixels is the timeline. The shader replaces the pixels inside the box and adds a glow at the playhead.</li>
+    <li><strong>Wide gamut.</strong> The two canvases differ only in the <code>colorSpace</code> of their 2D context. Pixels are never read from them: each is copied with <code>drawImage()</code> into a plain canvas with the same colour space, and that copy is read with <code>getImageData({ colorSpace: 'display-p3' })</code>.</li>
+    <li><strong>WebGPU player.</strong> <code>GPUQueue.drawElementImageToTexture()</code> uploads the controls. <code>copyExternalImageToTexture()</code> uploads the frame from the same video. The device comes from the page's shared <code>webgpu()</code>. Where that gives none, the player is drawn with the 2D context and no shader.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">The checks build their own small canvases in a corner of the window. The demos above are not touched.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in Chromium 157, headless, software rendering, on 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: video clips and HTML title cards as shots, with shader transitions.</strong> All five transitions start on the first shot and end on the second. Three of them are the GLSL of <code>/transitions/</code>, unchanged.</li>
+    <li><strong>Works: a title card edited on a WebGL canvas.</strong> The card in front takes the tap, the caret and the typing.</li>
+    <li><strong>Works: frame-by-frame export of several videos and cards.</strong> The exported file holds the frames that were asked for. It has no sound track: <code>exportFrames()</code> takes the sound of one video.</li>
+    <li><strong>Works: native video controls and buttons on quads in perspective.</strong> <code>elementFromPoint()</code> returns the video at the projected centre of the screen and a seat button at its projected centre.</li>
+    <li><strong>Works: a <code>PannerNode</code> at the screen.</strong> Rendered offline, a seat on the left hears more in the right ear and a seat near the screen hears more than one at the back.</li>
+    <li><strong>Works: a shader on the timeline only.</strong> With the skin on and off, no pixel outside the strip and its glow changes.</li>
+    <li><strong>Works: a wide-gamut video keeps its colours in a Display P3 canvas.</strong> The red of a BT.2020 clip reads as Display P3 (118, 0, 3) there and as (119, 21, 12) from the sRGB canvas. <code>drawElementImage()</code> and <code>drawImage(video)</code> give the same values.</li>
+    <li><strong>Limit: an HDR10 video is tone-mapped to at most 1.0.</strong> In a float16 Display P3 canvas the brightest part of a PQ clip is 1.0, the same as in an 8-bit canvas.</li>
+    <li><strong>Works off screen: the WGSL shader.</strong> On the software adapter the pass was rendered to a texture and read back. <code>copyExternalImageToTexture(video)</code> failed there, and the frame came through <code>createImageBitmap(video)</code>.</li>
+    <li><strong>Not verified: WebGPU on screen, an HDR screen, and the sound through real speakers.</strong> The test browser has none of them.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage, supported as apiSupported } from '/shared/support.js';
+  import { webgpu, checkDevice } from '/shared/backend.js';
+  import { createStage, TRANSITIONS, supported as glSupported } from '/video-lab/gl.js';
+  import { createEditor, mountEditorUI } from '/video-lab/editor.js';
+  import { createCinema, hearAt, SCREEN } from '/video-lab/cinema.js';
+  import { createSkin, SKINS } from '/video-lab/skin.js';
+  import { gamutCanvas, readAsP3, gamutMap, outsideSrgb, CLIPS } from '/video-lab/p3.js';
+  import { createGpuPlayer, GPU_EFFECTS, WGSL } from '/video-lab/gpu-player.js';
+  import { checkWGSL, supportedGPU } from '/lib/gpu-util.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const until = async (test, ms = 4000, what = 'the condition') => {
+    const end = performance.now() + ms;
+    while (performance.now() < end) { const v = await test(); if (v) return v; await sleep(40); }
+    throw new Error(`Timed out waiting for ${what}.`);
+  };
+  const blank = (el, text) => { el.textContent = text; el.hidden = !text; };
+
+  // ---------- the WebGL stage and its three scenes ----------
+  const stageCanvas = $('stage');
+  let stage = null, editor = null, cinema = null, skin = null;
+  if (!apiSupported || !glSupported) {
+    blank($('stageBlank'), 'This canvas needs the HTML-in-canvas API with WebGL 2 (texElementSubImage2D). See the note at the top of the page.');
+  } else {
+    stage = createStage(stageCanvas, { onFail: (text) => blank($('stageBlank'), text) });
+  }
+  if (stage) {
+    // #region scenes
+    const ui = { rows: () => {}, time: () => {} };
+    editor = createEditor(stageCanvas, { onChange: () => ui.rows(), onTime: (t, total) => ui.time(t, total) });
+    editor.attach(stage);
+    Object.assign(ui, mountEditorUI(editor, $('panel-editor')));
+    ui.rows();
+    editor.seek(1); // stopped on the first card with its text in view
+    cinema = createCinema(stageCanvas, { onState: showCinema });
+    skin = createSkin(stageCanvas, { onBox: (b) => ($('skinSay').textContent = `Timeline found by its probe colour: x ${(b[0] * 100).toFixed(1)} to ${(b[2] * 100).toFixed(1)} %, y ${(b[1] * 100).toFixed(1)} to ${(b[3] * 100).toFixed(1)} % of the player.`) });
+    stage.add('editor', editor.scene);
+    stage.add('cinema', cinema);
+    stage.add('skin', skin);
+    stage.use('editor');
+    // #endregion scenes
+
+    for (const b of document.querySelectorAll('[data-scene]')) {
+      b.addEventListener('click', () => {
+        stage.use(b.dataset.scene);
+        for (const o of document.querySelectorAll('[data-scene]')) o.setAttribute('aria-pressed', String(o === b));
+        for (const name of ['editor', 'cinema', 'skin']) $(`panel-${name}`).hidden = name !== b.dataset.scene;
+      });
+    }
+    $('cinPlay').addEventListener('click', () => (cinema.video.paused ? cinema.video.play().catch(() => {}) : cinema.video.pause()));
+    for (const type of ['play', 'pause']) cinema.video.addEventListener(type, () => { $('cinPlay').textContent = cinema.video.paused ? 'Play' : 'Pause'; $('cinPlay').setAttribute('aria-pressed', String(!cinema.video.paused)); });
+    $('head').addEventListener('input', (e) => { cinema.turn(Number(e.target.value)); $('headOut').textContent = `${e.target.value}°`; });
+    $('skins').append(...SKINS.map((name, i) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = name; b.setAttribute('aria-pressed', String(i === 1));
+      b.addEventListener('click', () => { skin.kind = i; for (const o of $('skins').children) o.setAttribute('aria-pressed', String(o === b)); });
+      return b;
+    }));
+  }
+  const meter = { scale: 0.02, shown: [0, 0] };
+  function showCinema(s) {
+    $('cinSeat').textContent = `Listener: x ${s.pos[0].toFixed(1)} m, z ${s.pos[2].toFixed(1)} m`;
+    $('cinDist').textContent = `Distance to the screen: ${s.distance.toFixed(1)} m, gain ${s.gain.toFixed(2)}`;
+    $('cinSound').textContent = `Sound: ${s.sound === 'not started' ? 'starts when the video plays' : s.sound}`;
+    // The bars fall slowly, and share one scale that follows the loudest level heard.
+    meter.scale = Math.max(meter.scale * 0.998, s.levels[0], s.levels[1], 0.02);
+    meter.shown = meter.shown.map((v, i) => Math.max(v * 0.92, s.levels[i]));
+    $('cinL').style.width = `${Math.round((meter.shown[0] / meter.scale) * 100)}%`;
+    $('cinR').style.width = `${Math.round((meter.shown[1] / meter.scale) * 100)}%`;
+  }
+
+  // ---------- wide gamut ----------
+  const p3 = { views: null };
+  function startP3() {
+    if (p3.views || !apiSupported) return;
+    p3.views = [gamutCanvas($('p3Srgb'), 'srgb'), gamutCanvas($('p3Wide'), 'display-p3')];
+    $('p3SrgbCap').textContent = `Context reports ${p3.views[0].colorSpace}, ${p3.views[0].colorType}.`;
+    $('p3WideCap').textContent = `Context reports ${p3.views[1].colorSpace}, ${p3.views[1].colorType}.` + (matchMedia('(color-gamut: p3)').matches ? ' This screen reports a P3 gamut.' : ' This screen reports an sRGB gamut, so both canvases look the same here.');
+    setClip();
+  }
+  function setClip() {
+    for (const v of p3.views ?? []) { v.video.src = CLIPS[$('p3Clip').value].src; v.video.play().catch(() => {}); }
+  }
+  $('p3Clip').addEventListener('change', setClip);
+  // #region p3-tap
+  // Runs on a tap. Each canvas is copied once and the copies are read.
+  $('p3Go').addEventListener('click', () => {
+    if (!p3.views) { $('p3Read').textContent = 'The canvases need the HTML-in-canvas API.'; return; }
+    const [narrow, wide] = p3.views.map((v) => readAsP3(v.canvas, v.colorSpace));
+    const share = gamutMap(wide, $('p3Map'));
+    const shareNarrow = gamutMap(narrow);
+    // The brightest pixel within 4 % of x: the clips have dark bands that move.
+    const at = (img, x, y) => {
+      let best = [0, 0, 0];
+      for (let dx = -0.04; dx <= 0.04; dx += 0.01) {
+        const i = (Math.floor(y * (img.height - 1)) * img.width + Math.floor((x + dx) * (img.width - 1))) * 4;
+        if (img.data[i] + img.data[i + 1] + img.data[i + 2] > best[0] + best[1] + best[2]) best = [img.data[i], img.data[i + 1], img.data[i + 2]];
+      }
+      return best;
+    };
+    const rows = [['red swatch', 1 / 6, 0.94], ['green swatch', 0.5, 0.94], ['blue swatch', 5 / 6, 0.94], ['video, 1/8 across', 0.125, 0.4], ['video, 3/8 across', 0.375, 0.4], ['video, 7/8 across', 0.875, 0.4]];
+    $('p3Read').innerHTML = '<table><tr><th>Display P3 values at</th><th>sRGB canvas</th><th>P3 canvas</th><th>outside sRGB</th></tr>' +
+      rows.map(([name, x, y]) => { const a = at(narrow, x, y), b = at(wide, x, y); return `<tr><td>${name}</td><td>${a.join(', ')}</td><td>${b.join(', ')}</td><td>${outsideSrgb(...b) ? 'yes' : 'no'}</td></tr>`; }).join('') +
+      `</table>${(share * 100).toFixed(1)} % of the Display P3 canvas is outside sRGB. ${(shareNarrow * 100).toFixed(1)} % of the sRGB canvas is.`;
+    $('p3MapCap').textContent = 'Map: pink marks a pixel of the Display P3 canvas that is outside sRGB.';
+  });
+  // #endregion p3-tap
+  new IntersectionObserver(([e]) => {
+    if (e.isIntersecting) { startP3(); for (const v of p3.views ?? []) v.video.play().catch(() => {}); } else for (const v of p3.views ?? []) v.video.pause();
+  }, { rootMargin: '150px 0px' }).observe($('p3Wide'));
+
+  // ---------- WebGPU player ----------
+  const gpuCanvas = $('gpuCanvas');
+  let gpuPlayer = null, gpuStarted = false;
+  // #region gpu-start
+  async function startGpu() {
+    if (gpuStarted) return;
+    gpuStarted = true;
+    const layer = gpuCanvas.querySelector('.controls-layer'), video = layer.querySelector('video');
+    if (!apiSupported) { blank($('gpuBlank'), 'This canvas needs the HTML-in-canvas API.'); return; }
+    const gpu = supportedGPU ? await webgpu() : null;
+    if (gpu) {
+      gpuPlayer = createGpuPlayer(gpuCanvas, gpu, {
+        onParts: (parts) => ($('gpuSay').textContent = `WebGPU, ${gpu.format}. Frame route: ${gpuPlayer.state.route || 'waiting for a frame'}. Parts found: ${Object.keys(parts).join(', ')}.`),
+        onProblem: (text) => { $('gpuSay').textContent = text; window.__gfx?.report?.('video-lab-webgpu', text, {}); },
+      });
+      $('gpuSay').textContent = `WebGPU, ${gpu.format}.`;
+      addEventListener('webgpulost', () => blank($('gpuBlank'), 'The WebGPU device was lost. Reload the page to draw this player again.'));
+      return;
+    }
+    // No usable WebGPU: the same element with the 2D context. The frame first, then the controls over it.
+    const why = !supportedGPU ? 'this browser has no GPUQueue.drawElementImageToTexture()' : webgpu.reason;
+    $('gpuSay').textContent = `WebGPU is not used here: ${why}. The player is drawn with the 2D context and no shader. The WebGL version of the shader is on /player-fx/.`;
+    for (const b of $('gpuEffects').children) b.disabled = true;
+    const ctx = gpuCanvas.getContext('2d');
+    gpuCanvas.addEventListener('paint', () => {
+      const dpr = Math.min(devicePixelRatio || 1, 2);
+      const w = Math.round(gpuCanvas.clientWidth * dpr), h = Math.round(gpuCanvas.clientHeight * dpr);
+      if (gpuCanvas.width !== w || gpuCanvas.height !== h) { gpuCanvas.width = w; gpuCanvas.height = h; }
+      ctx.reset();
+      if (video.readyState >= 2) ctx.drawImage(video, 0, 0, w, h);
+      ctx.drawElementImage(layer, 0, 0, w, h);
+    });
+    video.src = video.dataset.src;
+    gpuCanvas.requestPaint();
+  }
+  // #endregion gpu-start
+  $('gpuEffects').append(...GPU_EFFECTS.map((name, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = name; b.setAttribute('aria-pressed', String(i === 1));
+    b.addEventListener('click', () => { if (gpuPlayer) gpuPlayer.state.effect = i; for (const o of $('gpuEffects').children) o.setAttribute('aria-pressed', String(o === b)); });
+    return b;
+  }));
+  new IntersectionObserver(async ([e]) => {
+    if (e.isIntersecting) { await startGpu(); gpuPlayer?.start(); } else { gpuPlayer?.idle(); const v = gpuCanvas.querySelector('video'); if (!v.paused) v.pause(); }
+  }, { rootMargin: '150px 0px' }).observe(gpuCanvas);
+
+  // ---------- live checks, on their own fixtures ----------
+  // One small WebGL canvas serves every WebGL check, so the checks add one context.
+  let bench = null;
+  function glBench() {
+    if (bench) return bench;
+    const holder = document.createElement('div');
+    holder.setAttribute('aria-hidden', 'true');
+    holder.style.cssText = 'position:fixed;left:8px;bottom:8px;width:320px;height:180px;opacity:.02;pointer-events:none;z-index:2147483601;overflow:hidden';
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = 'display:block;width:320px;height:180px';
+    holder.append(c);
+    document.body.append(holder);
+    const s = createStage(c, { onFail: () => {} });
+    if (!s) { holder.remove(); throw new Error('The check canvas got no WebGL 2 context.'); }
+    const ed = createEditor(c, { shots: [
+      { card: ['First', 'card'], dur: 2, look: 'ink' },
+      { clip: '/media/clip.webm', from: 1 + 1 / 60, dur: 2, tr: 'wipe', label: 'clip' }, // half a frame in, so a seek never lands on a frame boundary
+      { card: ['Second', 'card'], dur: 2, tr: 'fade', look: 'mint' },
+    ] });
+    ed.attach(s);
+    const cin = createCinema(c), sk = createSkin(c);
+    s.add('editor', ed.scene); s.add('cinema', cin); s.add('skin', sk);
+    s.use('editor');
+    bench = { holder, canvas: c, stage: s, editor: ed, cinema: cin, skin: sk };
+    return bench;
+  }
+  function closeBench() {
+    if (!bench) return;
+    bench.stage.stop();
+    for (const v of bench.holder.querySelectorAll('video')) { v.pause(); v.removeAttribute('src'); v.load(); }
+    bench.holder.remove();
+    window.__gfx?.retire(bench.canvas);
+    bench = null;
+  }
+  const hitAt = (holder, x, y) => { holder.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { holder.style.pointerEvents = 'none'; } };
+  // The test clip carries its frame number as 16 stripes in the top right corner.
+  const frameNumber = (at) => { let n = 0; for (let i = 0; i < 16; i++) { const p = at((320 + 20 * i + 10) / 640, 8 / 360); if (p[0] + p[1] + p[2] > 384) n |= 1 << i; } return n; };
+  // Share of pixels that differ by more than 24 in a channel, in a region given as fractions from the top left.
+  function differing(a, b, x0 = 0, y0 = 0, x1 = 1, y1 = 1) {
+    let n = 0, total = 0;
+    for (let y = Math.floor(y0 * a.height); y < Math.floor(y1 * a.height); y += 2) for (let x = Math.floor(x0 * a.width); x < Math.floor(x1 * a.width); x += 2) {
+      const pa = a.at(x / (a.width - 1), y / (a.height - 1)), pb = b.at(x / (b.width - 1), y / (b.height - 1));
+      total++;
+      if (Math.abs(pa[0] - pb[0]) > 24 || Math.abs(pa[1] - pb[1]) > 24 || Math.abs(pa[2] - pb[2]) > 24) n++;
+    }
+    return total ? n / total : 0;
+  }
+  const clipReady = (video) => until(() => video.readyState >= 2, 6000, 'the video to load');
+  const grabAt = async (b, t) => { await b.editor.seek(t); return b.stage.grab(); };
+  const project = (canvas, m, u, v) => {
+    const x = m[0] * u + m[4] * v + m[12], y = m[1] * u + m[5] * v + m[13], w = m[3] * u + m[7] * v + m[15];
+    const r = canvas.getBoundingClientRect();
+    return [r.left + ((x / w + 1) / 2) * r.width, r.top + ((1 - y / w) / 2) * r.height];
+  };
+  const imageAt = (img) => (x, y) => { const i = (Math.floor(y * (img.height - 1)) * img.width + Math.floor(x * (img.width - 1))) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2], img.data[i + 3]]; };
+
+  const tests = [
+    {
+      name: 'Title editor: a title card, then the asked-for frame of a clip', timeout: 12000,
+      why: 'The timeline is stopped on a card and then on a clip. The clip carries its frame number in its picture.',
+      async run() {
+        const b = glBench();
+        b.stage.use('editor');
+        await clipReady(b.editor.items[1].video);
+        const card = await grabAt(b, 1.0);
+        const bg = card.at(0.04, 0.5);
+        if (Math.abs(bg[0] - 16) > 6 || Math.abs(bg[1] - 19) > 6 || Math.abs(bg[2] - 28) > 6) throw new Error(`At 1.0 s the corner is ${bg.slice(0, 3)}, not the card's background (16, 19, 28).`);
+        // The clip starts at 1.3 s on the timeline and half a frame after 1.0 s in its file. 2.3 s is the middle of frame 60.
+        const clip = await grabAt(b, 2.3);
+        const n = frameNumber(clip.at);
+        if (n !== 60) throw new Error(`At 2.3 s the canvas holds frame ${n} of the clip, not frame 60.`);
+        return `Card background ${bg.slice(0, 3).join(', ')} at 1.0 s. Frame ${n} of the clip at 2.3 s.`;
+      },
+    },
+    {
+      name: 'Title editor: each transition starts on the first shot and ends on the second', timeout: 30000,
+      why: 'A card and a clip overlap from 1.3 s to 2.0 s. The canvas is read half a millisecond before and after each end of the overlap, and in the middle.',
+      async run() {
+        const b = glBench();
+        b.stage.use('editor');
+        await clipReady(b.editor.items[1].video);
+        const out = [];
+        for (const tr of TRANSITIONS) {
+          b.editor.items[1].tr = tr;
+          b.editor.layout();
+          const before = await grabAt(b, 1.2995), start = await grabAt(b, 1.3005), mid = await grabAt(b, 1.65), end = await grabAt(b, 1.9995), after = await grabAt(b, 2.0005);
+          const s = differing(before, start), e = differing(end, after), m1 = differing(mid, before), m2 = differing(mid, after);
+          if (s > 0.1) throw new Error(`${tr}: ${(s * 100).toFixed(1)} % of the picture jumps when the transition starts.`);
+          if (e > 0.1) throw new Error(`${tr}: ${(e * 100).toFixed(1)} % of the picture jumps when the transition ends.`);
+          if (m1 < 0.05 || m2 < 0.05) throw new Error(`${tr}: the middle differs from the first shot by ${(m1 * 100).toFixed(0)} % and from the second by ${(m2 * 100).toFixed(0)} %.`);
+          out.push(`${tr} ${(m1 * 100).toFixed(0)}/${(m2 * 100).toFixed(0)}`);
+        }
+        b.editor.items[1].tr = 'wipe';
+        b.editor.layout();
+        return `Share of the middle picture that differs from the first and the second shot, in percent: ${out.join(', ')}.`;
+      },
+    },
+    {
+      name: 'Title editor: the card in front takes the tap, then the clip does', timeout: 8000,
+      why: 'elementFromPoint() at the middle of the canvas, with the timeline on a card and on a clip.',
+      async run() {
+        const b = glBench();
+        b.stage.use('editor');
+        const r = b.canvas.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+        await grabAt(b, 1.0);
+        await sleep(60);
+        const onCard = hitAt(b.holder, x, y);
+        await grabAt(b, 2.3);
+        await sleep(60);
+        const onClip = hitAt(b.holder, x, y);
+        if (onCard?.closest('.shot') !== b.editor.items[0].el) throw new Error(`On the card the hit is ${onCard?.tagName ?? 'nothing'}, not the card.`);
+        if (onClip?.closest('.shot') !== b.editor.items[1].el) throw new Error(`On the clip the hit is ${onClip?.tagName ?? 'nothing'} in ${onClip?.closest('.shot')?.className ?? 'no shot'}.`);
+        return `Card: ${onCard.tagName.toLowerCase()}${onCard.isContentEditable ? ' (editable)' : ''}. Clip: ${onClip.tagName.toLowerCase()}.`;
+      },
+    },
+    {
+      name: 'Title editor: the exported file holds the card, the transition and the asked-for clip frame', timeout: 40000,
+      why: 'exportFrames() over 1.2 s of the timeline, starting on the card. The file is played back in a video element and its first and last frames are read.',
+      async run() {
+        const b = glBench();
+        b.stage.use('editor');
+        await clipReady(b.editor.items[1].video);
+        const r = await b.editor.exportTimeline({ from: 1.0, seconds: 1.2 });
+        await b.editor.seek(0);
+        if (r.frames !== 36) throw new Error(`The file has ${r.frames} frames, not 36.`);
+        const v = document.createElement('video');
+        v.muted = true;
+        v.src = URL.createObjectURL(r.blob);
+        try {
+          await new Promise((ok, no) => { v.onloadeddata = ok; v.onerror = () => no(new Error('The exported file does not play.')); });
+          const read = async (t) => {
+            v.currentTime = t;
+            await new Promise((ok) => v.addEventListener('seeked', ok, { once: true }));
+            const c = document.createElement('canvas');
+            c.width = v.videoWidth; c.height = v.videoHeight;
+            const k = c.getContext('2d', { willReadFrequently: true });
+            k.drawImage(v, 0, 0);
+            return imageAt(k.getImageData(0, 0, c.width, c.height));
+          };
+          const first = (await read(0.01))(0.04, 0.5);
+          if (Math.abs(first[0] - 16) > 14 || Math.abs(first[2] - 28) > 14) throw new Error(`The first frame's corner is ${first.slice(0, 3)}, not the card's background.`);
+          // Frame 35 is drawn at 1.0 + 35.5 / 30 s on the timeline: 1.9 s into the clip's file, frame 57.
+          const n = frameNumber(await read(35.5 / 30));
+          if (n !== 57) throw new Error(`The last frame holds frame ${n} of the clip, not frame 57.`);
+          return `${r.frames} frames, ${r.codec}, ${v.videoWidth}×${v.videoHeight}, ${r.msPerFrame.toFixed(0)} ms per frame. Last frame: frame ${n} of the clip.`;
+        } finally { URL.revokeObjectURL(v.src); }
+      },
+    },
+    {
+      name: 'Cinema: the video on the screen and a seat button take taps where they are drawn', timeout: 10000,
+      why: 'elementFromPoint() at the projected centre of the screen and of one seat. Then the seat is clicked.',
+      async run() {
+        const b = glBench();
+        b.stage.use('cinema');
+        b.cinema.near();
+        await clipReady(b.cinema.video);
+        await sleep(50);
+        b.cinema.sit(12);
+        b.cinema.settle();
+        const shot = await b.stage.grab();
+        await sleep(60);
+        const m = b.cinema.matrices();
+        const [sx, sy] = project(b.canvas, m.screen, 0.5, 0.4);
+        const onScreen = hitAt(b.holder, sx, sy);
+        if (onScreen !== b.cinema.video) throw new Error(`At the centre of the screen the hit is ${onScreen?.tagName ?? 'nothing'}, not the video.`);
+        const r = b.canvas.getBoundingClientRect();
+        const lit = shot.at((sx - r.left) / r.width, (sy - r.top) / r.height);
+        if (lit[0] + lit[1] + lit[2] < 30) throw new Error('The screen is black where the video should be.');
+        const seat = b.cinema.seats[6];
+        const [fx, fy] = project(b.canvas, m.floor, (seat.offsetLeft + seat.offsetWidth / 2) / b.cinema.floor.offsetWidth, (seat.offsetTop + seat.offsetHeight / 2) / b.cinema.floor.offsetHeight);
+        const onSeat = hitAt(b.holder, fx, fy);
+        if (onSeat?.closest('button') !== seat) throw new Error(`At seat 7 the hit is ${onSeat?.tagName ?? 'nothing'} (${onSeat?.closest('button')?.getAttribute('aria-label') ?? 'no seat'}).`);
+        seat.click();
+        if (seat.getAttribute('aria-pressed') !== 'true') throw new Error('The click did not choose the seat.');
+        return `Screen: video at ${sx.toFixed(0)}, ${sy.toFixed(0)}. Seat 7 at ${fx.toFixed(0)}, ${fy.toFixed(0)}; the listener moved to x ${b.cinema.state.pos[0].toFixed(1)}, z ${b.cinema.state.pos[2].toFixed(1)}.`;
+      },
+    },
+    {
+      name: 'Cinema: a PannerNode at the screen is louder in the nearer ear and from a nearer seat', timeout: 10000,
+      why: 'A tone at the screen is rendered offline for four listeners (equal-power panning; the page uses HRTF).',
+      async run() {
+        const ahead = [0, 0, -1];
+        const left = await hearAt([-3, 1.15, -1], ahead), right = await hearAt([3, 1.15, -1], ahead);
+        const turned = await hearAt([0, 1.15, 0], [1, 0, 0]), front = await hearAt([0, 1.15, -4], ahead), back = await hearAt([0, 1.15, 1], ahead);
+        if (!(left[1] > left[0] * 1.1)) throw new Error(`From a seat on the left the right ear should be louder: left ${left[0].toFixed(3)}, right ${left[1].toFixed(3)}.`);
+        if (!(right[0] > right[1] * 1.1)) throw new Error(`From a seat on the right the left ear should be louder: left ${right[0].toFixed(3)}, right ${right[1].toFixed(3)}.`);
+        if (!(turned[0] > turned[1] * 1.5)) throw new Error(`With the head turned right the left ear should be louder: left ${turned[0].toFixed(3)}, right ${turned[1].toFixed(3)}.`);
+        const sum = (p) => p[0] + p[1];
+        if (!(sum(front) > sum(back) * 1.3)) throw new Error(`The front seat (${sum(front).toFixed(3)}) should be louder than the back seat (${sum(back).toFixed(3)}).`);
+        const f = (p) => `${p[0].toFixed(2)}/${p[1].toFixed(2)}`;
+        return `Left/right level. Seat on the left ${f(left)}, on the right ${f(right)}, head turned right ${f(turned)}, front ${f(front)}, back ${f(back)}.`;
+      },
+    },
+    {
+      name: 'Timeline skin: the strip is found, and only the strip and its glow change', timeout: 12000,
+      why: 'The same paused frame is drawn with the skin off and on, and the two pictures are compared.',
+      async run() {
+        const b = glBench();
+        b.stage.use('skin');
+        b.skin.near();
+        await clipReady(b.skin.video);
+        b.skin.video.currentTime = 4;
+        await new Promise((ok) => b.skin.video.addEventListener('seeked', ok, { once: true }));
+        const box = await until(() => { b.skin.probe(); return b.skin.box; }, 6000, 'the timeline to be found');
+        if (box[1] < 0.6 || box[2] - box[0] < 0.5) throw new Error(`The box is x ${box[0].toFixed(2)} to ${box[2].toFixed(2)}, y ${box[1].toFixed(2)} to ${box[3].toFixed(2)}: not a timeline.`);
+        await sleep(500); // let a pending probe finish
+        const out = [], reach = (box[3] - box[1]) * 3, top = Math.max(0, box[1] - reach);
+        for (let k = 1; k < SKINS.length; k++) {
+          // The native controls fade in after the video loads. Wait until two pictures with the skin off are the same.
+          b.skin.kind = 0;
+          let again = await b.stage.grab();
+          await until(async () => { const last = again; await sleep(120); again = await b.stage.grab(); return differing(last, again, 0, 0, 1, top) === 0; }, 5000, 'the controls to stop changing');
+          b.skin.kind = k;
+          const on = await b.stage.grab();
+          const above = differing(again, on, 0, 0, 1, top), inside = differing(again, on, box[0], box[1], box[2], box[3]);
+          if (above > 0.0005) throw new Error(`${SKINS[k]}: ${(above * 100).toFixed(2)} % of the picture above the strip changed.`);
+          if (inside < 0.2) throw new Error(`${SKINS[k]}: only ${(inside * 100).toFixed(0)} % of the strip changed.`);
+          out.push(`${SKINS[k]} ${(inside * 100).toFixed(0)} %`);
+        }
+        b.skin.kind = 1;
+        const r = b.canvas.getBoundingClientRect();
+        const hit = hitAt(b.holder, r.left + ((box[0] + box[2]) / 2) * r.width, r.top + ((box[1] + box[3]) / 2) * r.height);
+        if (hit !== b.skin.video) throw new Error(`A tap on the strip reaches ${hit?.tagName ?? 'nothing'}, not the video.`);
+        return `Strip at x ${(box[0] * 100).toFixed(0)} to ${(box[2] * 100).toFixed(0)} %, y ${(box[1] * 100).toFixed(0)} to ${(box[3] * 100).toFixed(0)} %. Changed inside it: ${out.join(', ')}. Above it: none. A tap on it reaches the video.`;
+      },
+    },
+    {
+      name: 'Wide gamut: a BT.2020 video keeps colours outside sRGB in a Display P3 canvas', timeout: 10000,
+      why: 'The same element in an sRGB canvas and a Display P3 canvas. Both are copied with drawImage() and the copies are read as Display P3 values.',
+      async run() {
+        closeBench();
+        const make = async (space, clip, options) => {
+          const c = document.createElement('canvas');
+          c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+          c.style.cssText = 'display:block;width:160px;height:100px';
+          testStage().append(c);
+          const v = gamutCanvas(c, space, options);
+          v.video.src = CLIPS[clip].src;
+          await clipReady(v.video);
+          v.video.currentTime = 1;
+          await new Promise((ok) => v.video.addEventListener('seeked', ok, { once: true }));
+          await new Promise((ok) => { c.addEventListener('paint', () => ok(), { once: true }); c.requestPaint(); });
+          return v;
+        };
+        const narrow = await make('srgb', 'wide'), wide = await make('display-p3', 'wide');
+        const a = readAsP3(narrow.canvas, 'srgb'), w = readAsP3(wide.canvas, 'display-p3');
+        // The brightest red in the first quarter of the video.
+        const reddest = (img) => { const at = imageAt(img); let best = [0, 0, 0]; for (let x = 0.02; x < 0.23; x += 0.01) { const p = at(x, 0.4); if (p[0] > best[0]) best = p; } return best; };
+        const ra = reddest(a), rw = reddest(w), sa = imageAt(a)(1 / 6, 0.94), sw = imageAt(w)(1 / 6, 0.94);
+        if (!(sw[0] > 250 && sw[1] < 5 && sw[2] < 5)) throw new Error(`color(display-p3 1 0 0) reads ${sw.slice(0, 3)} in the Display P3 canvas.`);
+        if (!(sa[1] > 30)) throw new Error(`color(display-p3 1 0 0) reads ${sa.slice(0, 3)} from the sRGB canvas: it was not clipped to sRGB.`);
+        if (!outsideSrgb(...rw)) throw new Error(`The video's red reads ${rw.slice(0, 3)} in the Display P3 canvas, which is inside sRGB.`);
+        if (outsideSrgb(...ra)) throw new Error(`The video's red reads ${ra.slice(0, 3)} from the sRGB canvas, which is outside sRGB.`);
+        return `Video red: ${rw.slice(0, 3).join(', ')} in the P3 canvas, ${ra.slice(0, 3).join(', ')} from the sRGB canvas. CSS P3 red: ${sw.slice(0, 3).join(', ')} and ${sa.slice(0, 3).join(', ')}. Context: ${wide.colorSpace}, ${wide.colorType}.`;
+      },
+    },
+    {
+      name: 'Wide gamut: an HDR10 (PQ) video keeps values above 1.0 in a float16 canvas', expect: 'fail', timeout: 10000,
+      why: 'The canvas multiplies its picture by 0.25 after drawing, and a copy is read. A value above 64 means the canvas held more than 1.0. No float readback is used.',
+      async run() {
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+        c.style.cssText = 'display:block;width:160px;height:100px';
+        testStage().append(c);
+        const v = gamutCanvas(c, 'display-p3', { colorType: 'float16', after: (ctx, w, h) => { ctx.globalCompositeOperation = 'multiply'; ctx.fillStyle = 'color(display-p3 0.25 0.25 0.25)'; ctx.fillRect(0, 0, w, h); } });
+        if (v.colorType !== 'float16') throw new Error(`The context is ${v.colorType}, not float16.`);
+        v.video.src = CLIPS.hdr.src;
+        await clipReady(v.video);
+        await new Promise((ok) => { c.addEventListener('paint', () => ok(), { once: true }); c.requestPaint(); });
+        const at = imageAt(readAsP3(c, 'display-p3'));
+        let peak = 0;
+        for (let x = 0.9; x < 0.99; x += 0.01) for (let y = 0.1; y < 0.7; y += 0.1) peak = Math.max(peak, at(x, y)[0]);
+        const value = peak / 63.75;
+        if (value <= 1.04) throw new Error(`The brightest part of the clip is ${value.toFixed(2)} in the canvas (read as ${peak} after the multiply): tone-mapped to standard range.`);
+        return `The brightest part of the clip is ${value.toFixed(2)} in the canvas.`;
+      },
+    },
+    {
+      name: 'WebGPU: the WGSL player shader draws the frame and the controls, and finds the parts', timeout: 45000,
+      why: 'The pass is rendered to a texture and copied out, so it also runs where WebGPU cannot show a canvas.',
+      async run() {
+        if (!supportedGPU) throw new Error('This browser has no GPUQueue.drawElementImageToTexture().');
+        const gpu = await checkDevice();
+        if (!gpu) throw new Error(`No WebGPU device: ${webgpu.reason}`);
+        await checkWGSL(gpu.device, WGSL, 'player shader');
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', '');
+        c.style.cssText = 'display:block;width:256px;height:144px'; // small: a software adapter runs this shader slowly
+        c.innerHTML = '<div class="controls-layer" drawable><video src="/media/clip.webm" controls muted playsinline preload="auto"></video></div>';
+        testStage().append(c);
+        const problems = [];
+        const player = createGpuPlayer(c, gpu, { present: false, onProblem: (t) => problems.push(t) });
+        try {
+          await clipReady(player.video);
+          player.video.currentTime = 2 + 1 / 60;
+          await new Promise((ok) => player.video.addEventListener('seeked', ok, { once: true }));
+          player.start();
+          await until(() => player.state.frame && player.state.parts.play, 8000, 'a frame and the play button').catch((err) => { throw new Error(`${err.message} Paints: ${player.state.paints}. Frame: ${player.state.frame ? 'yes' : 'no'}, route ${player.state.route || 'none'}. Parts: ${Object.keys(player.state.parts).join(', ') || 'none'}. ${problems.join(' ')}`); });
+          player.state.effect = 0;
+          await player.read();
+          await sleep(150);
+          const plain = await player.read();
+          const n = frameNumber(imageAt(plain));
+          if (n !== 60) throw new Error(`The texture holds frame ${n} of the clip, not frame 60. Route: ${player.state.route}.`);
+          const p = player.state.parts.play;
+          if (!(p[0] < 0.3 && p[1] >= 0.4)) throw new Error(`The play button was found at x ${p[0].toFixed(2)}, y ${p[1].toFixed(2)}: not the bottom left.`);
+          const pic = (img) => ({ width: img.width, height: img.height, at: imageAt(img) });
+          const A = pic(plain);
+          const out = [];
+          for (const effect of [1, 2, 4]) {
+            player.state.effect = effect;
+            const img = await player.read();
+            const d = differing(A, pic(img));
+            if (d < 0.01) throw new Error(`${GPU_EFFECTS[effect]}: the picture is the same as with no effect.`);
+            out.push(`${GPU_EFFECTS[effect]} ${(d * 100).toFixed(0)} %`);
+            if (effect === 1) window.__videoLab = { gpuRead: img };
+          }
+          return `${gpu.software ? 'Software adapter' : 'Hardware adapter'}, ${gpu.format}. Frame 60 through ${player.state.route}. Parts: ${Object.keys(player.state.parts).join(', ')}. Share of the picture each effect changes: ${out.join(', ')}.`;
+        } finally { player.destroy(); }
+      },
+    },
+  ];
+  runTests($('tests'), tests).then(closeBench);
+</script>
+</body>
+</html>
