@@ -12,11 +12,23 @@ const supported =
 const mode = document.getElementById('mode');
 mode.hidden = false;
 
-// Build the index from the shared list: for each group, grids of at most four links.
-const PER_CANVAS = 4;
-const grids = [];
-{
-  const root = document.getElementById('demos');
+// Build the index from the shared list: for each group, one or more grids of links.
+// With the API, each grid becomes one canvas, so a grid holds a whole number of rows: a grid of four cards in
+// three columns left the fourth card alone in a row with two empty cells. One row per canvas from three
+// columns up. In one column on a phone a group of 20 cards was a canvas 8,500 device pixels tall and
+// 9 megapixels, more than a phone GPU takes as one texture, so a narrow page gets a few cards per canvas.
+// Without the API there is no canvas and a group is one CSS grid.
+const GAP = 16, MIN_CARD = 270;
+const root = document.getElementById('demos');
+const columns = () => Math.max(1, Math.floor((root.clientWidth + GAP) / (MIN_CARD + GAP)));
+const perCanvas = (cols) => (!supported ? Infinity : cols === 1 ? 3 : cols === 2 ? 4 : cols);
+let grids = [];
+let builtFor = 0;
+function build() {
+  builtFor = perCanvas(columns());
+  for (const g of grids) window.__gfx?.retire(g.shadowRoot?.querySelector('canvas') ?? g);
+  grids = [];
+  root.replaceChildren();
   const demos = window.DEMOS ?? [];
   let n = 0;
   for (const [key, label] of window.DEMO_GROUPS ?? []) {
@@ -28,12 +40,9 @@ const grids = [];
     h.textContent = label;
     const group = document.createElement('nav');
     group.setAttribute('aria-label', label);
-    // At most PER_CANVAS cards in one grid, because each grid becomes one canvas. In one column on a phone a
-    // group of 20 cards was a canvas 8,500 device pixels tall and 9 megapixels, more than a phone GPU takes as
-    // one texture. Four cards in one column are about 1,000 CSS pixels.
     let grid = null;
     for (const d of items) {
-      if (!grid || grid.childElementCount >= PER_CANVAS) {
+      if (!grid || grid.childElementCount >= builtFor) {
         grid = document.createElement('div');
         grid.className = 'demos';
         group.append(grid);
@@ -48,6 +57,22 @@ const grids = [];
     }
     root.append(h, group);
   }
+  if (supported) grids.forEach(enhance);
+}
+build();
+// When the window is resized to a different number of columns, group the cards again.
+if (supported) {
+  let timer = 0;
+  addEventListener('resize', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (perCanvas(columns()) === builtFor || root.contains(document.activeElement)) return;
+      const height = root.offsetHeight;
+      root.style.minHeight = height + 'px'; // hold the page height while the cards are grouped again
+      build();
+      requestAnimationFrame(() => (root.style.minHeight = ''));
+    }, 200);
+  });
 }
 
 // The table of API calls and the experiments that use them, from /shared/learn.js.
@@ -84,7 +109,6 @@ if (!supported) {
 } else {
   mode.innerHTML =
     '<span><b>Canvas mode.</b> These cards are real links drawn into a canvas with <code>drawElementImage()</code>. Tab through them.</span> <a href="/?plain">See the plain HTML version</a>';
-  grids.forEach(enhance);
 }
 
 function enhance(nav) {
@@ -97,7 +121,6 @@ function enhance(nav) {
   nav.classList.add('enhanced');
 
   const PAD = 28; // room for tilt and shadows; .enhanced has a matching negative margin
-  const GAP = 16;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const state = cards.map(() => ({ x: 0, y: 0, w: 0, h: 0, hover: 0, target: 0, enter: 0 }));
   let dpr = devicePixelRatio;
@@ -108,7 +131,7 @@ function enhance(nav) {
 
   function layout() {
     const W = nav.clientWidth - PAD * 2;
-    const cols = Math.max(1, Math.floor((W + GAP) / (270 + GAP)));
+    const cols = Math.max(1, Math.floor((W + GAP) / (MIN_CARD + GAP)));
     const cw = Math.floor((W - GAP * (cols - 1)) / cols);
     nav.style.setProperty('--cw', cw + 'px');
     // Read heights after the width applies.
