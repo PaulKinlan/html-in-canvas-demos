@@ -308,13 +308,14 @@ export class SelectionFx extends SurfaceElement {
 
   /** Give the GPU context back now. For fixtures that are about to be removed. */
   dispose() {
-    const gl = this.#gl?.gl;
+    const canvas = this.canvas;
     this.#drop();
     this.live = false;
     // Out of the document first. In Chromium 157, losing the context of a WebGL
     // canvas that is still attached and holds an element texture crashed the tab.
+    // So the canvas is retired: the guard frees it a moment after it has left the page.
     this.remove();
-    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    globalThis.__gfx?.retire(canvas);
   }
 
   connected() {
