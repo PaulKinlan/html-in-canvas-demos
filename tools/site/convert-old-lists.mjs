@@ -12,6 +12,7 @@
 // the old files from <ref> with `git show` and writes into the working tree:
 //
 //   public/shared/demos.js entries        ->  public/<name>/page.json (group, title, blurb, tags)
+//   a group added to DEMO_GROUPS          ->  tools/site/groups/<key>.json
 //   LEARN.pages in public/shared/learn.js ->  the same page.json (question, result, first, api)
 //   tools/jank/allow.json                 ->  the same page.json (jank)
 //   CHECKS_WAIT_FOR_TAP in support.js     ->  <meta name="checks" content="tap"> in each page
@@ -62,6 +63,15 @@ const demosSrc = show(ref, 'public/shared/demos.js');
 const w = {};
 if (demosSrc) {
   new Function('window', demosSrc)(w);
+  // A menu group the branch added becomes a file in tools/site/groups/.
+  const known = (await readdir(abs('tools/site/groups'))).map((f) => f.slice(0, -5));
+  for (const [i, [key, title]] of (w.DEMO_GROUPS ?? []).entries()) {
+    if (known.includes(key)) continue;
+    const before = (w.DEMO_GROUPS.slice(0, i).reverse().map(([k]) => k).find((k) => known.includes(k)));
+    const prev = before ? JSON.parse(await read(`tools/site/groups/${before}.json`)).order : 0;
+    await writeFile(abs(`tools/site/groups/${key}.json`), JSON.stringify({ order: prev + 5, title }, null, 2) + '\n');
+    log(`created tools/site/groups/${key}.json (after "${before}"). Check its order number against the other groups.`);
+  }
   for (const d of w.DEMOS) await patchPage(d.href, { group: d.group, title: d.title, blurb: d.blurb, tags: d.tags }, 'demos.js');
 }
 const learnSrc = show(ref, 'public/shared/learn.js');

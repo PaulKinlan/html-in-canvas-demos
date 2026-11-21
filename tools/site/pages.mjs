@@ -9,7 +9,7 @@
 // public/shared/pages.js, which is not committed.
 //
 // Fields (all optional unless marked):
-//   group     required for a menu entry: a key from tools/site/groups.json
+//   group     required for a menu entry: the name of a file in tools/site/groups/
 //   title     required for a menu entry: the name in the menu and on the homepage card
 //   blurb     one or two sentences for the homepage card (HTML allowed)
 //   tags      a few API names shown as chips
@@ -57,7 +57,13 @@ export function hrefOf(publicDir, file) {
  * `pages` is every page keyed by path. `menu` is the menu entries in display order.
  */
 export async function readPages(publicDir = path.join(repoRoot, 'public')) {
-  const groups = JSON.parse(await readFile(path.join(here, 'groups.json'), 'utf8'));
+  // One file per menu group, tools/site/groups/<key>.json with { order, title },
+  // so two branches that each add a group add different files.
+  const groupDir = path.join(here, 'groups');
+  const groupFiles = (await readdir(groupDir)).filter((f) => f.endsWith('.json')).sort();
+  const groups = (await Promise.all(groupFiles.map(async (f) => ({ key: f.slice(0, -5), ...JSON.parse(await readFile(path.join(groupDir, f), 'utf8')) }))))
+    .sort((a, b) => (a.order ?? 1e9) - (b.order ?? 1e9) || a.key.localeCompare(b.key))
+    .map((g) => [g.key, g.title]);
   const groupRank = new Map(groups.map(([key], i) => [key, i]));
   const problems = [];
   const warnings = [];
@@ -75,7 +81,7 @@ export async function readPages(publicDir = path.join(repoRoot, 'public')) {
     if (data.menu !== false) {
       if (!data.title) problems.push(`${rel}: a menu entry needs "title"`);
       if (!data.group) problems.push(`${rel}: a menu entry needs "group"`);
-      else if (!groupRank.has(data.group)) problems.push(`${rel}: unknown group "${data.group}". Groups are listed in tools/site/groups.json`);
+      else if (!groupRank.has(data.group)) problems.push(`${rel}: unknown group "${data.group}". Groups are the files in tools/site/groups/`);
     }
     if (data.added && !/^\d{4}-\d{2}-\d{2}$/.test(data.added)) problems.push(`${rel}: "added" must be YYYY-MM-DD`);
     pages[href] = { href, ...data };
