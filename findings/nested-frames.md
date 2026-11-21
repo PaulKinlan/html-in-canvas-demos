@@ -18,6 +18,21 @@ PLAN.md backlog group 19: 19.1 widget with its own effect inside a scene, 19.2 e
 | `ctx.filter` on the inner canvas's draw of its element: `blur() brightness() saturate()`, and `url(#filter)` with `lighter` for a colour split | measured: works | Three draws through `feColorMatrix` filters that keep one channel each. |
 | Paint events at rest | measured: 0 in 0.7 s | After the lamp's level settled. |
 
+### Reported on A159: the inner canvases were empty
+
+reported, A159, 2026-11-21: on the owner's phone the widget demo showed the room's gradient and neither widget. `npm run reports -- --since 2h --list --page /nested-frames/` showed no report for the page, so no error, lost context or script error was raised. Not reproduced in C157 with `--force-device-scale-factor=2.625`: the room and both widgets draw and a touch tap counts.
+
+Not known: whether the inner canvases got no `paint` event, drew into themselves and were then drawn empty by the outer canvas, or threw in `drawElementImage()` until the retries ran out. What the page now does (measured in C157 with `drawElementImage()` in an inner canvas replaced by a function that does nothing, as a stand-in):
+
+| Step | Result |
+|---|---|
+| Each inner canvas is asked for its first paint with `requestPaint()` | The first version waited for the browser to raise it. |
+| One second after the scene's first paint, read one 8 by 8 patch of a `drawImage()` copy of the scene, at a point of the counter's card that holds only its pale background | Brightness 247 of 255 when the inner canvases draw, 42 in the stand-in. The limit is 140. |
+| If dark: move the two cards out of the inner canvases to be children of the scene canvas, and let the scene run the same two effect functions inside its own transform | The widgets draw with bloom, colour split, mirror image and taps. `window.__gfx.report('nested-frames', …)` sends the paint counts. |
+| The line under the demo | Names the route and why. A button switches route by hand. |
+
+To find the cause on the phone: open the page, read the line under the room (it holds the paint counts of the three canvases at the moment of the check), and run the first four live checks, which build the same nesting on a small fixture.
+
 ## An iframe (`srcdoc`) as the drawable child
 
 | Question | Result | Detail |
