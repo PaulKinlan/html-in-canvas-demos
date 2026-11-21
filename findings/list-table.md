@@ -15,7 +15,7 @@ Backlog group 16 of PLAN.md: column highlight from `col`, glossary cards from a 
 | `margin-left: -40px; padding-left: 40px` on the `<li>` to cover the marker | fails | The marker is placed outside the border box, wherever that is. |
 | `list-style-position: inside` | works | The marker is in the picture, with `::marker` colour and weight. |
 | A source-rectangle draw of one row of a drawable `<ol>` | works | `drawElementImage(ol, 0, li.offsetTop, ol.offsetWidth, li.offsetHeight, x, y, w, h)` gives the row with its outside marker. |
-| Hit box after a source-rectangle draw | moves | The hit box of the whole element moves as if the whole element were drawn at the destination. A full draw with `globalAlpha = 0` afterwards puts it back. Confirms the note from `/captions/`. |
+| Hit box after a source-rectangle draw | moves | The hit box of the whole element moves as if the whole element were drawn at the destination. A full draw with `globalAlpha = 0` afterwards puts it back. Agrees with `findings/motion.md`. |
 | Move `drawable` from the items to the `<ol>` at run time | works | The `<ol>` has a picture on the next `paint` event. |
 | `ol.reversed = true` | works | The markers in the pictures of the items change, and a `paint` event is raised. |
 | `position: absolute` on an `<li>` | works | It keeps its marker and its number. |
@@ -47,7 +47,7 @@ Backlog group 16 of PLAN.md: column highlight from `col`, glossary cards from a 
 - Drawing elements: A `<col>` has a box (`offsetLeft`, `offsetWidth`, `getBoundingClientRect()`) and no picture; `drawElementImage(col)` throws. measured, C157, `/list-table/`.
 - Drawing elements: An `outside` list marker is not in the picture of its `<li>`; an `inside` marker is; the picture of the `<ol>` has both, and a source-rectangle draw gives one row with its marker. measured, C157, `/list-table/`.
 - Input and hit testing: A `drawable` scroll container scrolls natively inside a canvas by touch and wheel and raises `paint` on every scroll step. measured, C157, `/list-table/`.
-- Input and hit testing: A source-rectangle `drawElementImage()` moves the hit box of the whole element; a full draw at zero alpha restores it. measured, C157, `/list-table/` (also `/captions/`).
+- Input and hit testing: A source-rectangle `drawElementImage()` moves the hit box of the whole element; a full draw at zero alpha restores it. measured, C157, `/list-table/` (also `findings/motion.md`).
 - Drawing elements: A canvas shadow applies to a source-rectangle draw. measured, C157, `/list-table/`.
 
 ## Ideas built
