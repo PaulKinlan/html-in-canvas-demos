@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus order drawn as a path</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; max-width: 560px; }
+  .bar label { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; }
+  .bar select, .bar button { font: inherit; min-height: 40px; }
+  #scene { display: block; position: relative; width: 100%; max-width: 560px; height: 600px; border-radius: 16px; background: #10131f; touch-action: pan-y; overflow-anchor: none; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 6em; margin: 8px 0; max-width: 560px; }
+  .plain-scene { max-width: 560px; padding: 12px; border-radius: 16px; background: #10131f; display: grid; gap: 12px; }
+  .plain-scene .tile { position: static; width: auto; }
+
+  /* The scene: three groups, each a child of the canvas and drawn by it. */
+  .tile { position: absolute; left: 0; top: 0; box-sizing: border-box; width: calc(100% - 24px); margin: 0; padding: 12px 14px; border-radius: 12px;
+    background: #f6f4ef; color: #1d1c1a; font: 15px/1.4 system-ui, sans-serif; }
+  .tile a { color: #b5330c; }
+  .tile :focus-visible { outline: 3px solid #12b76a; outline-offset: 1px; }
+  #top { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  #top strong { margin-right: auto; }
+  #form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  #form label { display: grid; gap: 3px; font-size: 13px; }
+  #form input[type="text"], #form input[type="email"], #form select { font: inherit; width: 100%; min-height: 38px; padding: 4px 8px; border: 1px solid #a19c93; border-radius: 8px; background: #fff; color: #1d1c1a; }
+  #form .wide { grid-column: 1 / -1; }
+  #form .choice { display: flex; gap: 14px; align-items: center; font-size: 14px; }
+  #form .choice label { display: inline-flex; gap: 6px; align-items: center; }
+  #form .buttons { display: flex; gap: 10px; justify-content: flex-end; }
+  .tile button { font: inherit; min-height: 38px; padding: 4px 14px; border-radius: 8px; border: 1px solid #a19c93; background: #fff; color: #1d1c1a; }
+  #send { background: #1d1c1a; color: #fff; }
+  #side { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; align-items: center; font-size: 14px; }
+  #side [tabindex], #side [contenteditable] { padding: 6px 8px; border: 1px dashed #a19c93; border-radius: 8px; }
+  #side details { grid-column: 1 / -1; }
+  #side summary { min-height: 32px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Focus order drawn as a path</h1>
+  <p class="lede">
+    The canvas draws three groups of links, fields and buttons. Over them it draws the order in which the Tab key visits them: a numbered
+    line from stop to stop. A step that goes against reading order is orange. Change the arrangement, give a button a
+    <code>tabindex</code>, or leave a group out of the picture, and the line is worked out again. Press Tab, or use the two buttons under
+    the picture, to move focus along it.
+  </p>
+
+  <!-- #region markup -->
+  <canvas id="scene" content="drawable" layoutsubtree>
+    <nav class="tile" id="top" drawable aria-label="Site">
+      <strong>Field notes</strong>
+      <a href="#top" id="home">Home</a>
+      <a href="#top" id="docs">Docs</a>
+      <a href="#top" id="prices">Prices</a>
+    </nav>
+    <form class="tile" id="form" drawable onsubmit="return false">
+      <label>Name <input type="text" id="name" autocomplete="off"></label>
+      <label>Email <input type="email" id="email" autocomplete="off"></label>
+      <label class="wide">Plan <select id="plan"><option>Free</option><option>Team</option></select></label>
+      <div class="wide choice">
+        <label><input type="radio" name="bill" id="monthly" checked> Monthly</label>
+        <label><input type="radio" name="bill" id="yearly"> Yearly</label>
+        <label><input type="checkbox" id="news"> Send me news</label>
+      </div>
+      <div class="wide buttons">
+        <button type="button" id="cancel">Cancel</button>
+        <button type="button" id="send">Sign up</button>
+      </div>
+    </form>
+    <aside class="tile" id="side" drawable aria-label="More">
+      <a href="#side" id="terms">Terms</a>
+      <button type="button" id="closed" disabled>Sold out</button>
+      <div tabindex="0" id="custom">A div with tabindex="0"</div>
+      <div tabindex="-1" id="scripted">tabindex="-1"</div>
+      <div contenteditable id="note" aria-label="Note">An editable note</div>
+      <details id="more"><summary id="summary">More links</summary><a href="#side" id="hidden-link">A link inside the details</a></details>
+    </aside>
+  </canvas>
+  <!-- #endregion markup -->
+
+  <div class="bar">
+    <button type="button" id="prev">Previous stop</button>
+    <button type="button" id="next">Next stop</button>
+    <label><input type="checkbox" id="show" checked> Show the path</label>
+  </div>
+  <div class="bar">
+    <label>Arrangement
+      <select id="layout">
+        <option value="stacked" selected>as in the document</option>
+        <option value="swapped">last group drawn first</option>
+        <option value="tilted">turned and scaled</option>
+      </select>
+    </label>
+    <label>Last group
+      <select id="last">
+        <option value="drawn" selected>drawn</option>
+        <option value="undrawn">not drawn</option>
+        <option value="inert">not drawn, inert</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="positive"> tabindex="1" on Sign up</label>
+    <label><input type="checkbox" id="disable"> Disable Email</label>
+  </div>
+
+  <p id="status" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>the Tab order from the DOM, the positions from the picture</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Three children of one canvas. Nothing in it is there for the path.</li>
+      <li data-code="/lib/devtools/focus-path.js#tab-order"><b>The Tab order.</b> Which elements are stops, and in what order.</li>
+      <li data-code="/lib/devtools/focus-path.js#place"><b>Where each stop is.</b> The rectangle the browser reports for a drawn element is where it was drawn.</li>
+      <li data-code="#frame"><b>One frame.</b> Draw the groups, then the path over them, in the same canvas.</li>
+      <li data-code="/lib/devtools/focus-path.js#draw-path"><b>Drawing the path.</b></li>
+      <li data-code="/lib/devtools/stage.js#record"><b>Which elements were drawn.</b> A wrapper round <code>drawElementImage()</code> keeps a list for the frame.</li>
+      <li data-code="#tab-seen"><b>Comparing with the real Tab key.</b> Each Tab press you make is compared with the path.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The order is worked out from the DOM. An element is a stop if its <code>tabIndex</code> is 0 or more, or it is an editing host, or it is a scroll container with nothing focusable inside. It is left out if it is disabled, inert, not rendered, or a radio button that is not the checked one of its group. Stops with a positive <code>tabindex</code> come first, lowest first. The rest follow in tree order.</li>
+    <li>The position of each stop is its <code>getBoundingClientRect()</code>. For a child of a drawable canvas that is the box the element was last drawn in, so the line follows the picture when a group is drawn somewhere else or turned.</li>
+    <li>The page wraps <code>drawElementImage()</code> and keeps the list of elements drawn in the frame. A stop that is not inside one of them is not in the picture. Its number goes in the red strip at the bottom.</li>
+    <li>The path is drawn after the groups, in the same 2D context. The dashes move in the direction of travel unless the system asks for reduced motion.</li>
+    <li>"Previous stop" and "Next stop" call <code>focus({ focusVisible: true })</code> on the neighbouring stop of the path. They do not test the path. The Tab key does: the page notes each Tab press and compares the element that received focus with the next stop on the path.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds a small canvas of its own in a corner of the window. The picture above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157, headless, on 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: the order from the DOM matches the Tab key.</strong> A script pressed Tab through this page in six arrangements (the options above, and the details open) and the focused element was the next stop of the path every time. The script is <code>tools/devtools-pages/verify.mjs</code>.</li>
+    <li><strong>Limit: a positive <code>tabindex</code> is ordered in the whole document.</strong> With <code>tabindex="1"</code> on "Sign up", the path shows it as stop 1. That is its place among the stops of the canvas. In the page it is the first stop of the whole document, before the menu bar, and Tab does not reach it from the field before the canvas.</li>
+    <li><strong>Works: the path follows the picture.</strong> Drawing the groups in another order or at an angle moves the stops, because <code>getBoundingClientRect()</code> reports the drawn box. The Tab order does not change: it follows the DOM. "last group drawn first" shows the result, a path that starts at the bottom of the picture.</li>
+    <li><strong>Limit: under a rotation the reported box is the bounding box.</strong> The line still passes through the centre of each stop, since the centre of the bounding box of a turned rectangle is the centre of the rectangle. The outline round a stop is larger than the stop.</li>
+    <li><strong>Found: an element that is not drawn is still a Tab stop.</strong> Tab moves focus to it and nothing in the picture shows where focus is. It also keeps the hit box of the last time it was drawn. Setting <code>inert</code> on it takes it out of the order. The "Last group" menu shows the three states.</li>
+    <li><strong>Found: <code>tabIndex</code> reads -1 for two kinds of Tab stop.</strong> An element with <code>contenteditable</code> and a scroll container with nothing focusable inside are both stops for the Tab key, and both report <code>tabIndex</code> -1. The rule checks for them separately.</li>
+    <li><strong>Not covered:</strong> shadow trees, slots, frames, <code>focusgroup</code> and <code>reading-flow</code> are not followed by the rule. A <code>&lt;video controls&gt;</code> counts as one stop.</li>
+    <li><strong>Not verified here:</strong> a phone has no Tab key. The "next" key of the on-screen keyboard and a screen reader's swipe order were not run. Connect a keyboard to the phone and press Tab: the status line counts how many presses matched the path.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { tabOrder, placeStops, drawFocusPath } from '/lib/devtools/focus-path.js';
+  import { fitCanvas, cssScale, recordDraws, nameOf } from '/lib/devtools/stage.js';
+  import { rig } from '/lib/devtools/check-rig.js';
+  import { banner, runTests, supported } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('scene'), status = $('status');
+  const tiles = [$('top'), $('form'), $('side')];
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  const seen = { presses: 0, matched: 0, last: '' };
+  let order = [];
+
+  function applyOptions() {
+    $('send').tabIndex = $('positive').checked ? 1 : 0;
+    if (!$('positive').checked) $('send').removeAttribute('tabindex');
+    $('email').disabled = $('disable').checked;
+    $('side').inert = $('last').value === 'inert';
+  }
+
+  if (!supported) {
+    // No API: the canvas would hide its children. Show them as plain HTML. The Tab order is the same, but nothing draws it.
+    const plain = document.createElement('div');
+    plain.className = 'plain-scene';
+    plain.append(...tiles);
+    canvas.replaceWith(plain);
+    status.textContent = 'HTML-in-canvas is not available, so the groups are plain HTML and no path is drawn.';
+    for (const id of ['positive', 'disable', 'last']) $(id).addEventListener('change', applyOptions);
+  } else {
+    const ctx = canvas.getContext('2d');
+    const record = recordDraws(ctx);
+    let visible = true, raf = 0, stale = true, lost = false;
+    const wake = () => { if (visible && !lost) raf ||= requestAnimationFrame(frame); };
+    const again = () => { stale = true; wake(); };
+
+    fitCanvas(canvas, again);
+    new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; wake(); }).observe(canvas);
+    canvas.addEventListener('paint', again);
+    canvas.addEventListener('focusin', again);
+    canvas.addEventListener('focusout', again);
+    // A change to tabindex, disabled, inert, hidden or open changes the order.
+    new MutationObserver(again).observe(canvas, { subtree: true, childList: true, attributes: true });
+    $('more').addEventListener('toggle', again);
+    for (const id of ['layout', 'last', 'positive', 'disable', 'show']) $(id).addEventListener('change', () => { applyOptions(); again(); });
+    canvas.addEventListener('contextlost', () => { lost = true; status.textContent = 'The canvas lost its graphics context. The picture comes back if the browser restores it.'; });
+    canvas.addEventListener('contextrestored', () => { lost = false; again(); });
+
+    function drawTiles(W) {
+      const list = $('layout').value === 'swapped' ? [tiles[2], tiles[1], tiles[0]] : tiles;
+      const tilted = $('layout').value === 'tilted';
+      const k = tilted ? 0.9 : 1;
+      let y = 12;
+      list.forEach((tile, i) => {
+        const w = tile.offsetWidth, h = tile.offsetHeight;
+        if (tile === tiles[2] && $('last').value !== 'drawn') return; // left out of the picture
+        ctx.save();
+        ctx.translate(W / 2, y + (h * k) / 2);
+        if (tilted) { ctx.rotate([-0.05, 0.04, -0.06][i]); ctx.scale(k, k); }
+        ctx.drawElementImage(tile, -w / 2, -h / 2, w, h);
+        ctx.restore();
+        y += h * k + (tilted ? 22 : 12);
+      });
+    }
+
+    // #region frame
+    function frame(time) {
+      raf = 0;
+      const k = cssScale(canvas), W = canvas.clientWidth, H = canvas.clientHeight;
+      try {
+        ctx.reset();
+        ctx.scale(k, k);        // from here on, CSS pixels
+        record.clear();
+        drawTiles(W);           // drawElementImage() for each group; the wrapper notes which
+        if (stale) { order = tabOrder(canvas); stale = false; }
+        const placed = placeStops(canvas, order, record.draws.map((d) => d.element));
+        const active = canvas.contains(document.activeElement) ? document.activeElement : null;
+        const summary = $('show').checked
+          ? drawFocusPath(ctx, placed, { width: W, height: H, time, active, moving: !reduced.matches })
+          : { steps: placed.length - 1, back: 0, missing: placed.filter((s) => !s.drawn).length };
+        report(placed, summary, active);
+      } catch (err) {
+        // "No cached paint record": a group has not painted yet. Ask, and draw on the paint event.
+        if (/paint record/i.test(err.message)) canvas.requestPaint();
+        else throw err;
+      }
+      if ($('show').checked && !reduced.matches) wake(); // the dashes move
+    }
+    // #endregion frame
+
+    let lastReport = '';
+    function report(placed, summary, active) {
+      const at = active ? placed.find((s) => s.el === active) : null;
+      const text = [
+        `${placed.length} Tab stops. ${summary.back} of ${summary.steps} steps go against reading order. ${summary.missing} not drawn.`,
+        active ? (at ? `Focus is on stop ${at.number}: ${nameOf(active)}.` : `Focus is on ${nameOf(active)}, which is not a Tab stop.`) : 'Focus is outside the picture.',
+        seen.presses ? `Tab presses seen: ${seen.presses}. Matched the path: ${seen.matched}. ${seen.last}` : 'No Tab press seen yet.',
+      ].join('\n');
+      if (text !== lastReport) { status.textContent = lastReport = text; status.style.whiteSpace = 'pre-line'; }
+      window.__focusPath = { order: order.map((el) => el.id), ...seen, back: summary.back, missing: summary.missing };
+    }
+
+    // "Previous stop" and "Next stop" move focus along the path.
+    const step = (by) => {
+      if (!order.length) return;
+      const i = order.indexOf(document.activeElement);
+      const next = order[i < 0 ? (by > 0 ? 0 : order.length - 1) : (i + by + order.length) % order.length];
+      next.focus({ focusVisible: true, preventScroll: true });
+    };
+    $('prev').onclick = () => step(-1);
+    $('next').onclick = () => step(1);
+
+    // #region tab-seen
+    // The path is a prediction. Each real Tab press tests it: note where focus was,
+    // and when focus lands inside the canvas compare the element with the path.
+    let press = null;
+    addEventListener('keydown', (e) => {
+      if (e.key === 'Tab' && e.isTrusted) press = { from: document.activeElement, back: e.shiftKey };
+    }, true);
+    canvas.addEventListener('focusin', (e) => {
+      if (!press) return;
+      const { from, back } = press;
+      press = null;
+      const i = order.indexOf(from);
+      // From outside the canvas, Tab enters at the first stop that has no positive tabindex, and
+      // Shift+Tab at the last stop. Stops with a positive tabindex are visited before everything
+      // else in the document, so Tab does not reach them from a neighbour.
+      let expected = i < 0 ? (back ? order[order.length - 1] : order.find((el) => el.tabIndex <= 0)) : order[i + (back ? -1 : 1)];
+      if (i < 0 && !back && e.target === order[0]) expected = order[0]; // from the top of the document, a positive tabindex comes first
+      seen.presses++;
+      if (expected === e.target) seen.matched++;
+      seen.last = expected === e.target
+        ? `Last press: to stop ${order.indexOf(e.target) + 1}, as drawn.`
+        : `Last press: focus went to ${nameOf(e.target)}, the path said ${expected ? nameOf(expected) : 'out of the picture'}.`;
+      again();
+    });
+    // #endregion tab-seen
+
+    applyOptions();
+    canvas.requestPaint();
+    wake();
+  }
+
+  // ---- live checks: every one on its own small canvas ----
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const ABS = 'position:absolute;left:0;top:0;margin:0;';
+  const ids = (list) => list.map((el) => el.id).join(' ');
+  const drawAll = (kids, places = []) => (g) => kids.forEach((el, i) => { const [x, y] = places[i] ?? [0, 0]; g.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight); });
+
+  runTests($('results'), [
+    {
+      name: 'Stops with a positive tabindex come first, then tree order',
+      why: 'Five stops: a button, a button with tabindex 2, a link, an input with tabindex 1 and a span with tabindex 0. The order must be d b a c e.',
+      run: async () => {
+        need();
+        const { c, paint, kids } = rig(`<div style="${ABS}width:300px"><button id="a">a</button> <button id="b" tabindex="2">b</button> <a href="#" id="c">c</a> <input id="d" tabindex="1" size="3"> <span id="e" tabindex="0">e</span></div>`);
+        await paint(drawAll(kids));
+        const got = ids(tabOrder(c));
+        if (got !== 'd b a c e') throw new Error(`order was ${got}`);
+        return `order: ${got}`;
+      },
+    },
+    {
+      name: 'Elements that Tab skips are left out of the path',
+      why: 'A disabled button, a button in an inert block, tabindex -1, a hidden input, display: none, visibility: hidden, a link in a closed details and an unchecked radio button are left out. A summary, an editing host, the checked radio button and a scroll container are stops.',
+      run: async () => {
+        need();
+        const { c, paint, kids } = rig(`<div style="${ABS}width:300px;font:12px sans-serif">
+          <button id="off" disabled>x</button><div inert><button id="inert">x</button></div><b tabindex="-1" id="minus">x</b><input type="hidden" id="hid">
+          <button id="none" style="display:none">x</button><button id="invisible" style="visibility:hidden">x</button>
+          <details><summary id="sum">s</summary><a href="#" id="inside">x</a></details>
+          <input type="radio" name="g" id="r1"><input type="radio" name="g" id="r2" checked>
+          <div contenteditable id="edit">e</div><div id="scroller" style="height:20px;overflow:auto"><p style="height:90px;margin:0">tall</p></div></div>`);
+        await paint(drawAll(kids));
+        const got = ids(tabOrder(c));
+        if (got !== 'sum r2 edit scroller') throw new Error(`stops were: ${got}`);
+        return `stops: ${got}. contenteditable has tabIndex ${c.querySelector('#edit').tabIndex} and the scroll container has tabIndex ${c.querySelector('#scroller').tabIndex}`;
+      },
+    },
+    {
+      name: 'Every stop on the path takes focus(), and a disabled or inert element does not',
+      why: 'focus() is called on each element of the previous two fixtures in a hidden copy of this page. It checks which elements can hold focus. The order itself is checked with the real Tab key by tools/devtools-pages/verify.mjs.',
+      apart: true,
+      run: async () => {
+        need();
+        const { c, paint, kids } = rig(`<div style="${ABS}width:300px;font:12px sans-serif"><button id="a">a</button><a href="#" id="c">c</a><input id="d" inputmode="none" size="3"><span id="e" tabindex="0">e</span>
+          <details><summary id="sum">s</summary></details><div contenteditable inputmode="none" id="edit">e</div>
+          <button id="off" disabled>x</button><div inert><button id="inert">x</button></div></div>`);
+        await paint(drawAll(kids));
+        const takes = (el) => { el.focus({ preventScroll: true }); return document.activeElement === el; };
+        const stops = tabOrder(c), refused = stops.filter((el) => !takes(el));
+        const wrong = ['off', 'inert'].filter((id) => takes(c.querySelector('#' + id)));
+        document.activeElement?.blur?.();
+        if (refused.length || wrong.length) throw new Error(`refused focus: ${ids(refused) || 'none'}. Took focus but should not: ${wrong.join(' ') || 'none'}`);
+        return `${stops.length} stops took focus. The disabled and the inert button did not`;
+      },
+    },
+    {
+      name: 'The position of a stop is where it was drawn, not where layout put it',
+      why: 'A button laid out at 0, 0 is drawn at 150, 90. placeStops() must report 150, 90, and offsetLeft must still read 0.',
+      run: async () => {
+        need();
+        const { c, paint, kids } = rig(`<button id="a" style="${ABS}width:80px;height:30px">a</button>`);
+        await paint(drawAll(kids, [[150, 90]]));
+        const [s] = placeStops(c, tabOrder(c));
+        if (Math.abs(s.x - 150) > 1 || Math.abs(s.y - 90) > 1) throw new Error(`reported at ${s.x.toFixed(1)}, ${s.y.toFixed(1)}`);
+        return `reported at ${s.x.toFixed(1)}, ${s.y.toFixed(1)}. offsetLeft is ${kids[0].offsetLeft}, offsetTop is ${kids[0].offsetTop}`;
+      },
+    },
+    {
+      name: 'Under a rotated draw the path still passes through the centre of the stop',
+      why: 'An 80 by 30 button is drawn turned 30 degrees about 160, 100. The reported rectangle is the bounding box of the turned button. Its centre must be 160, 100.',
+      run: async () => {
+        need();
+        const { c, paint, kids } = rig(`<button id="a" style="${ABS}width:80px;height:30px">a</button>`);
+        await paint((g) => { g.translate(160, 100); g.rotate(Math.PI / 6); g.drawElementImage(kids[0], -40, -15, 80, 30); });
+        const [s] = placeStops(c, tabOrder(c));
+        if (Math.hypot(s.cx - 160, s.cy - 100) > 1.5) throw new Error(`centre reported at ${s.cx.toFixed(1)}, ${s.cy.toFixed(1)}`);
+        return `centre at ${s.cx.toFixed(1)}, ${s.cy.toFixed(1)}. The reported box is ${s.width.toFixed(0)} by ${s.height.toFixed(0)} px for an 80 by 30 button`;
+      },
+    },
+    {
+      name: 'An element that is not drawn is still on the path, and is marked',
+      why: 'Two buttons are children of the canvas. Only the first is drawn. Both must be in the order, and the second must be marked as not drawn.',
+      run: async () => {
+        need();
+        const { c, g, paint, kids } = rig(`<button id="a" style="${ABS}">drawn</button><button id="b" style="${ABS}">not drawn</button>`);
+        const record = recordDraws(g);
+        await paint(() => g.drawElementImage(kids[0], 20, 20, kids[0].offsetWidth, kids[0].offsetHeight));
+        const placed = placeStops(c, tabOrder(c), record.draws.map((d) => d.element));
+        if (placed.length !== 2 || placed[0].drawn !== true || placed[1].drawn !== false) throw new Error(`placed: ${placed.map((s) => `${s.el.id} ${s.drawn}`).join(', ')}`);
+        g.scale(1, 1);
+        drawFocusPath(g, placed, { width: 320, height: 200, moving: false });
+        return 'order: a b. b is marked as not drawn and goes in the strip';
+      },
+    },
+    {
+      name: 'inert takes an element that is not drawn out of the order',
+      why: 'The same two buttons, with inert set on the one that is not drawn.',
+      run: async () => {
+        need();
+        const { c, paint, kids } = rig(`<button id="a" style="${ABS}">drawn</button><button id="b" style="${ABS}" inert>not drawn</button>`);
+        await paint((g) => g.drawElementImage(kids[0], 20, 20, kids[0].offsetWidth, kids[0].offsetHeight));
+        const got = ids(tabOrder(c));
+        if (got !== 'a') throw new Error(`order was ${got}`);
+        return `order: ${got}`;
+      },
+    },
+    {
+      name: 'Opening a details element adds the stops inside it',
+      why: 'A link inside a closed details is not a stop. After the details is opened it is.',
+      run: async () => {
+        need();
+        const { c, paint, kids } = rig(`<details style="${ABS}width:200px" id="d"><summary id="sum">s</summary><a href="#" id="inside">link</a></details>`);
+        await paint(drawAll(kids));
+        const before = ids(tabOrder(c));
+        kids[0].open = true;
+        await paint(drawAll(kids));
+        const after = ids(tabOrder(c));
+        if (before !== 'sum' || after !== 'sum inside') throw new Error(`closed: ${before}. Open: ${after}`);
+        return `closed: ${before}. Open: ${after}`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
