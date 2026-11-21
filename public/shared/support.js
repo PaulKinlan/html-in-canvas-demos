@@ -128,10 +128,13 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/overlay/',
   '/audio/',
   '/player-parts/',
+  '/player-fx/',
   '/native-ui/',
   '/select/',
   '/datalist/',
   '/inputs/',
+  '/selection/',
+  '/caret/',
   '/scroll-fx/',
   '/shape-ui/',
 ];

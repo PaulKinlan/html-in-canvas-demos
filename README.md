@@ -60,6 +60,8 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
+| `/selection/` | `<selection-fx>`: the canvas draws the highlight of selected text (2D and shader effects), plus measurements of what the browser paints for a selection in a canvas |
+| `/caret/` | An editable block in a canvas: CSS caret shape and animation in the picture, a caret streak and wavy typo lines drawn by the canvas, `highlightsFromPoint()` |
 | `/scroll-fx/` | Scroll-driven animations, a `scroll-state()` query and a timeline trigger as shader inputs: blocks burn in, unroll and melt with the scroll and blur by its speed, with no scroll listener |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
 | `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
@@ -74,6 +76,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/overlay/` | HTML over video in one canvas: recorded with sound, exported frame by frame with WebCodecs, sent over WebRTC |
 | `/audio/` | Web Audio band levels as CSS custom properties that drive a shader over a working `<audio>` card |
 | `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
+| `/player-fx/` | One WebGL shader over the native controls and the video frame as two textures from one `<video>`: the play button grows into a lens, the controls refract, melt into and light the picture. Finds the box of each control without script access |
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
 | `/shape-ui/` | Buttons outlined with `corner-shape`, `border-shape` and `clip-path: shape()`, lit by a shader that reads alpha as height. The light follows the pointer or the phone's tilt (`lib/tilt-light.js`) |
 
