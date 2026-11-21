@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Every HTML element in a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 900px; }
+  .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .tools input[type=search], .tools select { font: inherit; min-height: 40px; padding: 4px 8px; max-width: 100%; }
+  .tools input[type=search] { flex: 1 1 160px; min-width: 0; }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+  .filters button { font: inherit; font-size: 14px; min-height: 40px; padding: 4px 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--card); color: inherit; cursor: pointer; }
+  .filters button[aria-pressed=true] { background: var(--fg); color: var(--bg, #fff); border-color: var(--fg); }
+  #count, #liveNote { font-size: 14px; color: var(--muted); min-height: 1.5em; margin: 6px 0; }
+  #list h3 { margin: 22px 0 6px; font-size: 16px; }
+  #list h3 small { font-weight: 400; color: var(--muted); }
+  details.el { border-bottom: 1px solid var(--line); }
+  details.el > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 44px; padding: 6px 2px; cursor: pointer; list-style: none; }
+  details.el > summary::-webkit-details-marker { display: none; }
+  details.el > summary code { font-size: 15px; font-weight: 600; margin-right: auto; overflow-wrap: anywhere; }
+  .chip { font-size: 12px; line-height: 1; padding: 4px 7px; border-radius: 10px; border: 1px solid currentColor; white-space: nowrap; }
+  .chip.works { color: var(--ok); } .chip.partly { color: var(--warn); } .chip.blank, .chip.error { color: var(--bad); } .chip.nobox, .chip.unmeasured, .chip.skipped, .chip.plain { color: var(--muted); }
+  .chip.build { color: var(--accent); }
+  details.el .body { padding: 2px 2px 14px; font-size: 15px; min-width: 0; }
+  details.el .body p { margin: 8px 0; }
+  details.el .body h4 { margin: 12px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  details.el ul.nums { margin: 4px 0; padding-left: 18px; font-size: 14px; }
+  details.el ul.nums li { margin-bottom: 3px; overflow-wrap: anywhere; }
+  details.el pre.markup { font: 12px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin: 6px 0; }
+  .y { color: var(--ok); } .n { color: var(--bad); } .q { color: var(--muted); }
+  div.specimen { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: #111; overflow: hidden; }
+  .specimen-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .specimen-tools button, #run, #copy { font: inherit; min-height: 40px; padding: 4px 12px; }
+  #rules li, #ideaList li { margin-bottom: 10px; }
+  #ideaList small { color: var(--muted); }
+  details.rank { border-top: 1px solid var(--line); }
+  details.rank > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  details.rank > summary small { font-weight: 400; color: var(--muted); }
+  a.chip { text-decoration: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Every HTML element inside a drawable canvas</h1>
+  <p class="lede">
+    What does each HTML element do as a child of <code>&lt;canvas content="drawable"&gt;</code>: is it drawn, can it be hit, does it take input?
+    Each row below is one element that was put in a canvas and measured, with one thing that could be built with it.
+    The measurements also decide which of the ideas further down are possible.
+  </p>
+  <p class="note" id="recorded"></p>
+
+  <div class="tools">
+    <button id="run" type="button">Run the measurements in this browser</button>
+    <button id="copy" type="button" hidden>Copy this browser's results as JSON</button>
+  </div>
+  <p id="liveNote">Runs the draw, ink, hit-test and repaint measurements for every row on small canvases in the corner of the window. It takes about 20 seconds and does not click or type.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>how one element is measured</small></summary>
+    <ol>
+      <li data-code="/elements/probe.js#build"><b>Build the test markup.</b> Each entry in <code>data.js</code> is a tag name and a string of HTML. The element under test sits in a wrapper <code>div</code>.</li>
+      <li data-code="/elements/probe.js#measure"><b>Draw it and measure.</b> The node goes into a new drawable canvas and is drawn at (6, 6). Ink is the share of the element's box with a drawn pixel. The hit test asks <code>elementsFromPoint()</code> at the centre of the drawn box. Paint events counted while nothing touches the element show whether it repaints on its own.</li>
+      <li data-code="/elements/probe.js#probe"><b>Measure both ways.</b> Once inside a drawable wrapper, once as the drawable child itself, and once more with <code>display: block</code> forced when the element has no box.</li>
+      <li data-code="/elements/verdict.js"><b>Turn the numbers into the label on each row.</b></li>
+      <li data-code="#specimen"><b>"Draw it here": a canvas you can use.</b> The same markup, drawn with a small rotation so native popups and hit regions can be compared with the picture.</li>
+      <li data-code="#ideas"><b>Check each idea against the measurements.</b> <code>ideas.js</code> lists what each idea needs; <code>evaluate()</code> looks those entries up.</li>
+      <li data-code="/elements/data.js"><b>The list of elements and their test markup.</b></li>
+    </ol>
+    <p>The recorded results also include checks made with real mouse and keyboard input. Those are driven by <code>tools/elements/record.mjs</code> (run <code>npm run record:elements</code>), because a page cannot send itself trusted clicks.</p>
+  </details>
+
+  <h2>Findings</h2>
+  <ul class="findings" id="rules"></ul>
+
+  <h2 id="ideas">Ideas</h2>
+  <p class="note" id="ideaNote"></p>
+  <div class="tools"><select id="ideaTheme" aria-label="Theme"><option value="">All themes</option></select></div>
+  <div class="filters" id="ideaFilters"></div>
+  <div id="ideaList"></div>
+
+  <h2 id="all">All elements</h2>
+  <div class="tools">
+    <input type="search" id="q" placeholder="Filter by name, for example video" aria-label="Filter elements by name">
+    <select id="group" aria-label="Group"><option value="">All groups</option></select>
+  </div>
+  <div class="filters" id="filters"></div>
+  <p id="count"></p>
+  <div id="list"></div>
+
+  <h2>How to read a row</h2>
+  <ul class="findings">
+    <li><strong>Works</strong>: the element is drawn, the browser finds it at its drawn position, and every check with real input passed.</li>
+    <li><strong>Partly</strong>: it is drawn, but at least one check with real input failed. The row says which.</li>
+    <li><strong>Blank</strong>: the element has a box and takes clicks, but no pixels are drawn.</li>
+    <li><strong>No box</strong>: the element is not rendered (for example <code>display: none</code>), so there is nothing to draw.</li>
+    <li><strong>Measured</strong> lines come from the recording or from this browser. <strong>Not measured</strong> lines are expectations, mostly about native popups, which headless Chromium does not show. They need a person with a real browser.</li>
+    <li>"Picture match" compares a screenshot of the element in the canvas with a screenshot of the same markup outside any canvas: the share of the plain copy's non-white pixels that the canvas copy reproduces.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported } from '/shared/support.js';
+  import { GROUPS, ELEMENTS } from './data.js';
+  import { noteFor, RULES } from './notes.js';
+  import { verdict, LABEL } from './verdict.js';
+  import { THEMES, IDEAS, BUILT_PAGE, evaluate } from './ideas.js';
+  import { assets } from './media.js';
+  import { build, probeAll } from './probe.js';
+  import recorded from './recorded.json' with { type: 'json' };
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const slug = (tag) => 'el-' + tag.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+  // 'select multiple' is shown as <select multiple>, 'img (animated)' as <img> (animated), '[popover]' as it is.
+  const display = (tag) => {
+    if (tag.startsWith('[') || tag.startsWith('custom')) return tag;
+    if (tag === 'svg foreignObject') return '<foreignObject> in <svg>';
+    const [, base, suffix = ''] = tag.match(/^(.*?)( \(.*\))?$/);
+    return `<${base}>${suffix}`;
+  };
+
+
+  const results = recorded.results;
+  $('recorded').textContent = `${ELEMENTS.length} entries: every element in the HTML standard, each input type, a few attributes that change behaviour, and some obsolete elements. Recorded ${recorded.date} in ${recorded.browser}.`;
+
+  // ---------------------------------------------------------------- findings and ideas
+  $('rules').innerHTML = RULES.map(([title, text]) => `<li><strong>${esc(title)}.</strong> ${esc(text)}</li>`).join('');
+  // #region ideas
+  // Every idea names the entries it needs. Its status comes from the measurements of those entries:
+  // the recording at first, and this browser's numbers after "Run the measurements in this browser".
+  const RANKS = { 1: 'Build next', 2: 'Worth building', 3: 'Small, speculative or blocked' };
+  const STATUS = { possible: 'Possible', partly: 'Partly', blocked: 'Blocked' };
+  let ideaFilter = '';
+  function showIdeas(source, label) {
+    const verdictOf = (tag) => verdict(source[tag], tag);
+    const judged = IDEAS.map((idea) => ({ idea, ...evaluate(idea, verdictOf) }));
+    const n = (k) => judged.filter((j) => j.status === k).length;
+    $('ideaNote').textContent = `${IDEAS.length} ideas, ranked. Each one lists the elements it needs and is checked against ${label}: ${n('possible')} possible, ${n('partly')} partly, ${n('blocked')} blocked.`;
+    const themes = Object.fromEntries(THEMES);
+    const item = ({ idea, status, why }) => `<li data-status="${status}" data-theme="${idea.theme}"${hiddenIdea(status, idea.theme) ? ' hidden' : ''}>
+      <strong>${esc(idea.title)}</strong> <span class="chip ${status === 'possible' ? 'works' : status === 'partly' ? 'partly' : 'blank'}">${STATUS[status]}</span>${idea.built && BUILT_PAGE ? ` <a class="chip build" href="${BUILT_PAGE}#${idea.built}">built: try it</a>` : ''}<br>
+      ${esc(idea.text)}<br>
+      <small>${esc(themes[idea.theme])}. Needs ${idea.needs.map((t) => `<a href="#${slug(t.replace(/^\?/, ''))}"${why.includes(t) ? ' class="n"' : ''}>${esc(display(t.replace(/^\?/, '')))}</a>`).join(', ')}${why.length ? `. In the way: ${why.map((t) => esc(display(t))).join(', ')}` : ''}</small></li>`;
+    $('ideaList').innerHTML = [1, 2, 3].map((rank) => {
+      const list = judged.filter((j) => j.idea.rank === rank);
+      return `<details class="rank"${rank === 1 ? ' open' : ''}><summary>${rank}. ${RANKS[rank]} <small>${list.length}</small></summary><ul class="findings">${list.map(item).join('')}</ul></details>`;
+    }).join('');
+  }
+  $('ideaFilters').innerHTML = [['', 'All'], ...Object.entries(STATUS)].map(([key, text], k) => `<button type="button" data-filter="${key}" aria-pressed="${k === 0}">${esc(text)}</button>`).join('');
+  $('ideaTheme').insertAdjacentHTML('beforeend', THEMES.map(([key, text]) => `<option value="${key}">${esc(text)}</option>`).join(''));
+  const hiddenIdea = (status, theme) => (!!ideaFilter && status !== ideaFilter) || (!!$('ideaTheme').value && theme !== $('ideaTheme').value);
+  function filterIdeas() {
+    for (const li of document.querySelectorAll('#ideaList li')) li.hidden = hiddenIdea(li.dataset.status, li.dataset.theme);
+    if (ideaFilter || $('ideaTheme').value) for (const d of document.querySelectorAll('#ideaList details')) d.open = true;
+  }
+  $('ideaFilters').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button');
+    if (!b) return;
+    ideaFilter = b.dataset.filter;
+    for (const other of $('ideaFilters').children) other.setAttribute('aria-pressed', other === b);
+    filterIdeas();
+  });
+  $('ideaTheme').addEventListener('change', filterIdeas);
+  showIdeas(results, 'the recording');
+  // #endregion ideas
+
+  // ---------------------------------------------------------------- rows
+  const fmt = (m) => {
+    if (!m) return '';
+    if (m.error) return `drawElementImage() throws: ${esc(m.error.replace(/^.*?: /, ''))}`;
+    if (m.box[0] * m.box[1] === 0) return `no box (display: ${esc(m.display || 'none')})`;
+    const hit = { self: 'the element', descendant: 'a descendant of it', canvas: 'the canvas, not the element' }[m.hit] ?? esc(m.hit ?? 'nothing');
+    return `box ${m.box[0]} × ${m.box[1]} px, ink on ${Math.round(m.ink * 100)}% of the box, hit test finds ${hit}${m.selfPaints ? `, ${m.selfPaints} paint events in 350 ms with nothing touching it` : ''}`;
+  };
+  const mark = (ok) => (ok === null ? '<span class="q">?</span>' : ok ? '<span class="y">✓</span>' : '<span class="n">✗</span>');
+  const demoTitle = (href) => window.DEMOS?.find((d) => d.href === href)?.title ?? href;
+
+  function rowHtml(entry) {
+    const r = results[entry.tag], note = noteFor(entry), v = verdict(r, entry.tag);
+    const tests = r?.tests ?? [];
+    const passed = tests.filter((t) => t.ok).length, judged = tests.filter((t) => t.ok !== null).length;
+    const chips = [
+      `<span class="chip ${v}">${LABEL[v]}</span>`,
+      judged ? `<span class="chip plain">${passed}/${judged} input checks</span>` : '',
+      r?.inside?.selfPaints ? '<span class="chip plain">repaints itself</span>' : '',
+      note.build ? '<span class="chip build">idea</span>' : '',
+    ].join('');
+    const nums = [];
+    if (r?.skipped) nums.push(`<li>Skipped: ${esc(r.skipped)}</li>`);
+    if (r?.inside) nums.push(`<li><b>Inside a drawable wrapper:</b> ${fmt(r.inside)}</li>`);
+    if (r?.direct) nums.push(`<li><b>As the drawable child itself:</b> ${fmt(r.direct)}</li>`);
+    if (r?.forced) nums.push(`<li><b>With display: block forced:</b> ${fmt(r.forced)}</li>`);
+    if (r?.picture?.match != null) nums.push(`<li><b>Picture match with plain DOM:</b> ${Math.round(r.picture.match * 100)}%</li>`);
+    if (r?.click) nums.push(`<li><b>A real click on the middle of the drawn element went to:</b> ${{ self: 'the element', descendant: 'a descendant of it', none: 'no element in this document (a frame or native control took it)' }[r.click] ?? esc(r.click)}</li>`);
+    for (const t of tests) nums.push(`<li>${mark(t.ok)} <b>${esc(t.name)}:</b> ${esc(t.detail)}</li>`);
+    return `<details class="el" id="${slug(entry.tag)}" data-tag="${esc(entry.tag)}" data-group="${entry.group}" data-verdict="${v}"${note.build ? ' data-build' : ''}>
+      <summary><code>${esc(display(entry.tag))}</code>${chips}</summary>
+      <div class="body">
+        ${note.found ? `<p>${esc(note.found)}</p>` : ''}
+        ${note.inferred ? `<h4>Not measured</h4><p>${esc(note.inferred)}</p>` : ''}
+        ${note.idea ? `<h4>Idea${note.shared ? ' (for the whole group)' : ''}</h4><p>${esc(note.idea)}</p>` : ''}
+        ${note.demos.length ? `<p>Already on this site: ${note.demos.map((d) => `<a href="${d}">${esc(demoTitle(d))}</a>`).join(', ')}</p>` : ''}
+        <h4>Measured</h4>
+        <ul class="nums">${nums.join('')}</ul>
+        <div class="live"></div>
+        <pre class="markup">${esc(entry.html ?? `document.createElement('${entry.make}')`)}</pre>
+        <div class="specimen-tools"><button type="button" class="try">Draw it here</button></div>
+      </div>
+    </details>`;
+  }
+
+  $('list').innerHTML = GROUPS.map(([key, name]) => {
+    const rows = ELEMENTS.filter((e) => e.group === key);
+    return `<section data-group="${key}"><h3>${esc(name)} <small>${rows.length}</small></h3>${rows.map(rowHtml).join('')}</section>`;
+  }).join('');
+  $('group').insertAdjacentHTML('beforeend', GROUPS.map(([key, name]) => `<option value="${key}">${esc(name)}</option>`).join(''));
+
+  // ---------------------------------------------------------------- filters
+  const rows = [...document.querySelectorAll('details.el')];
+  const counts = {};
+  for (const row of rows) counts[row.dataset.verdict] = (counts[row.dataset.verdict] ?? 0) + 1;
+  const FILTERS = [['', `All ${rows.length}`], ...Object.keys(LABEL).filter((k) => counts[k]).map((k) => [k, `${LABEL[k]} ${counts[k]}`]), ['build', `Ideas to build ${rows.filter((r) => 'build' in r.dataset).length}`]];
+  $('filters').innerHTML = FILTERS.map(([key, text], i) => `<button type="button" data-filter="${key}" aria-pressed="${i === 0}">${text}</button>`).join('');
+  let filter = '';
+  function apply() {
+    const q = $('q').value.trim().toLowerCase(), group = $('group').value;
+    let shown = 0;
+    for (const row of rows) {
+      const ok = (!q || row.dataset.tag.toLowerCase().includes(q)) && (!group || row.dataset.group === group) && (!filter || (filter === 'build' ? 'build' in row.dataset : row.dataset.verdict === filter));
+      row.hidden = !ok;
+      if (ok) shown++;
+    }
+    for (const section of document.querySelectorAll('#list section')) section.hidden = !section.querySelector('details.el:not([hidden])');
+    $('count').textContent = shown === rows.length ? `Showing all ${rows.length}. Tap a row for the measurements and the idea.` : `Showing ${shown} of ${rows.length}.`;
+  }
+  $('filters').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button');
+    if (!b) return;
+    filter = b.dataset.filter;
+    for (const other of $('filters').children) other.setAttribute('aria-pressed', other === b);
+    apply();
+  });
+  $('q').addEventListener('input', apply);
+  $('group').addEventListener('change', apply);
+  apply();
+
+  // A link to a row opens it.
+  function openFromHash() {
+    const row = location.hash.length > 1 ? document.getElementById(location.hash.slice(1)) : null;
+    if (row?.matches('details.el')) { row.hidden = false; row.closest('section').hidden = false; row.open = true; }
+  }
+  addEventListener('hashchange', openFromHash);
+  openFromHash();
+
+  // ---------------------------------------------------------------- draw it here
+  // #region specimen
+  async function specimen(row) {
+    const entry = ELEMENTS.find((e) => e.tag === row.dataset.tag);
+    const { wrap, target } = build(entry, await assets());
+    wrap.setAttribute('drawable', '');
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable');
+    canvas.setAttribute('layoutsubtree', '');
+    canvas.append(wrap);
+    const ctx = canvas.getContext('2d');
+    let tilt = true;
+    canvas.addEventListener('paint', () => {
+      const dpr = canvas.width / canvas.clientWidth || 1;
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      ctx.translate(14, 18);
+      if (tilt) ctx.rotate(-0.05);
+      // Drawing also places the element's hit region, so taps and typing land on the rotated picture.
+      try { ctx.drawElementImage(wrap, 0, 0); } catch (err) { ctx.font = '13px system-ui'; ctx.fillStyle = '#b3261e'; ctx.fillText(err.message.replace(/^.*?: /, ''), 0, 14); }
+    });
+    new ResizeObserver(([e]) => {
+      const box = e.devicePixelContentBoxSize?.[0] ?? { inlineSize: canvas.clientWidth, blockSize: canvas.clientHeight };
+      if (canvas.width !== box.inlineSize) canvas.width = box.inlineSize;
+      if (canvas.height !== box.blockSize) canvas.height = box.blockSize;
+      canvas.requestPaint?.();
+    }).observe(canvas);
+    const tools = row.querySelector('.specimen-tools');
+    const add = (text, fn) => { const b = Object.assign(document.createElement('button'), { type: 'button', textContent: text }); b.onclick = fn; tools.append(b); };
+    add('Rotation on/off', () => { tilt = !tilt; canvas.requestPaint?.(); });
+    if (target?.localName === 'dialog') {
+      add('show()', () => { target.close(); target.show(); });
+      add('showModal()', () => { target.close(); target.showModal(); });
+      add('close()', () => target.close());
+    }
+    // In a shadow root, so the site's stylesheet does not restyle the test markup.
+    const host = document.createElement('div');
+    host.attachShadow({ mode: 'open' }).innerHTML = '<style>canvas { display: block; width: 100%; height: 170px; touch-action: manipulation; }</style>';
+    host.className = 'specimen';
+    host.shadowRoot.append(canvas);
+    tools.after(host);
+  }
+  // #endregion specimen
+  $('list').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button.try');
+    if (!b) return;
+    const row = b.closest('details.el');
+    b.remove();
+    if (supported) specimen(row);
+  });
+
+  // ---------------------------------------------------------------- run here
+  // #region live
+  const same = (a, b) => !!a && !!b && a.error === b.error && (a.box[0] * a.box[1] === 0) === (b.box[0] * b.box[1] === 0) && Math.abs(a.ink - b.ink) < 0.2 && a.hit === b.hit && !a.selfPaints === !b.selfPaints;
+  async function runHere() {
+    $('run').disabled = true;
+    window.__checkState = 'running';
+    let done = 0;
+    const live = await probeAll(ELEMENTS, await assets(), () => { $('liveNote').textContent = `Measuring ${++done} of ${ELEMENTS.length}…`; });
+    const differ = [];
+    for (const row of rows) {
+      const tag = row.dataset.tag, mine = live[tag], rec = results[tag];
+      const where = row.querySelector('.live');
+      if (mine.skipped || mine.crashed) { where.innerHTML = `<h4>This browser</h4><p>${esc(mine.skipped ?? mine.crashed)}</p>`; continue; }
+      const ok = rec && !rec.skipped && same(mine.inside, rec.inside) && same(mine.direct, rec.direct);
+      if (!ok && !(rec?.skipped)) differ.push(tag);
+      where.innerHTML = `<h4>This browser${ok ? ': same as the recording' : ': differs from the recording'}</h4><ul class="nums"><li><b>Inside a drawable wrapper:</b> ${fmt(mine.inside)}</li><li><b>As the drawable child itself:</b> ${fmt(mine.direct)}</li>${mine.forced ? `<li><b>With display: block forced:</b> ${fmt(mine.forced)}</li>` : ''}</ul>`;
+      if (!ok) row.querySelector('summary').insertAdjacentHTML('beforeend', '<span class="chip partly">differs here</span>');
+    }
+    const version = navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? 'this browser';
+    $('liveNote').innerHTML = `${esc(version)}: ${ELEMENTS.length - differ.length} of ${ELEMENTS.length} rows match the recording.` + (differ.length ? ` Different: ${differ.map((t) => `<a href="#${slug(t)}">${esc(display(t))}</a>`).join(', ')}.` : '');
+    // Ideas again, against this browser: its draw, ink and hit-test numbers with the recording's input checks.
+    const merged = Object.fromEntries(ELEMENTS.map((e) => [e.tag, live[e.tag].skipped || live[e.tag].crashed ? live[e.tag] : { ...results[e.tag], ...live[e.tag], picture: undefined }]));
+    showIdeas(merged, `${version}'s measurements`);
+    $('copy').hidden = false;
+    $('copy').onclick = () => navigator.clipboard.writeText(JSON.stringify({ browser: navigator.userAgent, results: live }, null, 1)).then(() => ($('copy').textContent = 'Copied'));
+    window.__checkState = 'done';
+    window.__results = ELEMENTS.map((e) => ({ name: e.tag, ok: !differ.includes(e.tag) }));
+    window.__live = live;
+  }
+  // #endregion live
+  $('run').addEventListener('click', runHere);
+  if (!supported) { $('run').disabled = true; $('liveNote').textContent = 'This browser does not have the API, so the rows show the recording only.'; window.__results = []; }
+  else if (new URLSearchParams(location.search).get('autochecks') === '1') runHere();
+  else window.__checkState = 'waiting';
+</script>
+</body>
+</html>
