@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Four games made of live elements</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .idea output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 6em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button { min-height: 40px; font: inherit; }
+  .idea .controls label { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* #region plain-css */
+  /* The elements as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: flex; flex-wrap: wrap; gap: 10px; align-content: start; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .plain-note { margin: 0; flex-basis: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+  /* #endregion plain-css */
+
+  /* #region drag-css */
+  .pcard { box-sizing: border-box; width: 124px; height: 150px; margin: 0; padding: 12px; border: 2px solid hsl(var(--hue) 60% 38%); border-radius: 10px; outline: none; background: hsl(var(--hue) 90% 93%); color: #1d2433; font: 14px/1.3 system-ui, sans-serif; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  /* A finger that starts on a card drags the card. A finger that starts anywhere else in the canvas scrolls the page. */
+  .pcard { touch-action: none; }
+  .pcard:focus-visible { box-shadow: inset 0 0 0 3px #1d2433; }
+  .pcard h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.2; color: hsl(var(--hue) 70% 26%); }
+  .pcard p { margin: 0; }
+  /* The copy of the card's pixels. setDragImage() needs an element that is laid out, so it sits outside the window. */
+  #dragGhost { position: fixed; left: -400px; top: -400px; z-index: 50; pointer-events: none; }
+  #dragGhost.follow { will-change: transform; }
+  .tray { box-sizing: border-box; display: flex; flex-wrap: wrap; gap: 8px; align-content: start; min-height: 158px; margin-top: 10px; padding: 10px; border: 2px dashed var(--line); border-radius: 12px; }
+  .tray.over { border-color: var(--accent); background: var(--card); }
+  .tray .hint { margin: 0; align-self: center; color: var(--muted); font-size: 14px; }
+  .tray .note { box-sizing: border-box; display: grid; gap: 2px; width: 168px; padding: 8px 10px; border-left: 6px solid hsl(var(--hue) 60% 45%); border-radius: 8px; background: var(--card); cursor: grab; }
+  .tray .note small { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+  .tray .note button { justify-self: start; min-height: 36px; }
+  /* #endregion drag-css */
+
+  /* #region pixel-css */
+  #pixelForm { display: grid; grid-template-columns: repeat(16, 16px); width: 256px; height: 256px; margin: 0; background: #f4f1e8; touch-action: none; }
+  #pixelForm input { appearance: none; box-sizing: border-box; width: 16px; height: 16px; margin: 0; border: 0; border-radius: 0; outline: none; background: #f4f1e8; cursor: crosshair; }
+  #pixelForm input:checked { background: #1b1f3b; }
+  /* An outline is outside an element's picture, so the focused box is marked inside it. */
+  #pixelForm input:focus-visible { box-shadow: inset 0 0 0 3px #ff9f1c; }
+  /* #endregion pixel-css */
+
+  /* #region puzzle-css */
+  #puzzleCanvas { width: 324px; max-width: 100%; margin-inline: auto; background: #1d2433; }
+  #puzzleFrame { display: block; width: 324px; height: 324px; border: 0; }
+  .shield { width: 108px; height: 108px; touch-action: pan-y; }
+  .plain-controls #puzzleFrame { max-width: 100%; border: 1px solid var(--line); }
+  /* #endregion puzzle-css */
+
+  /* #region curl-css */
+  .leaf { box-sizing: border-box; width: 300px; height: 380px; margin: 0; padding: 26px 18px 0 30px; overflow: hidden; outline: none; color: #22283a; caret-color: #c1121f; font: 17px/26px Georgia, 'Times New Roman', serif;
+    background: repeating-linear-gradient(#faf6e9 0 25px, #c5d3ea 25px 26px); }
+  .leaf h3 { margin: 0; font: 700 19px/26px Georgia, 'Times New Roman', serif; color: #22283a; }
+  .leaf p, .leaf ul { margin: 0; }
+  .leaf ul { padding-left: 22px; }
+  #curlGrip { width: 96px; height: 96px; touch-action: none; cursor: grab; }
+  .plain-controls .leaf { max-width: 100%; border: 1px solid var(--line); }
+  /* #endregion curl-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Four games made of live elements</h1>
+  <p class="lede">
+    Four ideas from the "play" group of the <a href="/elements/">element catalogue</a>: a hand of <code>draggable</code> cards that can be
+    dragged out of the canvas, a picture made of 256 checkboxes, a same-origin <code>&lt;iframe&gt;</code> cut into a sliding puzzle, and a
+    <code>contenteditable</code> page whose corner curls. Each one draws a single element in several places or leaves an element out of
+    the drawing, so the question on this page is where input goes when the picture and the element no longer line up.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#drag">Drag a card out</a><a href="#pixels">Checkbox pixel editor</a><a href="#puzzle">Sliding puzzle</a><a href="#curl">Curling page</a>
+  </nav>
+
+  <section class="idea" id="drag">
+    <h2>Drag a card out of the scene</h2>
+    <p>Five notes, each a <code>draggable</code> element drawn by the canvas. Drag one to the tray under the canvas, to another place in the hand, or to the tray of this page in a second window. With a mouse the browser runs the drag. With a finger, put it on a card and move. Text dragged from any page can be dropped on the canvas and becomes a card.</p>
+    <canvas id="dragCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 250px">
+      <!-- #region drag-html -->
+      <article class="pcard" drawable draggable="true" tabindex="0" data-id="a" style="--hue: 12"><h3>Buy stamps</h3><p>Twelve, second class.</p></article>
+      <article class="pcard" drawable draggable="true" tabindex="0" data-id="b" style="--hue: 48"><h3>Water the plants</h3><p>Not the cactus.</p></article>
+      <article class="pcard" drawable draggable="true" tabindex="0" data-id="c" style="--hue: 150"><h3>Return the book</h3><p>Due on Friday.</p></article>
+      <article class="pcard" drawable draggable="true" tabindex="0" data-id="d" style="--hue: 205"><h3>Book the train</h3><p>Two seats, 09:14.</p></article>
+      <article class="pcard" drawable draggable="true" tabindex="0" data-id="e" style="--hue: 280"><h3>Call the dentist</h3><p>Before five.</p></article>
+      <!-- #endregion drag-html -->
+    </canvas>
+    <canvas id="dragGhost" width="1" height="1" aria-hidden="true"></canvas>
+    <div id="dragTray" class="tray" aria-label="Tray"><p class="hint">The tray. It is plain HTML outside the canvas. Drop a card here.</p></div>
+    <div class="controls">
+      <button type="button" id="dragReset">Put every card back</button>
+      <label><input type="checkbox" id="dragOwnImage"> Use the browser's own drag image</label>
+    </div>
+    <output class="line" id="dragOut"></output>
+    <p class="found">The drag image is the card as the canvas drew it, tilted and with its shadow. The canvas draws that one card alone, copies the region into a plain canvas with <code>drawImage()</code> and draws the scene again, all inside the <code>dragstart</code> listener. The card leaves the scene because the paint handler stops drawing it. It is removed from the document when <code>dragend</code> reports <code>dropEffect</code> "move".</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#drag-html"><b>The cards are <code>draggable</code> and <code>drawable</code> children of the canvas.</b></li>
+      <li data-code="/play/drag.js#drag-draw"><b>Draw the hand, and leave out the card that is being dragged.</b></li>
+      <li data-code="/play/drag.js#drag-image"><b>Copy the card's pixels for the drag image.</b></li>
+      <li data-code="/play/drag.js#drag-native"><b>Route 1: <code>dragstart</code>, <code>setDragImage()</code>, <code>drop</code> and <code>dragend</code>.</b></li>
+      <li data-code="/play/drag.js#drag-pointer"><b>Route 2, for touch: pointer events and the same copied pixels.</b></li>
+      <li data-code="#drag-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="pixels">
+    <h2>Pixel editor from checkboxes</h2>
+    <p>A form of 256 checkboxes, drawn as a 16 by 16 picture. Tap a square to toggle it, or drag across the squares to draw. The pattern behind the editor is the same form drawn again at a quarter of the size. Arrow keys move between the boxes and Space toggles one.</p>
+    <canvas id="pixelCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 320px">
+      <form id="pixelForm" drawable aria-label="Picture, 16 by 16"></form>
+    </canvas>
+    <div class="controls">
+      <button type="reset" form="pixelForm">Reset the form</button><button type="button" id="pixelClear">Clear</button><button type="button" id="pixelInvert">Invert</button>
+    </div>
+    <output class="line" id="pixelOut"></output>
+    <p class="found">The picture has no other store: the hex string under the canvas is read from <code>FormData</code> in the paint handler. "Reset the form" is a <code>&lt;button type="reset"&gt;</code> with no script, and the picture goes back to the boxes' <code>checked</code> attributes.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/play/pixels.js#pixel-form"><b>Build the boxes and read the picture from <code>FormData</code>.</b></li>
+      <li data-code="/play/pixels.js#pixel-draw"><b>Draw the form as the editor and as the pattern, and ring each box that changed.</b></li>
+      <li data-code="/play/pixels.js#pixel-pointer"><b>Draw by dragging.</b></li>
+      <li data-code="#pixel-css"><b>Styles: a checkbox as a flat square.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="puzzle">
+    <h2>Sliding puzzle of a live page</h2>
+    <p>The nine squares are one <code>&lt;iframe&gt;</code> that holds <a href="/play/frame.html">a small page</a>. Tap plain text on a tile next to the gap to slide it. Tap a button, a link, a checkbox or the text field on any tile and the frame gets the tap. Scroll a tile with the wheel or a finger and every tile shows the new position.</p>
+    <canvas id="puzzleCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 324px">
+      <iframe id="puzzleFrame" drawable src="/play/frame.html" title="The page inside the puzzle"></iframe>
+    </canvas>
+    <div class="controls">
+      <button type="button" id="puzzleShuffle">Shuffle</button><button type="button" id="puzzleSolve">Solve</button>
+    </div>
+    <output class="line" id="puzzleOut"></output>
+    <p class="found">An element has one hit region, and nine draws of the frame leave it at the last one. So the page moves the frame's region under whichever tile the pointer is on, and covers the other eight cells with transparent elements that are placed after it. Where regions overlap, the one that was placed last gets the input.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/play/puzzle.js#puzzle-draw"><b>Draw the frame nine times, each through the clip of one tile.</b></li>
+      <li data-code="/play/puzzle.js#puzzle-input"><b>Put the frame's hit region under the active tile and shields over the rest.</b></li>
+      <li data-code="/play/puzzle.js#puzzle-tap"><b>Decide whether a tap is the frame's or slides the tile.</b></li>
+      <li data-code="/play/frame.html"><b>The page in the frame.</b></li>
+      <li data-code="#puzzle-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="curl">
+    <h2>Contenteditable on a curling page</h2>
+    <p>A notebook of four pages. Each page is a <code>contenteditable</code> element. Tap the text and type. Drag the curled corner to the left to turn the page, or use the buttons. The slider sets how far the corner stays curled. The back of the curled part shows the page's own text in reverse, and it changes as you type.</p>
+    <canvas id="curlCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 412px">
+      <!-- #region curl-html -->
+      <div class="leaf" drawable contenteditable="true" role="textbox" aria-multiline="true" aria-label="Page 1 of 4" spellcheck="false"><h3>Page 1</h3><p>This page is an element that can be edited. Tap here and type. The corner at the bottom right is curled, and the back of the curl is this same element, drawn a second time and mirrored about the fold. Type until the words reach the corner and they show there in reverse. Drag the corner to the left to turn the page. The slider under the notebook sets how far the corner stays curled.</p></div>
+      <div class="leaf" drawable contenteditable="true" role="textbox" aria-multiline="true" aria-label="Page 2 of 4" spellcheck="false"><h3>Page 2: a list</h3><ul><li>Stamps, twelve</li><li>Water the plants</li><li>Library book, Friday</li><li>Train, two seats</li><li>Dentist, before five</li><li>Lamp for the hall</li><li>Batteries, four AA</li><li>Paper for the printer</li><li>Tea, the green tin</li><li>String, a long piece</li><li>Something for Sunday</li></ul></div>
+      <div class="leaf" drawable contenteditable="true" role="textbox" aria-multiline="true" aria-label="Page 3 of 4" spellcheck="false"><h3>Page 3</h3><p>An almost empty page. Write on it, turn back to page 2 and forward again: the text is still here, because a page that is not on top is the same element, kept in the canvas and not drawn.</p></div>
+      <div class="leaf" drawable contenteditable="true" role="textbox" aria-multiline="true" aria-label="Page 4 of 4" spellcheck="false"><h3>Page 4</h3><p>The last page. Its corner does not curl, because there is no page under it.</p></div>
+      <div id="curlGrip" drawable aria-hidden="true"></div>
+      <!-- #endregion curl-html -->
+    </canvas>
+    <div class="controls">
+      <button type="button" id="curlPrev">Previous page</button><button type="button" id="curlNext">Next page</button>
+      <label>Curl <input type="range" id="curlHold" min="0" max="45" value="16" aria-label="How far the corner stays curled"></label>
+    </div>
+    <output class="line" id="curlOut"></output>
+    <p class="found">The page is drawn in two pieces through two clips: the flat part where it lies, and the part past the fold line through a reflection, which <code>drawElementImage()</code> accepts like any other transform. The last draw of the page is clipped away at the flat position, so a tap puts the caret where the flat text is.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#curl-html"><b>Four editable pages and a transparent grip, all <code>drawable</code>.</b></li>
+      <li data-code="/play/curl.js#curl-geometry"><b>The fold line and the two halves of the page.</b></li>
+      <li data-code="/play/curl.js#curl-draw"><b>Draw the flat part, the mirrored back and the shadows, then place the input.</b></li>
+      <li data-code="/play/curl.js#curl-grip"><b>Drag the corner.</b></li>
+      <li data-code="#curl-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>All four demos use the same three facts about <code>drawElementImage()</code>:</p>
+  <ul>
+    <li><b>An element can be drawn many times, and it has one hit region.</b> Every draw moves the region to that draw. The pattern of the pixel editor, the nine tiles and the mirrored back of the page are extra draws. Each demo ends its frame with one more draw of the element at the place where input should go, inside an empty clip, which moves the region and adds no pixels.</li>
+    <li><b>Where two hit regions overlap, the element that was drawn last gets the input.</b> The order in the document does not decide it. The puzzle covers eight cells of the frame's region with transparent elements placed after the frame, and the notebook puts a transparent grip over the corner of the page the same way.</li>
+    <li><b>An element that is not drawn keeps the region of its last draw.</b> A card that is being dragged, a page that is not on top and a shield that is not needed are moved out of the way with <code>updateElementGeometry()</code> and a transform that shrinks the region to a point.</li>
+  </ul>
+  <p>Dragging by touch is kept apart from scrolling with <code>touch-action</code> on the drawn elements: <code>none</code> on the cards, the form and the grip, and <code>pan-y</code> on the canvas round them. The browser applies the value of the drawn element under the finger.</p>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="/play/kit.js#mount"><b>The paint loop and the draw helpers shared by the four demos.</b></li>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/play/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/play/kit.js#plain"><b>The elements are then shown as plain HTML.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window, and none of them touches the demos above. Pixels are read from a <code>drawImage()</code> copy, not from the drawable canvas.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21, with a mouse, a keyboard and emulated touch at 412 px wide. Not yet run on a phone.</p>
+  <ul class="findings">
+    <li><b>A <code>draggable</code> element drawn by a canvas starts a native drag.</b> A mouse drag that began on the drawn card raised <code>dragstart</code> on the card. <code>dragover</code> and <code>drop</code> reached the tray outside the canvas, and <code>dragend</code> on the card reported <code>dropEffect</code> "move". The canvas and the drawn cards also take <code>dragover</code> and <code>drop</code>.</li>
+    <li><b>The canvas pixels of one card can be copied inside <code>dragstart</code>.</b> A draw outside the paint event is in the canvas at once, so the card is drawn alone, copied with <code>drawImage()</code> and the scene drawn again in one task. What the browser then shows as the drag image, with <code>setDragImage()</code> and without it, is not verified: the test browser has no drag image to read. The checkbox under the tray switches between the two on a real device.</li>
+    <li><b>An emulated long press did not start a drag.</b> A touch held for 0.9 s on a drawn card and then moved raised <code>pointerdown</code> and no <code>dragstart</code>. A long press does nothing in the headless browser outside a canvas either, so this says nothing about a phone. The page has a second route with pointer events for touch and pen, and the line under the demo counts each route.</li>
+    <li><b><code>touch-action</code> on a drawn element is applied where the element is drawn.</b> A touch that began on a card (<code>none</code>) moved the card and did not scroll. A touch that began on the canvas beside the cards (<code>pan-y</code>) scrolled the page 97 px. The same held for the form of checkboxes and the canvas round it.</li>
+    <li><b>A checkbox in a drawn form is toggled by a tap, and a change made by script raises <code>paint</code>.</b> <code>changedElements</code> held the form, which is the <code>drawable</code> element, and not the box. <code>form.reset()</code> and a reset button raised <code>paint</code> too. The paint handler reads the picture from <code>FormData</code>.</li>
+    <li><b>An element drawn at a quarter of its size kept hard edges.</b> With <code>imageSmoothingEnabled</code> off, four 20 px columns drawn 5 px wide read 0, 255, 0, 255.</li>
+    <li><b>Where hit regions overlap, the element drawn last gets the input.</b> The order of the elements in the document did not matter. A transparent element placed after the iframe took the pointer over that part of the frame.</li>
+    <li><b>One tile of an iframe takes real input.</b> With the frame's region placed under a tile, a click went to the button at the matching point of the frame, the wheel scrolled the frame 90 px, and a touch drag scrolled it. A scroll inside the frame raised <code>paint</code> on the canvas, so all nine tiles followed.</li>
+    <li><b>Hit regions moved in <code>pointerdown</code> change where the same touch goes.</b> A touch that began on a shield, which then moved the frame's region under the finger, scrolled the frame by 35 px in that same gesture, and its tap was delivered to the frame as a trusted <code>click</code>. The page also has its own route (the frame document's <code>elementFromPoint()</code> and <code>click()</code>), used only if no trusted click arrives within 120 ms. The line under the puzzle counts both.</li>
+    <li><b><code>drawElementImage()</code> accepts a reflection.</b> The pixels are mirrored, and so are <code>getBoundingClientRect()</code> and <code>elementFromPoint()</code> for the element's children, until the next draw.</li>
+    <li><b>A <code>contenteditable</code> element drawn in two pieces takes the caret at its flat place.</b> A tap on the drawn page focused it, typed text was added, and each key raised <code>paint</code>, which redrew the flat part and the mirrored back. A page that is not on top keeps its text and is not drawn.</li>
+    <li><b>Not verified:</b> everything on a phone. In particular whether a long press on a drawn card starts a native drag on Android and what the drag image shows, a drop into a second window, the on-screen keyboard over the notebook and over the text field in the puzzle, touch selection handles on the curled page, and the speed of 42 small draws of the form in each frame while a ring is moving.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  // A demo's script is loaded and started the first time its section comes near the screen.
+  const started = new Set();
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting || started.has(e.target.id)) continue;
+      started.add(e.target.id);
+      watch.unobserve(e.target);
+      import(`./${e.target.id}.js`).then((m) => { (window.playDemos ??= {})[e.target.id] = m.default(); }).catch((err) => { console.error(e.target.id, err); window.__gfx?.report?.('error', `${e.target.id}: ${err.message}`); });
+    }
+  }, { rootMargin: '100px 0px' });
+  if (supported) document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+  
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const need = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+  // A fixture canvas on the test stage. paint(ctx, canvas, event) runs on every paint event.
+  async function rig(html, paint, w = 240, h = 120) {
+    need();
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    const frame = canvas.querySelector('iframe');
+    if (frame) await new Promise((r) => { frame.addEventListener('load', r, { once: true }); setTimeout(r, 1500); });
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, ctx, paints: 0, error: null, changed: [] };
+    state.draw = () => { ctx.reset(); try { paint(ctx, canvas); state.error = null; } catch (e) { state.error = e; } };
+    canvas.addEventListener('paint', (event) => { state.paints++; state.changed.push([...(event.changedElements ?? [])]); state.draw(); });
+    state.frame = async () => { const n = state.paints; canvas.requestPaint(); for (let i = 0; i < 80 && state.paints === n; i++) await sleep(25); await sleep(40); };
+    for (let i = 0; i < 12; i++) { await state.frame(); if (state.paints && !state.error) break; }
+    if (state.error) throw state.error;
+    await sleep(120);
+    return state;
+  }
+  // Pixels are read from a small copy made with drawImage(), never from the drawable canvas itself.
+  const copy = document.createElement('canvas');
+  const read = (state, x, y, w = 1, h = 1) => {
+    copy.width = w; copy.height = h;
+    const c2 = copy.getContext('2d');
+    c2.drawImage(state.canvas, x, y, w, h, 0, 0, w, h);
+    return c2.getImageData(0, 0, w, h).data;
+  };
+  const draw = (ctx, el, x = 0, y = 0, w = el.offsetWidth, h = el.offsetHeight) => ctx.drawElementImage(el, x, y, w, h);
+  const hidden = (ctx, el, x, y) => { ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 0, 0); ctx.clip(); draw(ctx, el, x, y); ctx.restore(); };
+  const q = (state, sel) => state.canvas.querySelector(sel);
+  const at = (state, x, y) => { const r = state.canvas.getBoundingClientRect(); return document.elementFromPoint(r.left + x, r.top + y); };
+  const after = async (state, change, ms = 350) => {
+    const n = state.paints;
+    await change();
+    await sleep(ms);
+    return { count: state.paints - n, changed: state.changed.slice(n).flat() };
+  };
+  const names = (list) => [...new Set(list.map((el) => `<${el.localName}>`))].join(', ') || 'none';
+  const rgb = (d) => `${d[0]},${d[1]},${d[2]}`;
+  const BOXES = '<div id="a" drawable style="width:100px;height:60px;background:#c00"></div><div id="b" drawable style="width:100px;height:60px;background:#06c"></div>';
+  const FRAME = `<iframe drawable style="width:180px;height:120px;border:0" srcdoc="<body style='margin:0'><div id='red' style='height:60px;background:#f00'></div><button id='go' style='display:block;width:90px;height:60px;margin:0;border:0;background:#00f'></button><div style='height:400px;background:#0f0'></div>"></iframe><div id="shield" drawable style="width:90px;height:60px"></div>`;
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'Where two hit regions overlap, the element drawn last gets the input',
+      why: 'The puzzle and the notebook put a transparent element over part of another element by placing it later. Two boxes overlap. In one canvas the first in the document is drawn last, in the other the second is. elementFromPoint() in the overlap must return the one drawn last both times.',
+      run: async () => {
+        const s1 = await rig(BOXES, (ctx, c) => { draw(ctx, c.querySelector('#b'), 60, 30); draw(ctx, c.querySelector('#a'), 20, 10); });
+        const s2 = await rig(BOXES, (ctx, c) => { draw(ctx, c.querySelector('#a'), 20, 10); draw(ctx, c.querySelector('#b'), 60, 30); });
+        const one = at(s1, 90, 50), two = at(s2, 90, 50);
+        if (one?.id !== 'a' || two?.id !== 'b') throw new Error(`drawn last: a, found ${one?.id || one?.localName}. Drawn last: b, found ${two?.id || two?.localName}`);
+        return 'First in the document drawn last: it is found. Second in the document drawn last: it is found. The draw order decides.';
+      },
+    },
+    {
+      name: 'A draw outside the paint event can be copied in the same task',
+      why: 'The drag image is made inside dragstart: the canvas is cleared, one card is drawn alone, the region is copied with drawImage() and the scene is drawn again. The copy must hold the card alone, and the canvas must hold both boxes afterwards.',
+      run: async () => {
+        const s = await rig(BOXES, (ctx, c) => { draw(ctx, c.querySelector('#a'), 10, 10); draw(ctx, c.querySelector('#b'), 60, 40); });
+        s.ctx.reset(); draw(s.ctx, q(s, '#b'), 60, 40);
+        const alone = read(s, 30, 30), card = read(s, 120, 80);
+        s.draw();
+        const back = read(s, 30, 30);
+        if (alone[3] > 4 || card[2] < 150 || back[0] < 150) throw new Error(`copy: alpha ${alone[3]} where the other box was, card ${rgb(card)}. Afterwards ${rgb(back)}`);
+        return `The copy has alpha ${alone[3]} where the other box is drawn and ${rgb(card)} on the card. The scene pixel is ${rgb(back)} again afterwards.`;
+      },
+    },
+    {
+      name: 'Checking a box by script raises paint, and FormData matches the drawn pixels',
+      why: 'The pixel editor has no listener for its picture. Three of 16 boxes are checked by script. A paint event must follow, the drawn squares must be dark, and FormData must list the same three.',
+      run: async () => {
+        const boxes = Array.from({ length: 16 }, (_, i) => `<input type="checkbox" name="p" value="${i}" style="appearance:none;width:20px;height:20px;margin:0;background:#fff">`).join('');
+        const s = await rig(`<style>.px input:checked{background:#000 !important}</style><form class="px" drawable style="display:grid;grid-template-columns:repeat(4,20px);width:80px;height:80px;margin:0">${boxes}</form>`, (ctx, c) => draw(ctx, c.querySelector('form'), 10, 10));
+        const form = q(s, 'form'), list = [...form.elements.p];
+        const r = await after(s, () => { for (const i of [0, 5, 15]) list[i].checked = true; });
+        if (!r.count) throw new Error('no paint event after the boxes were checked');
+        const data = new FormData(form).getAll('p').join(',');
+        const dark = [0, 5, 15].map((i) => read(s, 20 + (i % 4) * 20, 20 + (i >> 2) * 20)[0]), light = read(s, 40, 20)[0];
+        if (data !== '0,5,15' || dark.some((v) => v > 40) || light < 215) throw new Error(`FormData ${data}, checked squares ${dark}, an unchecked square ${light}`);
+        return `${r.count} paint event(s), changedElements: ${names(r.changed)}. FormData: ${data}. Checked squares read ${dark.join(', ')} and an unchecked one ${light}.`;
+      },
+    },
+    {
+      name: 'form.reset() raises paint',
+      why: '"Reset the form" is a reset button with no script. The picture can only follow if the reset changes the boxes\' pictures and raises paint.',
+      run: async () => {
+        const s = await rig('<style>.rs input:checked{background:#000 !important}</style><form class="rs" drawable style="width:40px;height:20px;margin:0;display:flex"><input type="checkbox" checked style="appearance:none;width:20px;height:20px;margin:0;background:#fff"><input type="checkbox" style="appearance:none;width:20px;height:20px;margin:0;background:#fff"></form>', (ctx, c) => draw(ctx, c.querySelector('form'), 10, 10));
+        const form = q(s, 'form');
+        await after(s, () => { form.elements[0].checked = false; form.elements[1].checked = true; });
+        const changed = [read(s, 20, 20)[0], read(s, 40, 20)[0]];
+        const r = await after(s, () => form.reset());
+        const reset = [read(s, 20, 20)[0], read(s, 40, 20)[0]];
+        if (!r.count || reset[0] > 40 || reset[1] < 215) throw new Error(`${r.count} paint events, squares ${reset} after the reset`);
+        return `${r.count} paint event(s). Squares read ${changed.join(' and ')} before the reset and ${reset.join(' and ')} after it.`;
+      },
+    },
+    {
+      name: 'An element drawn at a quarter of its size with imageSmoothingEnabled off',
+      why: 'The pattern behind the editor is the form drawn at 1/4 size. The check draws an 80 px box with four 20 px columns (black, white, black, white) at 20 px wide and reads the middle of each 5 px column, to report whether the small picture keeps hard edges.',
+      run: async () => {
+        const s = await rig('<div drawable style="width:80px;height:40px;display:flex"><i style="flex:1;background:#000"></i><i style="flex:1;background:#fff"></i><i style="flex:1;background:#000"></i><i style="flex:1;background:#fff"></i></div>', (ctx, c) => { ctx.imageSmoothingEnabled = false; draw(ctx, c.querySelector('div'), 10, 10, 20, 10); });
+        const v = [0, 1, 2, 3].map((i) => read(s, 12 + i * 5, 15)[0]);
+        if (v[0] > 60 || v[1] < 195 || v[2] > 60 || v[3] < 195) throw new Error(`columns read ${v}`);
+        const edge = read(s, 15, 15)[0];
+        return `The four columns read ${v.join(', ')} at their middles and ${edge} on the first boundary.`;
+      },
+    },
+    {
+      name: 'One tile of an iframe: the click point maps into the frame, and a shield placed later covers the rest',
+      why: 'The puzzle draws the frame through a clip, moved so that one part of it lands in a tile, and covers the rest of the frame\'s region with transparent elements. The bottom left part of a frame (a button) is drawn at the top right. elementFromPoint() there must return the iframe, the frame\'s own elementFromPoint() at the mapped point must return the button, and a point under the shield must return the shield.',
+      run: async () => {
+        // The part of the frame at 0,60 (90 by 60) is drawn at 130,10. So the frame is placed at 130,-50.
+        const s = await rig(FRAME, (ctx, c) => {
+          const f = c.querySelector('iframe'), sh = c.querySelector('#shield');
+          ctx.save(); ctx.beginPath(); ctx.rect(130, 10, 90, 60); ctx.clip(); draw(ctx, f, 130, -50); ctx.restore();
+          hidden(ctx, f, 130, -50);
+          hidden(ctx, sh, 130, 70);
+        }, 240, 140);
+        const f = q(s, 'iframe');
+        const tile = read(s, 170, 40), outside = read(s, 100, 40);
+        if (tile[2] < 200 || tile[0] > 40 || outside[3] > 4) throw new Error(`tile pixel ${rgb(tile)}, alpha outside the clip ${outside[3]}`);
+        const top = at(s, 170, 40), under = at(s, 170, 100);
+        const inner = f.contentDocument.elementFromPoint(170 - 130, 40 + 50);
+        if (top !== f) throw new Error(`elementFromPoint on the tile returned ${top?.localName}`);
+        if (inner?.id !== 'go') throw new Error(`the frame's elementFromPoint returned ${inner?.id || inner?.localName}`);
+        if (under?.id !== 'shield') throw new Error(`under the shield: ${under?.id || under?.localName}`);
+        return `Tile pixel ${rgb(tile)}. On the tile: the iframe, and the frame's own elementFromPoint(40, 90) is the button. On the part of the frame's region below the tile: the shield.`;
+      },
+    },
+    {
+      name: 'Scrolling the frame raises paint, and the tile shows the new position',
+      why: 'Every tile must follow when the frame scrolls. The frame in the fixture is scrolled 60 px from script, with no requestPaint(). The tile that showed red must show the blue button.',
+      run: async () => {
+        const s = await rig(FRAME, (ctx, c) => { const f = c.querySelector('iframe'); ctx.beginPath(); ctx.rect(10, 10, 90, 60); ctx.clip(); draw(ctx, f, 10, 10); }, 240, 140);
+        const f = q(s, 'iframe'), before = read(s, 40, 40);
+        const r = await after(s, () => f.contentWindow.scrollTo(0, 60), 500);
+        const now = read(s, 40, 40);
+        if (!r.count) throw new Error('no paint event after the frame scrolled');
+        if (before[0] < 200 || now[2] < 200 || now[0] > 40) throw new Error(`pixel ${rgb(before)} before and ${rgb(now)} after`);
+        return `${r.count} paint event(s), changedElements: ${names(r.changed)}. Tile pixel ${rgb(before)} before and ${rgb(now)} after.`;
+      },
+    },
+    {
+      name: 'drawElementImage() through a reflection: pixels and rectangles are mirrored',
+      why: 'The back of the curled page is the page drawn through a transform with a negative determinant. A box with a red left half is drawn mirrored. The red must be on the right, and getBoundingClientRect() of the red child must report the right half.',
+      run: async () => {
+        const s = await rig('<div drawable style="width:100px;height:50px;background:#00f"><i id="red" style="display:block;width:50px;height:50px;background:#f00"></i></div>', (ctx, c) => { ctx.translate(220, 10); ctx.scale(-1, 1); draw(ctx, c.querySelector('div'), 0, 0); });
+        const left = read(s, 145, 35), right = read(s, 195, 35);
+        if (right[0] < 200 || left[2] < 200) throw new Error(`left half ${rgb(left)}, right half ${rgb(right)}`);
+        const r = q(s, '#red').getBoundingClientRect(), c = s.canvas.getBoundingClientRect();
+        const x = r.left - c.left;
+        if (Math.abs(x - 170) > 1.5 || Math.abs(r.width - 50) > 1.5) throw new Error(`the red child is reported at ${x.toFixed(1)}, ${r.width.toFixed(1)} wide`);
+        const found = at(s, 195, 35);
+        return `Left half ${rgb(left)}, right half ${rgb(right)}. The red child is reported ${x.toFixed(0)} px into the canvas, and elementFromPoint() on the red pixels returns <${found?.localName}${found?.id ? ` id="${found.id}"` : ''}>.`;
+      },
+    },
+    {
+      name: 'Text added to a contenteditable element raises paint, and a range reports the drawn place',
+      why: 'The notebook draws from the paint event only. Text is appended to an editable element by script, without focus. A paint event must follow, and a Range over the new word must report a box inside the drawn element.',
+      run: async () => {
+        const s = await rig('<div drawable contenteditable="true" style="width:180px;height:60px;margin:0;font:16px monospace;outline:none;background:#fff;color:#000">abc </div>', (ctx, c) => draw(ctx, c.querySelector('div'), 30, 20));
+        const el = q(s, 'div');
+        const r = await after(s, () => el.append('word'));
+        if (!r.count) throw new Error('no paint event after the text changed');
+        const range = document.createRange(); range.setStart(el.lastChild, 0); range.setEnd(el.lastChild, 4);
+        const b = range.getBoundingClientRect(), c = s.canvas.getBoundingClientRect(), x = b.left - c.left, y = b.top - c.top;
+        if (!b.width || x < 30 + 30 || x > 30 + 60 || y < 18 || y > 40) throw new Error(`the range is reported at ${x.toFixed(1)}, ${y.toFixed(1)}`);
+        return `${r.count} paint event(s), changedElements: ${names(r.changed)}. The new word is reported ${x.toFixed(1)} px into the canvas, ${b.width.toFixed(1)} px wide. The element is drawn at 30.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
