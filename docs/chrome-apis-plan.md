@@ -69,6 +69,7 @@ These run in Chrome 157 to 159 today, and most have a measured result behind the
 
 #### 2. A CSS-only carousel drawn as a cover flow
 
+- **Built:** [/carousel/](https://html-in-canvas.page/carousel/)
 - **Shows:** A scroller with scroll snap, ::scroll-marker and ::scroll-button(), written with no script, drawn by a canvas as a ring of tilted cards. The native markers and buttons are drawn where the scene wants them and still scroll the real list. Keyboard, touch fling and the accessibility tree are the scroller's own.
 - **Build:** Each slide is a drawable child, drawn with a perspective transform taken from its offset to the scroll position. sibling-index() gives each slide its slot on the ring. A scroll-state(snapped) query sets a custom property on the snapped slide, which the canvas reads as the focus uniform. A second layout draws multicol ::column fragments as book pages with a page-turn shader.
 - **Measured:** Marker and button pseudo-elements are in the element picture, and a real click on a drawn marker scrolled the list (Chromium 153 and 157). A scroll-state(stuck) query restyled a drawn element and raised a paint event by itself.
