@@ -60,9 +60,18 @@ const LIMITS = {
   resizeFlashes: 0,    // the same while the viewport height changes
   resizeClears: 6,     // backing-store writes to one visible canvas while the viewport height changes twice (a loop writes far more)
   resizeShift: 0.02,   // layout shift while the viewport height changes
-  glContexts: 8,       // most WebGL contexts alive at once; Chrome on Android keeps 8 per tab and takes the oldest away
+  glContexts: 3,       // most WebGL contexts alive at once: the page's own, one check fixture, one probe. Chrome on Android keeps 8 per tab and takes the oldest away
   lostCanvases: 0,     // visible canvases that lost their context and were not recovered (the guard's note was shown)
+  lostContexts: 0,     // contexts of any kind that were lost
+  gpuDevices: 1,       // WebGPU devices asked for; a page shares the one from /shared/backend.js
+  canvasMB: 96,        // most memory in all canvases at once, estimated by the guard (width x height x bytes per pixel x buffers)
+  canvasMP: 4,         // megapixels of the largest canvas; about one screen of a large phone
+  removedMB: 8,        // memory, at the end, in canvases that were taken out of the page and not freed
+  timedReadbacks: 2,   // different seconds in which pixels were read back from a GPU canvas with no tap and no live check running; a measurement at load and one after a resize make 2, a timer or a frame loop makes more
+  openSnapshots: 8,    // captureElementImage() pictures still open at the end (made, not closed, not collected); each holds a picture on the GPU
+  unaskedReadbackMP: 0.5, // megapixels of the largest such readback
 };
+// The graphics limits are measured by /shared/context-guard.js. docs/graphics-rules.md says what each is for.
 // The list of pages and each page's known exceptions come from the page.json
 // files of the checkout being measured. Its own build script is run first, so
 // the generated menu (public/shared/pages.js) exists and is current. A checkout
@@ -335,6 +344,16 @@ function summarise(r) {
     resizeFlashes: flashes(fvp),
     glContexts: j.gfx?.peak ?? 0,
     lostCanvases: j.gfx?.noted ?? 0,
+    lostContexts: j.gfx?.lost ?? 0,
+    gpuDevices: j.gfx?.devices ?? 0,
+    canvasMB: +((j.gfx?.peakBytes ?? 0) / 1e6).toFixed(1),
+    canvasMP: +((j.gfx?.peakCanvasPx ?? 0) / 1e6).toFixed(2),
+    removedMB: +((j.gfx?.removedBytes ?? 0) / 1e6).toFixed(1),
+    canvases: j.gfx?.canvases ?? 0,
+    timedReadbacks: j.gfx?.unaskedSeconds ?? 0,
+    openSnapshots: j.gfx?.snapshotsOpen ?? 0,
+    unaskedReadbacks: j.gfx?.unasked ?? 0,
+    unaskedReadbackMP: +((j.gfx?.largestUnasked ?? 0) / 1e6).toFixed(2),
     longTasks: j.longTasks.length,
     longTaskMs: sum(j.longTasks, (x) => x.ms),
     layouts: r.trace?.layouts ?? r.metrics.layouts,
@@ -356,6 +375,7 @@ function summarise(r) {
     resized: visibleResizes.filter((c) => c.writes > 2).map((c) => `${c.canvas} in ${c.host}: ${c.writes} writes (${c.same} unchanged) by ${Object.keys(c.by).slice(0, 2).join(', ')}`),
     forcedBy: r.trace?.forcedBy ?? {},
     contexts: j.gfx?.summary ?? '',
+    readbacks: Object.entries(j.gfx?.readsBy ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k} ×${v}`),
   };
   const ok = allow[r.href] ?? {};
   r.problems = [];
@@ -387,7 +407,7 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, pages.length) }, async
     results[i] = r;
     const m = r.summary;
     const flag = r.problems.length ? 'FAIL' : 'ok  ';
-    console.log(`${flag} ${pages[i].padEnd(22)} ${m ? `cls ${m.cls} scroll ${m.scrollPx}px focus ${m.focusMoves} overlay ${m.overlaySamples} blank ${m.blankFrames}/${m.blankAtEnd} changes ${m.bigChanges} flashes ${m.flashes}+${m.resizeFlashes} resize ${m.resizeClears}/${m.resizeShift} gl ${m.glContexts}/${m.lostCanvases} forced ${m.forcedLayouts} long ${m.longTaskMs}ms  [${Math.round(m.loadMs / 1000)}s, checks ${m.checks}]` : ''}`);
+    console.log(`${flag} ${pages[i].padEnd(22)} ${m ? `cls ${m.cls} scroll ${m.scrollPx}px focus ${m.focusMoves} overlay ${m.overlaySamples} blank ${m.blankFrames}/${m.blankAtEnd} changes ${m.bigChanges} flashes ${m.flashes}+${m.resizeFlashes} resize ${m.resizeClears}/${m.resizeShift} gl ${m.glContexts}/${m.lostCanvases} mem ${m.canvasMB}MB/${m.canvasMP}MP reads ${m.timedReadbacks} snaps ${m.openSnapshots} forced ${m.forcedLayouts} long ${m.longTaskMs}ms  [${Math.round(m.loadMs / 1000)}s, checks ${m.checks}]` : ''}`);
     for (const p of r.problems) console.log(`       - ${p}`);
     for (const p of r.allowed ?? []) console.log(`       (allowed) ${p}`);
   }

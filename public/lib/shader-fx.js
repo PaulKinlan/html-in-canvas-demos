@@ -257,7 +257,8 @@ export class FxSurface extends SurfaceElement {
     }
     if (this.backend === 'direct' && this.ctx) {
       liveDirect = Math.max(0, liveDirect - 1);
-      this.ctx.getExtension('WEBGL_lose_context')?.loseContext();
+      // The guard frees the context once the canvas has been out of the page for a moment.
+      globalThis.__gfx?.retire(this.canvas);
       this.ctx = null;
       this.backend = null;
     }
@@ -292,8 +293,7 @@ export class FxSurface extends SurfaceElement {
 
   #restart() {
     if (this.backend === 'direct') {
-      liveDirect = Math.max(0, liveDirect - 1);
-      this.ctx?.getExtension('WEBGL_lose_context')?.loseContext();
+      liveDirect = Math.max(0, liveDirect - 1); // swapCanvas() retires the old canvas
     }
     this.#dropGPU();
     this.backend = null;

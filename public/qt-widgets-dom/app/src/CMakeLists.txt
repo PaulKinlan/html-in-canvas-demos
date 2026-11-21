@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.21)
+project(qtwdom LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
+qt_standard_project_setup(REQUIRES 6.8)
+qt_add_executable(qtwdom main.cpp domwidget.cpp domwidget.h)
+target_link_libraries(qtwdom PRIVATE Qt6::Widgets)
+target_link_options(qtwdom PRIVATE -sEXPORTED_FUNCTIONS=_main,_qtw_changed,_qtw_scroll,_qtw_popup)

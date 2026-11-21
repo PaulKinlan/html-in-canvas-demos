@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Which 2D operation loses the canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center; margin: 10px 0; max-width: 640px; }
+  .bar button, #trials button { font: inherit; min-height: 44px; padding: 4px 12px; border-radius: 8px; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; margin: 8px 0; max-width: 640px; overflow-wrap: anywhere; }
+  /* A fixed height, so that a trial that makes twelve canvases moves nothing below it. */
+  #stage { box-sizing: border-box; height: 300px; max-width: 640px; overflow: hidden; padding: 8px; border: 1px solid var(--line); border-radius: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+  #witness { width: 60px; height: 24px; border-radius: 6px; }
+  #trials td.status { min-width: 7em; }
+  #trials small { display: block; color: var(--muted); }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Which 2D operation loses the canvas</h1>
+  <p class="lede">
+    Pages on this site that use only 2D canvases have lost their canvases, or the whole tab, on a phone (Chrome 159 on Android), and
+    not in the test browser. Each row below does one thing that those pages have in common, alone, for about four seconds. Press
+    "Run every trial" on the device that has the problem. If the tab dies, open this page again: the row that was running says so.
+  </p>
+
+  <div class="bar">
+    <button type="button" id="all">Run every trial</button>
+    <button type="button" id="copy">Copy the results</button>
+    <button type="button" id="clear">Clear</button>
+    <canvas id="witness" width="120" height="48" aria-label="A plain 2D canvas that stays on the page through every trial"></canvas>
+  </div>
+  <p id="status" role="status">Nothing has run. The small canvas beside the buttons stays on the page through every trial: a trial that loses it has lost every accelerated canvas.</p>
+  <div id="stage" aria-label="The canvases of the trial that is running"></div>
+
+  <h2>Live checks</h2>
+  <p class="note">Each trial is a check that waits for a press. A result is stored in this browser before the trial starts and after it ends, and sent to the site's report log, so a result survives a tab that dies.</p>
+  <table class="results" id="trials"><thead><tr><th>Result</th><th>Trial</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <details class="show-code">
+    <summary>Show the code <small>one trial, the loss listeners, the stored result</small></summary>
+    <ol>
+      <li data-code="/canvas-loss/trials.js#drawable"><b>The canvas of a trial.</b> A drawable 2D canvas with one drawable child, sized once.</li>
+      <li data-code="/canvas-loss/trials.js#loop"><b>The paint loop.</b> A paint is asked for on every frame, and the element changes each time.</li>
+      <li data-code="/canvas-loss/trials.js#trials"><b>The trials.</b> Each changes one thing in that loop, or does one thing outside it.</li>
+      <li data-code="#run"><b>Running one.</b> The result is stored as "running" first. A <code>contextlost</code> listener on every canvas of the trial, and on the canvas that stays, counts the losses.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul>
+    <li>A trial builds its canvases in the box above, runs for about four seconds, removes them and gives them to <code>window.__gfx.retire()</code>. The next trial starts one second later.</li>
+    <li>Before a trial starts, its row is written to <code>localStorage</code> as "running". When it ends the row is written again with the outcome. A page load that finds a row still "running" reports that the tab stopped during that trial.</li>
+    <li>Every canvas of a trial has a <code>contextlost</code> listener. So has one plain 2D canvas that is made at load and never removed. Accelerated 2D canvases share one connection to the GPU process, so a trial that loses that connection loses this canvas too.</li>
+    <li>Each start and each outcome is also sent with <code>window.__gfx.report('trial', …)</code> to <code>/api/reports</code>, with the user agent. <code>npm run reports -- --type trial --list</code> prints them.</li>
+    <li>While trials run the page sets <code>window.__checkState</code> to "running", so the guard counts their readbacks as asked for.</li>
+  </ul>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering, 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings" id="findings">
+    <li><strong>Measured: no trial loses a canvas in the test browser.</strong> All seventeen end with "no loss". That browser keeps canvases in ordinary memory, so this says the trials run, not that they are safe.</li>
+    <li><strong>Not verified: every trial on a phone.</strong> The page exists to be run there. A loss in one row and not in the base case names the operation.</li>
+    <li><strong>Limit: one operation at a time.</strong> A loss that needs two of these together, or more than four seconds, is not found by this page.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner } from '/shared/support.js';
+  import { TRIALS } from '/canvas-loss/trials.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const KEY = 'canvas-loss-trials';
+  const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; } };
+  const save = (all) => { try { localStorage.setItem(KEY, JSON.stringify(all)); } catch {} };
+  let stored = load();
+  let busy = false;
+
+  // The canvas that stays. Drawn once, never read, never removed.
+  const witness = $('witness');
+  const wctx = witness.getContext('2d');
+  const paintWitness = () => { wctx.fillStyle = '#2f7d4f'; wctx.fillRect(0, 0, 120, 48); wctx.fillStyle = '#fff'; wctx.font = '22px system-ui'; wctx.fillText('stays', 30, 32); };
+  paintWitness();
+  let losses = [];
+  witness.addEventListener('contextlost', (e) => { if (e.isTrusted) losses.push('the canvas that stays'); });
+  witness.addEventListener('contextrestored', paintWitness);
+
+  const rows = new Map();
+  for (const t of TRIALS) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td class="status"></td><td></td><td class="detail"></td>';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = 'Run';
+    b.addEventListener('click', () => run([t]));
+    tr.children[1].append(t.name, Object.assign(document.createElement('small'), { textContent: t.what }), b);
+    $('results').append(tr);
+    rows.set(t.id, tr);
+  }
+
+  function show() {
+    for (const t of TRIALS) {
+      const tr = rows.get(t.id), r = stored[t.id];
+      const status = tr.children[0], detail = tr.children[2];
+      const died = r?.state === 'running' && !busy;
+      status.className = `status ${!r ? 'idle' : died || r.state === 'lost' || r.state === 'threw' ? 'fail' : r.state === 'ok' ? 'pass' : 'pending'}`;
+      status.textContent = !r ? 'not run' : died ? 'tab stopped' : { ok: 'no loss', lost: 'lost', threw: 'threw', running: 'running' }[r.state];
+      detail.textContent = !r ? '' : died ? `The page was closed or the tab died while this trial was running (started ${new Date(r.at).toLocaleTimeString()}).` : r.detail ?? '';
+    }
+  }
+
+  // #region run
+  async function run(list) {
+    if (busy) return;
+    busy = true;
+    window.__checkState = 'running'; // the guard counts readbacks made now as asked for
+    for (const b of document.querySelectorAll('#trials button, #all')) b.disabled = true;
+    const stage = $('stage');
+    for (const t of list) {
+      const made = [];
+      losses = [];
+      const seen = (canvas) => { made.push(canvas); canvas.addEventListener('contextlost', (e) => { if (e.isTrusted) losses.push(`a canvas of the trial at ${Math.round(performance.now() - t0)} ms`); }); };
+      // Stored and sent before the first canvas is made: if the tab dies, this is what is left.
+      stored[t.id] = { state: 'running', at: Date.now() };
+      save(stored);
+      window.__gfx?.report('trial', `${t.id}: started`, {}, true);
+      show();
+      $('status').textContent = `Running: ${t.name}`;
+      const t0 = performance.now();
+      let state = 'ok', detail = '';
+      try { detail = await t.run(stage, seen); } catch (err) { state = 'threw'; detail = `${err?.name ?? 'Error'}: ${err?.message ?? err}`; }
+      await sleep(400); // a loss is reported a moment after the call that caused it
+      if (losses.length) { state = 'lost'; detail = `${losses.length} lost: ${[...new Set(losses)].slice(0, 4).join(', ')}. ${detail}`; }
+      for (const c of made) { c.remove(); window.__gfx?.retire(c); }
+      stage.replaceChildren();
+      stored[t.id] = { state, detail, at: Date.now() };
+      save(stored);
+      window.__gfx?.report('trial', `${t.id}: ${state === 'ok' ? 'no loss' : state}`, { detail, guard: state === 'ok' ? '' : window.__gfx.summary() }, true);
+      show();
+      await sleep(1000);
+    }
+    busy = false;
+    window.__checkState = 'done';
+    for (const b of document.querySelectorAll('#trials button, #all')) b.disabled = false;
+    $('status').textContent = summary();
+    show();
+  }
+  // #endregion run
+
+  function summary() {
+    const ran = TRIALS.filter((t) => stored[t.id]);
+    const bad = ran.filter((t) => stored[t.id].state !== 'ok');
+    if (!ran.length) return 'Nothing has run.';
+    return `${ran.length} of ${TRIALS.length} trials have run. ${bad.length ? `Not clean: ${bad.map((t) => `${t.id} (${stored[t.id].state === 'running' ? 'tab stopped' : stored[t.id].state})`).join(', ')}.` : 'None lost a canvas.'}`;
+  }
+
+  $('all').addEventListener('click', () => run(TRIALS));
+  $('clear').addEventListener('click', () => { if (busy) return; stored = {}; save(stored); show(); $('status').textContent = 'Cleared.'; });
+  $('copy').addEventListener('click', async () => {
+    const text = TRIALS.map((t) => { const r = stored[t.id]; return `${t.id}: ${!r ? 'not run' : r.state === 'running' ? 'TAB STOPPED during this trial' : `${r.state === 'ok' ? 'no loss' : r.state}. ${r.detail}`}`; }).join('\n') +
+      `\n${window.__gfx?.summary() ?? ''}\n${navigator.userAgent}`;
+    try { await navigator.clipboard.writeText(text); $('copy').textContent = 'Copied'; } catch { $('copy').textContent = 'Could not copy'; }
+  });
+
+  // A row left "running" by the page load before this one: the tab stopped in that trial.
+  const stopped = TRIALS.filter((t) => stored[t.id]?.state === 'running');
+  for (const t of stopped) window.__gfx?.report('trial', `${t.id}: tab stopped`, { started: new Date(stored[t.id].at).toISOString() }, true);
+  show();
+  if (Object.keys(stored).length) $('status').textContent = summary();
+  window.__checkState = 'idle';
+</script>
+</body>
+</html>

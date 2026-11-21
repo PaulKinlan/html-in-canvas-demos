@@ -129,7 +129,8 @@ class GLBackend {
   destroy() {
     this.destroyed = true;
     liveDirect = Math.max(0, liveDirect - 1);
-    this.gl.getExtension('WEBGL_lose_context')?.loseContext();
+    // Freed by /shared/context-guard.js once the canvas is out of the page.
+    globalThis.__gfx?.retire(this.canvas);
   }
 }
 
