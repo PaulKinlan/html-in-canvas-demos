@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>A heat map and minimap of selections</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/lib/selection-article.css">
+<style>
+  /* #region column */
+  /* A column at the right of the article that the canvas draws the minimap in.
+     The element in it only takes pointer events: a drag there scrolls the page. */
+  #demo .article { position: relative; padding-right: 68px; }
+  .map-column { position: absolute; top: 0; right: 0; bottom: 0; width: 60px; touch-action: none; cursor: ns-resize; }
+  /* #endregion column */
+  .legend { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin: 10px 0; }
+  .legend i { display: inline-block; width: 22px; height: 12px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A heat map and minimap of selections</h1>
+  <p class="lede">
+    An article drawn by a canvas and coloured by how often each part has been selected. It starts with the selections of 40 simulated readers. Every selection you make is added after you stop changing it. The column at the right is the whole article drawn small with the same colours: drag in it to scroll, and tap a sentence in the article to read its count.
+  </p>
+
+  <div class="legend" aria-hidden="true">selected less <i style="background:rgb(255,236,170)"></i><i style="background:rgb(255,208,110)"></i><i style="background:rgb(255,170,80)"></i><i style="background:rgb(255,122,62)"></i><i style="background:rgb(232,67,46)"></i> more</div>
+
+  <div class="screen">
+    <!-- #region markup -->
+    <selection-fx id="demo" effect="heat">
+      <article class="article">
+        <h3>Tides</h3>
+        <p>Most coasts have two high tides and two low tides in a little more than a day. The interval is about 24 hours and 50 minutes, because the Moon moves along its orbit while the Earth turns, so a point on the Earth needs the extra time to face the Moon again.</p>
+        <p>The Moon's gravity pulls harder on the side of the Earth that faces it than on the far side. The difference stretches the oceans into two bulges, one towards the Moon and one away from it. A coast passes through both bulges as the Earth rotates.</p>
+        <p>The Sun raises tides in the same way. It is far more massive than the Moon and also far more distant, and its effect on the tides is a little less than half of the Moon's.</p>
+        <p>When the Sun, the Earth and the Moon are in a line, at new moon and at full moon, the two effects add. These are spring tides, with the highest high water and the lowest low water. The name has nothing to do with the season.</p>
+        <p>When the Moon is at first or third quarter, the Sun and the Moon pull at right angles and partly cancel. These are neap tides, with a small difference between high and low water.</p>
+        <p>The shape of the coast matters more than either body. In the open ocean the tide is well under a metre. A funnel-shaped bay can raise it to more than ten metres, as in the Bay of Fundy in Canada.</p>
+        <p>Tide tables are worked out years ahead. The tide at a port is treated as a sum of regular waves, each with a period set by the motions of the Earth, the Moon and the Sun, and the size of each wave is fitted from past measurements at that port.</p>
+        <div class="map-column" id="column" aria-hidden="true"></div>
+      </article>
+    </selection-fx>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="bar" id="controls">
+    <button id="more">Add 40 simulated readers</button>
+    <button id="clear">Clear</button>
+    <label><input type="checkbox" id="mine" checked> Count my selections</label>
+  </div>
+  <div class="readout" id="readout" role="status"></div>
+
+  <details class="show-code">
+    <summary>Show the code <small>counters, runs, the heat and the minimap</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The article inside <code>&lt;selection-fx&gt;</code></b> with the effect named <code>heat</code>, and an empty column for the minimap.</li>
+      <li data-code="#column"><b>The column</b> is an element, so it can take a drag.</li>
+      <li data-code="heat.js#record"><b>Record a selection</b>: add one to the counter of each character.</li>
+      <li data-code="heat.js#runs"><b>Runs of equal heat</b> and their rectangles.</li>
+      <li data-code="heat.js#effect"><b>Draw</b> the heat, the text, then the minimap.</li>
+      <li data-code="heat.js#minimap"><b>The minimap</b> is one more <code>drawElementImage()</code> of the same element with a small width and height.</li>
+      <li data-code="#scrub"><b>Drag in the column</b> to scroll the page.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    The page keeps one counter per character of the article. A selection is turned into a start and an end offset and adds one to each counter between them. Before drawing, the counters are grouped into runs of characters with the same level, and each run is measured with <code>Range.getClientRects()</code>. The canvas fills those rectangles, draws the article over them, and then draws the article a second time into a rectangle 54 pixels wide. An element's picture can only be drawn into the canvas it belongs to, which is why the minimap is inside the article's own canvas and not in a separate one beside it. The counters are saved in <code>localStorage</code> in this browser. Nothing is sent anywhere.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These start when you press the button. They use their own fixture.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in headless Chromium 157 on Linux with a software renderer, 2026-11-21.</p>
+  <ul class="findings">
+    <li><strong>One element can be drawn twice in a frame at different sizes.</strong> The minimap is the article at about a tenth of its width, drawn from the same paint record as the full-size text. Lines of text become grey strokes and the heat colours stay readable.</li>
+    <li><strong>The minimap has to share the article's canvas.</strong> An element is drawn only by its own canvas, so a second canvas beside the article cannot draw it.</li>
+    <li><strong>Heat is drawn from ranges, not from wrapped elements.</strong> Runs of equal level are measured again when the width changes. The article's DOM is the same with and without the heat.</li>
+    <li><strong><code>document.caretPositionFromPoint()</code> on the canvas gives the character under a tap</strong>, which the page turns into an offset to look up the count (checked below).</li>
+    <li><strong>A minimap that stays in view needs a redraw on scroll.</strong> The page listens for <code>scroll</code> and draws the canvas again with the new position. The picture is one frame behind the scroll.</li>
+  </ul>
+  <p><strong>Not verified:</strong> how smoothly the minimap follows a touch scroll on a phone, dragging in the column by touch, and selections collected from real readers (this page has no server).</p>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import '/lib/selection-fx.js';
+  import { offsetsOf, rangeAt, whenReady, countPixels } from '/lib/selection-tools.js';
+  import { attach, sentences, MAP_WIDTH } from './heat.js';
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const el = $('demo'), article = el.querySelector('article');
+  const KEY = 'selection-heat-v1';
+  const text = article.textContent;
+
+  // ---- the visible demo
+  const short = (t) => (t.length > 70 ? t.slice(0, 68).trim() + '…' : t.trim());
+  function report(h) {
+    const best = heat.top();
+    $('readout').textContent = best ? `${h.total} selections recorded. Selected most, ${best.count} times: “${short(text.slice(best.start, best.end))}”` : 'No selections recorded.';
+    try { localStorage.setItem(KEY, JSON.stringify({ n: text.length, total: h.total, counts: [...h.counts] })); } catch { /* private mode: nothing is saved */ }
+  }
+  const heat = attach(el, article, { onchange: (h) => report(h) });
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { /* no storage */ }
+  if (stored && stored.n === text.length) { heat.state.counts.set(stored.counts); heat.state.total = stored.total; heat.state.dirty = true; report(heat.state); } else heat.simulate(40);
+  let seed = 100;
+  $('more').addEventListener('click', () => heat.simulate(40, seed++));
+  $('clear').addEventListener('click', () => heat.clear());
+
+  // Count a selection once, 0.8 s after it last changed.
+  let timer = 0, last = '';
+  el.addEventListener('selectionfx', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const s = getSelection();
+      if (!$('mine').checked || !s.rangeCount || s.isCollapsed) return;
+      const o = offsetsOf(article, s.getRangeAt(0));
+      if (!o || `${o.start},${o.end}` === last) return;
+      last = `${o.start},${o.end}`;
+      heat.add(o.start, o.end);
+    }, 800);
+  });
+
+  // Tap a sentence to read how often its characters were selected.
+  article.addEventListener('click', (e) => {
+    if (e.target.closest('.map-column') || !getSelection().isCollapsed) return;
+    const at = document.caretPositionFromPoint?.(e.clientX, e.clientY);
+    if (!at || !article.contains(at.offsetNode)) return;
+    const point = new Range();
+    point.setStart(at.offsetNode, at.offset);
+    const i = offsetsOf(article, point)?.start;
+    const sn = sentences(text).find((x) => i >= x.start && i < x.end);
+    if (!sn) return;
+    const counts = heat.state.counts.subarray(sn.start, sn.end);
+    $('readout').textContent = `“${short(text.slice(sn.start, sn.end))}” Selected between ${Math.min(...counts)} and ${Math.max(...counts)} times, of ${heat.state.total} selections.`;
+  });
+
+  // #region scrub
+  // A drag in the column moves the page by the same distance at the article's scale.
+  const column = $('column');
+  let drag = null;
+  column.addEventListener('pointerdown', (e) => {
+    const map = heat.state.map;
+    if (!map) return;
+    column.setPointerCapture(e.pointerId);
+    drag = { y: e.clientY, scroll: scrollY, k: map.k, moved: false };
+    e.preventDefault();
+  });
+  column.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    if (Math.abs(e.clientY - drag.y) > 3) drag.moved = true;
+    if (drag.moved) scrollTo(0, drag.scroll + (e.clientY - drag.y) / drag.k);
+  });
+  column.addEventListener('pointerup', (e) => {
+    const map = heat.state.map;
+    if (drag && !drag.moved && map) {
+      // A tap: put the tapped part of the article in the middle of the window.
+      const p = el.localPoint(e);
+      const y = Math.max(0, Math.min(1, (p.y - map.y) / map.h)) * el.height;
+      scrollTo({ top: el.getBoundingClientRect().top + scrollY + y - innerHeight / 2, behavior: 'smooth' });
+    }
+    drag = null;
+  });
+  column.addEventListener('pointercancel', () => { drag = null; });
+  // #endregion scrub
+
+  // ------------------------------------------------------------ live checks
+  const settle = (ms = 150) => new Promise((r) => requestAnimationFrame(() => setTimeout(r, ms)));
+  async function fixture() {
+    const f = document.createElement('selection-fx');
+    f.setAttribute('effect', 'heat');
+    f.style.cssText = 'width:320px;font:20px/30px monospace;color:#000;--selection-fx-bg:#fff';
+    f.innerHTML = '<p style="margin:0;padding-right:68px">ABCD EFGH IJKL MNOP QRST UVWX YZAB CDEF GHIJ KLMN OPQR STUV</p>';
+    testStage().append(f);
+    await whenReady(f);
+    const p = f.querySelector('p');
+    return { f, p, h: attach(f, p) };
+  }
+  const hot = (r, g, b) => Math.abs(r - 232) < 24 && Math.abs(g - 67) < 30 && Math.abs(b - 46) < 30;
+  const tests = [
+    {
+      name: 'Counters become runs with levels, and the most selected run is drawn in the top colour',
+      why: 'Characters 5 to 9 are recorded three times and 10 to 14 once. The first run must be level 5 and the second level 2, and the canvas must have the top colour inside the first run only.',
+      run: async () => {
+        const { f, h } = await fixture();
+        try {
+          h.add(5, 9, 3);
+          h.add(10, 14, 1);
+          await settle();
+          const image = await f.readback();
+          const runs = h.state.runs;
+          if (runs.length !== 2 || runs[0].level !== 5 || runs[1].level !== 2) throw new Error(`runs: ${runs.map((r) => `${r.start}-${r.end} level ${r.level}`).join(', ')}`);
+          const s = f.scale, a = runs[0].rects[0], limit = (f.width - MAP_WIDTH - 6 + f.bleed) * s;
+          let inside = 0, outside = 0;
+          countPixels(image, (r, g, b, al, x, y) => {
+            if (al < 200 || !hot(r, g, b) || x > limit) return false;
+            const px = x / s - f.bleed, py = y / s - f.bleed;
+            if (px >= a.x - 1 && px <= a.x + a.w + 1 && py >= a.y && py <= a.y + a.h) inside++; else outside++;
+            return false;
+          });
+          if (inside < 300 || outside > 0) throw new Error(`${inside} top-colour pixels in the run, ${outside} elsewhere in the text`);
+          return `2 runs, levels 5 and 2; ${inside} top-colour pixels inside the first run, 0 elsewhere in the text`;
+        } finally { h.dispose(); f.dispose(); }
+      },
+    },
+    {
+      name: 'The same element drawn a second time, small, has ink and the heat colour in the right place',
+      why: 'The minimap rectangle is read back. It must contain dark pixels from the small text and the top colour near the scaled position of the run.',
+      run: async () => {
+        const { f, h } = await fixture();
+        try {
+          h.add(5, 9, 3);
+          await settle();
+          const image = await f.readback();
+          const m = h.state.map, s = f.scale, run = h.state.runs[0].rects[0];
+          let ink = 0, heatPx = 0, off = 0;
+          countPixels(image, (r, g, b, al, x, y) => {
+            const px = x / s - f.bleed, py = y / s - f.bleed;
+            if (px < m.x || px > m.x + m.w || py < m.y || py > m.y + m.h) return false;
+            if (r + g + b < 520 && Math.abs(r - g) < 30) ink++;
+            if (hot(r, g, b)) { heatPx++; if (Math.abs(px - (m.x + (run.x + run.w / 2) * m.k)) > run.w * m.k + 2 || Math.abs(py - (m.y + (run.y + run.h / 2) * m.k)) > run.h * m.k + 2) off++; }
+            return false;
+          });
+          if (ink < 20 || heatPx < 4 || off) throw new Error(`${ink} text pixels and ${heatPx} heat pixels in the minimap, ${off} of them in the wrong place`);
+          return `minimap ${m.w}×${m.h.toFixed(0)} px at scale ${m.k.toFixed(3)}: ${ink} text pixels, ${heatPx} heat pixels at the scaled position`;
+        } finally { h.dispose(); f.dispose(); }
+      },
+    },
+    {
+      name: 'caretPositionFromPoint() on the canvas gives the character under a point',
+      why: 'The point is the middle of the eighth character of the fixture, drawn by the canvas.',
+      run: async () => {
+        const { f, p, h } = await fixture();
+        try {
+          const q = rangeAt(p, 7, 8).getBoundingClientRect();
+          const at = document.caretPositionFromPoint?.(q.x + q.width * 0.4, q.y + q.height / 2);
+          if (!at) throw new Error('no caret position at that point (the fixture may be off screen)');
+          const point = new Range();
+          point.setStart(at.offsetNode, at.offset);
+          const i = offsetsOf(p, point)?.start;
+          if (i !== 7) throw new Error(`offset ${i}, expected 7`);
+          return `offset ${i}, the character “${p.textContent[i]}”`;
+        } finally { h.dispose(); f.dispose(); }
+      },
+    },
+    stillDrawn(() => [
+      { name: 'the article', ink: async () => (!el.live ? null : inkFraction(await el.readback())), rescue: () => el.fallBackToPlain('the canvas was blank after the checks') },
+    ]),
+  ];
+  runTests($('tests'), supported ? tests : []);
+</script>
+</body>
+</html>

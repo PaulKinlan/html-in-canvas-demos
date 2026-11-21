@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Selected letters as particles</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/lib/selection-article.css">
+<style>
+  /* Room under the text for the letters to land in. */
+  #demo .article { padding-bottom: 110px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Selected letters as particles</h1>
+  <p class="lede">
+    Select some of the text. When the selection stops changing, its letters come loose and fall to the bottom of the article. “Swirl” moves them in rings and “Put them back” returns each one to its place. The text in the DOM does not change at any point.
+  </p>
+
+  <div class="screen">
+    <!-- #region markup -->
+    <selection-fx id="demo" effect="glyphs">
+      <article class="article">
+        <h3>Loose type</h3>
+        <p>A page of metal type was a few thousand separate pieces held in a frame by pressure. If the frame was dropped, the letters fell out and had to be sorted by hand before anything could be printed again.</p>
+        <p>Text on a screen has no pieces. A selection can still be measured one character at a time, and a canvas that draws the text can leave any character out and draw it <em>somewhere else</em>.</p>
+        <p>Select a word, a line or the whole article.</p>
+      </article>
+    </selection-fx>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="bar" id="controls">
+    <button id="pick">Select a sentence for me</button>
+    <button id="drop">Drop the selection</button>
+    <button id="swirl">Swirl</button>
+    <button id="back">Put them back</button>
+  </div>
+  <div class="bar">
+    <label><input type="checkbox" id="auto" checked> Drop when a selection is finished</label>
+    <label>Each letter is drawn from
+      <select id="source"><option value="snapshot">a snapshot of the canvas</option><option value="live">the live element, clipped</option></select>
+    </label>
+  </div>
+  <div class="readout" id="readout" role="status">No loose letters.</div>
+
+  <details class="show-code">
+    <summary>Show the code <small>letter rectangles, the hole and the two ways to draw a letter</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The article inside <code>&lt;selection-fx&gt;</code></b> with the effect named <code>glyphs</code>.</li>
+      <li data-code="/lib/selection-tools.js#glyphs"><b>One rectangle per character</b>, from a <code>Range</code> around each one.</li>
+      <li data-code="glyphs.js#drop"><b>Let go</b>: take a snapshot of the canvas and make a particle for each rectangle.</li>
+      <li data-code="glyphs.js#hole"><b>Leave the letters out</b> of the text with an even-odd clip.</li>
+      <li data-code="glyphs.js#letter"><b>Draw one letter</b>, from the snapshot or from the element through a clip.</li>
+      <li data-code="glyphs.js#physics"><b>Fall, swirl and return.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    A <code>Range</code> around a single character has one client rectangle. The page collects those rectangles for the selection and gives each one a particle. On every frame the canvas draws the article through a clip path that leaves out the home rectangle of every loose letter, then draws each letter at its particle's position and angle.
+    A letter comes from one of two places. The snapshot is a copy of the canvas taken at the moment the letters are let go, and each letter is a <code>drawImage()</code> of a small part of it. The live route calls <code>drawElementImage()</code> once per letter with a clip the size of the letter, so a letter in the air still follows changes to the element (hover, a new colour, an edit).
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These start when you press the button. They use their own fixture.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in headless Chromium 157 on Linux with a software renderer, 2026-11-21.</p>
+  <ul class="findings">
+    <li><strong>One character has one rectangle.</strong> A <code>Range</code> from offset <code>i</code> to <code>i + 1</code> gives the box of that character at its drawn position. The box is the advance width and the line's text height, not the ink, so a tall italic letter can lose a sliver to its neighbour's box.</li>
+    <li><strong>The canvas is transparent where the element has no ink.</strong> The article has no background of its own, so a piece of the canvas is a letter with nothing behind it. No colour keying is needed.</li>
+    <li><strong>An even-odd clip removes letters from the element's picture.</strong> The text is drawn once, with holes. The DOM text, the selection and copy are unchanged while the letters are away.</li>
+    <li><strong>Both ways of drawing a letter work.</strong> The timing check below gives the cost of each on the device that runs it. The live route replays the element's whole paint record once per letter.</li>
+    <li><strong>A resize moves every home rectangle</strong>, so the page puts the text back whole when the element's width changes.</li>
+  </ul>
+  <p><strong>Not verified:</strong> frame rate on a phone with several hundred letters, and the automatic drop after a touch selection made with the Android handles (the page waits 0.7 s after the last change).</p>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import '/lib/selection-fx.js';
+  import { glyphRects, whenReady, countPixels } from '/lib/selection-tools.js';
+  import { attach } from './glyphs.js';
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const el = $('demo'), article = el.querySelector('article');
+
+  // ---- the visible demo
+  const say = (g) => { $('readout').textContent = g.items.length ? `${g.items.length} loose letters, drawn from ${g.source === 'live' ? 'the live element' : 'a snapshot'}. The article's text is still ${article.textContent.trim().length} characters.` : 'No loose letters.'; };
+  const glyphs = attach(el, { onchange: say });
+  const selected = () => { const s = getSelection(); return s.rangeCount && !s.isCollapsed && article.contains(s.anchorNode) ? s.getRangeAt(0) : null; };
+  for (const b of document.querySelectorAll('#controls button')) b.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the selection
+  $('drop').addEventListener('click', async () => {
+    const range = selected();
+    if (!range) { $('readout').textContent = 'Select some text first.'; return; }
+    glyphs.mode('fall');
+    await glyphs.drop(range);
+  });
+  $('swirl').addEventListener('click', () => glyphs.mode('swirl'));
+  $('back').addEventListener('click', () => glyphs.mode('home'));
+  $('source').addEventListener('change', (e) => { glyphs.source(e.target.value); say(glyphs.state); });
+  $('pick').addEventListener('click', () => {
+    const text = article.querySelectorAll('p')[1].firstChild;
+    const end = text.data.indexOf('.') + 1;
+    getSelection().setBaseAndExtent(text, 0, text, end);
+  });
+  // Drop by itself once the selection has stopped changing and no button is held.
+  let timer = 0, down = false;
+  const later = () => {
+    clearTimeout(timer);
+    if (!$('auto').checked) return;
+    timer = setTimeout(() => { const range = selected(); if (range && !down) glyphs.drop(range); }, 700);
+  };
+  el.addEventListener('selectionfx', later);
+  addEventListener('pointerdown', () => { down = true; });
+  addEventListener('pointerup', () => { down = false; later(); });
+  addEventListener('pointercancel', () => { down = false; });
+
+  // ------------------------------------------------------------ live checks
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function fixture(text = 'AB CD EF GH IJ KL') {
+    const f = document.createElement('selection-fx');
+    f.setAttribute('effect', 'glyphs');
+    f.style.cssText = 'width:300px;font:20px/30px monospace;color:#000;--selection-fx-bg:#fff';
+    f.innerHTML = `<p style="margin:0;padding-bottom:90px">${text}</p>`;
+    testStage().append(f);
+    await whenReady(f);
+    return f;
+  }
+  const whole = (f) => { const r = new Range(); r.selectNodeContents(f.querySelector('p')); return r; };
+  const tests = [
+    {
+      name: 'A Range around one character gives that character\'s rectangle',
+      why: 'Twelve letters and five spaces in a 20 px monospace font, where every character is 12 px wide.',
+      run: async () => {
+        const f = await fixture();
+        try {
+          const rects = glyphRects(f, whole(f));
+          const widths = rects.map((r) => r.w);
+          const ordered = rects.every((r, i) => !i || r.x > rects[i - 1].x);
+          if (rects.length !== 12 || !ordered || Math.max(...widths) - Math.min(...widths) > 0.5) throw new Error(`${rects.length} rectangles, widths ${Math.min(...widths).toFixed(1)} to ${Math.max(...widths).toFixed(1)}`);
+          return `12 rectangles for 12 letters, each ${widths[0].toFixed(1)} px wide, “${rects.map((r) => r.ch).join('')}”`;
+        } finally { f.dispose(); }
+      },
+    },
+    {
+      name: 'Dropped letters leave their line and are drawn at the bottom, and the DOM text is the same',
+      why: 'All twelve letters are dropped. After 1.6 s the first line must have no ink and the area under it must have some.',
+      run: async () => {
+        const f = await fixture();
+        try {
+          const g = attach(f);
+          const before = f.textContent;
+          await g.drop(whole(f));
+          await wait(1600);
+          const image = await f.readback();
+          const s = f.scale, top = (f.bleed + 30) * s;
+          const high = countPixels(image, (r, gg, b, a, x, y) => a > 80 && y < top);
+          const low = countPixels(image, (r, gg, b, a, x, y) => a > 80 && y >= top);
+          if (high > 0 || low < 200) throw new Error(`${high} ink pixels left on the line, ${low} under it`);
+          if (f.textContent !== before) throw new Error('the text changed');
+          return `0 ink pixels on the line, ${low} under it; textContent unchanged`;
+        } finally { f.dispose(); }
+      },
+    },
+    {
+      name: 'Cost of a frame: letters from a snapshot against letters from the live element',
+      why: 'About 300 letters in the air. Each frame is drawn and read back so the drawing is finished before the clock stops. This reports numbers and only fails if a route draws nothing.',
+      run: async () => {
+        const f = await fixture('The quick brown fox jumps over the lazy dog. '.repeat(8));
+        try {
+          const g = attach(f);
+          const n = await g.drop(whole(f));
+          g.mode('swirl');
+          await wait(300);
+          const out = {};
+          for (const source of ['snapshot', 'live']) {
+            g.source(source);
+            await f.readback();
+            const t0 = performance.now();
+            let ink = 0;
+            for (let i = 0; i < 8; i++) ink = countPixels(await f.readback(), (r, gg, b, a) => a > 80);
+            out[source] = (performance.now() - t0) / 8;
+            if (ink < 500) throw new Error(`${source}: ${ink} ink pixels`);
+          }
+          return `${n} letters: ${out.snapshot.toFixed(1)} ms per frame from a snapshot, ${out.live.toFixed(1)} ms from the live element (includes reading the canvas back)`;
+        } finally { f.dispose(); }
+      },
+    },
+    stillDrawn(() => [
+      { name: 'the article', ink: async () => (!el.live ? null : inkFraction(await el.readback())), rescue: () => el.fallBackToPlain('the canvas was blank after the checks') },
+    ]),
+  ];
+  runTests($('tests'), supported ? tests : []);
+</script>
+</body>
+</html>
