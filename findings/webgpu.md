@@ -19,3 +19,5 @@ Every demo that put an element through a WebGL shader now has a WebGPU route as 
 | WebXR on WebGPU | not possible here | `XRGPUBinding` is missing in Chromium 157, so `/xr/` stays on three's `WebGLRenderer`. |
 
 Not verified here, because the cloud browser cannot show a WebGPU canvas: every on-screen WebGPU path, its speed against WebGL, and three's `WebGPURenderer`. Each page has two checks for a real device: "the same picture as WebGL" (off-screen, pixel by pixel) and "on screen" (reads the shown canvas). On the cloud browser the first passes with the software adapter and the second fails with the reason.
+
+The newer WebGPU features (swizzle, immediates, float blending, `primitive_index`, dual-source blending, compatibility mode) are in [webgpu-features.md](webgpu-features.md).
