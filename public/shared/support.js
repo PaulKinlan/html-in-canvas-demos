@@ -128,10 +128,13 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/overlay/',
   '/audio/',
   '/player-parts/',
+  '/player-fx/',
   '/native-ui/',
   '/select/',
   '/datalist/',
   '/inputs/',
+  '/selection/',
+  '/caret/',
 ];
 
 /** Should this page's checks start by themselves? ?autochecks=1 and ?autochecks=0 override the list. */
