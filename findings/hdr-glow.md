@@ -1,0 +1,71 @@
+# HDR interface (`/hdr-glow/`)
+
+Measured in Chromium 157 (headless shell), 2026-11-21. The test browser has no HDR output, so every result here is a value read back from the canvas with `getImageData(…, { pixelFormat: 'rgba-float16' })`, not something seen on a screen. Not yet run on the test phone.
+
+The canvas in every row is a 2D context with `colorType: 'float16'` and `colorSpace: 'display-p3'`. Values are Display P3 component values as read back; 1.0 is standard white.
+
+## CSS on the drawn element
+
+| Question | Result | Notes |
+|---|---|---|
+| `background: color(display-p3 3 3 3)` | 3.0 | Also through a border (2.5), an outline (3.0), text colour (3.0), `linear-gradient()` and `radial-gradient()` stops (4.0). |
+| `color(srgb-linear 4 4 4)` | 1.82 | 4.0 linear is 1.82 after the sRGB transfer curve, which Display P3 shares. The readback is encoded, so this is the same light as 4.0 linear. `color(srgb-linear 8 8 8)` reads 2.45. This answers the open question in the plan: it is not a tone curve or a limit. |
+| `color(srgb 2 2 2)`, `color(rec2100-linear 2 2 2)`, `color(xyz-d65 3 3 3)` | 2.0, 1.35, about 1.6 | Each predefined space carries values above 1.0. |
+| `rgb(600 600 600)`, `oklch(2 0 0)` | 1.0 | Clamped. Only `color()` carried values above white. |
+| Relative colour `color(from #2a6cf0 display-p3 calc(r * var(--gain)) …)` with `--gain: 3` | 0.71, 1.25, 2.73 | A custom property can scale an existing colour above 1.0. |
+| The same colour with `--gain` animated by a CSS animation on a registered property | follows the animation | 1.25 at the midpoint of 1 to 4 on mid grey. |
+| `box-shadow: 0 0 12px 6px color(display-p3 4 2 1)` in the blurred part | 4, 2, 1 at alpha 0.27 | The blur keeps the values (the readback is not premultiplied). `text-shadow` the same. |
+| `filter` on the element, including `blur(0px)` and `saturate(1)` | 1.0 | Any CSS filter clamps the element's picture. `filter: drop-shadow()` in a colour of 4.0 gave 1.0. |
+| `mix-blend-mode: plus-lighter` on the element | 1.0 | Clamped. |
+| `opacity`, `mask`, `clip-path`, `border-radius`, `transform`, `will-change`, `backdrop-filter` | 3.0 | Not clamped. |
+| `dynamic-range-limit: standard` on the element | 3.0 | The property does not change stored values. Its effect on the screen is not verified. |
+
+## Canvas operations in the float16 context
+
+| Operation | Result | Notes |
+|---|---|---|
+| `fillRect()` with `color(display-p3 3 3 3)`, canvas gradients, `putImageData()` of float data | keep values above 1.0 | |
+| `multiply` with a fill above 1.0 over drawn pixels | scales them, above 1.0 | 0.5 times 4 read back as 2.0. With a fill of 1 ÷ headroom it brings the whole canvas under 1.0. The page uses both. |
+| `source-over` with `globalAlpha` | keeps | 6.0 at half alpha over 2.0 gave 4.0. |
+| Shadow of a fill (`shadowColor` above 1.0, `shadowBlur`) | keeps, 4.0 | The page draws its halo this way, with the fill itself off the canvas. |
+| `lighter`, `screen`, `overlay`, `hard-light`, `color-dodge` | clamp to 1.0 | 0.8 plus 0.8 with `lighter` is 1.0. |
+| `ctx.filter` (blur, brightness) | clamps to 1.0 | `brightness(3)` on white gives 1.0. |
+| `drawElementImage()` with `shadowBlur` set | element and shadow clamp to 1.0 | The 3.0 element came out as 1.0. |
+| `drawElementImage()` with `globalAlpha`, a scale or a rotation | keeps 3.0 | |
+| `drawImage()` of a float16 canvas, an OffscreenCanvas or an ImageBitmap of one, and `createPattern()` | clamp to 1.0 | The source held 4.0. So a bloom that blurs a copy of the canvas cannot be built in 2D. |
+
+## Other routes
+
+| Route | Result | Notes |
+|---|---|---|
+| WebGL 2: `texElementSubImage2D()` into `RGBA16F` or `RGBA32F` storage | `INVALID_OPERATION` | `RGBA8` and `SRGB8_ALPHA8` are accepted and hold at most 1.0. `drawingBufferStorage(RGBA16F)` and `drawingBufferToneMapping()` exist, so a shader can write values above 1.0, but it does not receive them from the element. |
+| WebGPU: `drawElementImageToTexture()` into `rgba16float` | 1.0 for a CSS value of 3.0 | Measured with the SwiftShader adapter (`--enable-unsafe-webgpu`). With `colorSpace: 'display-p3'` on the destination the colours are converted and still clamped. |
+| `toneMapping: { mode: 'extended' }` on the 2D context | accepted; reported back as `standard` | With `--enable-experimental-web-platform-features` it is reported as `extended`. A string instead of the dictionary throws a TypeError. |
+
+## Things that bit
+
+- A status readout that sampled "the panel background" beside the Deploy button read 0.32 instead of 0.08: the sample point was inside the button's halo. It now samples the bottom corner.
+- `getContext('2d', { toneMapping: 'extended' })` throws, so the page tries the dictionary form and falls back to no option.
+- The halo has to be clipped off the element with an even-odd clip, because the shadow of a filled shape is solid under the shape.
+
+## Not verified
+
+- Whether values above 1.0 in a 2D canvas reach an HDR screen above standard white in Chrome 157 to 159, and whether `toneMapping: extended` is needed for it. To verify: open `/hdr-glow/` on an HDR phone with "As stored" selected. The white strip holds the word BRIGHTER at headroom times white; if it can be read, the range is shown.
+- The effect of `dynamic-range-limit` on the canvas element. The page has a select for it.
+- `(dynamic-range: high)` on the test phone. The page prints what the screen reports.
+- Speed of the repaint (about 15 a second, every frame during a deploy) and of the map view's full readback on a phone.
+
+## Open ideas
+
+- A WebGL route with an `RGBA16F` drawing buffer: the element arrives as 8 bits, and a shader raises pixels chosen by a mask and adds a real bloom. Not built.
+- Ask for a float destination in `texElementSubImage2D()` and unclamped values in `drawElementImageToTexture()`.
+
+## For the index
+
+- Colour and HDR: a float16 Display P3 2D canvas keeps CSS `color()` values above 1.0 through `drawElementImage()` (measured, C157, `/hdr-glow/`).
+- Colour and HDR: a CSS `filter` or `mix-blend-mode` on the element, `ctx.filter`, `lighter`, a shadow on the draw and `drawImage()` of a float canvas clamp to 1.0; `multiply` and fill shadows do not (measured, C157, `/hdr-glow/`).
+- WebGL and WebGPU: element copies do not carry values above 1.0; `texElementSubImage2D()` refuses float textures (measured, C157, `/hdr-glow/`).
+
+## API requests
+
+- `texElementSubImage2D()` should accept `RGBA16F` storage, and `drawElementImageToTexture()` should keep values above 1.0 in a float texture, so that GPU routes can receive HDR CSS colours.
