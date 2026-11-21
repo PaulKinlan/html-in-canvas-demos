@@ -25,6 +25,7 @@ window.DEMO_GROUPS = [
   ['motion', 'Experiments: transitions and motion'],
   ['media', 'Experiments: video and sound'],
   ['3d', 'Experiments: 3D and shaders'],
+  ['input', 'Experiments: language models, voice and controllers'],
   ['audit', 'Measurements: accessibility, capture and performance'],
   ['start', 'Learn the API'],
 ];
@@ -77,6 +78,9 @@ window.DEMOS = [
   { group: '3d', href: '/board/', title: 'Infinite board of live pages', blurb: 'A zoomable, pannable canvas where every tile is a working document: notes, a spreadsheet, a sketch pad and whole pages in iframes, sharp at any zoom.', tags: ['drawElementImage', 'iframe', 'pinch zoom'] },
   { group: '3d', href: '/xr/', title: 'WebXR panels', blurb: 'Ordinary HTML as floating panels in a headset, driven by controller rays, with an on-panel keyboard. Runs as a desktop preview and with a built-in headset emulator too.', tags: ['WebXR', 'three.js', 'synthetic input'] },
   { group: '3d', href: '/native-ui/', title: 'DOM elements in egui and Qt Quick', blurb: 'Two native UI toolkits compiled to WebAssembly, each with real <code>&lt;input&gt;</code> and <code>&lt;select&gt;</code> elements laid out and drawn by the toolkit. Plus notes on Flutter, Compose and others.', tags: ['WebAssembly', 'texElementSubImage2D', 'updateElementGeometry'] },
+
+  // --- input ---
+  { group: 'input', href: '/translate-lens/', title: 'A lens that translates', blurb: 'A circle over an article shows the same text in French, Spanish, German or Japanese, in simpler words, or as one-line summaries. The canvas draws a converted copy of the article inside the circle, lined up block by block, and the original still takes clicks.', tags: ['Translator', 'Summarizer', 'Rewriter', 'drawElementImage'] },
 
   // --- audit ---
   { group: 'audit', href: '/a11y/', title: 'Accessibility audit', blurb: 'Is DOM in a canvas still DOM? Probes of focus, selection, find, zoom and forced colours, a table of how each pattern on this site holds up, the same audit run over every demo, and a short list to try with a screen reader.', tags: ['accessibility tree', 'focus', 'forced-colors'] },

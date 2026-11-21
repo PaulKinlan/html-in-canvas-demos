@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A lens that translates, simplifies or summarises what is under it</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .controls { margin: 14px 0 10px; gap: 8px 14px; }
+  .controls label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+  .controls select, .controls input[type=range] { font: inherit; max-width: 46vw; }
+  .controls input[type=range] { width: 110px; }
+  /* #region styles */
+  .lens-stage { position: relative; max-width: 640px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fbf8f1; }
+  #view, #board { display: block; width: 100%; position: relative; }
+  #view { touch-action: pan-y; cursor: crosshair; }
+  /* Both sheets have the same width and padding, so the same text wraps the same way. */
+  .sheet { position: absolute; left: 0; top: 0; width: 100%; box-sizing: border-box; padding: 18px 20px 20px; background: #fbf8f1; color: #23201b; font: 16px/1.5 Georgia, 'Times New Roman', serif; }
+  .sheet.copy { background: #eef4ff; color: #101a33; }
+  /* #endregion styles */
+  .sheet h2 { margin: 0 0 10px; font-size: 24px; line-height: 1.2; letter-spacing: 0; }
+  .sheet p { margin: 0 0 12px; }
+  .sheet ul { margin: 0 0 12px; padding-left: 22px; font-family: var(--mono); font-size: 14px; }
+  .sheet a { color: #b3401a; }
+  .sheet [contenteditable] { outline: 1px dashed #b9b1a2; outline-offset: 3px; border-radius: 2px; }
+  .sheet button { font: 600 14px system-ui, sans-serif; padding: 8px 14px; border-radius: 8px; border: 1px solid #23201b; background: #23201b; color: #fbf8f1; }
+  .sheet.copy button { background: #101a33; border-color: #101a33; }
+  .stage-note { position: absolute; inset: auto 8px 8px 8px; padding: 8px 10px; border-radius: 8px; background: #2a1512; color: #ffd9d2; font-size: 14px; }
+  #status { min-height: 4.6em; margin: 8px 0 0; }
+  #status button { margin-left: 6px; }
+  .api { display: inline-block; margin: 0 6px 2px 0; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); font: 12px var(--mono); white-space: nowrap; }
+  .api.available { border-color: var(--ok); color: var(--ok); }
+  .api.downloadable, .api.downloading { border-color: var(--warn); color: var(--warn); }
+  /* The zoom board. */
+  #board { height: 300px; touch-action: pan-y; }
+  .tile, .gist { position: absolute; left: 0; top: 0; box-sizing: border-box; border-radius: 12px; font: 14px/1.45 system-ui, sans-serif; }
+  .tile { width: 260px; padding: 14px 16px; background: #fff; color: #1d1c1a; border: 1px solid #d8d2c6; }
+  .tile h3 { margin: 0 0 6px; font-size: 17px; }
+  .tile p { margin: 0 0 8px; }
+  .tile button { font: 600 13px system-ui; padding: 6px 10px; }
+  .gist { padding: 8px 10px; background: #1d2b4f; color: #fff; font-weight: 600; font-size: 13px; line-height: 1.3; cursor: zoom-in; border: 0; text-align: left; }
+  #board-out { min-height: 1.5em; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A lens that translates, simplifies or summarises what is under it</h1>
+  <p class="lede">
+    The canvas draws a translated, simplified or summarised copy of this article inside the circle. Move the mouse over it, or drag the circle
+    with a finger. The link, the button and the editable sentence under the circle still work.
+  </p>
+
+  <div class="row controls">
+    <label>Under the lens
+      <select id="mode">
+        <optgroup label="Translate">
+          <option value="fr">French</option>
+          <option value="es">Spanish</option>
+          <option value="de">German</option>
+          <option value="ja">Japanese</option>
+        </optgroup>
+        <optgroup label="Rewrite">
+          <option value="simple">Simpler words</option>
+          <option value="summary">One-line summaries</option>
+        </optgroup>
+        <option value="off">No lens</option>
+      </select>
+    </label>
+    <label>Line up
+      <select id="align">
+        <option value="fit">each block, shrunk to fit</option>
+        <option value="top">each block, by its top</option>
+        <option value="own">each block drawn as its own element</option>
+        <option value="none">nothing (the copy's own layout)</option>
+      </select>
+    </label>
+    <label>Size <input id="radius" type="range" min="60" max="170" value="96"></label>
+    <label>Zoom <input id="zoom" type="range" min="1" max="2" step="0.05" value="1.15"></label>
+  </div>
+
+  <div class="lens-stage" id="stage">
+    <!-- #region markup -->
+    <canvas id="view" content="drawable" layoutsubtree style="height:470px" aria-label="An article about tide tables">
+      <article id="original" class="sheet" drawable lang="en">
+        <h2>Reading a tide table</h2>
+        <p>A tide table lists the times of high and low water for one harbour. The heights are measured from <b>chart datum</b>, the lowest level the sea is expected to reach.</p>
+        <p>Two high tides arrive each day, about twelve hours and twenty-five minutes apart. At new moon and full moon the range is largest. <a href="#findings">These are spring tides</a>.</p>
+        <ul id="times">
+          <li>High water: 06:12, 4.8 metres</li>
+          <li>Low water: 12:31, 0.9 metres</li>
+          <li>High water: 18:40, 4.6 metres</li>
+        </ul>
+        <p contenteditable="plaintext-only" spellcheck="false" id="edit">Edit this sentence to see the copy under the lens change.</p>
+        <div><button type="button" id="day">Show tomorrow</button></div>
+      </article>
+      <!-- The copy. Empty here: TextTwin fills it from the original. -->
+      <article id="copy" class="sheet copy" drawable></article>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+  <p class="note" id="status" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>a converted copy of an element, drawn inside a circle</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Two drawable children in one canvas.</b> The article, and an empty element that will hold its copy. Both are absolutely positioned at the same place with the same width.</li>
+      <li data-code="/lib/text-twin.js#clone"><b>Copy the article and pair up the blocks.</b> Each heading, paragraph, list item and button of the original is matched with the same one in the copy.</li>
+      <li data-code="/lib/text-twin.js#translator"><b>Make a translator.</b> <code>LanguageDetector</code> names the source language and <code>Translator.create()</code> loads the pair. The model may have to be downloaded, which needs a tap first.</li>
+      <li data-code="/lib/text-twin.js#convert"><b>Convert the copy's text.</b> One text node at a time for translation, so links and bold text stay in place. One block at a time for rewriting and summarising.</li>
+      <li data-code="/translate-lens/lens.js#paint"><b>Draw the original, then the copy inside the circle.</b> For each block the lens touches, the copy is drawn once, clipped to the original block's rows and moved so the two blocks start at the same place.</li>
+      <li data-code="/lib/text-twin.js#own"><b>Or make each block of the copy drawable.</b> Then each block is passed to <code>drawElementImage()</code> by itself ("each block drawn as its own element" in the menu).</li>
+      <li data-code="/lib/text-twin.js#recorded"><b>Without a model: text recorded in advance.</b> The same provider shape, answering from a table in <a href="/translate-lens/recorded.js">recorded.js</a>.</li>
+      <li data-code="/lib/text-twin.js#follow"><b>Keep the copy in step.</b> A <code>MutationObserver</code> on the original copies and converts again when its text changes.</li>
+      <li data-code="/translate-lens/lens.js#pointer"><b>Moving the lens.</b> Mouse hover, a finger drag that starts on the lens, a tap, and keyboard focus.</li>
+      <li data-code="#choose"><b>The page script: choosing what goes under the lens.</b></li>
+      <li data-code="/lib/text-twin.js"><b>The whole library.</b></li>
+    </ol>
+  </details>
+
+  <h2>Zoom: a card too small to read is replaced by its summary</h2>
+  <p>
+    Three cards drawn at the scale the slider sets. When the body text would be drawn smaller than 9 px, the canvas stops drawing the card
+    and draws a one-line summary of it at 13 px in the same place. The summary is a real element too: tap it to zoom in.
+  </p>
+  <div class="row controls">
+    <label>Scale <input id="scale" type="range" min="0.25" max="1" step="0.01" value="1" style="width:180px"></label>
+    <label><input id="breathe" type="checkbox" checked> Move the scale on its own</label>
+  </div>
+  <div class="lens-stage">
+    <!-- #region board -->
+    <canvas id="board" content="drawable" layoutsubtree aria-label="Three cards that can be zoomed">
+      <article class="tile" drawable id="card-tides"><h3>Tides</h3><p>Two high tides arrive each day, about twelve hours and twenty-five minutes apart. The range is largest at new moon and full moon, when the sun and the moon pull along the same line.</p><button type="button">Mark as read</button></article>
+      <article class="tile" drawable id="card-knots"><h3>Knots</h3><p>A bowline makes a fixed loop at the end of a rope. It does not slip under load, and it can be untied by hand after it has carried a heavy weight.</p><button type="button">Mark as read</button></article>
+      <article class="tile" drawable id="card-lights"><h3>Lights</h3><p>Each lighthouse shows its own pattern of flashes, called its character. A chart prints the pattern beside the light, so a navigator can tell two lights apart at night.</p><button type="button">Mark as read</button></article>
+      <button class="gist" drawable data-for="card-tides"></button>
+      <button class="gist" drawable data-for="card-knots"></button>
+      <button class="gist" drawable data-for="card-lights"></button>
+    </canvas>
+    <!-- #endregion board -->
+  </div>
+  <p class="note" id="board-out" role="status"></p>
+  <details class="show-code">
+    <summary>Show the code <small>swap a card for its summary by drawn size</small></summary>
+    <ol>
+      <li data-code="#board"><b>Cards and their summaries are all children of the canvas.</b></li>
+      <li data-code="#board-paint"><b>Each frame, decide by the drawn text size.</b> The card is drawn scaled. Below 9 px of text the summary is drawn in its place, laid out at the width the card covers on screen.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    <code>drawElementImage()</code> draws a child of the canvas wherever the 2D transform and clip say. The page keeps two children: the article,
+    and a copy of it made by <a href="/lib/text-twin.js"><code>TextTwin</code></a>. The original is drawn once at its layout position, which is also
+    where it receives clicks. The copy is <code>inert</code> and is only drawn inside the lens circle. A translated paragraph rarely has the same
+    number of lines as the original, so each block of the copy is drawn separately and moved to the top of the block it belongs to.
+  </p>
+  <p>
+    The text comes from a provider. With <code>Translator</code>, <code>Rewriter</code> or <code>Summarizer</code> in the browser, the provider calls
+    the on-device model. Without them it answers from a table written in advance for this article, and a block whose text is not in the table is
+    hatched in red. The line under the demo says which one is in use.
+  </p>
+
+  <h2>Live checks</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li><strong>A copy drawn inside a clip works as a lens with one 2D context.</strong> The original keeps its hit testing because it is drawn at its layout position and the copy is <code>inert</code>. <code>elementFromPoint()</code> under the lens returns the original's link.</li>
+    <li><strong>Without alignment the copy drifts.</strong> In a 340 px column the recorded German copy starts its third block 24 px lower than the English original and its last blocks 48 px lower (measured by the live check). The "Line up" menu shows it.</li>
+    <li><strong>Two ways to line up a block were tried, and both work.</strong> The first draws the whole copy once for each block under the lens, clipped to the original block's rows and moved. The second puts the <code>drawable</code> attribute on every block of the copy and passes each block to <code>drawElementImage()</code> by itself, which is one small draw per block.</li>
+    <li><strong>A <code>drawable</code> descendant is left out of its ancestor's picture.</strong> In Chromium 157, once a block of the copy has the attribute, drawing the copy as a whole leaves a hole where the block is. A list item drawn by itself also has no bullet, because the marker is outside its box. So a page picks one of the two ways for a given copy.</li>
+    <li><strong><code>getBoundingClientRect()</code> could not be used to measure the copy.</strong> For a child of a drawable canvas it reports where the element was last drawn. The copy is drawn moved and scaled, so the page measures blocks with <code>offsetTop</code> and <code>offsetLeft</code>.</li>
+    <li><strong>"Shrunk to fit" keeps all the text of a longer block but makes it smaller.</strong> "By its top" keeps the size and cuts off lines that do not fit. A shorter block leaves empty rows in both.</li>
+    <li><strong>Translating one text node at a time keeps inline elements but loses word order across them.</strong> "measured from <b>chart datum</b>, the lowest level" is three text nodes. The recorded German puts the verb in the third node, which a per-node model call cannot know to do. Rewriting and summarising work on the whole block and return plain text, so the link and the bold word are not in the copy.</li>
+    <li><strong>The built-in AI APIs were not usable in the test browser.</strong> In headless Chromium 157 <code>Summarizer</code> and <code>LanguageModel</code> report "downloadable", <code>LanguageDetector</code> reports "unavailable", <code>Rewriter</code> is missing and <code>Translator.availability()</code> never settles. No model can be downloaded in the cloud container, so the code paths that call <code>Translator</code>, <code>Rewriter</code> and <code>Summarizer</code> have not been run. The line under the demo shows what this browser reports.</li>
+    <li><strong>Not verified:</strong> model download and speed on Android, the quality of per-node translation from a real model, and the drag on a real touch screen.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, supported, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import { TextTwin, builtInAI, recorded, translator, rewriter, summarizer } from '/lib/text-twin.js';
+  import { RECORDED, CARD_SUMMARIES } from '/translate-lens/recorded.js';
+  import { twinLens, boxWithin } from '/translate-lens/lens.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const canvas = $('view'), original = $('original'), copy = $('copy');
+  const LANGS = { fr: 'French', es: 'Spanish', de: 'German', ja: 'Japanese' };
+  const APIS = { simple: 'Rewriter', summary: 'Summarizer' };
+  let view = null, twin = null, provider = null, useModel = false, ai = {}, modelNote = '';
+
+  // The stage is as tall as the article, set before the first paint is shown.
+  function fitStage() {
+    const h = Math.max(original.offsetHeight, 200);
+    if (canvas.style.height !== h + 'px') canvas.style.height = h + 'px';
+  }
+
+  if (supported) {
+    fitStage();
+    new ResizeObserver(fitStage).observe(original);
+    twin = new TextTwin(original, copy);
+    view = twinLens(canvas, original, copy, twin, { label: () => (provider ? provider.label : '') });
+    view.moveTo(canvas.clientWidth * 0.5, 120, true);
+    view.drift = true;
+    canvas.addEventListener('lenslost', () => stageNote('The canvas lost its graphics context. The article is still in the page; the picture returns when the browser restores the context.'));
+    canvas.addEventListener('lensrestored', () => stageNote(''));
+  } else {
+    // No HTML-in-canvas: show the article as plain HTML.
+    canvas.replaceWith(original);
+    original.style.position = 'static';
+  }
+
+  function stageNote(text) {
+    let el = $('stage').querySelector('.stage-note');
+    if (!text) return el?.remove();
+    if (!el) { el = document.createElement('p'); el.className = 'stage-note'; $('stage').append(el); }
+    el.textContent = text;
+  }
+
+  // #region choose
+  // What goes under the lens: the on-device model when the person has turned
+  // it on and it loads, otherwise the recorded table.
+  async function choose() {
+    if (!twin) return;
+    const mode = $('mode').value;
+    view.on = mode !== 'off';
+    modelNote = '';
+    if (mode === 'off') { provider = null; twin.convert(null); return status(); }
+    const table = recorded(RECORDED, mode, LANGS[mode] ? { label: `English to ${LANGS[mode]}` } : { unit: 'block', label: mode === 'simple' ? 'simpler words' : 'summary' });
+    provider = table;
+    if (useModel) {
+      const onprogress = (p) => { modelNote = `Downloading the model: ${Math.round(p * 100)}%.`; status(); };
+      try {
+        modelNote = 'Loading the on-device model.';
+        status();
+        const make = LANGS[mode] ? translator({ source: 'en', target: mode, sample: original.textContent, onprogress }) : mode === 'simple' ? rewriter({ onprogress }) : summarizer({ onprogress });
+        // A model that never answers must not leave the lens empty.
+        provider = await Promise.race([make, sleep(60000).then(() => { throw new Error('no answer from the model after 60 s'); })]);
+        modelNote = provider.detected ? `LanguageDetector says the article is ${provider.detected}.` : '';
+      } catch (err) {
+        if ($('mode').value !== mode) return;
+        provider = table;
+        modelNote = `The on-device model could not be used (${err.message}).`;
+      }
+    }
+    if ($('mode').value !== mode) return;
+    twin.convert(provider);
+    status();
+  }
+  // #endregion choose
+
+  function status() {
+    const mode = $('mode').value;
+    const api = LANGS[mode] ? 'Translator' : APIS[mode];
+    const chips = Object.entries(ai).map(([name, state]) => `<span class="api ${state.split(':')[0]}">${name}: ${state}</span>`).join('');
+    const source = !provider ? 'The lens is off.' : provider.recorded ? `Text under the lens: <b>${provider.label}</b>.` : `Text under the lens: <b>${provider.label}</b>, made on this device.`;
+    const can = ['available', 'downloadable', 'downloading'].includes(ai[api]);
+    const button = !api ? '' : can ? `<button type="button" id="model" aria-pressed="${useModel}">${useModel ? 'Use the recorded text' : `Use ${api} on this device`}</button>` : ` <code>${api}</code> is ${ai[api] ?? 'not checked yet'} in this browser, so the recorded text is the only source.`;
+    $('status').innerHTML = `${chips}<br>${source} ${modelNote} ${button}`;
+  }
+  $('status').addEventListener('click', (e) => {
+    if (e.target.id !== 'model') return;
+    useModel = !useModel;
+    choose();
+  });
+
+  $('mode').onchange = choose;
+  $('align').onchange = () => { view.align = $('align').value; twin.ownBlocks = view.align === 'own'; view.refresh(); };
+  $('radius').oninput = () => { view.radius = +$('radius').value; view.refresh(); };
+  $('zoom').oninput = () => { view.zoom = +$('zoom').value; view.refresh(); };
+
+  // The article is a live document: the button rewrites the list.
+  const DAYS = [
+    ['Show tomorrow', ['High water: 06:12, 4.8 metres', 'Low water: 12:31, 0.9 metres', 'High water: 18:40, 4.6 metres']],
+    ['Show today', ['High water: 06:58, 5.1 metres', 'Low water: 13:14, 0.6 metres', 'High water: 19:22, 4.9 metres']],
+  ];
+  let day = 0;
+  $('day').onclick = () => {
+    day = 1 - day;
+    $('day').textContent = DAYS[day][0];
+    [...$('times').children].forEach((li, i) => (li.textContent = DAYS[day][1][i]));
+  };
+
+  status();
+  choose();
+  builtInAI({ Translator: { sourceLanguage: 'en', targetLanguage: 'fr' } }).then((state) => { ai = state; status(); });
+
+  // -------------------------------------------------------------------------
+  // The zoom board
+
+  const board = $('board');
+  const tiles = [...board.querySelectorAll('.tile')];
+  const gists = [...board.querySelectorAll('.gist')];
+  const zoom = { s: 1, target: 1, read: new Set() };
+  gists.forEach((g) => (g.textContent = CARD_SUMMARIES[g.dataset.for]));
+
+  if (supported) {
+    const bctx = board.getContext('2d');
+    new ResizeObserver(([entry]) => {
+      const box = entry.devicePixelContentBoxSize[0];
+      if (board.width !== box.inlineSize) board.width = box.inlineSize;
+      if (board.height !== box.blockSize) board.height = box.blockSize;
+      board.requestPaint();
+    }).observe(board, { box: 'device-pixel-content-box' });
+
+    // #region board-paint
+    const BODY_PX = 14, READABLE_PX = 9, GAP = 18;
+    board.addEventListener('paint', () => {
+      if (!board.clientWidth) return;
+      const dpr = board.width / board.clientWidth;
+      const W = board.clientWidth, H = board.clientHeight, s = zoom.s;
+      bctx.reset();
+      bctx.scale(dpr, dpr);
+      // 1 = the card is drawn, 0 = its summary. The two cross-fade around the
+      // scale where the card's 14 px text reaches 9 px on screen.
+      const edge = READABLE_PX / BODY_PX;
+      const full = Math.max(0, Math.min(1, (s - edge + 0.04) / 0.08));
+      tiles.forEach((tile, i) => {
+        const w = tile.offsetWidth, h = tile.offsetHeight;
+        const x = W / 2 + (i - 1) * (w + GAP) * s - (w * s) / 2, y = H / 2 - (h * s) / 2;
+        const gist = gists[i];
+        // The summary is laid out at the width the card covers on screen, at its own font size.
+        const gw = Math.max(96, Math.round(w * s));
+        if (gist.style.width !== gw + 'px') gist.style.width = gw + 'px';
+        // An element that is not drawn keeps its last hit area, so take it out of hit testing.
+        tile.inert = full < 0.5;
+        gist.inert = full >= 0.5;
+        if (full > 0) {
+          bctx.save();
+          bctx.globalAlpha = full;
+          bctx.translate(x, y);
+          bctx.scale(s, s);
+          bctx.drawElementImage(tile, 0, 0, w, h);
+          bctx.restore();
+        }
+        if (full < 1) {
+          bctx.save();
+          bctx.globalAlpha = 1 - full;
+          bctx.drawElementImage(gist, x + (w * s - gw) / 2, H / 2 - gist.offsetHeight / 2, gw, gist.offsetHeight);
+          bctx.restore();
+        }
+      });
+      $('board-out').textContent = `Scale ${s.toFixed(2)}: body text is drawn at ${(BODY_PX * s).toFixed(1)} px, so the canvas draws ${full >= 0.5 ? 'the cards' : 'the summaries'}.`;
+    });
+    // #endregion board-paint
+
+    const calm = matchMedia('(prefers-reduced-motion: reduce)');
+    let shown = false;
+    new IntersectionObserver(([e]) => { shown = e.isIntersecting; if (shown) tick(); }).observe(board);
+    let ticking = 0;
+    function tick(now = performance.now()) {
+      ticking = 0;
+      if ($('breathe').checked && !calm.matches) {
+        zoom.target = 0.62 + 0.38 * Math.cos(now / 2600);
+        $('scale').value = zoom.target;
+      }
+      const d = zoom.target - zoom.s;
+      zoom.s += Math.abs(d) < 0.002 ? d : d * 0.2;
+      board.requestPaint();
+      if (shown && (($('breathe').checked && !calm.matches) || Math.abs(d) > 0.002)) ticking = requestAnimationFrame(tick);
+    }
+    const go = () => { if (!ticking) ticking = requestAnimationFrame(tick); };
+    $('scale').oninput = () => { $('breathe').checked = false; zoom.target = +$('scale').value; go(); };
+    $('breathe').onchange = go;
+    for (const g of gists) g.onclick = () => { $('breathe').checked = false; zoom.target = 1; $('scale').value = 1; go(); };
+    for (const t of tiles) t.querySelector('button').onclick = (e) => { e.target.textContent = 'Read'; e.target.disabled = true; };
+  } else {
+    board.replaceWith(...tiles);
+    for (const t of tiles) t.style.cssText = 'position:static;margin:8px';
+  }
+
+  // -------------------------------------------------------------------------
+  // Live checks. Each one builds its own small canvas on the test stage.
+
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const ARTICLE = `<h2>Reading a tide table</h2>
+    <p>A tide table lists the times of high and low water for one harbour. The heights are measured from <b>chart datum</b>, the lowest level the sea is expected to reach.</p>
+    <p>Two high tides arrive each day, about twelve hours and twenty-five minutes apart. At new moon and full moon the range is largest. <a href="#findings">These are spring tides</a>.</p>
+    <ul><li>High water: 06:12, 4.8 metres</li><li>Low water: 12:31, 0.9 metres</li></ul>`;
+  async function fixture(column = 'de', options = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = 'display:block;position:relative;flex:none;width:340px;height:330px';
+    c.innerHTML = `<article class="sheet" drawable>${ARTICLE}</article><article class="sheet copy" drawable></article>`;
+    testStage().append(c);
+    const [a, b] = c.children;
+    const t = new TextTwin(a, b);
+    const v = twinLens(c, a, b, t, options);
+    v.moveTo(170, 150, true);
+    if (column) await t.convert(recorded(RECORDED, column, column === 'simple' || column === 'summary' ? { unit: 'block' } : {}));
+    await drawn(v);
+    return { c, a, b, t, v };
+  }
+  async function drawn(v, more = 2) {
+    const start = v.frames;
+    v.refresh();
+    for (let i = 0; i < 80 && v.frames < start + more; i++) { await sleep(25); v.refresh(); }
+    if (v.frames === start) throw new Error('the fixture canvas never fired a paint event');
+  }
+  // A small copy of a canvas, so the canvas itself is never read back.
+  function pixels(c) {
+    const small = document.createElement('canvas');
+    small.width = 340; small.height = 330;
+    const sx = small.getContext('2d', { willReadFrequently: true });
+    sx.drawImage(c, 0, 0, 340, 330);
+    return sx.getImageData(0, 0, 340, 330).data;
+  }
+  const differs = (p, q, x, y) => { const i = (y * 340 + x) * 4; return Math.abs(p[i] - q[i]) + Math.abs(p[i + 1] - q[i + 1]) + Math.abs(p[i + 2] - q[i + 2]) > 24; };
+
+  runTests($('results'), [
+    {
+      name: 'The browser has the on-device language APIs',
+      why: 'Translator, LanguageDetector, Summarizer, Rewriter and LanguageModel are looked up and asked for availability(). The check fails when Translator cannot be used at all, because the lens then only has recorded text.',
+      timeout: 8000,
+      run: async () => {
+        const state = await builtInAI({ Translator: { sourceLanguage: 'en', targetLanguage: 'fr' } });
+        const line = Object.entries(state).map(([k, v]) => `${k}: ${v}`).join('; ');
+        if (!['available', 'downloadable', 'downloading'].includes(state.Translator)) throw new Error(line);
+        return line;
+      },
+    },
+    {
+      name: 'Translator translates a sentence when its model is already on the device',
+      why: 'Translator.create() for English to French, then translate(). A model that still has to be downloaded is not started from a check, because a download needs a tap.',
+      timeout: 30000,
+      run: async () => {
+        if (!('Translator' in globalThis)) throw new Error('Translator is missing');
+        const state = (await builtInAI({ Translator: { sourceLanguage: 'en', targetLanguage: 'fr' } })).Translator;
+        if (state !== 'available') throw new Error(`availability() is "${state}": the model is not on this device yet. Press "Use Translator on this device" above to download it`);
+        const p = await translator({ source: 'en', target: 'fr', sample: 'High water at six in the morning.' });
+        const out = await p.convert('High water at six in the morning.');
+        if (!out || out === 'High water at six in the morning.') throw new Error(`translate() returned "${out}"`);
+        return `"${out}"${p.detected ? `; detected source ${p.detected}` : ''}`;
+      },
+    },
+    {
+      name: 'Every block of the copy is paired with a block of the original and filled',
+      why: 'A fixture article is copied and converted from the recorded German table. Each of its 5 blocks must end in the state "done" with different text.',
+      run: async () => {
+        need();
+        const { t } = await fixture('de');
+        const bad = t.blocks.filter((b) => b.state !== 'done' || b.dst.textContent === b.src.textContent);
+        if (t.blocks.length !== 5) throw new Error(`${t.blocks.length} blocks were paired, expected 5`);
+        if (bad.length) throw new Error(`${bad.length} blocks were not converted: ${bad.map((b) => `${b.src.localName} is ${b.state}`).join(', ')}`);
+        return `5 blocks converted; the heading reads "${t.blocks[0].dst.textContent}"; the link is still an <a>: ${!!t.blocks[2].dst.querySelector('a')}`;
+      },
+    },
+    {
+      name: 'The copy is drawn inside the circle and nowhere else',
+      why: 'The fixture is drawn with the lens on and with it off. Pixels must differ inside the circle and be the same outside it.',
+      run: async () => {
+        need();
+        const { c, v } = await fixture('de', { zoom: 1 });
+        const on = pixels(c);
+        v.on = false;
+        await drawn(v);
+        const off = pixels(c);
+        let inside = 0, outside = 0;
+        for (let y = 0; y < 330; y += 3) for (let x = 0; x < 340; x += 3) {
+          const d = Math.hypot(x - 170, y - 150);
+          if (!differs(on, off, x, y)) continue;
+          if (d < v.radius - 4) inside++; else if (d > v.radius + 28) outside++;
+        }
+        if (inside < 60) throw new Error(`only ${inside} sampled pixels changed inside the circle`);
+        if (outside) throw new Error(`${outside} sampled pixels changed outside the circle`);
+        return `${inside} sampled pixels differ inside the circle, 0 outside it`;
+      },
+    },
+    {
+      name: 'Without alignment the copy drifts; per-block drawing removes the drift',
+      why: 'German text in a 340 px column. The top of each copied block is compared with the top of its original, first in the copy\'s own layout and then where the lens draws it.',
+      run: async () => {
+        need();
+        const { a, b, t, v } = await fixture('de');
+        const top = (el, root) => boxWithin(el, root).y;
+        const drift = t.blocks.map((blk) => top(blk.dst, b) - top(blk.src, a));
+        const worst = Math.max(...drift.map(Math.abs));
+        v.radius = 400;
+        await drawn(v);
+        const placed = t.blocks.map((blk, i) => (v.placed[i] ? v.placed[i].top - top(blk.src, a) : NaN));
+        if (placed.some((d) => !(Math.abs(d) < 0.5))) throw new Error(`drawn tops are off by ${placed.map((d) => d.toFixed(1)).join(', ')} px`);
+        const scales = v.placed.filter(Boolean).map((p) => p.scale.toFixed(2)).join(', ');
+        if (worst < 1) return `the German copy did not drift in this font (${drift.map((d) => d.toFixed(0)).join(', ')} px), so there was nothing to correct; block scales ${scales}`;
+        return `own layout: block tops are off by ${drift.map((d) => d.toFixed(0)).join(', ')} px; drawn per block: 0 px; block scales ${scales}`;
+      },
+    },
+    {
+      name: 'Editing the original changes the copy',
+      why: 'The text of a list item in the fixture is changed. The MutationObserver must copy it and convert it again, with the new numbers.',
+      run: async () => {
+        need();
+        const { a, t } = await fixture('fr');
+        a.querySelector('li').textContent = 'High water: 07:45, 5.2 metres';
+        for (let i = 0; i < 60; i++) { await sleep(25); if (t.blocks[3]?.dst.textContent.includes('07:45') && t.blocks[3].state === 'done') break; }
+        const out = t.blocks[3]?.dst.textContent;
+        if (out !== 'Pleine mer : 07:45, 5.2 mètres') throw new Error(`the copy reads "${out}"`);
+        a.querySelector('li').textContent = 'Slack water at noon';
+        for (let i = 0; i < 60; i++) { await sleep(25); if (t.blocks[3]?.state === 'missing') break; }
+        if (t.blocks[3]?.state !== 'missing') throw new Error(`text with no recorded translation is in state "${t.blocks[3]?.state}"`);
+        return `the copy reads "${out}"; a sentence that is not in the table is marked missing`;
+      },
+    },
+    {
+      name: 'A click under the lens reaches the original',
+      why: 'The lens is put over the link in the fixture. elementFromPoint() at the link must return the original\'s <a>, not the copy.',
+      run: async () => {
+        need();
+        const { a, b, v } = await fixture('de');
+        const link = a.querySelector('a');
+        const r = link.getClientRects()[0];
+        const box = a.getBoundingClientRect();
+        v.moveTo(r.left - box.left + 10, r.top - box.top + r.height / 2, true);
+        await drawn(v);
+        const stage = testStage();
+        const was = stage.style.pointerEvents;
+        stage.style.pointerEvents = 'auto';
+        const hit = document.elementFromPoint(r.left + 6, r.top + r.height / 2);
+        stage.style.pointerEvents = was;
+        if (hit !== link) throw new Error(`elementFromPoint() returned ${hit ? `<${hit.localName}>${b.contains(hit) ? ' in the copy' : ''}` : 'nothing'}`);
+        return 'elementFromPoint() returns the original <a>';
+      },
+    },
+    stillDrawn(() => [
+      { name: 'the article', ink: async () => (view ? inkFraction({ data: bigPixels(canvas) }) : null), note: 'not in a canvas' },
+      { name: 'the zoom board', ink: async () => (supported ? inkFraction({ data: bigPixels(board) }) : null), note: 'not in a canvas' },
+    ]),
+  ]);
+  function bigPixels(c) {
+    const small = document.createElement('canvas');
+    small.width = 200; small.height = 160;
+    const sx = small.getContext('2d', { willReadFrequently: true });
+    sx.drawImage(c, 0, 0, 200, 160);
+    return sx.getImageData(0, 0, 200, 160).data;
+  }
+</script>
+</body>
+</html>

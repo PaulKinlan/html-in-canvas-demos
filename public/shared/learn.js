@@ -79,6 +79,9 @@
       '/xr/': { question: 'Can HTML panels be used in WebXR, where there is no mouse? Controller rays are converted to pointer events on the elements.', first: ['/three-form/'], api: ['WebXR', 'texElementSubImage2D()', 'PointerEvent'] },
       '/native-ui/': { question: 'Can a native UI toolkit compiled to WebAssembly (egui, Qt Quick) use real DOM inputs as widgets inside its own WebGL canvas?', result: 'Yes for both, with a bridge of about 200 lines and no change to the toolkit. Tab order and occlusion are left to the bridge.', first: ['/three-form/'], api: ['texElementSubImage2D()', 'updateElementGeometry()', 'WebAssembly'] },
 
+      // --- input ---
+      '/translate-lens/': { question: 'Can a canvas draw a translated, simplified or summarised copy of an element inside a lens, lined up with the original, and which on-device language APIs can fill the copy?', result: 'A second drawable child holds the copy. Drawing it once per block, clipped and moved to the original block, keeps the two lined up. The APIs were not usable in the test browser; recorded text stands in.', first: ['/lens/', '/board/'], api: ['drawElementImage()', 'Translator', 'LanguageDetector', 'Summarizer', 'Rewriter'] },
+
       // --- audit ---
       '/a11y/': { question: 'Which accessibility features work for DOM drawn in a canvas, and which techniques on this site break them?', first: ['/start/'], api: ['accessibility tree', 'focus', 'forced-colors'] },
       '/capture/': { question: 'Can any element be exported as a PNG, a video or a printed page by wrapping it in a canvas for one frame?', first: ['/start/'], api: ['drawElementImage()', 'moveBefore()', 'VideoEncoder'] },
