@@ -6,6 +6,17 @@ Live: https://html-in-canvas-demos.kinlan-test.workers.dev (second origin for th
 
 Needs Chrome 148+ (desktop or Android) with `chrome://flags/#canvas-draw-element` set to Enabled, or the `html-in-canvas` origin trial. Without it the site is plain HTML. The demos are tested in Chromium 157 and in Chrome 159 on Android.
 
+## Project documents
+
+| File | What it holds |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Start here if you are a coding agent or a new contributor: which file to read for what, and the rules for every change. |
+| [PLAN.md](PLAN.md) | Goals, strands of work and their status, every open idea and planned demo, and what still needs real hardware. |
+| [FINDINGS.md](FINDINGS.md) | Every measured result, indexed by API area with the browser and page for each, Chromium bugs worth filing and API requests. |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Repository layout, the Worker and its routes, shared modules, the check harness, scripts, local testing, deploy and previews, how to add a page. |
+| [DESIGN.md](DESIGN.md) | The visual style as built (colours, type, spacing, components), section order, phone rules and writing rules. |
+| [KNOWN-LINKS-AND-RESOURCES.md](KNOWN-LINKS-AND-RESOURCES.md) | The explainer, Chrome documentation, every external source cited here, and the live and preview URLs. |
+
 ## Learn the API
 
 [`/start/`](https://html-in-canvas-demos.kinlan-test.workers.dev/start/) is a tutorial: how to enable the API, a 60-line page that draws one element ([`public/start/hello.html`](public/start/hello.html)), common errors with their fixes, and a glossary.
@@ -79,6 +90,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
 | `/player-fx/` | One WebGL shader over the native controls and the video frame as two textures from one `<video>`: the play button grows into a lens, the controls refract, melt into and light the picture. Finds the box of each control without script access |
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
+| `/component-kit/` | One drawable custom element written with a scoped registry, manual slot assignment, Reference Target, `using`, Observable and `moveBefore()`, and again without them, with the lines each feature removes |
 | `/translate-lens/` | A lens that shows a translated, simplified or summarised copy of the article under it, lined up block by block (`Translator`, `Rewriter`, `Summarizer`, or recorded text when there is no model); cards swapped for summaries when zoomed out |
 | `/agent-view/` | A form drawn through a shader that offers WebMCP tools; each tool call is shown by a marker and a turn of the panel; the Prompt API plans calls from a sentence and describes a picture of the canvas |
 
