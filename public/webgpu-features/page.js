@@ -438,6 +438,7 @@ const tests = [
       const adapter = await navigator.gpu?.requestAdapter({ featureLevel: 'compatibility' });
       if (!adapter) throw new NotRun('no compatibility mode adapter');
       const core = adapter.features.has('core-features-and-limits');
+      // gfx-allow: own-device a compatibility device is made to read its limits and destroyed four lines below
       const device = await adapter.requestDevice();
       const level = device.features.has('core-features-and-limits') ? 'core' : 'compatibility';
       const limits = `maxTextureDimension2D ${device.limits.maxTextureDimension2D}, maxColorAttachments ${device.limits.maxColorAttachments}`;
