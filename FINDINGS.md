@@ -15,6 +15,8 @@ The main results. Each is backed by the tables in the sections below.
 - Accessibility largely survives, with one sharp edge: whatever is in the canvas but not drawn is still focusable. An opt-in such as "undrawn means inert" would remove the main hazard.
 - Any element can be exported with one call today, and a whole ordinary page can be wrapped in a canvas for a single frame without the user seeing it.
 - A native "draw this element by reference" hook for canvas (an id reference rather than DOM containment) would remove the need for the shadow root. An ElementImage that could be drawn into a second canvas would make cross-document reprojection first class; today it is deliberately bound to one canvas.
+- A customisable select can hand its options to a canvas inside its own picker and keep the value, the keyboard and hit testing. A select inside a canvas cannot have its picker drawn by that canvas, because the picker is in the top layer.
+- Datalist, date, time and colour popups have no element, so a canvas cannot draw them. The `<datalist>` element and its options can be drawn, and a picker made of real buttons in a popover canvas can replace the others on the same input.
 - For 3D, the texture half of the API is ready and the method names are the only obstacle in three.js today. The input half rests entirely on `updateElementGeometry()`: it accepts a perspective matrix, which covers every flat surface, and anything curved or occluded needs the app to re-place the element under the pointer.
 - In XR there is no pointer for the browser to hit test, so input is synthetic and loses everything a trusted event does for free. A way to hand the browser a ray hit (element plus point) and have it dispatch a trusted event would remove most of `RayPointer`.
 
@@ -31,6 +33,8 @@ The main results. Each is backed by the tables in the sections below.
 - [Accessibility (/a11y/)](#accessibility-a11y)
 - [Capture (/capture/, public/lib/element-capture.js)](#capture-capture-publiclibelement-capturejs)
 - [Performance (/perf/)](#performance-perf)
+- [Customisable select (/select/, lib/select-picker.js)](#customisable-select-select-libselect-pickerjs)
+- [Datalist and other inputs (/datalist/, /inputs/)](#datalist-and-other-inputs-datalist-inputs)
 - [3D and spatial (/three-form/, /board/, /xr/)](#3d-and-spatial-three-form-board-xr)
 - [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
@@ -482,6 +486,70 @@ The page ramps 10 to 1,600 moving elements per renderer and reports where the fr
 - In software rendering the 2D canvas carried more moving cards (200 at 60 fps) than the same cards as individually composited DOM layers (100).
 - A worker holding `ElementImage` snapshots costs the main thread nothing per frame when content is static. With the main thread blocked 40 ms per frame, a main-thread canvas drops to 23 fps and the worker stays at 60 fps (content updates at the main thread's rate, motion stays smooth).
 - The worker has no advantage when every element changes every frame: each one needs a fresh snapshot captured on the main thread.
+
+## Customisable select (`/select/`, `lib/select-picker.js`)
+
+Measured in headless Chromium 157 with software rendering on 2026-11-21, driven by Playwright with a mouse, a keyboard and emulated touch. Not yet tried on a phone.
+
+A select with `appearance: base-select` has a picker made of HTML in the top layer. Two combinations were tested: a canvas inside the select, and a select inside a canvas.
+
+| Experiment | Result | Why |
+|---|---|---|
+| `<select><canvas content="drawable"><option drawable>` | works | The select collects options from all its descendants. `select.options`, the value, the form entry, arrow keys, typeahead, Enter and Escape are unchanged. |
+| The picker canvas draws each option under its own 2D transform | works | `drawElementImage()` moves the option's hit box. Click, hover and `:checked` are the browser's. |
+| Options as WebGL textures with a perspective matrix | works | `texElementSubImage2D()`, then `updateElementGeometry()` with the same matrix the shader uses. |
+| Options as WebGPU textures | works off screen | `drawElementImageToTexture()` into a texture, read back. Not shown on a canvas here: the software adapter loses its device when it presents. |
+| Two options overlap | the one drawn last gets the click | The last `drawElementImage()` or `updateElementGeometry()` wins. `z-index` on the options has no effect. |
+| An option the canvas does not draw | keeps its last hit box | The library moves it far outside the canvas. It stays reachable by arrow key. |
+| `toggle` or `beforetoggle` on the select when the picker opens | no event | The canvas's first `paint` event is the earliest signal. Before it the options have no paint record. |
+| Close the picker from script | works, with a workaround | There is `showPicker()` and no `hidePicker()`. `blur()`, a synthetic Escape, `option.click()`, `disabled`, `inert` and `display: none` restored in the same task all leave it open. Showing an empty `popover="auto"` element closes it: the picker is in the popover stack. |
+| Close the picker by setting `appearance: auto` for one style recalculation | closes it, then breaks the select | Chromium logs a console warning. If the mouse is over the picker at that moment, the select's computed `appearance` stays `auto` afterwards, whatever the stylesheet and inline style say, and it is the browser's own select until reload. |
+| Open several pickers from one tap | fails | `showPicker()` needs user activation and uses it up. One tap opens one picker. Synthetic clicks and key events do not open one. |
+| Mouse press on an option, drag, release over another option | chooses the second | The select chooses on mouseup. The library captures the pointer on the canvas once a drag passes 7 px. |
+| `touch-action: none` on the picker canvas and on the options | does not stop the page panning | In touch emulation a vertical drag in the picker scrolled the page and cancelled the pointer. Cancelling `touchmove` stops it. |
+| An animation when the picker closes | fails | The options stop painting in the frame the picker closes, so the canvas has nothing to draw. |
+| A canvas inside an option draws its own drawable child | works while open | With the picker closed: "No cached paint record". A plain canvas in an option that is given pixels with `drawImage()` can be drawn at any time. |
+| `<selectedcontent>` with a canvas in the chosen option | clones the element only | The clone has no pixels and no `paint` handler, and it is replaced on every change. Its cloned children are drawable in it. |
+| `position-area: center` on `::picker(select)` | works | The radial picker opens centred on the button. |
+| A select as a drawable child of a canvas, drawn rotated | works | The button is hit tested where it is drawn. |
+| The picker of that select in the canvas's picture | fails | The picker is top-layer content. The browser paints it upright, anchored to the bounding box of the drawn button. |
+| The outer canvas draws an option of the open picker | fails | "No cached paint record for element." |
+| A canvas-drawn picker inside a select that is itself drawn by a canvas | works | Two nested drawable canvases. The inner one is in the top layer while the picker is open. |
+| A canvas in the select's `<button>` with `<selectedcontent drawable>` inside it | works | The browser still fills `<selectedcontent>` on every change, and the canvas draws it. `rollSelected()` keeps the old value's pixels and rolls the new value in. |
+| `display` set on `::picker(select)` without `:open` | renders the closed picker | A rule such as `::picker(select) { display: flex }` overrides the rule that hides the closed picker. Write it as `select:open::picker(select)`. |
+
+What would help:
+
+- `hidePicker()`, and `toggle` events on the select, as popovers have.
+- A way for a picker's content to keep painting for a moment after the select closes, so a canvas can draw a closing animation or move the chosen option into the button.
+- `<selectedcontent>` cloning a canvas with its bitmap, or an event when it replaces its clone.
+- `touch-action` taking effect for elements drawn by a canvas in the top layer. This needs checking on a real phone before it is reported.
+
+## Datalist and other inputs (`/datalist/`, `/inputs/`)
+
+Measured in headless Chromium 157 with Playwright, mouse and emulated touch at 412 px. The shared part is `public/lib/placed-popover.js`: a `popover="manual"` element positioned with CSS anchor positioning that holds a drawable canvas.
+
+The built-in popups of `<input list>`, `type="date"`, `type="time"` and `type="color"` are not elements. They have no pseudo-element, `appearance: base-select` does nothing for them, and nothing can be put inside an `<input>`. A canvas can draw the control and can replace the popup, but cannot draw the built-in popup.
+
+| Test | Result | Detail |
+| --- | --- | --- |
+| `<canvas><datalist style="display:block"><option drawable>`, `drawElementImage(option)` | works | The option is a grandchild of the canvas. Without `drawable` on the option the call throws "Descendants passed to DrawElementImage must have the 'drawable' attribute". |
+| Hit testing, `:hover` and click on a datalist option drawn that way | works | `elementFromPoint()` returns the `<option>`. |
+| An element inside a datalist option, such as `<option>Leeds <small>LDS</small></option>` | not rendered | It parses and stays in the DOM, but the option renders its label as plain text. The child has no box and `checkVisibility()` is false. Computed `display` of the option stays `block`. `::before` and `::after` on the option do render. |
+| CSS Custom Highlight API range in an option's text node | paints nothing | The text shown is in the browser's internal tree, not the option's text node. |
+| Keep the built-in datalist keyboard handling and replace only the popup | not possible | Removing `list` is the only way to stop the popup, and it removes the keyboard handling too. |
+| Range input with a datalist, drawn in a canvas | works | The tick marks are part of the input's picture. Option labels are never shown by the browser. `RangeLabels` draws the options themselves under the ticks. |
+| date, time, datetime-local, month, week, number, color, range, file, checkbox, radio, progress, meter drawn rotated by one `drawElementImage()` | works | Date segments take focus and typing where they are drawn. A click on the rotated range track sets the value at that point. |
+| Built-in colour chooser of a rotated input | outside the canvas | It opens upright next to the bounding box of the drawn swatch. |
+| Built-in date and time pickers, and the datalist popup, of a rotated input | not observed | The test browser has no window and never shows them. |
+| A picker made of `<button>` children of a popover canvas (clock, calendar, swatches) | works | Focus, `:focus-visible`, `aria-pressed`, hover and click follow the drawing. Buttons that are not drawn are moved away with `updateElementGeometry()`. |
+| Stopping the Android date and time dialogs by making the input `readonly` while the replacement is open | not verified | Needs a phone. |
+
+What would help:
+
+- A picker pseudo-element for `<input list>`, `type="date"`, `type="time"` and `type="color"`, as `::picker(select)` is for select, so a canvas could go inside the real picker.
+- Options in a datalist rendering their children, as options in a customisable select do.
+- A way to stop a built-in picker opening without removing the feature that provides it (`list`) or making the input read-only.
 
 ## 3D and spatial (`/three-form/`, `/board/`, `/xr/`)
 
