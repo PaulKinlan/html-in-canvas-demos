@@ -131,6 +131,7 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/player-fx/',
   '/native-ui/',
   '/select/',
+  '/component-kit/',
   '/datalist/',
   '/inputs/',
   '/webgpu-features/',
