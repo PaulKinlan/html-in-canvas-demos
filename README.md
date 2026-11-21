@@ -119,7 +119,7 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
 ## Plan for new platform features
 
-`/chrome-apis/` is a plan, not a demo: every feature that chromestatus.com lists for Chrome 130 to 160, an idea for combining it with a drawable canvas, and a ranked list of demos to build. `npm run build:plan` generates the page data and `docs/chrome-apis-plan.md` from `tools/chrome-apis/ideas.json` and `demos.json` (add `-- --fetch` to download the feature lists again). `npm run record:probes` runs `/chrome-apis/probes.html` in Chromium and records the results that the plan cites.
+`/chrome-apis/` is a plan, not a demo: every feature that chromestatus.com lists for Chrome 130 to 160, an idea for combining it with a drawable canvas, and a ranked list of demos to build. `npm run build:plan` generates the page data and `docs/chrome-apis-plan.md` from `tools/chrome-apis/ideas.json` and `demos.json` (add `-- --fetch` to download the feature lists again). When a planned demo is built, add `"built": "/its-page/"` to its entry in `demos.json` and run `npm run build:plan`. `npm run record:probes` runs `/chrome-apis/probes.html` in Chromium and records the results that the plan cites.
 
 ## Pages must hold still
 
