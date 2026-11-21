@@ -56,6 +56,11 @@
 //      and read once, lost every 2D canvas on the page, and they were lost
 //      again every half second while it existed. Live check fixtures were
 //      made this way.
+//  13. Reads a drawable canvas through a copy. Reported from the same phone
+//      on 2026-11-21: getImageData() on a drawable canvas every 300 ms lost
+//      every 2D canvas at the second read and at every second read after
+//      it. getImageData() on a drawable canvas now reads a drawImage() copy
+//      in a plain canvas (`__gfx.copyReads` counts them).
 //
 // Rules for pages, checked by `npm run check:gfx` (static) and
 // `npm run check:jank` (measured): docs/graphics-rules.md.
@@ -278,7 +283,54 @@
   function patchReads() {
     var g = window;
     var image = function (x, y, w, h, settings) { var px = Math.abs(w * h) || 0; return [settings && settings.pixelFormat === 'rgba-float16' ? px * 2 : px, !onCPU(this.canvas)]; };
-    if (g.CanvasRenderingContext2D) patch(CanvasRenderingContext2D.prototype, 'getImageData', image);
+    if (g.CanvasRenderingContext2D) {
+      // Point 13. On the test phone (Chrome 159, Android 10) the second
+      // getImageData() on a drawable canvas that is being painted lost every
+      // 2D canvas on the page, and so did every second read after it (trial
+      // "gpu-read" on /canvas-loss/, 2026-11-21). A read of a drawable canvas
+      // is therefore taken from a drawImage() copy in a plain canvas, and the
+      // drawable canvas itself is never read. data-gfx-raw on the canvas
+      // keeps the direct read, for the trial page that measures it.
+      var direct = CanvasRenderingContext2D.prototype.getImageData;
+      var copy = null, copyCtx = null;
+      CanvasRenderingContext2D.prototype.getImageData = function (x, y, w, h, settings) {
+        var canvas = this.canvas, route = false;
+        try {
+          route = !!(canvas && canvas.getAttribute && isDrawable(canvas) && !canvas.hasAttribute('data-gfx-raw') && !onCPU(canvas) &&
+            arguments.length >= 4 && isFinite(x) && isFinite(y) && isFinite(w) && isFinite(h) && w && h &&
+            !(settings && (settings.pixelFormat === 'rgba-float16' || settings.storageFormat || (settings.colorSpace && settings.colorSpace !== 'srgb'))) &&
+            !(info.get(canvas) && info.get(canvas).float) && Math.abs(w) <= 8192 && Math.abs(h) <= 8192);
+        } catch (e) { route = false; }
+        if (!route) {
+          try { var d = image.apply(this, arguments); read('getImageData', d[0], d[1]); } catch (e) {}
+          return direct.apply(this, arguments);
+        }
+        x = Math.trunc(x); y = Math.trunc(y); w = Math.trunc(w); h = Math.trunc(h);
+        if (w < 0) { x += w; w = -w; }
+        if (h < 0) { y += h; h = -h; }
+        try {
+          if (!copy) {
+            copy = document.createElement('canvas');
+            copy.setAttribute('data-gfx-copy', '');
+            copy.width = 0; copy.height = 0;
+            copyCtx = copy.getContext('2d', { willReadFrequently: true });
+          }
+          if (copy.width < w) copy.width = w;
+          if (copy.height < h) copy.height = h;
+          copyCtx.setTransform(1, 0, 0, 1, 0, 0);
+          copyCtx.clearRect(0, 0, w, h);
+          // The part of the rectangle inside the canvas. Outside it, getImageData() gives transparent black.
+          var x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(canvas.width, x + w), y1 = Math.min(canvas.height, y + h);
+          if (x1 > x0 && y1 > y0) copyCtx.drawImage(canvas, x0, y0, x1 - x0, y1 - y0, x0 - x, y0 - y, x1 - x0, y1 - y0);
+          G.copyReads = (G.copyReads || 0) + 1;
+          read('getImageData', w * h, false);
+          return direct.call(copyCtx, 0, 0, w, h, settings);
+        } catch (e) {
+          try { read('getImageData', w * h, true); } catch (e2) {}
+          return direct.apply(this, arguments);
+        }
+      };
+    }
     if (g.OffscreenCanvasRenderingContext2D) patch(OffscreenCanvasRenderingContext2D.prototype, 'getImageData', image);
     var pixels = function (x, y, w, h) { return [Math.abs(w * h) || 0, true]; };
     if (g.WebGLRenderingContext) patch(WebGLRenderingContext.prototype, 'readPixels', pixels);
