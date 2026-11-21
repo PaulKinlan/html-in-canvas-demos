@@ -17,9 +17,9 @@
 export const CASES = [
   {
     id: 'frequent-read-drawable',
-    standalone: ['/crashes/repro/frequent-read-drawable.html', 'Not run on the phone yet. Headless Chromium 157: no loss, as expected there.'],
+    standalone: ['/crashes/repro/readback-matrix.html', 'Chrome 159 on Android 10, 2026-11-21: the two willReadFrequently cases lose both canvases, the other ten do not. Headless Chromium 157: no loss in any case.'],
     kind: 'loss',
-    title: 'A drawable 2D canvas made with willReadFrequently loses every 2D context on the page, repeatedly',
+    title: 'drawElementImage() into a 2D canvas made with willReadFrequently loses every 2D context on the page, repeatedly',
     browser: 'Chrome 159 on Android 10 (Mozilla/5.0 (Linux; Android 10; K) … Chrome/159.0.0.0 Mobile). Not in headless Chromium 157 with software rendering.',
     how: 'reported',
     date: '2026-11-21',
@@ -27,11 +27,11 @@ export const CASES = [
     steps: [
       '<canvas content="drawable" layoutsubtree> with one drawable child, 300 by 110 CSS pixels.',
       'canvas.getContext("2d", { willReadFrequently: true }).',
-      'In one paint event: ctx.drawElementImage(child, 10, 10, w, h), then ctx.getImageData(x, y, 1, 1). The paint handler is then removed.',
+      'In one paint event: ctx.drawElementImage(child, 10, 10, w, h). Nothing else: no getImageData() is needed.',
     ],
-    seen: 'The pixel is read correctly (255,247,230,255). 9 ms later that canvas and an unrelated plain 2D canvas on the page both get contextlost. They are restored and lost again about every 525 ms (58.2 s, 58.7 s, 59.2 s, 59.8 s, 60.3 s, 60.8 s after load) with no further call from the page, until the guard stops drawing. Ten other trials on the same phone, in the same run, without the option, lost nothing in 240 paints each: a paint on every frame, ctx.reset() per paint, a draw at globalAlpha 0, shadowBlur, ctx.filter, 40 source-rectangle draws, canvas.width per frame, twelve canvases, a nested drawable.',
-    notKnown: 'Whether the option matters at all. Reported at 19:44 on 2026-11-21 from the standalone page: both buttons, with and without willReadFrequently, lose the canvases. It is not known whether B was pressed on a fresh page load. If it was, the trigger is getImageData() after drawElementImage(), not the option. /crashes/repro/readback-matrix.html runs twelve cases, each in a page load of its own, to settle it. Whether the GPU process dies or only the 2D contexts are dropped. Other devices.',
-    repro: [['/crashes/repro/readback-matrix.html', 'twelve reads and draws, each in a page load of its own, no site scripts'], ['/canvas-loss/', 'the row "A willReadFrequently drawable canvas, read once", by its own Run button']],
+    seen: 'Run on Chrome 159, Android 10, at 19:52 UTC on 2026-11-21, each case in a page load of its own with none of the site\'s scripts: lost with willReadFrequently and drawElementImage(), with a read (first loss 22 ms after the call) and with no read at all (first loss 8 ms after the draw), both canvases, again about every 510 ms, 12 events in 3 s. No loss in the other ten: drawElementImage() alone, getImageData() on a drawable canvas that only used fillRect(), on a plain canvas, on the same canvas straight after drawElementImage() and 1 s later, on a drawImage() copy in a plain canvas and in a willReadFrequently canvas, toDataURL(), createImageBitmap(), and captureElementImage(). In the first run, on /canvas-loss/ with the site\'s scripts: the pixel was read correctly, and 9 ms later that canvas and an unrelated plain 2D canvas on the page both got contextlost. They are restored and lost again about every 525 ms (58.2 s, 58.7 s, 59.2 s, 59.8 s, 60.3 s, 60.8 s after load) with no further call from the page, until the guard stops drawing. Ten other trials on the same phone, in the same run, without the option, lost nothing in 240 paints each: a paint on every frame, ctx.reset() per paint, a draw at globalAlpha 0, shadowBlur, ctx.filter, 40 source-rectangle draws, canvas.width per frame, twelve canvases, a nested drawable.',
+    notKnown: 'Whether the GPU process dies or only the 2D contexts are dropped. Other devices and Android versions. (A report that the button without the option also lost the canvases came from pressing it after the other button in one page load; in page loads of their own it does not.)',
+    repro: [['/crashes/repro/frequent-read-drawable.html', 'two buttons; reload between them, because the losses continue for the life of the page'], ['/canvas-loss/', 'the row "A willReadFrequently drawable canvas, read once", by its own Run button']],
     now: 'The guard removes willReadFrequently from a canvas that has its drawable attributes. Pixels are read from a drawImage() copy in a plain canvas. Live check fixtures were made this way on about twenty pages, which fits the lost canvases on pages that ran checks on load (see "first-load").',
     types: [{ type: 'trial', q: 'wrf: lost' }, { type: 'frequent-read-drawable' }],
   },
