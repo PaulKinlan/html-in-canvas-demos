@@ -187,6 +187,17 @@
   import { GPUCanvas, GPUElementTexture, checkWGSL, supportedGPU } from '/lib/gpu-util.js';
   banner();
 
+  // A drawable canvas is never read with getImageData(): on Chrome 159 for Android a drawable 2D canvas made with
+  // willReadFrequently lost every 2D context on the page. Pixels are read from a drawImage() copy in a plain canvas.
+  let readCopy = null;
+  function copyOf(source) {
+    readCopy ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    if (readCopy.canvas.width !== source.width || readCopy.canvas.height !== source.height) { readCopy.canvas.width = source.width; readCopy.canvas.height = source.height; }
+    readCopy.clearRect(0, 0, source.width, source.height);
+    readCopy.drawImage(source, 0, 0);
+    return readCopy;
+  }
+
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const CLIP = '/media/clip.webm';
@@ -469,7 +480,7 @@
 
   // ---- route 2: 2D canvas, no shader ----
   function route2D(canvas, el, { readback = false } = {}) {
-    const ctx = canvas.getContext('2d', { willReadFrequently: readback });
+    const ctx = canvas.getContext('2d');
     if (!ctx || !('drawElementImage' in ctx)) throw new Error('drawElementImage() is not available');
     // #region twod
     function draw(s) {
@@ -494,7 +505,7 @@
       name: '2d',
       lost: false,
       draw,
-      read: () => { const d = ctx.getImageData(0, 0, canvas.width, canvas.height); return { data: d.data, width: d.width, height: d.height, flip: false }; },
+      read: () => { const d = copyOf(canvas).getImageData(0, 0, canvas.width, canvas.height); return { data: d.data, width: d.width, height: d.height, flip: false }; },
       readText: null,
     };
   }
@@ -905,7 +916,7 @@
     const c = blankCanvas(320, 180);
     c.width = 320; c.height = 180;
     c.innerHTML = html;
-    const el = c.firstElementChild, ctx = c.getContext('2d', { willReadFrequently: true });
+    const el = c.firstElementChild, ctx = c.getContext('2d');
     let error = '';
     c.addEventListener('paint', () => { try { draw(ctx, el, c); } catch (err) { error = err.message; } });
     quietStage().append(c);
@@ -925,7 +936,7 @@
       await sleep(60);
       await new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
       if (error) throw new Error(error);
-      const d = ctx.getImageData(0, 0, 320, 180);
+      const d = copyOf(c).getImageData(0, 0, 320, 180);
       return { data: d.data, width: 320, height: 180, flip: false };
     };
     return { c, el, ctx, shot, video: c.querySelector('video') };

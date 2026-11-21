@@ -135,6 +135,17 @@
   import { measure, buildFixture, inPaint, nextFrame, releaseVideo } from './measure.js';
   banner();
 
+  // A drawable canvas is never read with getImageData(): on Chrome 159 for Android a drawable 2D canvas made with
+  // willReadFrequently lost every 2D context on the page. Pixels are read from a drawImage() copy in a plain canvas.
+  let readCopy = null;
+  function copyOf(source) {
+    readCopy ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    if (readCopy.canvas.width !== source.width || readCopy.canvas.height !== source.height) { readCopy.canvas.width = source.width; readCopy.canvas.height = source.height; }
+    readCopy.clearRect(0, 0, source.width, source.height);
+    readCopy.drawImage(source, 0, 0);
+    return readCopy;
+  }
+
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const CLIP = '/media/clip.webm', FPS = 30;
@@ -672,12 +683,12 @@
         const f = buildFixture(clipUrl);
         quietStage().append(f.canvas);
         cleanups.push(() => releaseVideo(f.video));
-        const ctx = f.canvas.getContext('2d', { willReadFrequently: true });
+        const ctx = f.canvas.getContext('2d');
         await f.video.play();
         await nextFrame(f.video);
         await inPaint(f.canvas, () => draw2d(ctx, { video: f.video, cards: [{ el: f.card, rect: rectOf(f.canvas, f.card) }], effect: EFFECTS.plain, fit: [1, 1], radius: 0 }));
         await sleep(60);
-        const img = ctx.getImageData(0, 0, TW, TH);
+        const img = copyOf(f.canvas).getImageData(0, 0, TW, TH);
         const card = px(img, 204, 130), box = f.canvas.getBoundingClientRect();
         const hit = hitAt(box.left + 250, box.top + 130);
         if (!near(card, [0, 200, 83])) throw new Error(`the card's pixel is ${card.join(', ')}`);

@@ -217,6 +217,17 @@
   import { banner, runTests, supported, testStage } from '/shared/support.js';
   banner();
 
+  // A drawable canvas is never read with getImageData(): on Chrome 159 for Android a drawable 2D canvas made with
+  // willReadFrequently lost every 2D context on the page. Pixels are read from a drawImage() copy in a plain canvas.
+  let readCopy = null;
+  function copyOf(source) {
+    readCopy ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    if (readCopy.canvas.width !== source.width || readCopy.canvas.height !== source.height) { readCopy.canvas.width = source.width; readCopy.canvas.height = source.height; }
+    readCopy.clearRect(0, 0, source.width, source.height);
+    readCopy.drawImage(source, 0, 0);
+    return readCopy;
+  }
+
   const $ = (id) => document.getElementById(id);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const say = (text) => ($('status').textContent = text);
@@ -234,7 +245,7 @@
   // #region paint2d
   /** The 2D route. `S` says where the presenter is and which video gives its pixels. */
   function mount2d(canvas, layers, S) {
-    const ctx = canvas.getContext('2d', { willReadFrequently: canvas.id !== 'deck' });
+    const ctx = canvas.getContext('2d');
     const m = { paints: 0, ctx };
     const FAR = 4000;
     canvas.addEventListener('paint', () => {
@@ -915,7 +926,7 @@
   const rgb = (p) => `rgb(${p[0]}, ${p[1]}, ${p[2]})`;
   /** Count the points of a 2D canvas region that are the slide's yellow, a darkened yellow, and anything else. */
   function census(ctx, x, y, w, h, step = 4) {
-    const d = ctx.getImageData(x, y, w, h).data;
+    const d = copyOf(ctx.canvas).getImageData(x, y, w, h).data;
     const n = { yellow: 0, dark: 0, other: 0, first: null };
     for (let j = 0; j < h; j += step) for (let i = 0; i < w; i += step) {
       const k = (j * w + i) * 4, p = [d[k], d[k + 1], d[k + 2]];
@@ -979,7 +990,7 @@
         await painted(f.c);
         await sleep(50);
         // A point of the canvas that is not the link's blue is a point of the video.
-        const d = f.m.ctx.getImageData(0, 0, 320, 180).data;
+        const d = copyOf(f.m.ctx.canvas).getImageData(0, 0, 320, 180).data;
         let at = null;
         for (let y = 20; y < 160 && !at; y += 3) for (let x = 20; x < 300 && !at; x += 3) {
           const all = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]].every(([dx, dy]) => { const k = ((y + dy) * 320 + x + dx) * 4; return !near([d[k], d[k + 1], d[k + 2]], PURE_BLUE, 60); });
@@ -1009,7 +1020,7 @@
         v.pause();
         await painted(f.c);
         await sleep(100);
-        const clear = near([...f.m.ctx.getImageData(80, 10, 1, 1).data], PURE_BLUE, 20);
+        const clear = near([...copyOf(f.m.ctx.canvas).getImageData(80, 10, 1, 1).data], PURE_BLUE, 20);
         const r = f.c.getBoundingClientRect();
         const hit = hitAt(r.left + 80, r.top + 10);
         v.style.pointerEvents = 'none';

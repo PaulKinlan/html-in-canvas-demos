@@ -290,10 +290,19 @@ async function decodeFile(mine, url, fps = 30) {
 }
 // #endregion decode
 
+/** A copy of the output canvas in a plain canvas. The live checks read pixels from the copy, never from the drawable canvas. */
+let readCopy = null;
+function copy() {
+  readCopy ??= new OffscreenCanvas(W, H).getContext('2d', { willReadFrequently: true });
+  readCopy.clearRect(0, 0, W, H);
+  readCopy.drawImage(canvas, 0, 0);
+  return readCopy;
+}
+
 /** The frame number carried by clip.webm or the synthetic source: 16 stripes in the top right, lowest bit first. */
 function frameNumber() {
   const stripe = W / 32;
-  const d = ctx.getImageData(W / 2, Math.round(H / 60), W / 2, 1).data;
+  const d = copy().getImageData(W / 2, Math.round(H / 60), W / 2, 1).data;
   let n = 0;
   for (let i = 0; i < 16; i++) if (d[Math.floor(i * stripe + stripe / 2) * 4] > 128) n |= 1 << i;
   return n;
@@ -369,7 +378,7 @@ const handlers = {
   init(m) {
     canvas = m.canvas;
     W = canvas.width; H = canvas.height;
-    ctx = canvas.getContext('2d', { willReadFrequently: !!m.readBack });
+    ctx = canvas.getContext('2d'); // no willReadFrequently: on Chrome 159 for Android that option on a drawable 2D canvas lost every 2D context on the page
     if (!ctx) throw new Error('no 2D context for the transferred canvas');
     canvas.addEventListener?.('contextlost', () => postMessage({ type: 'lost' }));
     return probe();
@@ -431,7 +440,7 @@ const handlers = {
   /** How many frames were read, written and counted between two times on the shared clock. */
   window: (m) => ({ read: between(log.read, m.from, m.to), written: between(log.written, m.from, m.to), counted: between(log.counted, m.from, m.to) }),
   stamps: () => ({ in: log.stampsIn.slice(-120), out: log.stampsOut.slice(-120), counted: log.stampsCounted.slice(-120) }),
-  sample: (m) => ({ pixels: m.points.map(([x, y]) => [...ctx.getImageData(x, y, 1, 1).data]), frameNumber: frameNumber() }),
+  sample: (m) => ({ pixels: ((c) => m.points.map(([x, y]) => [...c.getImageData(x, y, 1, 1).data]))(copy()), frameNumber: frameNumber() }),
   /** Draw the scene snapshot into a canvas made here. The API refuses: a snapshot belongs to its source canvas. */
   foreign() {
     const other = new OffscreenCanvas(W, H).getContext('2d');
