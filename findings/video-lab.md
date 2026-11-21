@@ -60,7 +60,7 @@ The test clips are `video-lab/wide.webm` (VP9 profile 0, tagged BT.2020 primarie
 
 ## Things that bit
 
-- Reported from Chrome on a Mac on 2026-11-21 (WebGPU on screen, `bgra8unorm`, frame through `copyExternalImageToTexture(video)`): the meld lens became a square while the tab had focus. A hovered or focused play button has a dark disc and a focus ring behind its glyph, and the shader took the glyph's shape from alpha. It now takes it from brightness: the glyph is white. A live check gives the button a dark background and compares the lens (41 % of it changed before, 6 % after). `/player-fx/` has the same alpha test in its GLSL and is not changed here.
+- Reported from Chrome on a Mac on 2026-11-21 (WebGPU on screen, `bgra8unorm`, frame through `copyExternalImageToTexture(video)`): the meld lens became a square while the tab had focus. A hovered or focused play button has a dark disc and a focus ring behind its glyph, and the shader took the glyph's shape from alpha. It now takes it from brightness: the glyph is white. A live check gives the button a dark background and compares the lens (41 % of it changed before, 6 % after). `/player-fx/` had the same alpha test in its GLSL and has the same fix.
 - The same report showed the guard's `timed-readback` warning: the parts were measured again on every `pointerenter`, `pointerdown`, play and pause, each a `mapAsync()`. They are now measured once per canvas size and once after the video loads.
 
 - A check that compared the canvas just before and just after a transition failed when the two times fell in different video frames. The fixture's clip starts half a frame into its file, so no seek lands on a frame boundary.
