@@ -50,6 +50,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
 | `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
+| `/fold/` | Two panes placed by `navigator.devicePosture` and `viewport.segments`, and one element drawn across a hinge, with a fold control that stands in for a foldable (`lib/fold-view.js`) |
 | `/select/` | `<select picker="wheel">`: a customisable select whose options are drawn by a canvas inside the picker (wheel, fisheye list, radial, 3D carousel, hand of cards, colour grid, helix); a canvas in the button; a canvas inside each option; a select drawn in a canvas |
 | `/datalist/` | `<input list picker="list">`: datalist suggestions drawn one option at a time by a canvas in a popover; datalist options as tick labels of a range input |
 | `/inputs/` | `<input type="time" picker="clock">`, `type="date" picker="calendar"`, `type="color" picker="swatches"`: pickers made of buttons in a canvas; every built-in form control drawn rotated in a canvas |
@@ -60,6 +61,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
+| `/selection/` | `<selection-fx>`: the canvas draws the highlight of selected text (2D and shader effects), plus measurements of what the browser paints for a selection in a canvas |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
 | `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
 | `/embed/` | Cross-origin cards the host distorts and restyles without DOM access |
@@ -73,6 +75,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/overlay/` | HTML over video in one canvas: recorded with sound, exported frame by frame with WebCodecs, sent over WebRTC |
 | `/audio/` | Web Audio band levels as CSS custom properties that drive a shader over a working `<audio>` card |
 | `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
+| `/player-fx/` | One WebGL shader over the native controls and the video frame as two textures from one `<video>`: the play button grows into a lens, the controls refract, melt into and light the picture. Finds the box of each control without script access |
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
