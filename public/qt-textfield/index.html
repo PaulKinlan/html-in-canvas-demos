@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Qt Quick TextField backed by an &lt;input&gt;</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/qt-textfield/ui.css">
+<meta name="checks" content="tap">
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A Qt Quick <code>TextField</code> backed by an <code>&lt;input&gt;</code></h1>
+  <p class="lede">
+    Qt for WebAssembly draws a <code>TextField</code> as pixels and takes typing through one hidden input element that it shares between all its fields.
+    This page loads a Qt Quick 6.10 app with three pairs of fields. In each pair the first is Qt's own <code>TextField</code>. The second is a QML component
+    with the same background and focus border, whose text, caret and selection are a real <code>&lt;input&gt;</code> drawn into Qt's scene.
+    Load the app, tap each field and type. The tables and logs under the app record what the browser was given for each field.
+  </p>
+
+  <div class="qtf-stage" id="stage">
+    <div class="qtf-screen" id="screen"></div>
+    <!-- #region markup -->
+    <!-- Qt creates its own canvas, so the inputs start outside it. DomItem moves each one in. -->
+    <div class="qtf-parts">
+      <input data-qt="email" type="email" name="email" autocomplete="email" placeholder="you@example.com" aria-label="Email" autocapitalize="none" spellcheck="false">
+      <input data-qt="password" type="password" name="password" autocomplete="current-password" placeholder="password" aria-label="Password">
+      <input data-qt="code" type="text" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*" placeholder="123456" aria-label="Code" enterkeyhint="done">
+    </div>
+    <!-- #endregion markup -->
+    <p class="stage-msg" id="msg">
+      <button type="button" id="load">Load the Qt app (23 MB)</button>
+      <span>Qt Quick 6.10 for WebAssembly. It is not loaded until you ask.</span>
+    </p>
+  </div>
+  <p class="note" id="state" style="min-height:3em">The app is not loaded.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>a QML text field that is an input element</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The inputs.</b> Each has the <code>type</code>, <code>name</code> and <code>autocomplete</code> that a form on a web page would give it.</li>
+      <li data-code="/qt-textfield/app/src/DomTextField.qml#domtextfield" data-lang="js"><b>QML: <code>DomTextField</code>.</b> Qt draws the background and border of the Basic style's <code>TextField</code>. A <code>DomItem</code> fills it.</li>
+      <li data-code="/qt-textfield/app/src/Main.qml#qml" data-lang="js"><b>QML: the window.</b> A <code>Label</code> and a <code>Button</code> bind to <code>text</code> of both kinds of field in the same way.</li>
+      <li data-code="/qt-textfield/app/src/domitem.cpp#binding" data-lang="js"><b>C++: the two-way <code>text</code> property, focus and Tab.</b></li>
+      <li data-code="/qt-textfield/app/src/domitem.cpp#value" data-lang="js"><b>JavaScript inside the C++ file: read and write the value, focus the input.</b></li>
+      <li data-code="/qt-textfield/app/src/domitem.cpp#adopt" data-lang="js"><b>Move the input into Qt's canvas</b> and send its focus, blur and Tab key to the item.</li>
+      <li data-code="/qt-textfield/app/src/domitem.cpp#helper" data-lang="js"><b>Stop Qt taking focus back.</b></li>
+      <li data-code="/qt-textfield/app/src/domitem.cpp#upload" data-lang="js"><b>Copy the input's picture into a texture</b> that Qt Quick's scene graph draws.</li>
+      <li data-code="/qt-textfield/app/src/domitem.cpp#place" data-lang="js"><b>Tell the browser where Qt drew the item.</b></li>
+      <li data-code="/qt-textfield/start.js#start"><b>Start Qt</b> and load a stylesheet for the inputs inside Qt's shadow root.</li>
+      <li data-code="/qt-textfield/field.css#field-css" data-lang="css"><b>CSS for the inputs.</b></li>
+      <li data-code="/qt-textfield/main.js#log"><b>The event log.</b> Listeners in the capture phase on <code>window</code>.</li>
+      <li data-code="/qt-textfield/app/src/domitem.cpp" data-lang="js"><b>All of domitem.cpp.</b></li>
+    </ol>
+  </details>
+
+  <h3 id="seen">What the browser is given for each field</h3>
+  <p class="note">
+    The page writes these from real events. A password field's keys and text are logged as lengths only.
+    On a phone: tap a field, wait for the keyboard, type a few characters with a Japanese, Chinese or Korean keyboard if you have one, and look for an autofill suggestion above the keyboard. Then tap "Copy the log".
+  </p>
+  <div class="qtf-tools">
+    <button type="button" id="copy">Copy the log</button>
+    <button type="button" id="clear">Clear</button>
+    <span class="qtf-copied note" id="copied" role="status"></span>
+  </div>
+  <textarea id="copy-text" hidden readonly rows="6" style="width:100%;box-sizing:border-box" aria-label="The log as text"></textarea>
+
+  <div class="qtf-box">
+    <h4>Qt <code>TextField</code>: the element Qt focuses</h4>
+    <div class="qtf-factbox"><table class="qtf-facts"><tbody id="facts-qt"><tr><th>element</th><td>Tap a Qt TextField.</td></tr></tbody></table></div>
+    <div class="qtf-log" id="log-qt" role="log" aria-label="Events for the Qt TextField" tabindex="0"></div>
+  </div>
+  <div class="qtf-box">
+    <h4><code>DomTextField</code>: the focused <code>&lt;input&gt;</code></h4>
+    <div class="qtf-factbox"><table class="qtf-facts"><tbody id="facts-dom"><tr><th>element</th><td>Tap a DomTextField.</td></tr></tbody></table></div>
+    <div class="qtf-log" id="log-dom" role="log" aria-label="Events for the DomTextField" tabindex="0"></div>
+  </div>
+
+  <h2>How it works</h2>
+  <p>
+    Qt Quick renders the window into one WebGL canvas, which Qt creates inside a shadow root. <code>DomItem</code> is a <code>QQuickItem</code> written for
+    <a href="/native-ui/">/native-ui/</a>. It moves an element into that canvas, copies the element's picture into a texture with
+    <code>gl.texElementSubImage2D()</code> on each <code>paint</code> event, and passes the item's matrix to <code>canvas.updateElementGeometry()</code>, so the
+    browser's box for the element is where Qt drew it. The browser handles taps, keys, composition and autofill on the element as it does for any input.
+  </p>
+  <p>
+    <code>DomTextField.qml</code> is the Basic style's <code>TextField</code> background (a <code>Rectangle</code> with a 1 px border, 2 px in the highlight colour
+    when focused) with a <code>DomItem</code> inside it. The copy of <code>DomItem</code> on this page adds three things. Its <code>text</code> property reads
+    <code>element.value</code> on every <code>input</code> event and assigns it when QML writes the property. Its <code>domFocus</code> property follows the
+    element's <code>focus</code> and <code>blur</code> events. It handles the Tab key in the element by asking Qt for <code>nextItemInFocusChain()</code>, and it
+    focuses the element when Qt's own Tab reaches the item.
+  </p>
+  <p>
+    Qt's own <code>TextField</code> has no element where it is drawn. When one gets focus, Qt focuses a hidden
+    <code>&lt;input class="qt-window-input-element"&gt;</code> that it keeps at the top left corner of the window, and turns that element's events into Qt key and
+    input method events. The page's log listens in the capture phase on <code>window</code>, so it records the events for both kinds of field before Qt or
+    <code>DomItem</code> handle them.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">The checks load a second copy of the app (23 MB) in a small frame, so they do not touch the one above. In that frame <code>focus()</code> is recorded and not run, so the checks read which element Qt would focus without moving focus on this page.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>The rest of the QML UI binds to the input like a <code>TextField</code>.</strong> <code>DomTextField.text</code> is a two-way property. A <code>Label</code> shows "Hello, " and the text, a <code>Button</code> is enabled when two fields are not empty, and the button's handler clears a field by assigning <code>text</code>. All three work for both kinds of field. Measured in Chromium 157 on 2026-11-21.</li>
+    <li><strong>Qt gives the browser a keyboard hint and nothing for autofill.</strong> Qt 6.10.3 focuses one <code>&lt;input class="qt-window-input-element" type="text"&gt;</code> for every <code>TextField</code>. It sets <code>inputmode="email"</code> for <code>Qt.ImhEmailCharactersOnly</code>, <code>inputmode="numeric"</code> for <code>Qt.ImhDigitsOnly</code> and <code>type="password"</code> for <code>echoMode: TextInput.Password</code>. The element has no <code>autocomplete</code>, <code>name</code>, <code>id</code> or label, and QML's <code>TextField</code> has no property that would set one. The DOM fields have <code>type</code>, <code>name</code> and <code>autocomplete</code> (<code>email</code>, <code>current-password</code>, <code>one-time-code</code>).</li>
+    <li><strong>Not verified: whether Chrome on Android offers autofill for either field.</strong> Headless Chromium has no saved addresses, passwords or text messages. On the phone, tap each DOM field and each Qt field and look for a suggestion above the keyboard or a popup at the field. The log writes a line when an element starts to match <code>:autofill</code>.</li>
+    <li><strong>Qt's hidden input is not at the field.</strong> Its box is 9 by 7 px at the top left corner of the Qt window for all three fields: 62, 207 and 354 px from the caret that Qt drew. The browser places an IME candidate window and an autofill popup from the focused element's box, and scrolls that box into view when the keyboard opens. A DOM field's box is 0 px from where Qt drew it.</li>
+    <li><strong>Composition events reach both fields, and Qt's <code>TextField</code> lost typed text.</strong> A composition sent with the DevTools protocol (<code>Input.imeSetComposition</code> with "に", "にほ", "にほん", then <code>Input.insertText</code> with "日本") fired the same <code>compositionstart</code>, <code>compositionupdate</code>, <code>beforeinput</code>, <code>input</code> and <code>compositionend</code> events on both elements. In an empty Qt field the result was "日本". In a Qt field that held "abcd" each update deleted typed characters: "bcd", "d", then nothing, and the field ended as "日本". The DOM field ended as "abcd日本". Not verified with a real IME.</li>
+    <li><strong>Qt's hidden input does not hold the field's text.</strong> After "abcd" was typed in a Qt field the hidden input's <code>value</code> was empty. During a composition it held only the composition string. So the keyboard is not given the text around the caret.</li>
+    <li><strong>Text that is being composed is drawn in both fields.</strong> Qt draws its <code>preeditText</code> underlined and keeps <code>text</code> unchanged until the commit. The DOM field's <code>value</code> includes the composition string, so <code>DomTextField.text</code> and the label bound to it change during composition. The picture of the DOM field in Qt's scene had no composition underline.</li>
+    <li><strong>Qt's font has no Japanese glyphs.</strong> Qt drew "にほん" and "日本" as empty boxes with its bundled DejaVu Sans. The DOM field drew them with the browser's fallback font.</li>
+    <li><strong>A tap places the caret in both. Two taps select a word only in the DOM field.</strong> Scripted touch taps, Chromium 157. In the DOM field a tap past the end of the text did not clear a selection of the whole value, which it does in a plain input outside a canvas. The cause was not identified.</li>
+    <li><strong>Tab walks all six fields in order, in both directions.</strong> <code>document.activeElement</code> is the shadow host. Inside the shadow root the active element alternates between Qt's hidden input and the DOM input. This needs the Tab handling in <code>DomItem</code>.</li>
+    <li><strong>Qt takes browser focus away unless stopped.</strong> When a Qt item that takes no text gets Qt's active focus, Qt 6.10.3 calls <code>focus()</code> on a hidden <code>div.qt-window-focus-helper</code>. That blurred the DOM input as soon as its <code>DomItem</code> took Qt's focus. <code>DomItem</code> replaces that element's <code>focus()</code> with a function that does nothing while a <code>DomItem</code> has Qt's focus.</li>
+    <li><strong>A stylesheet in Qt's shadow root styles the inputs.</strong> <code>start.js</code> appends a <code>&lt;link rel="stylesheet"&gt;</code> to the shadow root. <code>::placeholder</code> and <code>::selection</code> rules apply, which inline styles could not do.</li>
+    <li><strong>Cost: 23 MB.</strong> The WebAssembly file is 23.4 MB before compression, so the app loads after a tap.</li>
+  </ul>
+  <p class="note">
+    Source: <a href="https://github.com/PaulKinlan/html-in-canvas-demos/tree/main/native/qt-textfield">native/qt-textfield</a>.
+    The binary is statically linked against the open-source edition of Qt 6.10.3 (LGPL-3.0 and GPL-3.0). Its complete source is that folder plus Qt from download.qt.io.
+  </p>
+</main>
+<script type="module" src="/qt-textfield/main.js"></script>
+</body>
+</html>
