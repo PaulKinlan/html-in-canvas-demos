@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>An agent operating a canvas UI, drawn as it happens</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .agent-stage { position: relative; border-radius: 14px; padding: 44px 16px; background: radial-gradient(120% 90% at 30% 20%, #253a63, #0d1220 70%); display: grid; place-items: center; overflow: hidden; min-height: 470px; }
+  /* #region styles */
+  /* The lean, and the marker position, are CSS custom properties. Transitions
+     on them are what make the panel turn and the marker travel. */
+  #booking {
+    --fx-x: 0.55; --fx-y: -0.22;        /* resting lean */
+    --fx-progress: -1; --fx-amount: 0.5; /* marker: off, to the left */
+    transition: --fx-x 0.7s cubic-bezier(.3,.7,.2,1), --fx-y 0.7s cubic-bezier(.3,.7,.2,1),
+                --fx-progress 0.55s cubic-bezier(.3,.7,.2,1), --fx-amount 0.55s cubic-bezier(.3,.7,.2,1);
+  }
+  @media (prefers-reduced-motion: reduce) { #booking { transition: none; --fx-x: 0; --fx-y: 0; } }
+  /* #endregion styles */
+  /* fx wraps the form in <fx-surface>; whichever is the stage's child takes the width. */
+  .agent-stage > :is(form, fx-surface) { width: min(330px, 100%); }
+  /* position: relative makes the form the offsetParent of its controls, which is how the marker position is measured. */
+  .booking { position: relative; box-sizing: border-box; width: 100%; padding: 16px 18px 18px; border-radius: 14px; background: #fdfcf9; color: #1b1a18; font: 15px/1.4 system-ui, sans-serif; display: grid; gap: 10px; }
+  .booking h2 { margin: 0; font-size: 18px; letter-spacing: 0; }
+  .booking label { display: grid; gap: 3px; font-size: 13px; font-weight: 600; color: #4c4840; }
+  .booking label.line { display: flex; align-items: center; gap: 8px; }
+  .booking :is(input[type=text], input[type=number], select) { font: 16px system-ui; padding: 7px 9px; border: 1px solid #bdb6a8; border-radius: 8px; background: #fff; color: #1b1a18; width: 100%; box-sizing: border-box; }
+  .booking input[type=range] { width: 100%; margin: 2px 0; }
+  .booking input[type=checkbox] { width: 20px; height: 20px; margin: 0; }
+  .booking .pair { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; }
+  .booking button { font: 600 15px system-ui; padding: 10px; border-radius: 9px; border: 0; background: #1f4fd8; color: #fff; }
+  .booking output[role=status] { min-height: 2.6em; font-size: 13px; color: #1f7a3a; }
+  .booking .agent-target { outline: 2px solid #23c4ee; outline-offset: 2px; }
+  .ask { margin: 12px 0 0; gap: 8px; }
+  .ask input[type=text] { flex: 1 1 220px; min-width: 0; font: inherit; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  .ask button { padding: 9px 14px; font-weight: 600; }
+  #state { min-height: 5.8em; margin: 10px 0 0; }
+  .api { display: inline-block; margin: 0 6px 2px 0; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); font: 12px var(--mono); white-space: nowrap; }
+  .api.yes { border-color: var(--ok); color: var(--ok); }
+  .api.part { border-color: var(--warn); color: var(--warn); }
+  #log { height: 9.5em; overflow: auto; margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font: 12.5px/1.5 var(--mono); list-style: none; }
+  #log li { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #log .err { color: var(--bad); }
+  #log .who { color: var(--muted); }
+  .seen { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: start; min-height: 150px; margin-top: 10px; }
+  .seen canvas, .seen .ph { width: 150px; height: 150px; border: 1px solid var(--line); border-radius: 8px; background: #0d1220; object-fit: contain; }
+  #answer { margin: 0; font-size: 14px; white-space: pre-wrap; }
+  .stage-note { position: absolute; inset: auto 8px 8px 8px; margin: 0; padding: 8px 10px; border-radius: 8px; background: #2a1512; color: #ffd9d2; font-size: 14px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>An agent operating a canvas UI, drawn as it happens</h1>
+  <p class="lede">
+    A booking form drawn through a shader, leaning in perspective. It offers three tools to an agent. Press "Run the scripted agent", or type
+    a request: each tool call turns the panel to face you, moves a marker to the field and types into the real input.
+  </p>
+
+  <div class="agent-stage" id="stage">
+    <!-- #region markup -->
+    <form id="booking" class="booking" fx="agent" autocomplete="off">
+      <h2>Book a berth</h2>
+      <label>Name <input type="text" name="name" required maxlength="30" placeholder="Who is it for?"></label>
+      <label>Boat length <span><output name="metres">8</output> m</span> <input type="range" name="boat_length" min="4" max="20" value="8"></label>
+      <div class="pair">
+        <label>Berth <select name="berth"><option value="pontoon">Pontoon</option><option value="buoy">Mooring buoy</option><option value="quay">Quay wall</option></select></label>
+        <label>Nights <input type="number" name="nights" min="1" max="14" value="1" inputmode="numeric"></label>
+      </div>
+      <label class="line"><input type="checkbox" name="power"> Shore power</label>
+      <button type="submit">Book</button>
+      <output name="receipt" role="status"></output>
+    </form>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="row ask">
+    <button type="button" id="script">Run the scripted agent</button>
+    <input type="text" id="request" aria-label="A request for the agent" value="Book a buoy for Grace, 12 metres, three nights, with power" enterkeyhint="go">
+    <button type="button" id="ask">Do it</button>
+  </div>
+  <div id="route"></div>
+  <p class="note" id="state" role="status"></p>
+  <ol id="log" aria-label="Tool calls"></ol>
+
+  <details class="show-code">
+    <summary>Show the code <small>tools for an agent, and a shader that shows each call</small></summary>
+    <ol>
+      <li data-code="#markup"><b>An ordinary form with one attribute.</b> <code>fx="agent"</code> draws it through the shader below. It is still a form: you can fill it in by hand.</li>
+      <li data-code="/agent-view/agent.js#tools"><b>The tools.</b> Three functions with a name, a description and a JSON schema. Each returns when its animation is over.</li>
+      <li data-code="/agent-view/agent.js#webmcp"><b>Give the tools to the browser's agent.</b> <code>navigator.modelContext</code> is WebMCP. Both spellings of the registration call are tried.</li>
+      <li data-code="/agent-view/agent.js#marker"><b>Show a call: four custom properties.</b> The tool writes the lean and the marker position to the form's style.</li>
+      <li data-code="#styles"><b>CSS transitions move them.</b> The properties are registered as numbers, so they animate.</li>
+      <li data-code="/agent-view/effect.js#effect"><b>The shader reads them as uniforms.</b> <code>geometry()</code> returns the perspective matrix for hit testing; the fragment function draws the form, dims it away from the marker and draws the rings. GLSL and WGSL.</li>
+      <li data-code="/agent-view/agent.js#plan"><b>A request in words, with the Prompt API.</b> The model answers with JSON constrained to the tool names.</li>
+      <li data-code="/agent-view/agent.js#match"><b>Without a model: a pattern matcher.</b></li>
+      <li data-code="#see"><b>Ask the model what it sees.</b> The picture is taken from the canvas after the shader has run.</li>
+      <li data-code="/agent-view/agent.js"><b>The whole tools file.</b></li>
+    </ol>
+  </details>
+
+  <h2>What the model sees</h2>
+  <p>
+    The button takes the picture that the canvas shows, after the shader, and gives it to the Prompt API with a question. Without a model
+    that accepts images, the picture is still taken and shown here, and the answer line says what is missing.
+  </p>
+  <div class="row"><button type="button" id="see">Ask the on-device model what it sees</button></div>
+  <div class="seen"><div class="ph" id="seen-box"></div><p id="answer" class="note" role="status"></p></div>
+
+  <h2>How it works</h2>
+  <p>
+    The form is one drawable element. <a href="/lib/shader-fx.js"><code>fx</code></a> uploads it to a texture on every <code>paint</code> and a
+    fragment shader draws it, with WebGPU when that works and WebGL otherwise. The shader has no state of its own: the lean and the marker
+    position are CSS custom properties on the form, and the tool code only changes those properties and the form's values.
+    <code>ariaNotify()</code> announces each step, because a marker drawn by a shader is not in the accessibility tree.
+  </p>
+  <p>
+    The same three tool objects are used by every caller on this page: the browser's agent through WebMCP when
+    <code>navigator.modelContext</code> exists, the scripted run, the Prompt API planner and the pattern matcher. The log names the caller of each
+    call.
+  </p>
+
+  <h2>Live checks</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li><strong>The canvas can show what an agent does with no extra state.</strong> A tool call sets four custom properties and the input's value. CSS transitions animate the properties and the shader reads them each frame. The tool's promise resolves after the animation, so an agent is paced by what the reader sees.</li>
+    <li><strong>Typing by a tool goes into the real input.</strong> The value is set one character at a time with an <code>input</code> event for each, and the element repaints into the texture each time. The tool does not call <code>focus()</code>, so it does not take the keyboard from the reader.</li>
+    <li><strong>The form takes clicks where it is drawn while it leans.</strong> The effect's <code>geometry()</code> matrix goes to <code>updateElementGeometry()</code>, and the live check finds four controls with <code>elementFromPoint()</code> at their drawn positions, within 3 px of where the matrix puts them.</li>
+    <li><strong><code>navigator.modelContext</code> is missing from the test browser</strong> (headless Chromium 157), so registration with WebMCP has not been run. The code tries <code>registerTool()</code> and then <code>provideContext()</code>. Which one Chrome 159 has, and what the agent passes to <code>execute()</code>, is not verified.</li>
+    <li><strong>The Prompt API could not be run either.</strong> <code>LanguageModel.availability()</code> reports "downloadable" in the test browser and nothing can be downloaded there. <code>prompt()</code> with a <code>responseConstraint</code> resolved with a sentence that starts "On-device" instead of JSON, so the page fell back to the pattern matcher. The planner and the image prompt are written from the specification and are not verified with a model.</li>
+    <li><strong>A form control must not be named <code>length</code>.</strong> <code>form.elements.length</code> is the number of controls, so a field with that name cannot be reached by name. The boat length field is named <code>boat_length</code>.</li>
+    <li><strong>The picture for the model is the shaded one.</strong> It is copied from the canvas, so it includes the lean, the dimming and the marker. A model reading it sees what the reader sees, which is not the same as the DOM.</li>
+    <li><strong>Not verified:</strong> everything that needs the WebMCP flag or origin trial, the on-device model on a phone, and WebGPU on screen (the test browser has no adapter that can present).</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/shader-fx.js';
+  import '/agent-view/effect.js';
+  import { tiltMatrix } from '/lib/effects.js';
+  import { pictureDifference } from '/lib/gpu-util.js';
+  import { banner, runTests, supported, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import { routeSwitch } from '/shared/route-switch.js';
+  import { agentPanel, registerWithWebMCP, planWithModel, planWithPatterns, FIELDS } from '/agent-view/agent.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const form = $('booking');
+  const surfaceOf = (el) => el.closest('fx-surface');
+
+  // The form's own behaviour, with or without an agent.
+  function wire(f) {
+    // A control must not be named "length": form.elements.length is the number of controls.
+    f.elements.boat_length.addEventListener('input', () => (f.elements.metres.value = f.elements.boat_length.value));
+    f.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const v = Object.fromEntries(new FormData(f));
+      f.elements.receipt.value = `Booked: ${v.berth} for ${v.name}, ${v.boat_length} m, ${v.nights} night${v.nights === '1' ? '' : 's'}${v.power ? ', shore power' : ''}.`;
+    });
+  }
+  wire(form);
+
+  const log = (who, text, bad = false) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="who"></span> <span></span>`;
+    li.firstChild.textContent = who;
+    li.lastChild.textContent = text;
+    if (bad) li.lastChild.className = 'err';
+    $('log').append(li);
+    $('log').scrollTop = $('log').scrollHeight;
+  };
+
+  const panel = agentPanel(form);
+  // Every call is logged with its caller, whoever makes it.
+  async function call(who, name, args) {
+    try {
+      const out = await panel.call(name, args);
+      log(who, `${name}(${JSON.stringify(args)}) → ${out}`);
+      return out;
+    } catch (err) {
+      log(who, `${name}(${JSON.stringify(args)}) failed: ${err.message}`, true);
+      throw err;
+    }
+  }
+
+  // WebMCP: the tools the browser's agent sees log as "WebMCP agent".
+  const mcp = registerWithWebMCP(panel.tools.map((t) => ({ ...t, execute: (args) => call('WebMCP agent', t.name, args) })));
+  let model = 'not checked yet';
+  function state(extra = '') {
+    const chip = (ok, text) => `<span class="api ${ok}">${text}</span>`;
+    $('state').innerHTML =
+      chip(mcp.count ? 'yes' : '', mcp.count ? `WebMCP: ${mcp.count} tools registered with ${mcp.how}` : `WebMCP: ${mcp.error}`) +
+      chip(model === 'available' ? 'yes' : model === 'downloadable' || model === 'downloading' ? 'part' : '', `LanguageModel: ${model}`) + '<br>' +
+      (mcp.count ? 'An agent in this browser can call the tools. ' : 'No agent can reach the tools in this browser. Turn on WebMCP in <code>chrome://flags</code> to register them. The buttons above call the same tool functions directly. ') +
+      extra;
+  }
+  state();
+  (async () => {
+    try {
+      model = 'LanguageModel' in globalThis ? await Promise.race([LanguageModel.availability(), sleep(3000).then(() => 'no answer')]) : 'missing';
+    } catch (err) { model = 'error: ' + err.message; }
+    state();
+  })();
+
+  const SCRIPT = [
+    ['fill_field', { field: 'name', value: 'Ada Lovelace' }],
+    ['fill_field', { field: 'boat_length', value: 14 }],
+    ['fill_field', { field: 'berth', value: 'quay' }],
+    ['fill_field', { field: 'nights', value: 3 }],
+    ['fill_field', { field: 'power', value: true }],
+    ['submit_booking', {}],
+  ];
+  let running = false;
+  async function run(who, calls) {
+    if (running) return;
+    running = true;
+    $('script').disabled = $('ask').disabled = true;
+    try {
+      for (const [name, args] of calls) await call(who, name, args);
+    } catch {} finally {
+      running = false;
+      $('script').disabled = $('ask').disabled = false;
+    }
+  }
+  $('script').onclick = () => run('script', SCRIPT);
+
+  async function ask() {
+    const sentence = $('request').value.trim();
+    if (!sentence || running) return;
+    let calls = null, who = 'pattern matcher';
+    if (model === 'available' || model === 'downloadable') {
+      try {
+        state('Asking the on-device model for a plan.');
+        calls = await Promise.race([planWithModel(sentence, panel.tools, { onprogress: (p) => state(`Downloading the model: ${Math.round(p * 100)}%.`) }), sleep(45000).then(() => { throw new Error('no answer after 45 s'); })]);
+        who = 'Prompt API';
+        state();
+      } catch (err) {
+        state(`The on-device model could not plan the request (${err.message}). The pattern matcher was used.`);
+      }
+    }
+    calls ??= planWithPatterns(sentence);
+    if (!calls.length) return log(who, `no tool calls found in "${sentence}"`, true);
+    run(who, calls.map((c) => [c.name, c.args]));
+  }
+  $('ask').onclick = ask;
+  $('request').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask(); });
+
+  routeSwitch($('route'), { targets: () => [form], attr: 'fx-backend', values: { webgpu: 'webgpu', webgl: 'gl' }, active: (el) => surfaceOf(el)?.backend, note: (el) => surfaceOf(el)?.gpuNote });
+
+  // A surface that loses its context shows the form as plain HTML; say why.
+  addEventListener('surfacefallback', (e) => {
+    if (!$('stage').contains(e.target)) return;
+    const p = document.createElement('p');
+    p.className = 'stage-note';
+    p.textContent = `The canvas stopped drawing (${e.detail?.reason || 'its graphics context was lost'}). The form below is plain HTML and the tools still work on it.`;
+    $('stage').append(p);
+  });
+
+  // #region see
+  // The picture the reader sees: copied from the surface's canvas, after the shader.
+  async function picture() {
+    const surface = surfaceOf(form);
+    if (!surface?.ready) throw new Error('the form is not drawn by a canvas here');
+    const shot = surface.snapshot().canvas;
+    const blob = await new Promise((r) => shot.toBlob(r, 'image/png'));
+    return { shot, blob };
+  }
+  async function see() {
+    const out = $('answer');
+    let pic;
+    try { pic = await picture(); } catch (err) { return (out.textContent = `No picture: ${err.message}.`); }
+    pic.shot.removeAttribute('style');
+    $('seen-box').replaceWith(Object.assign(pic.shot, { id: 'seen-box' }));
+    const size = `The picture is ${pic.shot.width} × ${pic.shot.height} px, ${Math.round(pic.blob.size / 1024)} kB as PNG. `;
+    if (!('LanguageModel' in globalThis)) return (out.textContent = size + 'LanguageModel is missing in this browser, so there is no model to ask.');
+    try {
+      out.textContent = size + 'Asking the model.';
+      const session = await LanguageModel.create({ expectedInputs: [{ type: 'image' }, { type: 'text' }] });
+      const stream = session.promptStreaming([{ role: 'user', content: [
+        { type: 'text', value: 'This is a picture of a web form. List each field and the value it shows, then say which field is highlighted.' },
+        { type: 'image', value: pic.blob },
+      ] }]);
+      let text = '';
+      const quiet = setTimeout(() => { if (!text) out.textContent = size + 'The model has not answered after 30 s.'; }, 30000);
+      for await (const chunk of stream) { text += chunk; out.textContent = text; }
+      clearTimeout(quiet);
+      session.destroy?.();
+    } catch (err) {
+      out.textContent = size + `The model could not be asked: ${err.message}`;
+    }
+  }
+  $('see').onclick = see;
+  // #endregion see
+
+  // -------------------------------------------------------------------------
+  // Live checks, each on its own copy of the form on the test stage.
+
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  async function fixture(attrs = 'fx="agent" fx-backend="gl"', style = '') {
+    const holder = document.createElement('div');
+    holder.style.cssText = 'flex:none;width:300px;padding:40px 20px';
+    const f = form.cloneNode(true);
+    f.removeAttribute('id');
+    f.removeAttribute('fx');
+    f.style.cssText = 'width:260px;transition:none;--fx-x:0;--fx-y:0;--fx-progress:-1;--fx-amount:0.5;' + style;
+    f.reset();
+    holder.append(f);
+    testStage().append(holder);
+    wire(f);
+    for (const [k, v] of attrs.matchAll(/([\w-]+)(?:="([^"]*)")?/g).map((m) => [m[1], m[2] ?? ''])) f.setAttribute(k, v);
+    let s;
+    for (let i = 0; i < 80; i++) { s = f.closest('fx-surface'); if (s?.ready && s.frames > 1) break; await sleep(25); }
+    if (!s?.ready) throw new Error('the fixture was never drawn');
+    return { f, s };
+  }
+
+  runTests($('results'), [
+    {
+      name: 'WebMCP is present and took the tools',
+      why: 'navigator.modelContext must exist and accept the three tools through registerTool() or provideContext().',
+      run: async () => {
+        if (!mcp.count) throw new Error(mcp.error);
+        return `${mcp.count} tools registered with ${mcp.how}${mcp.error ? `; ${mcp.error}` : ''}`;
+      },
+    },
+    {
+      name: 'A tool call types into the real input and returns after the animation',
+      why: 'fill_field is called on a copy of the form. The input must fire one input event per character and hold the value when the promise resolves.',
+      timeout: 10000,
+      run: async () => {
+        const { f } = await fixture(supported ? undefined : 'data-plain');
+        const p = agentPanel(f);
+        let events = 0;
+        f.elements.name.addEventListener('input', () => events++);
+        const t0 = performance.now();
+        const out = await p.call('fill_field', { field: 'name', value: 'Grace' });
+        const ms = performance.now() - t0;
+        if (f.elements.name.value !== 'Grace') throw new Error(`the input holds "${f.elements.name.value}"`);
+        if (events !== 5) throw new Error(`${events} input events for 5 characters`);
+        await p.call('fill_field', { field: 'berth', value: 'Mooring buoy' });
+        await p.call('fill_field', { field: 'boat_length', value: 99 });
+        await p.call('fill_field', { field: 'power', value: true });
+        const receipt = await p.call('submit_booking');
+        if (!/buoy for Grace, 20 m/.test(receipt)) throw new Error(`the receipt reads "${receipt}"`);
+        let refused = '';
+        try { await p.call('fill_field', { field: 'berth', value: 'garage' }); } catch (err) { refused = err.message; }
+        if (!refused) throw new Error('a value that is not an option was accepted');
+        return `"${out}" after ${Math.round(ms)} ms and 5 input events; a length of 99 was clamped to 20; receipt: "${receipt}"; "garage" was refused`;
+      },
+    },
+    {
+      name: 'The shader draws the marker where the custom properties say',
+      why: 'A copy of the form on WebGL, once with no marker and once with --fx-progress 0.5 and --fx-amount 0.3. The pictures must differ near that point.',
+      timeout: 10000,
+      run: async () => {
+        need();
+        const { f, s } = await fixture();
+        await sleep(100);
+        const a = await s.readback();
+        f.style.setProperty('--fx-progress', '0.5');
+        f.style.setProperty('--fx-amount', '0.3');
+        await sleep(200);
+        const b = await s.readback();
+        const k = b.width / (f.offsetWidth + 72); // 36 px of bleed on each side
+        const px = Math.round((36 + f.offsetWidth * 0.5) * k), py = Math.round((36 + f.offsetHeight * 0.3) * k);
+        const at = (img, x, y) => { const i = (y * img.width + x) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+        const before = at(a, px, py), after = at(b, px, py);
+        if (!(after[2] > 200 && after[1] > 170 && after[0] < 150)) throw new Error(`the pixel at the marker is rgb(${after}), was rgb(${before})`);
+        let dim = 0, n = 0;
+        for (let i = 0; i < b.data.length; i += 4 * 97) { n++; if (b.data[i] + b.data[i + 1] + b.data[i + 2] < a.data[i] + a.data[i + 1] + a.data[i + 2] - 20) dim++; }
+        return `the pixel at the marker went from rgb(${before}) to rgb(${after}); ${Math.round((dim / n) * 100)}% of sampled pixels are dimmer`;
+      },
+    },
+    {
+      name: 'Hit testing follows the lean',
+      why: 'A copy of the form leaning with --fx-x 0.6 and --fx-y -0.3. Each control\'s centre is projected with the effect\'s matrix, and elementFromPoint() must return the control where the browser reports it.',
+      timeout: 10000,
+      run: async () => {
+        need();
+        const { f, s } = await fixture('fx="agent" fx-backend="gl"', '--fx-x:0.6;--fx-y:-0.3;');
+        await sleep(200);
+        const m = tiltMatrix(f.offsetWidth, f.offsetHeight, 0.3 * 15, 0.6 * 15, 800);
+        const host = s.getBoundingClientRect();
+        const stage = testStage(), was = stage.style.pointerEvents;
+        stage.style.pointerEvents = 'auto';
+        let most = 0, worst = 0;
+        const missed = [];
+        // The controls in the top 300 px of the form: the rest is below the edge of the fixture box.
+        for (const el of [f.elements.name, f.elements.boat_length, f.elements.berth, f.elements.nights]) {
+          // Where layout put the control's centre, where the effect's matrix puts it, and where the browser says it is.
+          let x = el.offsetWidth / 2, y = el.offsetHeight / 2;
+          for (let n = el; n && n !== f; n = n.offsetParent) { x += n.offsetLeft; y += n.offsetTop; }
+          const p = m.transformPoint(new DOMPoint(x, y));
+          const box = el.getBoundingClientRect();
+          const got = { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+          most = Math.max(most, Math.hypot(got.x - host.left - x, got.y - host.top - y));
+          // The centre of a leaning box is not exactly its projected centre, so only small controls are compared.
+          if (el.offsetWidth < 120) worst = Math.max(worst, Math.hypot(got.x - host.left - p.x / p.w, got.y - host.top - p.y / p.w));
+          if (document.elementFromPoint(got.x, got.y) !== el) missed.push(el.name || 'submit');
+        }
+        stage.style.pointerEvents = was;
+        if (missed.length) throw new Error(`elementFromPoint() did not return these controls at their drawn centres: ${missed.join(', ')}`);
+        if (most < 2) throw new Error(`no control's reported box is more than ${most.toFixed(1)} px from its layout position: hit testing did not follow the lean`);
+        if (worst > 3) throw new Error(`a control's reported centre is ${worst.toFixed(1)} px from where the matrix puts it`);
+        return `4 controls found at their drawn centres, up to ${most.toFixed(1)} px from where layout put them and within ${worst.toFixed(1)} px of the matrix's answer`;
+      },
+    },
+    {
+      name: 'The effect on WebGPU: the same picture as WebGL',
+      why: 'The effect is written in GLSL and WGSL. One copy of the form is drawn both ways (the WebGPU one into a texture) with the marker on, and compared. Needs a WebGPU adapter.',
+      timeout: 15000,
+      run: async () => {
+        need();
+        const style = '--fx-x:0.4;--fx-y:-0.2;--fx-progress:0.5;--fx-amount:0.4;';
+        const gl = await fixture('fx="agent" fx-backend="direct"', style);
+        const gpu = await fixture('fx="agent" fx-backend="webgpu" fx-offscreen', style);
+        for (let i = 0; i < 40 && gpu.s.backend !== 'webgpu' && !gpu.s.gpuNote; i++) await sleep(50);
+        if (gpu.s.backend !== 'webgpu') throw new Error(`WebGPU is not in use: ${gpu.s.gpuNote || 'it did not start'}`);
+        await sleep(80);
+        const d = pictureDifference(await gl.s.readback(), await gpu.s.readback());
+        if (d.ink < 0.1) throw new Error('WebGPU drew nothing');
+        // The rings move with time, so the two pictures are a few frames apart.
+        if (d.mean > 4) throw new Error(`mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+        return `mean difference per channel ${d.mean.toFixed(2)} of 255 (the rings are animated, so the two frames are not from the same instant)`;
+      },
+    },
+    {
+      name: 'The Prompt API is present and accepts a picture',
+      why: 'LanguageModel.availability() is asked with an image input. A model that still has to be downloaded is not started from a check.',
+      timeout: 8000,
+      run: async () => {
+        if (!('LanguageModel' in globalThis)) throw new Error('LanguageModel is missing');
+        const plain = await Promise.race([LanguageModel.availability(), sleep(3000).then(() => 'no answer')]);
+        const image = await Promise.race([LanguageModel.availability({ expectedInputs: [{ type: 'image' }] }).catch((e) => 'error: ' + e.message), sleep(3000).then(() => 'no answer')]);
+        if (image !== 'available') throw new Error(`availability() is "${plain}" for text and "${image}" with an image input: no model on this device yet`);
+        return `text: ${plain}; with an image input: ${image}`;
+      },
+    },
+    {
+      name: 'The pattern matcher turns a sentence into tool calls',
+      why: 'The stand-in for a model. "Book a buoy for Grace, 12 metres, three nights, with power" must give five fill_field calls and submit_booking.',
+      run: async () => {
+        const calls = planWithPatterns('Book a buoy for Grace, 12 metres, three nights, with power');
+        const line = calls.map((c) => (c.name === 'fill_field' ? `${c.args.field}=${c.args.value}` : c.name)).join(', ');
+        if (line !== 'name=Grace, boat_length=12, berth=buoy, nights=3, power=true, submit_booking') throw new Error(line);
+        return line;
+      },
+    },
+    stillDrawn(() => [{
+      name: 'the form',
+      ink: async () => { const s = surfaceOf(form); return s?.ready ? inkFraction(await s.readback()) : null; },
+      note: 'not in a canvas',
+    }]),
+  ]);
+</script>
+</body>
+</html>

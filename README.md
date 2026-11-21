@@ -76,6 +76,7 @@ The results of each experiment are in [findings/](findings/), one file per page 
 - `public/lib/effects.js`: the effect registry shared by `fx` and `<canvas-slot effect>`. `defineEffect(name, { glsl, wgsl, animated, bleed, geometry })`, or two `<script data-effect="name">` elements (one `type="text/glsl"`, one `type="text/wgsl"`) with no script call; CSS properties `--fx-progress`, `--fx-amount`, `--fx-x`, `--fx-y`.
 - `public/lib/slot-effects.js`: the shader renderer `<canvas-slot effect>` loads on demand. WebGPU when usable, else WebGL; `backend="webgpu|gl|webgl|shared"` names a route.
 - `public/lib/physical-ui.js`: `<physical-ui material="jelly|cloth|paper" wind pin>`. `backend="webgpu|webgl"` names a route; without it WebGPU is used when usable.
+- `public/lib/text-twin.js`: `new TextTwin(source, copy)` keeps a converted copy of a subtree and pairs its blocks with the original's. `convert(provider)` with `translator()`, `rewriter()`, `summarizer()` or `recorded(table, column)`; `ownBlocks = true` makes each block of the copy drawable by itself. `builtInAI()` reports what each built-in AI interface says about availability.
 - `public/lib/surface.js`: the shared base that slots any markup into a canvas; `SurfaceElement.adopt(el)` wraps an element in place.
 
 - `public/lib/live-surface.js`: `<live-region>` and `attachSurface(el)` turn any element into a shareable surface (frames, redaction, element map, replayed input). `serve(surface, link)` speaks the protocol.
