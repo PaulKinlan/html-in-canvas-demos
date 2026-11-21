@@ -1,0 +1,1290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Video as a material for editable text</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  [hidden] { display: none !important; }
+  .controls { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .controls label { display: inline-flex; gap: 6px; align-items: center; max-width: 100%; }
+  .controls select, .controls button { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; max-width: 100%; }
+  .controls input[type=range] { width: 130px; min-height: 40px; }
+  .vt-stage { max-width: 720px; position: relative; }
+  .say { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 6em; margin: 8px 0; }
+  #blank { position: absolute; inset: 12px; display: grid; place-items: center; padding: 16px; text-align: center; border-radius: 10px; background: #0b0d12; color: #fff; font-size: 14px; }
+
+  /* #region css */
+  #stage { display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: 10px; background: #0b0d12; touch-action: manipulation; }
+  @media (max-width: 520px) { #stage { aspect-ratio: 1 / 1; } }
+  /* The text is white on a clear background. The shader reads "white" as glyph coverage.
+     Anything that is not white (the selection highlight, the caret, the focus ring, an emoji) is drawn over the result as itself. */
+  #text { box-sizing: border-box; width: 100%; height: 100%; padding: 4% 5%; overflow: hidden; color: #fff; caret-color: #ffd400; font-family: var(--face, system-ui, sans-serif); }
+  #text .big { margin: 0; font-weight: 900; font-size: calc(var(--cw, 640px) * 0.185); line-height: 0.92; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+  #text .small { margin: 0.5em 0 0; font-weight: 800; font-size: clamp(18px, calc(var(--cw, 640px) * 0.036), 25px); line-height: 1.22; }
+  #text ::selection { background: rgb(0 90 255 / 0.45); color: #fff; }
+  /* #endregion css */
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 12px 0; }
+  .tiles figure { margin: 0; min-width: 0; }
+  .tiles figcaption { font-size: 13px; color: var(--muted); margin: 6px 0; }
+  /* #region nocanvas */
+  /* Knock-out text with no canvas: a video, and over it a black box with white text that multiplies with the video. */
+  .ko { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; background: #000; isolation: isolate; container-type: inline-size; }
+  .ko video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .ko .words { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; background: #000; color: #fff; mix-blend-mode: multiply;
+    font: 900 26cqw/1 system-ui, sans-serif; letter-spacing: -0.02em; text-align: center; }
+  /* The same markup as a canvas child has a fixed layout size, the size of the canvas buffer. */
+  #tileCanvas { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; background: #000; }
+  #tileCanvas .ko { width: 480px; height: 270px; aspect-ratio: auto; border-radius: 0; container-type: normal; }
+  #tileCanvas .ko .words { font-size: 125px; }
+  /* A video clipped by SVG text. The clip path is measured in fractions of the video's box. */
+  .clipped { position: relative; aspect-ratio: 16 / 9; border-radius: 8px; background: #0b0d12; overflow: hidden; }
+  .clipped video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; clip-path: url(#vt-clip); }
+  /* #endregion nocanvas */
+
+  .vt-fx { position: relative; box-sizing: border-box; width: 100%; height: 100%; overflow: hidden; color: #fff; font: 900 60px/1 system-ui, sans-serif; }
+  .vt-fx ::selection { background: rgb(0 90 255 / 0.45); color: #fff; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Video as a material for editable text</h1>
+  <p class="lede">
+    The large text below is two editable HTML elements in one canvas. A shader takes their picture as one texture and a video frame as a second.
+    Type in the text, select it, and pick an effect. Under the code listing, the same fill is built three times with CSS and no shader.
+  </p>
+
+  <div class="stage vt-stage" id="demo">
+    <!-- #region markup -->
+    <canvas id="stage" content="drawable" layoutsubtree aria-label="Editable text drawn with a video">
+      <div id="text" drawable>
+        <div class="big" contenteditable="true" spellcheck="false" role="textbox" aria-label="Large text">VIDEO IN TYPE</div>
+        <p class="small" contenteditable="true" spellcheck="false" role="textbox" aria-label="Paragraph">Edit these words. The browser wraps them, places the caret and draws the selection. The canvas receives the result as a picture, and the video is the paint.</p>
+      </div>
+    </canvas>
+    <video id="src" hidden muted playsinline loop preload="auto"></video>
+    <!-- #endregion markup -->
+    <div id="blank" hidden role="status"></div>
+  </div>
+
+  <div class="controls">
+    <label>Effect
+      <select id="effect">
+        <option value="0" selected>Fill: the glyphs show the video</option>
+        <option value="1">Displace: the video pushes the glyphs</option>
+        <option value="2">Chrome: raised letters reflect the video</option>
+        <option value="3">Punch: the video with the text cut out</option>
+        <option value="4">Mosaic: one video colour per cell of text</option>
+        <option value="5">Weight: video brightness sets the stroke weight</option>
+      </select>
+    </label>
+    <label>Amount <input type="range" id="amount" min="0" max="1" step="0.01" value="0.6"></label>
+  </div>
+  <div class="controls">
+    <label>Font
+      <select id="face">
+        <option value="system-ui, sans-serif" selected>Sans</option>
+        <option value="Georgia, 'Times New Roman', serif">Serif</option>
+        <option value="ui-monospace, Menlo, Consolas, monospace">Monospace</option>
+        <option value="'Comic Sans MS', 'Comic Neue', cursive">Cursive</option>
+      </select>
+    </label>
+    <label>Video <select id="source"><option value="clip">Clip</option><option value="camera">Camera</option></select></label>
+    <button type="button" id="playPause">Pause video</button>
+    <label>Drawn with
+      <select id="route">
+        <option value="webgpu">WebGPU</option>
+        <option value="webgl">WebGL 2</option>
+        <option value="2d">2D canvas</option>
+      </select>
+    </label>
+  </div>
+  <p class="say" id="say" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>text texture, video texture, one shader, and the 2D and CSS versions</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Two <code>contenteditable</code> elements in a <code>drawable</code> child of the canvas. The video is outside the canvas.</li>
+      <li data-code="#css"><b>The CSS.</b> White text on a clear background. The font size follows the canvas width, so the text wraps again when the canvas changes size.</li>
+      <li data-code="#upload"><b>WebGL 2: two textures.</b> <code>texElementSubImage2D()</code> for the text and <code>texImage2D(video)</code> for the frame, in the <code>paint</code> handler.</li>
+      <li data-code="#shader" data-lang="glsl"><b>The fragment shader.</b> Six effects. Coverage is the smallest of the three colour channels.</li>
+      <li data-code="#twod"><b>2D canvas: no shader.</b> <code>drawElementImage()</code>, then the video with <code>source-in</code> or <code>source-out</code>.</li>
+      <li data-code="#gpu"><b>WebGPU.</b> <code>drawElementImageToTexture()</code> for the text and <code>copyExternalImageToTexture()</code> for the frame.</li>
+      <li data-code="#frames"><b>When to paint.</b> The video is not a canvas child, so the page asks for a paint for each video frame.</li>
+      <li data-code="#nocanvas"><b>The CSS for the three versions with no shader.</b></li>
+      <li data-code="#tiles"><b>The markup for the three versions with no shader.</b></li>
+    </ol>
+  </details>
+
+  <h2>The fill without a shader</h2>
+  <p class="note">Each box below plays the same video. The first two can be edited.</p>
+  <div class="tiles" id="tiles">
+    <!-- #region tiles -->
+    <figure>
+      <div class="ko"><video muted playsinline></video><div class="words" contenteditable="true" spellcheck="false" role="textbox" aria-label="Blend text">BLEND</div></div>
+      <figcaption>Plain DOM, no canvas. White text on a black box with <code>mix-blend-mode: multiply</code>, over a <code>&lt;video&gt;</code>.</figcaption>
+    </figure>
+    <figure>
+      <canvas id="tileCanvas" content="drawable" layoutsubtree width="480" height="270" aria-label="The blend markup drawn in a canvas">
+        <div class="ko" drawable><video muted playsinline></video><div class="words" contenteditable="true" spellcheck="false" role="textbox" aria-label="Blend text in a canvas">CANVAS</div></div>
+      </canvas>
+      <figcaption>The same markup as a <code>drawable</code> canvas child, drawn by one <code>drawElementImage()</code> call. The blend is in the element's picture.</figcaption>
+    </figure>
+    <figure>
+      <div class="clipped">
+        <video muted playsinline></video>
+        <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+          <clipPath id="vt-clip" clipPathUnits="objectBoundingBox" transform="scale(0.003125 0.0055556)">
+            <text x="160" y="128" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="120">SVG</text>
+          </clipPath>
+        </svg>
+      </div>
+      <figcaption>A <code>&lt;video&gt;</code> with <code>clip-path: url(#…)</code> to an SVG <code>&lt;clipPath&gt;</code> that holds <code>&lt;text&gt;</code>. SVG text does not wrap and cannot be edited.</figcaption>
+    </figure>
+    <!-- #endregion tiles -->
+  </div>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The text element fills the canvas. Its font size is a fraction of <code>canvas.clientWidth</code>, so a narrower canvas wraps the text again. The browser does the wrapping.</li>
+    <li>The text is styled white on a clear background. In the shader, coverage is the smallest of the red, green and blue channels of the premultiplied text texture. A white glyph pixel gives 1, a clear pixel gives 0, and an antialiased edge gives its alpha.</li>
+    <li>A pixel that has alpha but is not white is not a glyph. That is the selection highlight, the caret, the focus ring or a colour emoji. The shader draws those over the effect in their own colour at 60% strength.</li>
+    <li>The video is not a child of the canvas. <code>texImage2D(video)</code>, <code>copyExternalImageToTexture()</code> or <code>drawImage(video)</code> reads its current frame. <code>requestVideoFrameCallback()</code> asks for one paint per video frame. Typing, the caret and selection changes raise <code>paint</code> with no request.</li>
+    <li>WebGL and WebGPU do not tell the browser where the element is drawn. The page calls <code>updateElementGeometry()</code> with an identity matrix after each resize, so taps and the caret go to the text as it is laid out.</li>
+    <li>The 2D route has no shader. It draws the text, then draws the video with <code>globalCompositeOperation = 'source-in'</code> (fill) or <code>'source-out'</code> (punch). It builds those two effects only.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small canvas in a corner of the window. The text above is not touched. One check selects text in its own fixture, which clears a selection made elsewhere on the page for a moment and then restores it.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 headless with software rendering and software video decoding, 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings" id="findingsList">
+    <li><strong>Works: editable DOM text as a shader input next to a video frame.</strong> The text stays editable, selectable and wrapped by the browser in every route. Six effects are built.</li>
+    <li><strong>Works with CSS and no canvas: fill and punch.</strong> <code>mix-blend-mode: multiply</code> or <code>screen</code> on text over a video gives both, with editable HTML text. An SVG <code>&lt;clipPath&gt;</code> or <code>&lt;mask&gt;</code> with <code>&lt;text&gt;</code> gives the fill for SVG text only.</li>
+    <li><strong>Works: the CSS blend inside a drawable element.</strong> When the video and the blended text are both inside the drawn element, the blend is in its picture.</li>
+    <li><strong>Limit: the blend does not reach the canvas.</strong> <code>mix-blend-mode</code> on a drawn element does not blend with pixels the canvas already holds. <code>globalCompositeOperation</code> does that job in a 2D canvas.</li>
+    <li><strong>Limit: <code>background-clip: text</code> cannot use a video.</strong> Chromium has no <code>element()</code> and no <code>-webkit-canvas()</code> image. A <code>paint()</code> worklet exists but cannot be given a video frame.</li>
+    <li><strong>Needs the canvas: displace, chrome, mosaic and weight.</strong> Each one reads the text's pixels and the video's pixels at different places and computes a new pixel. CSS blending and clipping combine the two pictures at the same place only. The 2D canvas route is in the same position without a per-pixel loop in script.</li>
+    <li><strong>Selection and caret are in the text texture.</strong> A route that uses alpha as coverage (2D <code>source-in</code>) turns the selection highlight into a block of video. The shader keys on white, so it can tell glyphs from the highlight.</li>
+    <li><strong>Not verified here:</strong> the WebGPU route on screen, a hardware-decoded frame through <code>texImage2D(video)</code> on Android, touch selection handles and the on-screen keyboard on the drawn text, and the frame rate on a phone.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  import { pickBackend, webgpu, webgl2 } from '/shared/backend.js';
+  import { GPUCanvas, GPUElementTexture, checkWGSL, supportedGPU } from '/lib/gpu-util.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const CLIP = '/media/clip.webm';
+  const BG = [11, 13, 18];
+  const BG_CSS = `rgb(${BG.join(' ')})`;
+
+  // #region shader
+  const FRAG = `#version 300 es
+  precision highp float;
+  uniform sampler2D uT;      // the text: white glyphs, premultiplied, clear where there is no text
+  uniform sampler2D uV;      // the video frame
+  uniform vec2 uRes;         // canvas buffer size
+  uniform vec2 uCover;       // scales canvas coordinates so the frame covers the canvas
+  uniform vec3 uBg;
+  uniform float uPx;         // buffer pixels per CSS pixel
+  uniform float uAmount, uHasFrame;
+  uniform int uEffect;
+  out vec4 outColor;
+
+  vec4 T(vec2 p) { return texture(uT, p) * step(0.0, p.x) * step(p.x, 1.0) * step(0.0, p.y) * step(p.y, 1.0); }
+  // Coverage: 1 on a white glyph pixel, 0 on a clear pixel, and 0 on a coloured pixel such as the selection highlight.
+  float cov(vec2 p) { vec4 t = T(p); return min(t.r, min(t.g, t.b)); }
+  vec3 V(vec2 p) { return uHasFrame > 0.5 ? texture(uV, clamp((p - 0.5) * uCover + 0.5, 0.0, 1.0)).rgb : vec3(0.25, 0.27, 0.32); }
+  float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+  // Coverage blurred over r CSS pixels. A height map of the text.
+  float soft(vec2 p, float r) {
+    vec2 s = r * uPx / uRes;
+    float a = cov(p) * 2.0;
+    for (int i = 0; i < 8; i++) {
+      float t = float(i) * 0.7854;
+      vec2 d = vec2(cos(t), sin(t)) * s;
+      a += cov(p + d) + cov(p + d * 0.5);
+    }
+    return a / 18.0;
+  }
+  // The largest coverage within r CSS pixels. The glyph made thicker.
+  float grown(vec2 p, float r) {
+    vec2 s = r * uPx / uRes;
+    float a = 0.0;
+    for (int i = 0; i < 8; i++) {
+      float t = float(i) * 0.7854;
+      a = max(a, cov(p + vec2(cos(t), sin(t)) * s));
+    }
+    return a;
+  }
+
+  void main() {
+    vec2 uv = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y) / uRes;
+    vec4 t = T(uv);
+    float c = min(t.r, min(t.g, t.b));
+    vec3 v = V(uv);
+    float k = uAmount;
+    vec3 col;
+
+    if (uEffect == 0) {
+      // Fill. The frame inside the glyphs, the background outside, and a white line around each glyph.
+      col = mix(uBg, v, c);
+      col = mix(col, vec3(1.0), clamp(grown(uv, 1.3) - c, 0.0, 1.0) * k);
+    } else if (uEffect == 1) {
+      // Displace. The text is looked up at a place moved by the frame's brightness and colour there.
+      // Red, green and blue use three distances, so moved edges split into colours.
+      vec2 push = (vec2(lum(v), v.r - v.b + 0.5) - 0.5) * k * 0.16 * vec2(uRes.y / uRes.x, 1.0);
+      vec3 ink = vec3(cov(uv + push), cov(uv + push * 0.8), cov(uv + push * 0.6));
+      col = v * 0.22 * (1.0 - max(ink.r, max(ink.g, ink.b))) + ink * (0.55 + 0.6 * v);
+    } else if (uEffect == 2) {
+      // Chrome. Blurred coverage is a height map. Its slope bends the place where the frame is read, and adds a highlight.
+      float h = soft(uv, 3.0);
+      vec2 e = 1.5 * uPx / uRes;
+      vec2 g = vec2(soft(uv + vec2(e.x, 0.0), 3.0) - soft(uv - vec2(e.x, 0.0), 3.0),
+                    soft(uv + vec2(0.0, e.y), 3.0) - soft(uv - vec2(0.0, e.y), 3.0));
+      vec3 n = normalize(vec3(-g * (2.0 + 10.0 * k), 1.0));
+      vec3 refl = V(0.5 + (uv - 0.5) * 0.6 + n.xy * 0.35);
+      vec3 metal = mix(vec3(smoothstep(0.15, 0.85, lum(refl))), refl, 0.4) * (0.7 + 0.6 * n.z);
+      metal += pow(clamp(dot(n, normalize(vec3(-0.4, -0.6, 0.7))), 0.0, 1.0), 28.0) * 0.9;
+      col = mix(v * 0.16, metal, smoothstep(0.3, 0.55, h));
+    } else if (uEffect == 3) {
+      // Punch. The frame everywhere, the text cut out of it, with a shadow inside the cut.
+      float shade = soft(uv - vec2(3.0, 4.0) * (0.5 + k) * uPx / uRes, 3.0);
+      col = mix(v, uBg * (0.35 + 0.65 * mix(1.0, shade, k)), c);
+    } else if (uEffect == 4) {
+      // Mosaic. The canvas is cut into cells. Each cell takes one colour from the frame, and the text in it is drawn in that colour.
+      float s = mix(5.0, 36.0, k) * uPx;
+      vec2 cell = (floor(uv * uRes / s) + 0.5) * s / uRes;
+      vec3 vc = V(cell);
+      vc = clamp(mix(vec3(lum(vc)), vc, 1.6) * 1.15 + 0.06, 0.0, 1.0);
+      col = mix(uBg + vc * 0.1, vc, c);
+    } else {
+      // Weight. The frame's brightness moves the threshold on the blurred coverage: thick strokes where the frame is bright, thin where it is dark.
+      float h = soft(uv, 2.2);
+      float th = mix(0.5, mix(0.92, 0.1, lum(v)), k);
+      col = mix(uBg, mix(vec3(1.0), v, 0.25), smoothstep(th - 0.07, th + 0.07, h));
+    }
+
+    // What is in the text texture and is not white: the selection highlight, the caret, the focus ring.
+    float other = clamp(t.a - c, 0.0, 1.0);
+    col = mix(col, (t.rgb - c) / max(other, 0.004), other * 0.6);
+    outColor = vec4(col, 1.0);
+  }`;
+  // #endregion shader
+  const VERT = `#version 300 es
+  void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+
+  // The same shader in WGSL. Kept line for line with the GLSL above.
+  const WGSL = `
+  struct U { res: vec2f, cover: vec2f, bg: vec4f, p: vec4f }   // bg.w: pixels per CSS pixel. p: amount, has frame, effect
+  @group(0) @binding(0) var<uniform> u: U;
+  @group(0) @binding(1) var smp: sampler;
+  @group(0) @binding(2) var tT: texture_2d<f32>;
+  @group(0) @binding(3) var tV: texture_2d<f32>;
+
+  @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+    let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+    return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+  }
+  fn T(p: vec2f) -> vec4f {
+    return textureSampleLevel(tT, smp, p, 0.0) * step(0.0, p.x) * step(p.x, 1.0) * step(0.0, p.y) * step(p.y, 1.0);
+  }
+  fn cov(p: vec2f) -> f32 { let t = T(p); return min(t.r, min(t.g, t.b)); }
+  fn V(p: vec2f) -> vec3f {
+    let c = textureSampleLevel(tV, smp, clamp((p - 0.5) * u.cover + 0.5, vec2f(0.0), vec2f(1.0)), 0.0).rgb;
+    return select(vec3f(0.25, 0.27, 0.32), c, u.p.y > 0.5);
+  }
+  fn lum(c: vec3f) -> f32 { return dot(c, vec3f(0.2126, 0.7152, 0.0722)); }
+  fn soft(p: vec2f, r: f32) -> f32 {
+    let s = r * u.bg.w / u.res;
+    var a = cov(p) * 2.0;
+    for (var i = 0; i < 8; i++) {
+      let t = f32(i) * 0.7854;
+      let d = vec2f(cos(t), sin(t)) * s;
+      a += cov(p + d) + cov(p + d * 0.5);
+    }
+    return a / 18.0;
+  }
+  fn grown(p: vec2f, r: f32) -> f32 {
+    let s = r * u.bg.w / u.res;
+    var a = 0.0;
+    for (var i = 0; i < 8; i++) {
+      let t = f32(i) * 0.7854;
+      a = max(a, cov(p + vec2f(cos(t), sin(t)) * s));
+    }
+    return a;
+  }
+  @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+    let uv = pos.xy / u.res;
+    let px = u.bg.w;
+    let bg = u.bg.rgb;
+    let t = T(uv);
+    let c = min(t.r, min(t.g, t.b));
+    let v = V(uv);
+    let k = u.p.x;
+    let effect = i32(u.p.z + 0.5);
+    var col: vec3f;
+    if (effect == 0) {
+      col = mix(bg, v, c);
+      col = mix(col, vec3f(1.0), clamp(grown(uv, 1.3) - c, 0.0, 1.0) * k);
+    } else if (effect == 1) {
+      let push = (vec2f(lum(v), v.r - v.b + 0.5) - 0.5) * k * 0.16 * vec2f(u.res.y / u.res.x, 1.0);
+      let ink = vec3f(cov(uv + push), cov(uv + push * 0.8), cov(uv + push * 0.6));
+      col = v * 0.22 * (1.0 - max(ink.r, max(ink.g, ink.b))) + ink * (0.55 + 0.6 * v);
+    } else if (effect == 2) {
+      let h = soft(uv, 3.0);
+      let e = 1.5 * px / u.res;
+      let g = vec2f(soft(uv + vec2f(e.x, 0.0), 3.0) - soft(uv - vec2f(e.x, 0.0), 3.0),
+                    soft(uv + vec2f(0.0, e.y), 3.0) - soft(uv - vec2f(0.0, e.y), 3.0));
+      let n = normalize(vec3f(-g * (2.0 + 10.0 * k), 1.0));
+      let refl = V(0.5 + (uv - 0.5) * 0.6 + n.xy * 0.35);
+      var metal = mix(vec3f(smoothstep(0.15, 0.85, lum(refl))), refl, 0.4) * (0.7 + 0.6 * n.z);
+      metal += pow(clamp(dot(n, normalize(vec3f(-0.4, -0.6, 0.7))), 0.0, 1.0), 28.0) * 0.9;
+      col = mix(v * 0.16, metal, smoothstep(0.3, 0.55, h));
+    } else if (effect == 3) {
+      let shade = soft(uv - vec2f(3.0, 4.0) * (0.5 + k) * px / u.res, 3.0);
+      col = mix(v, bg * (0.35 + 0.65 * mix(1.0, shade, k)), c);
+    } else if (effect == 4) {
+      let s = mix(5.0, 36.0, k) * px;
+      let cell = (floor(uv * u.res / s) + 0.5) * s / u.res;
+      var vc = V(cell);
+      vc = clamp(mix(vec3f(lum(vc)), vc, 1.6) * 1.15 + 0.06, vec3f(0.0), vec3f(1.0));
+      col = mix(bg + vc * 0.1, vc, c);
+    } else {
+      let h = soft(uv, 2.2);
+      let th = mix(0.5, mix(0.92, 0.1, lum(v)), k);
+      col = mix(bg, mix(vec3f(1.0), v, 0.25), smoothstep(th - 0.07, th + 0.07, h));
+    }
+    let other = clamp(t.a - c, 0.0, 1.0);
+    col = mix(col, (t.rgb - c) / max(other, 0.004), other * 0.6);
+    return vec4f(col, 1.0);
+  }`;
+
+  /** How canvas coordinates are scaled so a frame of vw by vh covers a canvas of w by h. */
+  const coverScale = (w, h, vw, vh) => (!vw || !vh ? [1, 1] : w / h > vw / vh ? [1, (vw / vh) / (w / h)] : [(w / h) / (vw / vh), 1]);
+  const ready = (v) => !!v && v.readyState >= 2 && v.videoWidth > 0;
+
+  // ---- route 1: WebGL 2 ----
+  function routeGL(canvas, el) {
+    const gl = canvas.getContext('webgl2', { alpha: false, antialias: false });
+    if (!gl || !('texElementSubImage2D' in gl)) throw new Error('WebGL 2 with texElementSubImage2D() is not available');
+    const program = gl.createProgram();
+    for (const [type, src] of [[gl.VERTEX_SHADER, VERT], [gl.FRAGMENT_SHADER, FRAG]]) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(`the shader did not compile: ${gl.getShaderInfoLog(s)}`);
+      gl.attachShader(program, s);
+    }
+    gl.linkProgram(program);
+    gl.useProgram(program);
+    const U = (name) => gl.getUniformLocation(program, name);
+    const makeTexture = () => {
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      return t;
+    };
+    const textTex = makeTexture(), frameTex = makeTexture(), fbo = gl.createFramebuffer();
+    let hasFrame = false, frameOf = null, lost = false;
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); lost = true; canvas.dispatchEvent(new Event('routelost')); });
+
+    // #region upload
+    function draw(s, px) {
+      // The text. The texture must have the size the browser paints the element at.
+      const want = canvas.getElementImageDefaultSize(el);
+      const tw = Math.max(1, Math.ceil(want.width)), th = Math.max(1, Math.ceil(want.height));
+      gl.bindTexture(gl.TEXTURE_2D, textTex);
+      if (textTex.w !== tw || textTex.h !== th) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, tw, th, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        textTex.w = tw; textTex.h = th;
+      }
+      gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, el);
+
+      // The video frame, from an element that is not in the canvas.
+      const v = s.video;
+      if (frameOf !== v) { frameOf = v; hasFrame = false; }
+      if (ready(v) && !(s.freeze && hasFrame)) {
+        gl.bindTexture(gl.TEXTURE_2D, frameTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+        hasFrame = true;
+      }
+
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, textTex);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, frameTex);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.uniform1i(U('uT'), 0);
+      gl.uniform1i(U('uV'), 1);
+      gl.uniform2f(U('uRes'), canvas.width, canvas.height);
+      gl.uniform2fv(U('uCover'), coverScale(canvas.width, canvas.height, v?.videoWidth, v?.videoHeight));
+      gl.uniform3f(U('uBg'), BG[0] / 255, BG[1] / 255, BG[2] / 255);
+      gl.uniform1f(U('uPx'), px);
+      gl.uniform1f(U('uAmount'), s.amount);
+      gl.uniform1f(U('uHasFrame'), hasFrame ? 1 : 0);
+      gl.uniform1i(U('uEffect'), s.effect);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    // #endregion upload
+
+    return {
+      name: 'webgl',
+      get lost() { return lost; },
+      draw,
+      /** The canvas as drawn. Rows from the bottom. */
+      read() {
+        const data = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        return { data, width: canvas.width, height: canvas.height, flip: true };
+      },
+      /** The text texture, premultiplied. Rows from the top. */
+      readText() {
+        const data = new Uint8Array(textTex.w * textTex.h * 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textTex, 0);
+        gl.readPixels(0, 0, textTex.w, textTex.h, gl.RGBA, gl.UNSIGNED_BYTE, data);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        return { data, width: textTex.w, height: textTex.h, flip: false };
+      },
+    };
+  }
+
+  // ---- route 2: 2D canvas, no shader ----
+  function route2D(canvas, el, { readback = false } = {}) {
+    const ctx = canvas.getContext('2d', { willReadFrequently: readback });
+    if (!ctx || !('drawElementImage' in ctx)) throw new Error('drawElementImage() is not available');
+    // #region twod
+    function draw(s) {
+      const w = canvas.width, h = canvas.height, v = s.video;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawElementImage(el, 0, 0, w, h);              // white glyphs on a clear canvas
+      if (ready(v)) {
+        const k = Math.max(w / v.videoWidth, h / v.videoHeight);   // the frame covers the canvas
+        // 'source-in' keeps the new pixels where the canvas has alpha: the frame inside the glyphs.
+        // 'source-out' keeps them where it has none: the frame with the text cut out.
+        ctx.globalCompositeOperation = s.effect === 3 ? 'source-out' : 'source-in';
+        ctx.drawImage(v, (w - v.videoWidth * k) / 2, (h - v.videoHeight * k) / 2, v.videoWidth * k, v.videoHeight * k);
+      }
+      ctx.globalCompositeOperation = 'destination-over';   // the background goes under what is there
+      ctx.fillStyle = BG_CSS;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    // #endregion twod
+    return {
+      name: '2d',
+      lost: false,
+      draw,
+      read: () => { const d = ctx.getImageData(0, 0, canvas.width, canvas.height); return { data: d.data, width: d.width, height: d.height, flip: false }; },
+      readText: null,
+    };
+  }
+
+  // ---- route 3: WebGPU ----
+  async function routeGPU(canvas, el, gpu, present = true) {
+    if (!gpu || !supportedGPU) throw new Error('WebGPU with drawElementImageToTexture() is not available');
+    const { device } = gpu;
+    const surface = new GPUCanvas(canvas, gpu, { present });
+    const module = await checkWGSL(device, WGSL, 'video text');
+    const pipeline = device.createRenderPipeline({ layout: 'auto', vertex: { module, entryPoint: 'vs' }, fragment: { module, entryPoint: 'fs', targets: [{ format: gpu.format }] } });
+    const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    const uniforms = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const text = new GPUElementTexture(device, canvas, el);
+    const frameUsage = GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+    let frame = device.createTexture({ size: [1, 1], format: 'rgba8unorm', usage: frameUsage });
+    let hasFrame = false, frameOf = null, bind = null, boundText = null, boundFrame = null;
+    const back = { name: 'webgpu', get lost() { return surface.lost; }, onBlank: null, readText: null, frameFrom: '' };
+
+    // #region gpu
+    // The video frame into a texture. A software adapter refuses the video element ("Failed to copy content from video element"),
+    // so the second way draws the frame into a 2D canvas first and copies that.
+    let via = null;
+    function copyFrame(v) {
+      const size = [v.videoWidth, v.videoHeight];
+      if (!via) {
+        try { device.queue.copyExternalImageToTexture({ source: v }, { texture: frame }, size); back.frameFrom = 'copyExternalImageToTexture(video)'; return; } catch { via = new OffscreenCanvas(size[0], size[1]).getContext('2d'); }
+      }
+      if (via.canvas.width !== size[0] || via.canvas.height !== size[1]) { via.canvas.width = size[0]; via.canvas.height = size[1]; }
+      via.drawImage(v, 0, 0);
+      device.queue.copyExternalImageToTexture({ source: via.canvas }, { texture: frame }, size);
+      back.frameFrom = 'drawImage(video) into a 2D canvas, then copyExternalImageToTexture(canvas)';
+    }
+    back.draw = (s, px) => {
+      text.update();                                      // queue.drawElementImageToTexture(), sized to the element's picture
+      const v = s.video;
+      if (frameOf !== v) { frameOf = v; hasFrame = false; }
+      if (ready(v) && !(s.freeze && hasFrame)) {
+        if (frame.width !== v.videoWidth || frame.height !== v.videoHeight) {
+          frame.destroy();
+          frame = device.createTexture({ size: [v.videoWidth, v.videoHeight], format: 'rgba8unorm', usage: frameUsage });
+        }
+        copyFrame(v);
+        hasFrame = true;
+      }
+      if (boundText !== text.texture || boundFrame !== frame) {
+        boundText = text.texture; boundFrame = frame;
+        bind = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: uniforms } }, { binding: 1, resource: sampler },
+          { binding: 2, resource: text.view }, { binding: 3, resource: frame.createView() }] });
+      }
+      const cover = coverScale(canvas.width, canvas.height, v?.videoWidth, v?.videoHeight);
+      device.queue.writeBuffer(uniforms, 0, new Float32Array([canvas.width, canvas.height, cover[0], cover[1], BG[0] / 255, BG[1] / 255, BG[2] / 255, px, s.amount, hasFrame ? 1 : 0, s.effect, 0]));
+      const encoder = device.createCommandEncoder();
+      const pass = encoder.beginRenderPass({ colorAttachments: [{ view: surface.view(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bind);
+      pass.draw(3);
+      pass.end();
+      device.queue.submit([encoder.finish()]);
+      surface.shown((why) => back.onBlank?.(why));         // an empty first frame sends the page to WebGL
+    };
+    // #endregion gpu
+    back.read = async () => { const d = await surface.read(); return { data: d.data, width: d.width, height: d.height, flip: false }; };
+    return back;
+  }
+
+  /**
+   * Draw `el` (a drawable child of `canvas`) with `video` as its material.
+   * Returns { state, grab(), next(), place(), stop() }. state.effect, .amount and .video can be changed at any time.
+   */
+  async function mount(canvas, el, { route, video = null, effect = 0, amount = 0.6, dpr = Math.min(devicePixelRatio, 2), geometry = true, gpu = null, present = true, readback = false, onFail = () => {} } = {}) {
+    const back = route === 'webgpu' ? await routeGPU(canvas, el, gpu, present) : route === 'webgl' ? routeGL(canvas, el) : route2D(canvas, el, { readback });
+    const state = { effect, amount, video, geometry, freeze: false, paints: 0, grab: null, peek: null, error: '' };
+    let probe = null;
+
+    /** Tell the browser where the element is. A WebGL or WebGPU draw does not. */
+    function place() {
+      if (back.name === '2d') return;                      // drawElementImage() places the element itself
+      canvas.updateElementGeometry?.(el, { canvasTransform: new DOMMatrix() });
+      el.toggleAttribute('data-moved');                    // Chromium 157 keeps old hit-test answers until an attribute changes
+    }
+    function size() {
+      const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w; canvas.height = h;
+        if (state.geometry) place();
+      }
+      return w / Math.max(1, canvas.clientWidth);
+    }
+    const onPaint = () => {
+      if (back.lost || !canvas.clientWidth) return;
+      state.paints++;
+      try {
+        back.draw(state, size());
+        state.error = '';
+      } catch (err) {
+        if (state.error !== err.message) { state.error = err.message; onFail(err.message); }
+        return;
+      }
+      if (state.grab) {
+        const done = state.grab;
+        state.grab = null;
+        const text = back.readText?.() ?? null;
+        Promise.resolve(back.read()).then((out) => done({ out, text }));
+      }
+      if (state.peek) {
+        // A 24 px copy, so the visible canvas is never read with getImageData().
+        probe ??= new OffscreenCanvas(24, 24).getContext('2d', { willReadFrequently: true });
+        probe.drawImage(canvas, 0, 0, 24, 24);
+        const d = probe.getImageData(0, 0, 24, 24).data;
+        let lit = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 90) lit++;
+        state.peek(lit / 576);
+        state.peek = null;
+      }
+    };
+    canvas.addEventListener('paint', onPaint);
+    const within = (p, ms, what) => Promise.race([p, sleep(ms).then(() => { throw new Error(state.error ? `drawing failed: ${state.error}` : what); })]);
+    return {
+      canvas, el, state, route: back.name, back, place,
+      /** Ask for a paint and resolve with { out, text }: the canvas and the text texture as drawn in it. */
+      grab: () => within(new Promise((r) => { state.grab = r; canvas.requestPaint(); }), 4000, 'no paint event after requestPaint()'),
+      /** The same for the next paint the browser raises by itself. No requestPaint(). */
+      next: (ms = 3000) => within(new Promise((r) => { state.grab = r; }), ms, `no paint event in ${ms} ms`),
+      peek: () => within(new Promise((r) => { state.peek = r; canvas.requestPaint(); }), 4000, 'no paint event after requestPaint()'),
+      stop: () => canvas.removeEventListener('paint', onPaint),
+    };
+  }
+
+  // #region frames
+  /** Ask `canvas()` for one paint per frame of `video`. Returns a function that stops it. */
+  function follow(video, canvas) {
+    let on = true;
+    const each = () => {
+      if (!on) return;
+      canvas()?.requestPaint?.();
+      if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(each);
+      else requestAnimationFrame(each);
+    };
+    each();
+    return () => { on = false; };
+  }
+  // #endregion frames
+
+  // ---- the page's demo ----
+  const video = $('src'), textEl = $('text');
+  let canvas = $('stage'), demo = null, clipUrl = '', camera = null, userPaused = false, onScreen = false;
+  const say = (text) => { $('say').textContent = text; };
+  const blank = (text) => { $('blank').hidden = !text; $('blank').textContent = text; };
+  const explain = [
+    'Fill. The frame is drawn where the text has coverage. Amount is the strength of the white line around each glyph.',
+    'Displace. Each pixel looks the text up at a place moved by the brightness and colour of the frame there. Amount is the distance.',
+    'Chrome. The blurred coverage is a height map. The frame is read along its slope, so the edges of each letter reflect other parts of the picture. Amount is the depth.',
+    'Punch. The frame fills the canvas and the text is cut out of it. Amount is the shadow inside the cut.',
+    'Mosaic. Each cell takes one colour from the frame and the text inside the cell is drawn in it. Amount is the cell size.',
+    'Weight. Strokes are thick where the frame is bright and thin where it is dark. Amount is how far the weight moves.',
+  ];
+  const routeNote = {
+    webgpu: 'Drawn with WebGPU: drawElementImageToTexture() for the text, copyExternalImageToTexture() for the frame.',
+    webgl: 'Drawn with WebGL 2: texElementSubImage2D() for the text, texImage2D(video) for the frame.',
+    '2d': 'Drawn with a 2D canvas and no shader: drawElementImage(), then drawImage(video) with source-in or source-out. Only Fill and Punch can be drawn this way. Selected text becomes a block of video, because source-in reads alpha and the highlight has alpha.',
+  };
+  let problem = '';
+  function describe() {
+    if (!demo) return;
+    say(`${routeNote[demo.route]} ${explain[demo.state.effect]}${problem ? ` ${problem}` : ''}`);
+  }
+  function layout() {
+    // The font size is a fraction of the canvas width, so the text wraps again when the canvas changes size.
+    textEl.style.setProperty('--cw', `${canvas.clientWidth}px`);
+  }
+  const resized = new ResizeObserver(() => { layout(); canvas.requestPaint?.(); });
+  const seen = new IntersectionObserver((entries) => {
+    for (const e of entries) e.target.dataset.seen = e.isIntersecting ? '1' : '';
+    onScreen = !!(canvas.dataset.seen || $('tiles').dataset.seen);
+    if (!onScreen) video.pause();
+    else if (!userPaused && (ready(video) || !!video.src || !!video.srcObject)) video.play().catch(() => {});
+  }, { rootMargin: '80px 0px' });
+
+  async function start(route) {
+    blank('');
+    if (demo) {
+      // A canvas keeps the kind of context it was first given, so a new route needs a new canvas. The text element moves into it.
+      demo.stop();
+      resized.unobserve(canvas);
+      seen.unobserve(canvas);
+      const fresh = canvas.cloneNode(false);
+      fresh.removeAttribute('width'); fresh.removeAttribute('height');
+      canvas.replaceWith(fresh);
+      fresh.append(textEl);
+      canvas = fresh;
+      demo = null;
+    }
+    try {
+      demo = await mount(canvas, textEl, {
+        route, video, effect: +$('effect').value, amount: +$('amount').value, gpu: route === 'webgpu' ? await webgpu() : null,
+        onFail: (text) => { problem = `Drawing failed: ${text}.`; describe(); },
+      });
+    } catch (err) {
+      if (route !== '2d') { problem = `${route === 'webgpu' ? 'WebGPU' : 'WebGL 2'} could not start (${err.message}).`; return start(route === 'webgpu' ? 'webgl' : '2d'); }
+      blank(`The text cannot be drawn here: ${err.message}.`);
+      return;
+    }
+    if (demo.back.name === 'webgpu') demo.back.onBlank = (why) => { problem = `${why}, so the page changed to WebGL 2.`; start('webgl'); };
+    canvas.addEventListener('routelost', () => {
+      blank('The WebGL context was lost. Choose a route under "Drawn with" to draw the text again.');
+    });
+    $('route').value = demo.route;
+    for (const o of $('effect').options) o.disabled = demo.route === '2d' && o.value !== '0' && o.value !== '3';
+    if ($('effect').selectedOptions[0].disabled) { $('effect').value = '0'; demo.state.effect = 0; }
+    layout();
+    resized.observe(canvas);
+    seen.observe(canvas);
+    canvas.requestPaint();
+    describe();
+  }
+
+  /** The three boxes with no shader play the same pictures: a stream captured from the one video element, or the camera. */
+  function feedTiles() {
+    let stream = camera;
+    try { stream ??= video.captureStream?.() ?? null; } catch { stream = null; }
+    for (const v of $('tiles').querySelectorAll('video')) {
+      if (stream) { v.srcObject = stream; v.play().catch(() => {}); }
+    }
+    return !!stream;
+  }
+  function tileCanvas() {
+    const c = $('tileCanvas'), el = c.firstElementChild, ctx = c.getContext('2d');
+    c.addEventListener('paint', () => {
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.drawElementImage(el, 0, 0, c.width, c.height);
+    });
+    c.requestPaint();
+  }
+
+  const clipReady = fetch(CLIP).then((r) => r.blob()).then((b) => (clipUrl = URL.createObjectURL(b))).catch(() => (clipUrl = CLIP));
+  if (supported) {
+    const have = { webgpu: supportedGPU && !!(await webgpu()), webgl: webgl2() && 'texElementSubImage2D' in WebGL2RenderingContext.prototype, '2d': true };
+    for (const o of $('route').options) {
+      o.disabled = !have[o.value];
+      if (o.value === 'webgpu' && !have.webgpu) o.textContent = `WebGPU (not usable here: ${webgpu.reason || 'no drawElementImageToTexture()'})`;
+    }
+    const want = new URLSearchParams(location.search).get('route') ?? '';
+    const order = ['webgpu', 'webgl', '2d'].filter((r) => have[r]);
+    const picked = have[want] ? want : await pickBackend({ order });
+    await start(have[picked] ? picked : order[0]);
+    tileCanvas();
+    seen.observe($('tiles'));
+    follow(video, () => (onScreen ? canvas : null));
+    clipReady.then(() => {
+      if (camera) return;
+      video.src = clipUrl;
+      video.addEventListener('loadeddata', () => { feedTiles(); canvas.requestPaint(); }, { once: true });
+      if (onScreen) video.play().catch(() => {});
+    });
+    video.addEventListener('error', () => { problem = `The video stopped with an error${video.error?.message ? ` (${video.error.message})` : ''}.`; describe(); });
+  } else {
+    blank('This picture is drawn with HTML-in-canvas, which this browser does not have. The first and third boxes under the code listing use CSS only and still work.');
+    for (const c of document.querySelectorAll('.controls select, .controls button, .controls input')) c.disabled = true;
+    clipReady.then(() => {
+      // Without the API the hidden video still feeds the two CSS boxes.
+      video.src = clipUrl;
+      video.play().catch(() => {});
+      video.addEventListener('loadeddata', feedTiles, { once: true });
+    });
+  }
+
+  $('effect').onchange = () => { if (demo) { demo.state.effect = +$('effect').value; canvas.requestPaint(); describe(); } };
+  $('amount').oninput = () => { if (demo) { demo.state.amount = +$('amount').value; canvas.requestPaint(); } };
+  $('face').onchange = () => { textEl.style.setProperty('--face', $('face').value); };
+  $('route').onchange = () => { problem = ''; start($('route').value); };
+  $('playPause').onclick = () => {
+    userPaused = !video.paused;
+    if (userPaused) video.pause(); else video.play().catch(() => {});
+    $('playPause').textContent = userPaused ? 'Play video' : 'Pause video';
+  };
+  $('source').onchange = async () => {
+    try {
+      if ($('source').value === 'camera') {
+        camera = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360, facingMode: 'user' }, audio: false });
+        video.removeAttribute('src');
+        video.srcObject = camera;
+      } else {
+        for (const t of camera?.getTracks() ?? []) t.stop();
+        camera = null;
+        video.srcObject = null;
+        video.src = clipUrl;
+      }
+      userPaused = false;
+      $('playPause').textContent = 'Pause video';
+      await video.play();
+      feedTiles();
+      problem = '';
+    } catch (err) {
+      for (const t of camera?.getTracks() ?? []) t.stop();
+      camera = null;
+      $('source').value = 'clip';
+      problem = `Could not use the camera: ${err.message}.`;
+    }
+    describe();
+  };
+  addEventListener('pagehide', () => { for (const t of camera?.getTracks() ?? []) t.stop(); });
+
+  // ---- live checks: every one on its own fixture ----
+  const media = [];
+  // The fixture box lies over the bottom left of the window while checks run. It lets taps through, except for the moment a check asks what is at a point.
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const withHits = (fn) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return fn(); } finally { s.style.pointerEvents = 'none'; } };
+
+  /** A paused copy of the clip at time t, not in the document. */
+  async function clip(t = 2, { play = false } = {}) {
+    await clipReady;
+    const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, loop: true, preload: 'auto', src: clipUrl });
+    media.push(v);
+    await new Promise((resolve, reject) => { v.onloadeddata = resolve; v.onerror = () => reject(new Error(`the clip does not play: ${v.error?.message}`)); });
+    if (t > 0) { const seeked = new Promise((r) => v.addEventListener('seeked', r, { once: true })); v.currentTime = t; await seeked; }
+    if (play) await v.play();
+    return v;
+  }
+  function release() {
+    for (const v of media.splice(0)) { try { v.pause(); v.srcObject = null; v.removeAttribute('src'); v.load(); } catch {} }
+    for (const r of rigs.splice(0)) { if (r !== glRig) r.stop(); else { r.state.video = null; r.el.replaceChildren(); } }
+  }
+  function blankCanvas(w, h) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = `display:block;flex:none;width:${w}px;height:${h}px`;
+    return c;
+  }
+  // All WebGL checks share one canvas and one context. A phone allows about 8 contexts in a tab, and the oldest is the page's own.
+  const rigs = [];
+  let glRig = null;
+  async function rig(route, html, { w = 320, h = 180, video = null, effect = 0, amount = 0, geometry = true, gpu = null, present = true, fresh = false } = {}) {
+    let r;
+    if (route === 'webgl' && glRig && !fresh) {
+      r = glRig;
+      r.canvas.style.width = `${w}px`; r.canvas.style.height = `${h}px`;
+      r.el.innerHTML = html;
+      Object.assign(r.state, { video, effect, amount, geometry, freeze: false });
+      quietStage().append(r.canvas);
+      if (geometry) r.place();
+    } else {
+      const c = blankCanvas(w, h);
+      c.innerHTML = '<div class="vt-fx" drawable></div>';
+      c.firstElementChild.innerHTML = html;
+      quietStage().append(c);
+      r = await mount(c, c.firstElementChild, { route, video, effect, amount, geometry, gpu, present, dpr: 1, readback: true, onFail: (t) => { r && (r.failed = t); } });
+      if (route === 'webgl' && !fresh) glRig = r;
+    }
+    rigs.push(r);
+    await r.grab();
+    if (r.state.error) throw new Error(r.state.error);
+    return r;
+  }
+  /** One pixel of a readback at a place given as fractions of the picture from its top left. */
+  function at(shot, fx, fy) {
+    const x = Math.min(shot.width - 1, Math.max(0, Math.floor(fx * shot.width)));
+    let y = Math.min(shot.height - 1, Math.max(0, Math.floor(fy * shot.height)));
+    if (shot.flip) y = shot.height - 1 - y;
+    const i = (y * shot.width + x) * 4;
+    return [shot.data[i], shot.data[i + 1], shot.data[i + 2], shot.data[i + 3]];
+  }
+  /** The video's current frame through drawImage(), at w by h, to compare against. */
+  function reference(v, w = 320, h = 180) {
+    const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    ctx.canvas.width = w; ctx.canvas.height = h;
+    const k = Math.max(w / v.videoWidth, h / v.videoHeight);
+    ctx.drawImage(v, (w - v.videoWidth * k) / 2, (h - v.videoHeight * k) / 2, v.videoWidth * k, v.videoHeight * k);
+    const d = ctx.getImageData(0, 0, w, h);
+    return { data: d.data, width: w, height: h, flip: false };
+  }
+  const far = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
+  const rgb = (p) => p.slice(0, 3).join(',');
+  /** Mean and largest difference per channel between two readbacks of the same size. */
+  function difference(a, b) {
+    let sum = 0, max = 0, n = 0;
+    for (let y = 0; y < 60; y++) for (let x = 0; x < 100; x++) {
+      const p = at(a, (x + 0.5) / 100, (y + 0.5) / 60), q = at(b, (x + 0.5) / 100, (y + 0.5) / 60);
+      for (let c = 0; c < 3; c++) { const d = Math.abs(p[c] - q[c]); sum += d; if (d > max) max = d; n++; }
+    }
+    return { mean: sum / n, max };
+  }
+  /** Points well inside a glyph and points well away from any, from the text texture. */
+  function findPoints(text) {
+    const inside = [], outside = [];
+    for (let fy = 0.06; fy < 0.95; fy += 0.04) for (let fx = 0.04; fx < 0.97; fx += 0.03) {
+      let lo = 255, hi = 0;
+      for (const [dx, dy] of [[0, 0], [0.012, 0], [-0.012, 0], [0, 0.02], [0, -0.02]]) {
+        const p = at(text, fx + dx, fy + dy), m = Math.min(p[0], p[1], p[2]);
+        lo = Math.min(lo, m); hi = Math.max(hi, p[3]);
+      }
+      if (lo >= 250) inside.push([fx, fy]);
+      else if (hi === 0) outside.push([fx, fy]);
+    }
+    return { inside, outside };
+  }
+  const BIG_H = '<div style="font-size:170px;line-height:180px;padding-left:24px">H</div>';
+  const each = (tests) => tests.map((t) => ({ timeout: 20000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { release(); } } }));
+  /** A 2D canvas with one drawable child, drawn by `draw(ctx, el, canvas)` on every paint. For the CSS rows. */
+  async function plain2D(html, draw = (ctx, el, c) => { ctx.clearRect(0, 0, c.width, c.height); ctx.drawElementImage(el, 0, 0, c.width, c.height); }) {
+    const c = blankCanvas(320, 180);
+    c.width = 320; c.height = 180;
+    c.innerHTML = html;
+    const el = c.firstElementChild, ctx = c.getContext('2d', { willReadFrequently: true });
+    let error = '';
+    c.addEventListener('paint', () => { try { draw(ctx, el, c); } catch (err) { error = err.message; } });
+    quietStage().append(c);
+    for (const v of c.querySelectorAll('video')) {
+      await clipReady;
+      media.push(v);
+      v.muted = true; v.playsInline = true;
+      const loaded = new Promise((resolve, reject) => { v.onloadeddata = resolve; v.onerror = () => reject(new Error('the clip does not play')); });
+      v.src = clipUrl;
+      await loaded;
+      const seeked = new Promise((r) => v.addEventListener('seeked', r, { once: true }));
+      v.currentTime = 2;
+      await seeked;
+    }
+    const shot = async () => {
+      await new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
+      await sleep(60);
+      await new Promise((r) => { c.addEventListener('paint', r, { once: true }); c.requestPaint(); });
+      if (error) throw new Error(error);
+      const d = ctx.getImageData(0, 0, 320, 180);
+      return { data: d.data, width: 320, height: 180, flip: false };
+    };
+    return { c, el, ctx, shot, video: c.querySelector('video') };
+  }
+  // A black box with a white block in it, multiplied with what is under it. The block is where a glyph would be.
+  const BLOCK = 'position:absolute;left:40px;top:50px;width:120px;height:80px;background:#fff';
+  const IN = [100 / 320, 90 / 180], OUT = [250 / 320, 150 / 180];
+
+  runTests($('results'), each([
+    {
+      name: 'The text texture has coverage on the glyphs and none elsewhere',
+      why: 'A white letter H, 170 px tall, through texElementSubImage2D(). The texture is read back. Glyph pixels must be white and opaque, the rest clear, and nothing coloured.',
+      run: async () => {
+        const r = await rig('webgl', BIG_H);
+        const { text } = await r.grab();
+        let full = 0, clear = 0, edge = 0, coloured = 0;
+        for (let i = 0; i < text.data.length; i += 4) {
+          const a = text.data[i + 3], m = Math.min(text.data[i], text.data[i + 1], text.data[i + 2]);
+          if (a - m > 24) coloured++;
+          else if (a >= 250) full++;
+          else if (a === 0) clear++;
+          else edge++;
+        }
+        const n = text.width * text.height, pc = (x) => `${(x / n * 100).toFixed(1)}%`;
+        if (full / n < 0.03 || clear / n < 0.4 || coloured > 0) throw new Error(`white ${pc(full)}, clear ${pc(clear)}, edge ${pc(edge)}, coloured ${coloured} pixels`);
+        return `texture ${text.width}×${text.height} for a 320×180 element: ${pc(full)} white and opaque, ${pc(clear)} clear, ${pc(edge)} antialiased edge, 0 coloured`;
+      },
+    },
+    {
+      name: 'Fill: a pixel inside a glyph is the video pixel, a pixel outside is the background',
+      why: 'The same H with the clip paused at 2 s. Points well inside the glyph and well outside it are found from the text texture, then compared with drawImage(video) at the same place.',
+      run: async () => {
+        const v = await clip(2);
+        const r = await rig('webgl', BIG_H, { video: v });
+        const { out, text } = await r.grab();
+        const ref = reference(v), { inside, outside } = findPoints(text);
+        if (inside.length < 3 || outside.length < 3) throw new Error(`found ${inside.length} points inside the glyph and ${outside.length} outside`);
+        let worstIn = 0, worstOut = 0;
+        for (const [x, y] of inside) worstIn = Math.max(worstIn, far(at(out, x, y), at(ref, x, y)));
+        for (const [x, y] of outside) worstOut = Math.max(worstOut, far(at(out, x, y), BG));
+        const [x, y] = inside[inside.length >> 1];
+        const detail = `${inside.length} points inside: largest difference from the video ${worstIn} of 255 (one of them: canvas ${rgb(at(out, x, y))}, video ${rgb(at(ref, x, y))}). ${outside.length} points outside: largest difference from the background ${worstOut}`;
+        if (worstIn > 16 || worstOut > 2) throw new Error(detail);
+        return detail;
+      },
+    },
+    {
+      name: 'The 2D route gives the same fill with source-in and no shader',
+      why: 'drawElementImage(), then drawImage(video) with globalCompositeOperation = "source-in". Compared with the WebGL picture of the same text and frame.',
+      run: async () => {
+        const v = await clip(2);
+        const html = '<div style="font-size:70px;padding:8px 12px">FILL<br>ME</div>';
+        const a = await rig('webgl', html, { video: v, w: 300, h: 160 });
+        const b = await rig('2d', html, { video: v, w: 300, h: 160 });
+        const d = difference((await a.grab()).out, (await b.grab()).out);
+        const detail = `mean difference ${d.mean.toFixed(2)} of 255 over 6000 sampled pixels, largest ${d.max}`;
+        if (d.mean > 4) throw new Error(detail);
+        return detail;
+      },
+    },
+    {
+      name: 'The text and the video frame in one paint are from the same video frame',
+      why: 'The clip plays. requestVideoFrameCallback() writes the frame number into the DOM as 16 cells. The clip carries its own number as 16 stripes. One paint is read back: the cells from the text texture, the stripes through a white block in the fill. Nothing calls requestPaint(). Run twice: with the video outside the document, and with it in the document beside the canvas.',
+      timeout: 40000,
+      run: async () => {
+        const cells = Array.from({ length: 16 }, (_, i) => `<i style="position:absolute;left:${i * 10}px;top:20px;width:10px;height:10px"></i>`).join('');
+        const html = `<div style="position:absolute;left:160px;top:0;width:160px;height:12px;background:#fff"></div>${cells}`;
+        const tally = (list) => { const count = {}; for (const l of list) count[l] = (count[l] ?? 0) + 1; return Object.keys(count).sort((x, y) => x - y).map((l) => `${l > 0 ? '+' : ''}${l} in ${count[l]}`).join(', '); };
+        async function measure(inDocument) {
+          const v = await clip(0);
+          const r = await rig('webgl', html, { video: v });
+          if (inDocument) { v.style.cssText = 'display:block;flex:none;width:64px;height:36px'; quietStage().append(v); }
+          const bits = [...r.el.querySelectorAll('i')];
+          let on = true, calls = 0;
+          const write = (now, meta) => {
+            if (!on) return;
+            calls++;
+            const n = Math.round(meta.mediaTime * 30);
+            bits.forEach((b, i) => { b.style.background = (n >> i) & 1 ? '#fff' : ''; });
+            v.requestVideoFrameCallback(write);
+          };
+          v.requestVideoFrameCallback(write);
+          await v.play();
+          const lags = [], t0 = performance.now();
+          try {
+            for (let tries = 0; tries < 30 && lags.length < 14; tries++) {
+              await sleep(100);   // a readback is slow on a software renderer: let the page settle before each sample
+              const { out, text } = await r.next(2000);
+              let dom = 0, vid = 0;
+              for (let i = 0; i < 16; i++) {
+                if (at(text, (i * 10 + 5) / 320, 25 / 180)[3] > 128) dom |= 1 << i;
+                if (at(out, (160 + i * 10 + 5) / 320, 4 / 180)[0] > 128) vid |= 1 << i;
+              }
+              if (dom > 0 && vid >= dom) lags.push(vid - dom);   // vid < dom only where the clip loops
+            }
+          } finally { on = false; v.pause(); v.remove(); }
+          const rate = calls / ((performance.now() - t0) / 1000);
+          if (lags.length < 6) throw new Error(`only ${lags.length} paints could be read`);
+          return { lags, text: `${tally(lags)} (${lags.length} paints, ${rate.toFixed(0)} callbacks a second)` };
+        }
+        const outside = await measure(false);
+        release();
+        const inside = await measure(true);
+        const detail = `Frame from texImage2D(video) minus the frame the DOM picture holds. Video outside the document: ${outside.text}. Video in the document: ${inside.text}`;
+        const median = (l) => [...l].sort((x, y) => x - y)[l.length >> 1];
+        if (median(inside.lags) > 1 || median(outside.lags) > 1) throw new Error(`${detail}. The paint handler ran that many video frames after the callback: the page was too busy`);
+        return detail;
+      },
+    },
+    {
+      name: 'Editing the text changes the picture on the next paint with no requestPaint()',
+      why: 'The fixture holds "AAAA" and is drawn once. Then its text is removed. The browser must raise paint by itself, and the text texture in that paint must be clear.',
+      run: async () => {
+        const r = await rig('webgl', '<p style="margin:20px">AAAA</p>');
+        const before = (await r.grab()).text;
+        const count = (t) => { let n = 0; for (let i = 3; i < t.data.length; i += 4) if (t.data[i] > 128) n++; return n; };
+        const t0 = performance.now();
+        const wait = r.next(2500);
+        r.el.firstElementChild.textContent = '';
+        const after = (await wait).text;
+        const ms = performance.now() - t0;
+        if (count(before) < 200 || count(after) > 0) throw new Error(`${count(before)} covered pixels before the edit, ${count(after)} after`);
+        return `${count(before)} covered pixels before the edit, 0 in the paint that came ${ms.toFixed(0)} ms after it`;
+      },
+    },
+    {
+      name: 'Paint events with the video beside the canvas, and with the video inside the drawn element',
+      why: 'Counted for 1.5 s each, with no requestPaint(). Beside: texImage2D(video) only. Inside: the same video as a child of the drawable element, with its frame moved out of its box so the picture is still only text.',
+      run: async () => {
+        const v = await clip(0, { play: true });
+        const r = await rig('webgl', '<p style="margin:20px">RATE</p>', { video: v });
+        await sleep(200);
+        let p0 = r.state.paints;
+        await sleep(1500);
+        const beside = r.state.paints - p0;
+        v.pause();
+        r.el.innerHTML = '<p style="margin:20px">RATE</p><video muted playsinline loop style="position:absolute;inset:0;width:100%;height:100%;object-fit:none;object-position:-9999px 0"></video>';
+        const child = r.el.querySelector('video');
+        media.push(child);
+        child.src = clipUrl;
+        await child.play();
+        r.state.video = child;
+        await sleep(300);
+        p0 = r.state.paints;
+        await sleep(1500);
+        const insideMoved = r.state.paints - p0;
+        const { out, text } = await r.grab();
+        const { inside } = findPoints(text);
+        const filled = inside.length ? far(at(out, ...inside[0]), BG) : -1;
+        child.style.objectPosition = '';
+        child.style.objectFit = 'cover';
+        child.style.opacity = '0';
+        await sleep(300);
+        p0 = r.state.paints;
+        await sleep(1500);
+        const insideClear = r.state.paints - p0;
+        const per = (n) => (n / 1.5).toFixed(0);
+        const detail = `beside the canvas: ${per(beside)} paints a second. Inside, frame moved out with object-position: ${per(insideMoved)} a second${filled >= 0 ? `, and texImage2D() of that child still gives the frame (a glyph pixel differs from the background by ${filled})` : ''}. Inside with opacity 0: ${per(insideClear)} a second`;
+        if (beside > 3) throw new Error(detail);
+        return detail;
+      },
+    },
+    {
+      name: 'The drawn text takes hits and places the caret after updateElementGeometry()',
+      why: 'A new WebGL canvas that has never been given a geometry. elementFromPoint() and caretPositionFromPoint() are asked at the fourth letter, before and after updateElementGeometry() with an identity matrix.',
+      run: async () => {
+        const r = await rig('webgl', '<p style="margin:60px 0 0 40px;font-size:40px">CARET</p>', { geometry: false, fresh: true });
+        const p = r.el.firstElementChild, node = p.firstChild;
+        const ask = () => {
+          const range = document.createRange();
+          range.setStart(node, 3); range.setEnd(node, 4);
+          const box = range.getBoundingClientRect(), c = r.canvas.getBoundingClientRect();
+          // Where the fourth letter is drawn: the canvas origin plus the letter's place in the element's layout.
+          const x = c.left + 40 + (box.left - p.getBoundingClientRect().left) + box.width * 0.25, y = c.top + 60 + 20;
+          return withHits(() => {
+            const hit = document.elementFromPoint(x, y);
+            const pos = document.caretPositionFromPoint?.(x, y) ?? null;
+            const legacy = pos ? null : document.caretRangeFromPoint?.(x, y);
+            return { hit, node: pos?.offsetNode ?? legacy?.startContainer ?? null, offset: pos?.offset ?? legacy?.startOffset ?? -1 };
+          });
+        };
+        const name = (h) => (h ? `<${h.localName}>` : 'nothing');
+        const before = ask();
+        r.place();
+        await r.grab();
+        const after = ask();
+        const detail = `before: elementFromPoint() gives ${name(before.hit)}${before.node === node ? `, caret offset ${before.offset}` : ', no caret in the text'}. After: ${name(after.hit)}, caret offset ${after.offset} in "${after.node?.nodeValue ?? ''}" (asked at the left part of letter 4, so offset 3)`;
+        if (after.hit !== p || after.node !== node || after.offset !== 3) throw new Error(detail);
+        return detail;
+      },
+    },
+    {
+      name: 'The selection highlight is in the text texture, and the two routes treat it differently',
+      why: 'The word in the fixture is selected with the Selection API. Highlight pixels are found in the text texture as pixels with alpha that are not white. The same place is then read in the WebGL fill and in the 2D source-in fill.',
+      run: async () => {
+        const sel = getSelection(), saved = [];
+        for (let i = 0; i < sel.rangeCount; i++) saved.push(sel.getRangeAt(i));
+        const html = '<p style="margin:30px 20px;font-size:56px">SELECT</p>';
+        const pick = (r) => { const range = document.createRange(); range.selectNodeContents(r.el.firstElementChild); sel.removeAllRanges(); sel.addRange(range); };
+        try {
+          const v = await clip(2);
+          const a = await rig('webgl', html, { video: v, w: 300, h: 150 });
+          pick(a);
+          await sleep(80);
+          const { out, text } = await a.grab();
+          let ink = 0, white = 0, spot = null, sum = [0, 0, 0, 0];
+          for (let y = 0; y < text.height; y += 2) for (let x = 0; x < text.width; x += 2) {
+            const i = (y * text.width + x) * 4, al = text.data[i + 3], m = Math.min(text.data[i], text.data[i + 1], text.data[i + 2]);
+            if (al > 40 && al - m > 40 && m < 12) { ink++; for (let c = 0; c < 4; c++) sum[c] += text.data[i + c]; spot ??= [(x + 6) / text.width, (y + 6) / text.height]; }
+            else if (al > 250 && m > 250) white++;
+          }
+          if (!ink) throw new Error('no highlight pixels in the text texture');
+          const mean = sum.map((s) => Math.round(s / ink));
+          const ref = reference(v, 300, 150);
+          const gl = at(out, ...spot), vid = at(ref, ...spot);
+          const b = await rig('2d', html, { video: v, w: 300, h: 150 });
+          pick(b);
+          await sleep(80);
+          const flat = at((await b.grab()).out, ...spot);
+          return `highlight pixels in the texture are premultiplied ${mean.join(',')} (the CSS is rgb(0 90 255 / 0.45)); white glyph pixels are still there (${white * 4}). At one highlight pixel the video is ${rgb(vid)}, the background ${BG.join(',')}. WebGL keys on white and draws ${rgb(gl)}: the highlight colour over the background. 2D source-in draws ${rgb(flat)}: the video at the highlight's alpha`;
+        } finally {
+          sel.removeAllRanges();
+          for (const range of saved) sel.addRange(range);
+        }
+      },
+    },
+    {
+      name: 'Displace: pixels are lit where the text texture has no coverage',
+      why: 'Effect 2 at full amount with the clip at 2 s. A lit pixel in the output at a place where the text texture is clear is a glyph pixel that the video moved.',
+      run: async () => {
+        const v = await clip(2);
+        const r = await rig('webgl', '<div style="font-size:84px;padding:40px 10px">MOVE</div>', { video: v, effect: 1, amount: 1 });
+        const { out, text } = await r.grab();
+        let moved = 0, gone = 0, stay = 0;
+        for (let y = 0; y < 90; y++) for (let x = 0; x < 160; x++) {
+          const fx = (x + 0.5) / 160, fy = (y + 0.5) / 90;
+          const lit = Math.max(...at(out, fx, fy).slice(0, 3)) > 130, covered = at(text, fx, fy)[3] > 128;
+          if (lit && !covered) moved++; else if (!lit && covered) gone++; else if (lit && covered) stay++;
+        }
+        const detail = `of 14400 sampled pixels: ${moved} lit with no coverage under them, ${gone} covered but not lit, ${stay} lit and covered`;
+        if (moved < 60) throw new Error(detail);
+        return detail;
+      },
+    },
+    {
+      name: 'CSS: mix-blend-mode text over a video, both inside one drawable element',
+      why: 'The knock-out markup as a canvas child: a video, and over it a black box with a white block and mix-blend-mode: multiply. Drawn by drawElementImage() and read back. The block must show the video and the rest must be black.',
+      run: async () => {
+        const f = await plain2D(`<div drawable style="position:relative;width:320px;height:180px;overflow:hidden;isolation:isolate"><video style="position:absolute;inset:0;width:320px;height:180px"></video><div style="position:absolute;inset:0;background:#000;mix-blend-mode:multiply"><div style="${BLOCK}"></div></div></div>`);
+        const out = await f.shot(), ref = reference(f.video);
+        const inside = at(out, ...IN), vid = at(ref, ...IN), outside = at(out, ...OUT);
+        const detail = `in the block: canvas ${rgb(inside)}, video ${rgb(vid)}. Outside: ${rgb(outside)}`;
+        if (far(inside, vid) > 16 || far(outside, [0, 0, 0]) > 4) throw new Error(detail);
+        return `${detail}. The blend is in the element's picture`;
+      },
+    },
+    {
+      name: 'CSS: mix-blend-mode on the drawn element itself reaches the 2D canvas, and not a texture',
+      why: 'The canvas draws the video with drawImage(), then draws an element with a black background and a white block. With mix-blend-mode: multiply on the element the block must show the video, and without it the block must be white. The same element is then uploaded with texElementSubImage2D().',
+      run: async () => {
+        const v = await clip(2);
+        const draw = (ctx, el) => { ctx.clearRect(0, 0, 320, 180); ctx.drawImage(v, 0, 0, 320, 180); ctx.drawElementImage(el, 0, 0, 320, 180); };
+        const f = await plain2D(`<div drawable style="position:relative;width:320px;height:180px;background:#000;mix-blend-mode:multiply"><div style="${BLOCK}"></div></div>`, draw);
+        const out = await f.shot(), ref = reference(v);
+        const inside = at(out, ...IN), vid = at(ref, ...IN), outside = at(out, ...OUT);
+        f.el.style.mixBlendMode = 'normal';
+        const plain = at(await f.shot(), ...IN);
+        f.c.remove();
+        const r = await rig('webgl', `<div style="position:absolute;inset:0;background:#000"><div style="${BLOCK}"></div></div>`);
+        let tex;
+        try { r.el.style.mixBlendMode = 'multiply'; await sleep(60); tex = (await r.grab()).text; } finally { r.el.style.mixBlendMode = ''; }
+        const detail = `2D canvas with the blend mode: block ${rgb(inside)}, video ${rgb(vid)}, outside ${rgb(outside)}. Without it: block ${rgb(plain)}. Texture of the element with the blend mode: block ${at(tex, ...IN).join(',')}, outside ${at(tex, ...OUT).join(',')}, so the shader gets the unblended picture`;
+        if (far(inside, vid) > 16 || far(outside, [0, 0, 0]) > 4 || far(plain, [255, 255, 255]) > 4) throw new Error(detail);
+        return detail;
+      },
+    },
+    {
+      name: '2D canvas: globalCompositeOperation = "multiply" does that blend',
+      why: 'The same two draws with the blend set on the canvas context and no blend mode in the CSS. A second 2D way to fill text with video, next to source-in.',
+      run: async () => {
+        const v = await clip(2);
+        const f = await plain2D(`<div drawable style="position:relative;width:320px;height:180px;background:#000"><div style="${BLOCK}"></div></div>`,
+          (ctx, el, c) => { ctx.globalCompositeOperation = 'source-over'; ctx.clearRect(0, 0, 320, 180); ctx.drawImage(v, 0, 0, 320, 180); ctx.globalCompositeOperation = 'multiply'; ctx.drawElementImage(el, 0, 0, 320, 180); });
+        const out = await f.shot(), ref = reference(v);
+        const inside = at(out, ...IN), vid = at(ref, ...IN), outside = at(out, ...OUT);
+        const detail = `in the block: canvas ${rgb(inside)}, video ${rgb(vid)}. Outside: ${rgb(outside)}`;
+        if (far(inside, vid) > 16 || far(outside, [0, 0, 0]) > 4) throw new Error(detail);
+        return detail;
+      },
+    },
+    {
+      name: 'CSS: background-clip: text with the video as the background image',
+      expect: 'fail',
+      why: 'The background would have to be a live picture of another element. CSS.supports() is asked about element(), -moz-element(), -webkit-canvas() and paint().',
+      run: async () => {
+        const ask = (value) => CSS.supports('background-image', value);
+        const got = { 'element(#v)': ask('element(#v)'), '-moz-element(#v)': ask('-moz-element(#v)'), '-webkit-canvas(v)': ask('-webkit-canvas(v)'), 'paint(v)': ask('paint(v)') };
+        const list = Object.entries(got).map(([k, ok]) => `${k}: ${ok ? 'parsed' : 'not supported'}`).join('; ');
+        if (!got['element(#v)'] && !got['-moz-element(#v)'] && !got['-webkit-canvas(v)']) throw new Error(`${list}. background-clip: text itself is ${CSS.supports('background-clip', 'text') ? 'supported' : 'not supported'}. A paint() worklet draws CSS image values only and has no video`);
+        return list;
+      },
+    },
+    {
+      name: 'SVG: a video clipped or masked by SVG shapes and text, drawn in a canvas',
+      why: 'Two fixtures as drawable children. One: an HTML video with clip-path: url(#…) to a <clipPath> holding a <rect> and <text>. Two: a video in a <foreignObject> with an SVG <mask>. In each, a pixel inside the rect must be the video and a pixel outside must be clear.',
+      run: async () => {
+        const svgClip = '<svg width="0" height="0" style="position:absolute"><clipPath id="vt-check-clip"><rect x="40" y="50" width="120" height="80"/><text x="180" y="170" font-size="60" font-weight="900" font-family="sans-serif">Ab</text></clipPath></svg>';
+        const a = await plain2D(`<div drawable style="position:relative;width:320px;height:180px">${svgClip}<video style="display:block;width:320px;height:180px;clip-path:url(#vt-check-clip)"></video></div>`);
+        const outA = await a.shot(), refA = reference(a.video);
+        const inA = at(outA, ...IN), vidA = at(refA, ...IN), offA = at(outA, 20 / 320, 20 / 180);
+        let glyph = 0;
+        for (let y = 120; y < 175; y++) for (let x = 180; x < 300; x++) if (at(outA, (x + 0.5) / 320, (y + 0.5) / 180)[3] > 128) glyph++;
+        const clipOk = far(inA, vidA) <= 16 && offA[3] === 0 && glyph > 150;
+        const first = `clip-path: rect pixel ${rgb(inA)} against video ${rgb(vidA)}, alpha outside ${offA[3]}, ${glyph} video pixels in the shape of the SVG text`;
+        a.c.remove();
+        let second;
+        try {
+          const b = await plain2D(`<div drawable style="width:320px;height:180px"><svg width="320" height="180" style="display:block"><mask id="vt-check-mask"><rect x="40" y="50" width="120" height="80" fill="#fff"/></mask><foreignObject width="320" height="180" mask="url(#vt-check-mask)"><video xmlns="http://www.w3.org/1999/xhtml" style="display:block;width:320px;height:180px"></video></foreignObject></svg></div>`);
+          const outB = await b.shot(), refB = reference(b.video);
+          const inB = at(outB, ...IN), vidB = at(refB, ...IN), offB = at(outB, 20 / 320, 20 / 180);
+          second = `mask on <foreignObject>: rect pixel ${rgb(inB)} against video ${rgb(vidB)}, alpha outside ${offB[3]}${far(inB, vidB) <= 16 && offB[3] === 0 ? '' : ' (not the video)'}`;
+        } catch (err) { second = `mask on <foreignObject>: ${err.message}`; }
+        if (!clipOk) throw new Error(`${first}. ${second}`);
+        return `${first}. ${second}`;
+      },
+    },
+    {
+      name: 'WebGPU: the WGSL shader draws what the GLSL shader draws',
+      why: 'Run off screen into a texture, so it also runs on a software adapter. drawElementImageToTexture() for the text and copyExternalImageToTexture(video) for the frame, all six effects, compared with WebGL. importExternalTexture(video) is tried too.',
+      timeout: 40000,
+      run: async () => {
+        const gpu = (await webgpu()) ?? (await webgpu({ force: true }));
+        if (!gpu) throw new Error(`not run: no WebGPU device here (${webgpu.reason || 'no adapter'})`);
+        if (!supportedGPU) throw new Error('not run: GPUQueue has no drawElementImageToTexture()');
+        const v = await clip(2);
+        const html = '<div style="font-size:64px;padding:6px 10px">GPU<br>text</div>';
+        const a = await rig('webgl', html, { video: v, w: 280, h: 158 });
+        const b = await rig('webgpu', html, { video: v, w: 280, h: 158, gpu, present: false });
+        const names = ['fill', 'displace', 'chrome', 'punch', 'mosaic', 'weight'], parts = [];
+        let worst = 0;
+        for (let e = 0; e < 6; e++) {
+          a.state.effect = b.state.effect = e;
+          a.state.amount = b.state.amount = 0.7;
+          const d = difference((await a.grab()).out, (await b.grab()).out);
+          worst = Math.max(worst, d.mean);
+          parts.push(`${names[e]} ${d.mean.toFixed(2)}`);
+        }
+        let external = '';
+        try {
+          gpu.device.pushErrorScope('validation');
+          const ext = gpu.device.importExternalTexture({ source: v });
+          const err = await gpu.device.popErrorScope();
+          external = err ? `importExternalTexture(video) raised ${err.message.split('\n')[0]}` : `importExternalTexture(video) gave a ${ext.constructor.name}`;
+        } catch (err) { external = `importExternalTexture(video) threw ${err.message}`; }
+        const detail = `${gpu.software ? 'software adapter' : 'hardware adapter'}. Frame through ${b.back.frameFrom}. Mean difference of 255 from WebGL: ${parts.join(', ')}. ${external}`;
+        if (worst > 4) throw new Error(detail);
+        return detail;
+      },
+    },
+  ]).concat([{
+    name: 'The text above still has a picture',
+    why: 'Run last. A canvas that lost its context or ended up blank fails here and shows a message.',
+    timeout: 8000,
+    run: async () => {
+      if (!demo) throw new Error('the demo did not start');
+      if (demo.back.lost) throw new Error('the graphics context was lost');
+      const lit = await demo.peek();
+      if (lit < 0.01) { blank('The canvas is blank. Choose a route under "Drawn with" to draw the text again.'); throw new Error('blank'); }
+      return `${(lit * 100).toFixed(0)}% of a 24 by 24 copy is lit, drawn with ${demo.route === '2d' ? 'the 2D canvas' : demo.route === 'webgl' ? 'WebGL 2' : 'WebGPU'}`;
+    },
+  }]));
+</script>
+</body>
+</html>
