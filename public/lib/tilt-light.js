@@ -118,11 +118,11 @@ export function tiltLight(el, { props = ['--fx-x', '--fx-y'], range = 28, idle =
     wake();
   }
   /** Start listening to the orientation sensor. Call from a tap. Resolves to '' or to why no events arrive. */
-  light.useSensor = async () => {
+  light.useSensor = async ({ ask = true } = {}) => {
     if (!('DeviceOrientationEvent' in window)) return 'this browser has no DeviceOrientationEvent';
     try {
       // Safari, and Chromium builds that have it, ask the person first. It must be called from a tap.
-      const answer = await DeviceOrientationEvent.requestPermission?.();
+      const answer = ask ? await DeviceOrientationEvent.requestPermission?.() : '';
       if (answer && answer !== 'granted') return `permission was ${answer}`;
     } catch (err) {
       return `requestPermission() failed: ${err.message}`;

@@ -93,6 +93,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
 | `/component-kit/` | One drawable custom element written with a scoped registry, manual slot assignment, Reference Target, `using`, Observable and `moveBefore()`, and again without them, with the lines each feature removes |
 | `/shape-ui/` | Buttons outlined with `corner-shape`, `border-shape` and `clip-path: shape()`, lit by a shader that reads alpha as height. The light follows the pointer or the phone's tilt (`lib/tilt-light.js`) |
+| `/tilt-card/` | A payment card, a ticket and a two-faced badge in HTML under foil, hologram and lenticular shaders. The phone's tilt (or the pointer) leans them, and hit testing follows the lean |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
