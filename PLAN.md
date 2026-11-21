@@ -62,7 +62,7 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 | Element catalogue | `/elements/`, `ELEMENTS.md` | `tools/elements/` | #48 (open) | Built, waiting to merge. 121 ideas, none built. |
 | Text selection | `/selection/`, `/caret/` | `selection-fx.js` | #49, #52 | Built. Demo 9 (carets and highlights) landed in #52 as `/caret/`. Touch selection is not verified. |
 | Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `docs/chrome-apis-plan.md` | `tools/chrome-apis/` | #50 (open) | Plan written, 27 probes recorded. Building the 28 demos started on 2026-11-21. |
-| AI and input (plan demos 12 to 16) | `/translate-lens/`, `/agent-view/`, `/voice/`, `/nav-shader/` | `text-twin.js` | #61 | Demos 12 to 15 built. 16 (`focus-nav`) is next. No model, WebMCP or microphone in the test browser, so each page runs on a labelled fallback there. |
+| AI and input (plan demos 12 to 16) | `/translate-lens/`, `/agent-view/`, `/voice/`, `/nav-shader/`, `/focus-nav/` | `text-twin.js` | #61 | Demos 12 to 16 built. No model, WebMCP or microphone in the test browser, so each page runs on a labelled fallback there. |
 | Lost canvases on new pages | new pages | shared fix | none yet | In progress in its own thread. See "Site-wide work that is open". |
 
 ## Open pull requests
@@ -99,7 +99,7 @@ Source: `tools/chrome-apis/demos.json` and `docs/chrome-apis-plan.md` (PR #50). 
 | 13 | `agent-view` | An agent operating a canvas UI through WebMCP tools, drawn as it happens | then | Build AI and input demos from plan. Built: `/agent-view/` |
 | 14 | `voice-ui` | Speak a label to press what the canvas draws | then | Build AI and input demos from plan. Built: `/voice/` |
 | 15 | `nav-shader` | Page navigations drawn by a shader that starts at the clicked link (Navigation API) | then | Build AI and input demos from plan. Built: `/nav-shader/` |
-| 16 | `focus-nav` | Controller, keyboard (`focusgroup`) and haptic navigation of drawn UI | then | Build AI and input demos from plan |
+| 16 | `focus-nav` | Controller, keyboard (`focusgroup`) and haptic navigation of drawn UI | then | Build AI and input demos from plan. Built: `/focus-nav/` |
 | 17 | `perf-latency` | Latency from DOM change to canvas pixels, and a device tier | then | Audit accessibility, capture and performance |
 | 18 | `transport-2` | New routes for the transport lab and the remote component (WebTransport, Element Capture, worker input) | then | Share live widgets across contexts |
 | 19 | `media-states` | Media state pseudo-classes for canvas-drawn players | then | Explore video and media APIs |
@@ -285,6 +285,7 @@ Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-2
 | WebMCP | Whether Chrome 159 has `registerTool()` or `provideContext()`, and an agent calling the tools | `/agent-view/` with the WebMCP flag on: the first chip under the demo and the first live check. |
 | Speech | Recognition, on-device processing, the effect of `phrases`, result timestamps, and whether `SpeechRecognition.available()` crashes outside headless | `/voice/`: press "Listen", say "lamp", and read the line under the demo. |
 | Navigation shader | The ink shader in WGSL on screen, the Back gesture of the phone and its preview animation, taps on either view part way through a transition | `/nav-shader/`: tick "Slow", tap a card, tap inside both views while the shader runs, then go Back. Run the live checks for the WebGPU comparison. |
+| Controller and focus | A real game controller (mapping, vibration, the `rawgamepadinputchange` origin trial), whether the phone vibrates on each move, the direction pad by thumb, a screen reader on each move | `/focus-nav/`: use the direction pad and the A button, then connect a controller and read the line under the demo. |
 | Performance | The real performance wall and frame rates | `/perf/?run=full` on real hardware. |
 | Particles | Whether the 2D default fixed the white block on Android; its cause | `/particles/` on the phone, then `engine="webgl"`. |
 | Lost contexts | Which cause the phone hit on `/embed/` and `/selection/`; whether a 2D drawable canvas fires `contextlost` on Android | Phone, with the page's messages. |

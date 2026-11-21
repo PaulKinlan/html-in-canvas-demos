@@ -207,6 +207,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 16. Controller, keyboard and haptic navigation of drawn UI
 
+- **Built:** [/focus-nav/](https://html-in-canvas.page/focus-nav/)
 - **Shows:** A toolbar on a curved panel with focusgroup arrow keys. A gamepad moves focus between drawn controls with event-driven input and confirms with the standard button type. Each focus move plays a haptic tick. reading-flow states the drawn order where it differs from DOM order.
 - **Build:** focusgroup attributes on the DOM. Gamepad events map to focus() calls with focusVisible. A table records, per surface, whether focus rings and arrow keys behave.
 - **Measured:** focusgroup ArrowRight moved focus between buttons drawn in a canvas (Chromium 153 and 157).

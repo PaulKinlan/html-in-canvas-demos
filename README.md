@@ -96,6 +96,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/agent-view/` | A form drawn through a shader that offers WebMCP tools; each tool call is shown by a marker and a turn of the panel; the Prompt API plans calls from a sentence and describes a picture of the canvas |
 | `/voice/` | A panel of switches drawn through a shader, pressed by saying a name on it: the names of the controls drawn now are the `SpeechRecognition` phrases, a ring spreads from the pressed control, and the transcript highlights each word; a text box sends the same words when there is no microphone |
 | `/nav-shader/` | A four-page site in one canvas: the Navigation API intercepts links, a GET form, Back and Forward, fetches the new view before the URL changes (`precommitHandler`), and a shader spreads it from `sourceElement`; both views are live DOM while it runs; a click listener and `history.pushState()` where the API is missing |
+| `/focus-nav/` | Buttons drawn through a shader with real DOM focus moved by arrow keys (`focusgroup`, or a page function that picks the nearest button in a direction), a game controller, or an on-screen direction pad; the shader magnifies and lights the focused button and leans the panel toward it; each move calls `navigator.vibrate()` or the controller's actuator |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 

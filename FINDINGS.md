@@ -157,6 +157,8 @@ One row per main result. "Section" is the section of this file with the detail.
 | A custom highlight (`CSS.highlights`) on a text node is in the element's texture, and a shader bends it with the text. | measured | C157 | `/voice/` | Language models, voice and input |
 | An `ElementImage` from `captureElementImage()` still draws after its element is removed from the canvas. | measured | C157 | `/nav-shader/` | Navigations drawn by a shader |
 | A navigation inside an iframe adds entries to the tab's joint history, and `history.back()` in the iframe can undo a navigation the top page made after them. Checks that navigate in a hidden copy must not run while the reader navigates. | measured | C157 | `/nav-shader/` | Navigations drawn by a shader |
+| `focusgroup` arrow keys move focus between buttons drawn through a shader, along DOM order on one axis; `reading-flow` on the container makes them, and Tab, follow the drawn order. | measured | C157 | `/focus-nav/` | Controller, keyboard and haptic navigation |
+| A focus ring shown by `focus({ focusVisible: true })` is in the element's texture. | measured | C157 | `/focus-nav/` | Controller, keyboard and haptic navigation |
 | Native media controls, `::cue` captions and rules on `::-webkit-media-controls-*` are drawn. | measured | C157 | `/video/`, `/player-parts/` | Video and sound |
 
 ### Slots and shadow DOM
@@ -386,6 +388,7 @@ The main results. Each is backed by the tables in the sections below.
 - [Recent platform features on drawn elements (/chrome-apis/)](#recent-platform-features-on-drawn-elements-chrome-apis)
 - [Language models, voice and input (/translate-lens/, /agent-view/, /voice/)](#language-models-voice-and-input-translate-lens-agent-view-voice)
 - [Navigations drawn by a shader (/nav-shader/)](#navigations-drawn-by-a-shader-nav-shader)
+- [Controller, keyboard and haptic navigation (/focus-nav/)](#controller-keyboard-and-haptic-navigation-focus-nav)
 
 ## Slots
 
@@ -1355,3 +1358,23 @@ Measured in headless Chromium 157 on 2026-11-21. A four-view site is the childre
 | The ink shader in WGSL | not verified | No WebGPU adapter. The page compares the WebGPU and WebGL pictures on a device that has one. |
 
 Not verified: WebGPU on screen, the phone's Back gesture and its preview animation, cross-document navigations, and what a screen reader announces when the view changes.
+
+## Controller, keyboard and haptic navigation (`/focus-nav/`)
+
+Measured in headless Chromium 157 on 2026-11-21. Key presses were real key events from a test script. No game controller was available.
+
+| What | Result | Detail |
+|---|---|---|
+| `focusgroup="toolbar wrap"` on buttons drawn through a shader, ArrowRight | works | Focus went Tides, Knots, Lights, Charts: DOM order, past the end of the drawn row. Home and End work. One tab stop per group, and the group remembers its last button. |
+| The same, ArrowDown and ArrowUp | no move | The toolbar behaviour moves on one axis. A grid needs the page's own function. |
+| Rows reversed with `order`, `reading-flow: grid-rows` | arrows and Tab follow the drawn order | Right from Tides went to Journal, then Berths. With `reading-flow: normal` it went Knots, Lights (DOM order). |
+| Nearest button in a direction, from `offsetLeft` and `offsetTop` | works | Six cases on a fixture, including "nothing that way". Unaffected by the lean, which changes `getBoundingClientRect()`. |
+| `focus({ focusVisible: true })` from script | matches `:focus-visible` | 793 outline pixels in the read-back picture; 0 with `focusVisible: false`. |
+| The focus position given to a shader as four CSS custom properties | works | Colour spread far from the focus fell from 53.6 to 8.7. Transitions on the properties move the lit area. |
+| `elementFromPoint()` on the panel while it leans | works | Three tiles hit at their drawn centres. |
+| A controller state read by one function | works with scripted states | Plain objects with the standard mapping: right, held repeat, stick down, button 0. |
+| `rawgamepadinputchange`, `navigator.haptics` | missing | Chromium 157. The page polls `getGamepads()` once per frame while a controller is connected. |
+| `navigator.vibrate()` after a tap | returns true | Headless. Whether a phone vibrates is not verified. |
+| Removing the `focusgroup` attribute | logs a console error | "focusgroup requires a recognized behavior token". `focusgroup="none"` turns it off without the error. |
+
+Not verified: a real controller and its vibration, the gamepad event origin trial, vibration on the phone, a screen reader on each move, and WebGPU on screen.
