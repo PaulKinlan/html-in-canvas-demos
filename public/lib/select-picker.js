@@ -596,6 +596,7 @@ export class SelectPicker {
   choose(i, { close = false } = {}) {
     const { select } = this;
     const option = this.options[i];
+    if (option?.disabled) return;
     if (option && !option.selected) {
       option.selected = true;
       select.dispatchEvent(new Event('input', { bubbles: true }));
