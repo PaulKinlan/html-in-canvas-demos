@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Live captions from SpeechRecognition, with the Translator API for a second language</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .bar label { display: inline-flex; gap: 4px 8px; align-items: center; flex-wrap: wrap; max-width: 100%; }
+  .bar select, .bar button { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; max-width: 100%; }
+  .bar button[disabled] { opacity: .5; }
+  .stage { max-width: 640px; position: relative; container-type: inline-size; }
+  /* The frame (16:9), the 48 px control bar and 96 px for the translation. cqw is a hundredth of the stage's width. */
+  #screen { display: block; width: 100%; height: calc(56.25cqw + 144px); border-radius: 10px; background: #10131c; touch-action: manipulation; }
+  #blank[hidden] { display: none; }
+  #blank { margin: 0 0 8px; padding: 10px 14px; border-radius: 8px; font-size: 14px; background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  #say, #events { font: 13px/1.5 var(--mono); color: var(--muted); margin: 8px 0; white-space: pre-line; }
+  #say { min-height: 4.5em; }
+  #events { min-height: 7.5em; }
+  #result { margin: 8px 0 0; max-width: 640px; }
+  #result video { display: block; width: 100%; background: #000; border-radius: 10px; }
+  #result figcaption { font-size: 13px; color: var(--muted); margin: 6px 0; }
+
+  /* #region css */
+  #talk { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+  #controls { display: flex; gap: 10px; align-items: center; width: 100%; height: 48px; padding: 0 10px; background: #1b2030; color: #fff; font: 14px system-ui, sans-serif; }
+  #controls button { min-width: 68px; min-height: 40px; border: 0; border-radius: 8px; background: #ffd166; color: #1b1400; font: 600 14px system-ui, sans-serif; }
+  #controls output { font: 13px ui-monospace, monospace; }
+  #controls span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #c9cfdd; }
+
+  /* The caption element holds both lines. The canvas draws it twice with a clip: the first line over the frame, the second under it. */
+  #caps { width: 100%; color: #fff; font: 650 18px/1.3 system-ui, sans-serif; }
+  #caps p { margin: 0; }
+  #caps .heard { min-height: 2.6em; padding: 6px 12px; background: rgb(8 10 16 / .78); }
+  #caps .heard span { display: inline-block; animation: word-in .18s ease-out; }
+  #caps .heard[data-state=interim] span { color: #c2c8d6; font-style: italic; }
+  /* A word the recogniser changed its mind about. */
+  #caps .heard span.revised { animation: word-in .18s ease-out, revised .9s ease-out; }
+  @keyframes word-in { from { opacity: 0; translate: 0 6px; } }
+  @keyframes revised { from { color: #ff6b8b; } }
+  #caps .translated { min-height: 96px; padding: 8px 12px; color: #ffd166; font-size: 20px; }
+  #caps .translated[data-state=interim] { color: #b89a52; }
+  /* #endregion css */
+  .plain { display: grid; gap: 0; border-radius: 10px; overflow: hidden; background: #10131c; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Live captions from <code>SpeechRecognition</code>, with the Translator API for a second language</h1>
+  <p class="lede">
+    Speech is turned into a caption element that the canvas draws over the video, with a translation under the frame. Press Play. The page starts
+    with a recorded transcript of the clip, which works in every browser. Then choose speech recognition on the clip's sound or on the microphone, and
+    a second language.
+  </p>
+
+  <div class="stage">
+    <p id="blank" hidden></p>
+    <!-- #region markup -->
+    <canvas id="screen" content="drawable" layoutsubtree aria-label="A video with live captions and a translation">
+      <video id="talk" drawable playsinline preload="metadata"></video>
+      <div id="controls" drawable>
+        <button type="button" id="play">Play</button>
+        <span id="source-note">recorded transcript</span>
+        <output id="clock">0:00.0</output>
+      </div>
+      <div id="caps" drawable>
+        <p class="heard" lang="en"></p>
+        <p class="translated"></p>
+      </div>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+  <div class="bar">
+    <label>Words from
+      <select id="source">
+        <option value="recorded">the recorded transcript of the clip</option>
+        <option value="track">speech recognition on the clip's sound</option>
+        <option value="mic">speech recognition on the microphone</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="local"> on the device (<code>processLocally</code>)</label>
+  </div>
+  <div class="bar">
+    <label>Second language
+      <select id="lang">
+        <option value="">none</option>
+        <option value="es" selected>Spanish</option>
+        <option value="fr">French</option>
+        <option value="de">German</option>
+        <option value="ja">Japanese</option>
+      </select>
+    </label>
+    <button type="button" id="record">Record 6 s</button>
+    <button type="button" id="vtt" disabled>Download the captions as WebVTT</button>
+  </div>
+  <p id="say" role="status">The video has not been played yet.</p>
+  <p id="events" aria-label="Speech recognition events">No speech recognition events yet.</p>
+  <figure id="result" hidden>
+    <figcaption id="resultNote"></figcaption>
+    <video id="out" controls playsinline></video>
+  </figure>
+
+  <details class="show-code">
+    <summary>Show the code <small>recognition, translation, a caption element, a recording</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> The video, a control bar and the caption element are children of the canvas.</li>
+      <li data-code="/live-captions/captions.js#listen"><b>Recognise speech.</b> <code>continuous</code> and <code>interimResults</code> give words as they are heard. <code>start(track)</code> recognises a sound track in place of the microphone.</li>
+      <li data-code="#track-source"><b>The clip's own sound.</b> <code>video.captureStream()</code> has an audio track for the element's sound.</li>
+      <li data-code="/live-captions/captions.js#box"><b>Words into elements.</b> One <code>&lt;span&gt;</code> per word. Only the words that changed are replaced.</li>
+      <li data-code="/live-captions/captions.js#translate"><b>Translate.</b> <code>Translator.create()</code> for the language pair, then <code>translate()</code> for each result. Interim results are translated one at a time and overtaken ones are dropped.</li>
+      <li data-code="#paint"><b>Draw.</b> The caption element is drawn twice with a clip: its first line over the bottom of the frame, its second line under the control bar.</li>
+      <li data-code="/live-captions/captions.js#vtt"><b>WebVTT out.</b> Each final result has a start and an end time, which is all a cue needs.</li>
+      <li data-code="/live-captions/captions.js#replay"><b>The recorded transcript.</b> The cue file of the clip, fed in word by word at each word's time stamp.</li>
+      <li data-code="#css"><b>The CSS.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>Every source of words calls one function, <code>feed({ text, final })</code>. An interim result replaces the words on screen. A final result ends the caption and is stored with its start and end time.</li>
+    <li>With "speech recognition on the clip's sound", the page takes the audio track of <code>video.captureStream()</code> and passes it to <code>recognition.start(track)</code>. No microphone is opened. This needs a browser whose <code>SpeechRecognition</code> accepts a track, which the page tests for by looking for <code>processLocally</code>, added in the same release.</li>
+    <li>The translation comes from <code>Translator</code> when the browser has it for the language pair. A model that is not on the device yet is downloaded after the tap on the language menu. When <code>Translator</code> cannot be used, the page shows recorded translations of the clip's six sentences and says so under the player.</li>
+    <li>The caption element is ordinary HTML in the canvas, so the words are in <code>canvas.captureStream()</code>. Record writes the canvas and the clip's sound to a file with <code>MediaRecorder</code>.</li>
+    <li>The recognition events are listed under the player, because a phone has no console.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small video and canvas in a corner of the window. The player above is not touched. No check opens the microphone or starts a download.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 headless, 2026-11-21. The rows above and the two status blocks under the player say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: captions as elements in the picture.</strong> Words fed in as interim and final results are drawn over the frame, and the translation under it. Both are in a <code>MediaRecorder</code> file of the canvas.</li>
+    <li><strong>Found: an element drawn twice has one hit-test box, at its last draw.</strong> The caption element's box under the bar reached up over the Play button, and taps on the button went to the caption (reported from a phone, 2026-11-21). The bar is now drawn after the captions, because the element drawn last is on top for taps.</li>
+    <li><strong>Works: only revised words change.</strong> When an interim result differs from the last one, the words that stayed the same keep their elements, so only new and revised words animate.</li>
+    <li><strong>Works: WebVTT from results.</strong> The file made from the final results loads back into a <code>&lt;track&gt;</code> with the same number of cues.</li>
+    <li><strong>Not run here: recognition.</strong> Headless Chromium 157 has <code>SpeechRecognition</code> with <code>processLocally</code>, <code>phrases</code>, <code>available()</code> and <code>install()</code>, but no recognition service. The eighth check records what <code>start(track)</code> did.</li>
+    <li><strong>Not run here: translation.</strong> <code>Translator.availability()</code> did not settle in headless Chromium 157 and no model can be downloaded in the test container. The page falls back to the recorded translations there.</li>
+    <li><strong>Not verified:</strong> whether Chrome 159 on Android accepts <code>start(track)</code> with a track from <code>video.captureStream()</code>, whether it needs <code>processLocally</code> for that, how late interim results are against the sound, and the speed of <code>Translator</code> on a phone. The line under the player shows the time of the last translation.</li>
+    <li><strong>The recorded Spanish, French, German and Japanese were written by a language model</strong> for this page and have not been checked by a speaker.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { captionBox, listen, replayCues, translatorFor, translatorState, latestOnly, toVtt, Recognition } from '/live-captions/captions.js';
+  import { recordCanvas } from '/lib/video-export.js';
+  import { fit, blobUrl, quietStage, hitAt, sleep, until, release } from '/lib/timed-stage.js';
+  import { banner, runTests, supported, nextPaint } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const CLIP = '/media/talk.webm', CUES = '/media/talk.vtt';
+  const canvas = $('screen'), video = $('talk'), controls = $('controls'), caps = $('caps');
+  const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+
+  // #region paint
+  /** Draw the video, the bar, and the two lines of the caption element in two places. */
+  function compose(canvas, video, controls, caps) {
+    const ctx = canvas.getContext('2d');
+    canvas.addEventListener('paint', () => {
+      const k = canvas.width / canvas.clientWidth;
+      const W = canvas.clientWidth, H = canvas.clientHeight;
+      const vh = video.offsetHeight, bar = controls ? controls.offsetHeight : 0;
+      const heard = caps.querySelector('.heard'), translated = caps.querySelector('.translated');
+      const cw = caps.offsetWidth, ch = caps.offsetHeight, split = translated.offsetTop;
+      ctx.reset();
+      ctx.scale(k, k);
+      ctx.drawElementImage(video, 0, 0, W, vh);
+      // The first line, over the bottom of the frame. Skipped while it has no words.
+      if (heard.childElementCount) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, vh - split, W, split);
+        ctx.clip();
+        ctx.drawElementImage(caps, 0, vh - split, cw, ch);
+        ctx.restore();
+      }
+      // The second line, under the bar. Drawn last, so taps on the element land here.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, vh + bar, W, H - vh - bar);
+      ctx.clip();
+      ctx.drawElementImage(caps, 0, vh + bar - split, cw, ch);
+      ctx.restore();
+      // The control bar is drawn last. The caption element's hit-test box is its whole box at the place
+      // of its last draw, which reaches up over the bar, and the element drawn last is on top for taps.
+      if (controls) ctx.drawElementImage(controls, 0, vh, W, bar);
+    });
+    return ctx;
+  }
+  // #endregion paint
+
+  // ---- the pipeline: words → caption box → translation ----
+  let translator = null, session = null, replay = null, cueTrack = null;
+  const events = [];
+  const note = (name, detail) => {
+    events.push(`${fmt(performance.now() / 1000 % 3600)} ${name}${detail ? ` (${detail})` : ''}`);
+    $('events').textContent = events.slice(-5).join('\n');
+  };
+  const translate = latestOnly(async ({ text, final, entry }) => {
+    if (!translator) return;
+    try {
+      const out = await translator.translate(text, { final });
+      if (out || final) box.translate(out, { final, entry });
+    } catch (err) {
+      status(`translate() failed: ${err.message}`);
+    }
+    status();
+    canvas.requestPaint?.();
+  });
+  const box = captionBox(caps, {
+    clock: () => video.currentTime,
+    ontext: (result) => {
+      translate(result);
+      $('vtt').disabled = !box.log.length;
+      status();
+      canvas.requestPaint?.();
+    },
+  });
+
+  let extra = '';
+  function status(text) {
+    if (text !== undefined) extra = text;
+    const lang = $('lang').value;
+    $('say').textContent =
+      `words from: ${$('source').selectedOptions[0].textContent}${session ? ' (listening)' : ''}` +
+      `\ntranslation: ${!lang ? 'off' : !translator ? 'starting' : translator.kind === 'Translator' ? `Translator API, en to ${lang}, last call ${translator.lastMs.toFixed(0)} ms` : `recorded sentences (Translator: ${translator.state})`}` +
+      `\n${box.log.length} finished caption${box.log.length === 1 ? '' : 's'}` + (extra ? `\n${extra}` : '');
+  }
+
+  async function setLanguage() {
+    const lang = $('lang').value;
+    translator?.close();
+    translator = null;
+    caps.querySelector('.translated').lang = lang;
+    box.translate('');
+    status('');
+    if (!lang) return;
+    try {
+      translator = await translatorFor(lang, { onprogress: (part) => status(`downloading the ${lang} model: ${Math.round(part * 100)}%`) });
+    } catch (err) {
+      // For example NotAllowedError when a download needs a tap first.
+      translator = await translatorFor(lang, { allowDownload: false });
+      status(`Translator.create() failed: ${err.message}`);
+      return;
+    }
+    status('');
+  }
+
+  // #region track-source
+  /** The sound of a media element as a track that SpeechRecognition can take. */
+  function soundTrackOf(media) {
+    const capture = media.captureStream ?? media.mozCaptureStream;
+    if (!capture) throw new Error('this browser has no captureStream() on media elements');
+    const track = capture.call(media).getAudioTracks()[0];
+    if (!track) throw new Error('captureStream() gave no audio track. Press Play first.');
+    return track;
+  }
+  // #endregion track-source
+
+  function stopListening() {
+    session?.stop();
+    session = null;
+  }
+  async function setSource() {
+    stopListening();
+    const source = $('source').value;
+    $('source-note').textContent = { recorded: 'recorded transcript', track: 'recognising the clip', mic: 'recognising the microphone' }[source];
+    box.clear();
+    status('');
+    if (source === 'recorded') return;
+    try {
+      if (!Recognition) throw new Error('this browser has no SpeechRecognition');
+      let track = null;
+      if (source === 'track') {
+        if (!('processLocally' in Recognition.prototype)) throw new Error('this SpeechRecognition is older than start(track): it would open the microphone instead');
+        if (video.paused) await video.play();
+        track = soundTrackOf(video);
+      }
+      session = listen({ feed: box.feed, track, local: $('local').checked, onevent: note, clock: () => video.currentTime });
+    } catch (err) {
+      note('error', err.message);
+      status(`Speech recognition did not start: ${err.message}. The recorded transcript is used.`);
+      $('source').value = 'recorded';
+      $('source-note').textContent = 'recorded transcript';
+    }
+    status();
+  }
+
+  function showPlain(why) {
+    const boxEl = document.createElement('div');
+    boxEl.className = 'plain';
+    boxEl.append(video, controls, caps);
+    canvas.replaceWith(boxEl);
+    $('blank').hidden = false;
+    $('blank').textContent = why;
+    $('record').disabled = true;
+  }
+  if (supported) {
+    fit(canvas);
+    compose(canvas, video, controls, caps);
+    canvas.addEventListener('contextlost', () => showPlain('The canvas lost its drawing context. The video and its captions are shown as plain HTML.'));
+  } else {
+    showPlain('This browser does not have HTML-in-canvas. The video and its captions are shown as plain HTML. Nothing can be recorded.');
+  }
+
+  // The recorded transcript: the clip's cue file on a hidden track, fed in as if it were being recognised.
+  cueTrack = Object.assign(document.createElement('track'), { kind: 'metadata', src: CUES });
+  video.append(cueTrack);
+  cueTrack.track.mode = 'hidden';
+  replay = replayCues(cueTrack.track, (result) => { if ($('source').value === 'recorded') box.feed(result); });
+  const tick = (time) => { $('clock').value = fmt(time); replay(time); };
+  if ('requestVideoFrameCallback' in video) {
+    const each = (now, frame) => { tick(frame.mediaTime); video.requestVideoFrameCallback(each); };
+    video.requestVideoFrameCallback(each);
+  } else {
+    video.addEventListener('timeupdate', () => tick(video.currentTime));
+  }
+
+  blobUrl(CLIP).then((url) => { video.src = url; }, () => { video.src = CLIP; });
+  video.addEventListener('error', () => status(`The video did not load: ${video.error?.message || 'unknown error'}`));
+  video.addEventListener('ended', () => { video.currentTime = 0; video.play().catch(() => {}); });
+  for (const type of ['play', 'pause']) video.addEventListener(type, () => { $('play').textContent = video.paused ? 'Play' : 'Pause'; });
+  $('play').onclick = () => (video.paused ? video.play().catch((err) => status(`play() was refused: ${err.message}`)) : video.pause());
+  $('source').onchange = setSource;
+  $('local').onchange = () => { if (session) setSource(); };
+  $('lang').onchange = setLanguage;
+  setLanguage();
+  status();
+
+  $('record').onclick = async () => {
+    $('record').disabled = true;
+    try {
+      if (video.paused) await video.play();
+      status('Recording 6 seconds of the canvas with the clip\'s sound.');
+      const blob = await recordCanvas(canvas, { ms: 6000, audioFrom: video });
+      const out = $('out');
+      $('result').hidden = false;
+      if (out.src.startsWith('blob:')) URL.revokeObjectURL(out.src);
+      out.src = URL.createObjectURL(blob);
+      $('resultNote').textContent = `The recording: ${(blob.size / 1024).toFixed(0)} kB of ${blob.mimeType}, ${blob.sound ? 'with sound' : 'without sound'}. The captions are part of the picture. `;
+      $('resultNote').append(Object.assign(document.createElement('a'), { href: out.src, download: 'captions.webm', textContent: 'Download the file' }), '.');
+      status('');
+    } catch (err) {
+      status(`Recording failed: ${err.message}`);
+    }
+    $('record').disabled = false;
+  };
+  $('vtt').onclick = () => {
+    const lang = $('lang').value;
+    const files = [['captions.en.vtt', toVtt(box.log, 'text')]];
+    if (lang && box.log.some((e) => e.translation)) files.push([`captions.${lang}.vtt`, toVtt(box.log, 'translation')]);
+    for (const [name, text] of files) {
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([text], { type: 'text/vtt' })), download: name });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    }
+    status(`Saved ${files.map((f) => f[0]).join(' and ')}.`);
+  };
+
+  // ---- live checks: every one on its own fixture ----
+  const made = [];
+  /** A 320 px wide canvas with its own video and caption element. */
+  async function fixture({ load = true, bar = false } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = 'width:320px;height:260px;flex:none;background:#10131c';
+    c.width = 320; c.height = 260;
+    c.innerHTML = `<video drawable muted playsinline preload="auto" style="display:block;width:100%;aspect-ratio:16/9"></video>
+      <div drawable style="width:100%;color:#fff;font:650 15px/1.3 system-ui"><p class="heard" style="margin:0;min-height:2.6em;padding:4px 8px;background:#000c"></p><p class="translated" style="margin:0;min-height:80px;padding:4px 8px;color:#ff0"></p></div>`;
+    const v = c.querySelector('video'), el = c.querySelector('div');
+    let controls = null;
+    if (bar) {
+      controls = document.createElement('div');
+      controls.setAttribute('drawable', '');
+      controls.style.cssText = 'width:100%;height:48px;background:#1b2030';
+      controls.innerHTML = '<button type="button" style="width:68px;height:40px;margin:4px 10px">Play</button>';
+      v.after(controls);
+    }
+    quietStage().append(c);
+    made.push(v);
+    const f = { c, v, el, controls, results: [] };
+    f.box = captionBox(el, { clock: () => v.currentTime, ontext: (r) => { f.results.push(r); c.requestPaint(); } });
+    compose(c, v, controls, el);
+    if (load) {
+      const t = Object.assign(document.createElement('track'), { kind: 'metadata', src: CUES });
+      v.append(t);
+      t.track.mode = 'hidden';
+      f.track = t.track;
+      v.src = await blobUrl(CLIP);
+      await until(() => v.readyState >= 2 && f.track.cues?.length, 8000, v.error ? `the video did not load: ${v.error.message}` : 'the video or its cue file did not load');
+    }
+    return f;
+  }
+  /** Count pixels in a rectangle of a 320 px fixture that pass `test`. Reads a copy. */
+  function count(source, x, y, w, h, test) {
+    const copy = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
+    copy.drawImage(source, x, y, w, h, 0, 0, w, h);
+    const d = copy.getImageData(0, 0, w, h).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) n++;
+    return n;
+  }
+  const white = (r, g, b, a) => a > 200 && Math.min(r, g, b) > 185 && Math.max(r, g, b) - Math.min(r, g, b) < 24;
+  const yellow = (r, g, b, a) => a > 200 && r > 180 && g > 180 && b < 110;
+  const each = (tests) => tests.map((t) => ({ timeout: 25000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { for (const v of made.splice(0)) release(v); } } }));
+
+  runTests($('results'), each([
+    {
+      name: 'Interim and final results are drawn over the frame, the translation under it',
+      why: 'feed() with an interim and a final result, then translate(). White text is counted in the bottom of the frame and yellow text under it.',
+      run: async () => {
+        const f = await fixture();
+        const band = f.el.querySelector('.translated').offsetTop; // height of the first line's box
+        f.box.feed({ text: 'the page reads', final: false, at: 1 });
+        await nextPaint(f.c); await sleep(250); await nextPaint(f.c);
+        const interim = count(f.c, 0, 180 - band, 320, band, white);
+        const entry = f.box.feed({ text: 'The page reads the active cues.', final: true, at: 3 });
+        f.box.translate('La página lee las entradas activas.', { final: true, entry });
+        await nextPaint(f.c); await sleep(250); await nextPaint(f.c);
+        const over = count(f.c, 0, 180 - band, 320, band, white), under = count(f.c, 0, 180, 320, 80, yellow), stray = count(f.c, 0, 180 - band, 320, band, yellow);
+        if (interim < 40 || over <= interim) throw new Error(`white text pixels in the frame: ${interim} after the interim result, ${over} after the final one`);
+        if (under < 60) throw new Error(`only ${under} yellow pixels under the frame`);
+        if (stray > 10) throw new Error(`${stray} yellow pixels of the translation leaked into the frame`);
+        return `text pixels over the frame: ${interim} interim, ${over} final; ${under} translation pixels under the frame, ${stray} in it`;
+      },
+    },
+    {
+      name: 'The Play button in the bar takes taps while a caption and a translation are drawn',
+      why: 'The caption element is drawn twice and its box overlaps the bar. elementFromPoint() at the button must return the button.',
+      run: async () => {
+        const f = await fixture({ load: false, bar: true });
+        const entry = f.box.feed({ text: 'The page reads the active cues.', final: true, at: 3 });
+        f.box.translate('La página lee las entradas activas.', { final: true, entry });
+        await nextPaint(f.c); await sleep(200); await nextPaint(f.c);
+        const button = f.controls.querySelector('button'), box = f.c.getBoundingClientRect();
+        const hit = hitAt(box.left + 44, box.top + 180 + 24);
+        if (hit !== button) throw new Error(`the point on the button answered ${hit ? `<${hit.localName} class="${hit.className}">` : 'nothing'}`);
+        let clicks = 0;
+        button.onclick = () => clicks++;
+        hit.click();
+        return `elementFromPoint() on the drawn button returned the button, and its click handler ran ${clicks} time`;
+      },
+    },
+    {
+      name: 'A revised interim result replaces only the words that changed',
+      why: '"the page reeds" then "the page reads the". The first two spans should be the same elements and the third a new one.',
+      run: async () => {
+        const f = await fixture({ load: false });
+        f.box.feed({ text: 'the page reeds', final: false, at: 1 });
+        const before = [...f.el.querySelectorAll('.heard span')];
+        f.box.feed({ text: 'the page reads the', final: false, at: 1.3 });
+        const after = [...f.el.querySelectorAll('.heard span')];
+        const kept = after.filter((s, i) => s === before[i]).length;
+        if (after.length !== 4 || kept !== 2 || !after[2].classList.contains('revised') || after[3].classList.contains('revised')) throw new Error(`${after.length} spans, ${kept} kept, third revised: ${after[2]?.classList.contains('revised')}`);
+        return `4 words, 2 elements kept, "${after[2].textContent}" marked as revised, "${after[3].textContent}" added`;
+      },
+    },
+    {
+      name: 'The recorded transcript arrives word by word in step with the video',
+      why: 'Plays the fixture from 3.72 s through the second sentence (3.75 to 6.3 s) and collects what replayCues() feeds.',
+      run: async () => {
+        const f = await fixture();
+        const replay = replayCues(f.track, f.box.feed);
+        f.v.currentTime = 3.72;
+        await new Promise((r) => f.v.addEventListener('seeked', r, { once: true }));
+        const each = (now, frame) => { replay(frame.mediaTime); f.v.requestVideoFrameCallback(each); };
+        f.v.requestVideoFrameCallback(each);
+        f.v.playbackRate = 2;
+        await f.v.play();
+        await until(() => f.results.some((r) => r.final), 6000, `no final result; ${f.results.length} interim results`);
+        f.v.pause();
+        const interim = f.results.filter((r) => !r.final), final = f.results.find((r) => r.final);
+        if (interim.length < 5) throw new Error(`only ${interim.length} interim results before the final one`);
+        if (final.text !== 'Each sentence is one cue in a text track.') throw new Error(`the final text is "${final.text}"`);
+        return `${interim.length} interim results, then the final "${final.text}" from ${final.entry.start.toFixed(2)} to ${final.entry.end.toFixed(2)} s`;
+      },
+    },
+    {
+      name: 'Final results make a WebVTT file that a track element loads',
+      why: 'Two final results, toVtt(), a blob URL as the src of a <track>, then the cues are read back.',
+      run: async () => {
+        const f = await fixture({ load: false });
+        f.box.feed({ text: 'first --> caption', final: true, at: 2 });
+        f.box.feed({ text: 'second', final: false, at: 3 });
+        f.box.feed({ text: 'second caption', final: true, at: 4.5 });
+        const text = toVtt(f.box.log);
+        const url = URL.createObjectURL(new Blob([text], { type: 'text/vtt' }));
+        const t = Object.assign(document.createElement('track'), { kind: 'captions', src: url });
+        f.v.append(t);
+        t.track.mode = 'hidden';
+        try {
+          await until(() => t.readyState >= 2, 4000, 'the track did not load');
+          const cues = [...(t.track.cues ?? [])];
+          if (t.readyState !== 2 || cues.length !== 2) throw new Error(`track readyState ${t.readyState}, ${cues.length} cues`);
+          return `2 cues read back: "${cues[0].text}" ${cues[0].startTime}–${cues[0].endTime} s, "${cues[1].text}" ${cues[1].startTime}–${cues[1].endTime} s`;
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      },
+    },
+    {
+      name: 'The captions are in a recording of the canvas',
+      why: 'MediaRecorder on canvas.captureStream() for 1.2 s while a caption is shown. The file is played back and its bottom band is read.',
+      run: async () => {
+        const f = await fixture();
+        await f.v.play();
+        f.box.feed({ text: 'CAPTIONS IN THE RECORDING', final: true, at: 1 });
+        await nextPaint(f.c); await sleep(250);
+        const blob = await recordCanvas(f.c, { ms: 1200 });
+        const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, src: URL.createObjectURL(blob) });
+        made.push(v);
+        await new Promise((resolve, reject) => { v.onloadeddata = resolve; v.onerror = () => reject(new Error(`the file does not play: ${v.error?.message}`)); });
+        await v.play();
+        await sleep(400);
+        const k = v.videoWidth / 320;
+        const n = count(v, 0, Math.round((180 - 38) * k), v.videoWidth, Math.round(38 * k), white);
+        URL.revokeObjectURL(v.src);
+        if (n < 60 * k * k) throw new Error(`only ${n} caption pixels in the recorded frame`);
+        return `${(blob.size / 1024).toFixed(0)} kB of ${blob.mimeType}, ${v.videoWidth}×${v.videoHeight}; ${n} caption pixels in the bottom of the recorded frame`;
+      },
+    },
+    {
+      name: 'This browser has SpeechRecognition with start(track) and on-device options',
+      why: 'Looks for the constructor, continuous, interimResults, processLocally, phrases, available() and install(). Nothing is started.',
+      run: async () => {
+        if (!Recognition) throw new Error('SpeechRecognition is missing');
+        const has = (name) => name in Recognition.prototype;
+        const parts = ['continuous', 'interimResults', 'processLocally', 'phrases'].map((n) => `${n}: ${has(n) ? 'yes' : 'no'}`);
+        parts.push(`available(): ${typeof Recognition.available === 'function' ? 'yes' : 'no'}`, `install(): ${typeof Recognition.install === 'function' ? 'yes' : 'no'}`);
+        if (!has('processLocally')) throw new Error(`${parts.join(', ')}. Without processLocally this version does not take a track`);
+        return parts.join(', ');
+      },
+    },
+    {
+      name: 'recognition.start(track) accepts the sound track of a video',
+      why: 'The audio track of the fixture video\'s captureStream() is passed to start(). The check passes when recognition starts and reports the error otherwise.',
+      run: async () => {
+        if (!Recognition) throw new Error('SpeechRecognition is missing');
+        if (!('processLocally' in Recognition.prototype)) throw new Error('this version does not take a track');
+        const f = await fixture();
+        await f.v.play();
+        const track = soundTrackOf(f.v);
+        const seen = [];
+        const r = new Recognition();
+        r.lang = 'en-US';
+        const done = new Promise((resolve) => {
+          r.onstart = () => { seen.push('start'); };
+          r.onaudiostart = () => { seen.push('audiostart'); resolve(); };
+          r.onerror = (e) => { seen.push(`error ${e.error}`); resolve(); };
+          r.onend = () => { seen.push('end'); resolve(); };
+        });
+        try { r.start(track); } catch (err) { throw new Error(`start(track) threw ${err.name}: ${err.message}`); }
+        await Promise.race([done, sleep(5000)]);
+        try { r.abort(); } catch { /* already ended */ }
+        if (!seen.includes('start') || seen.some((s) => s.startsWith('error'))) throw new Error(`the track is "${track.kind}", ${track.readyState}; events: ${seen.join(', ') || 'none in 5 s'}`);
+        return `events: ${seen.join(', ')}`;
+      },
+    },
+    {
+      name: 'The Translator API can translate English to Spanish on this device',
+      why: 'Translator.availability() for en to es. When the model is already on the device, one sentence is translated. A download is not started from a check.',
+      run: async () => {
+        const state = await translatorState('es');
+        if (state !== 'available') throw new Error(state === 'missing' ? 'Translator is missing' : `availability() answered "${state}". Choose a second language above to start the download`);
+        const t = await translatorFor('es', { allowDownload: false });
+        const out = await t.translate('The clip starts again after this sentence.', { final: true });
+        if (!out) throw new Error('translate() returned nothing');
+        return `"${out}" in ${t.lastMs.toFixed(0)} ms`;
+      },
+    },
+  ]));
+</script>
+</body>
+</html>
