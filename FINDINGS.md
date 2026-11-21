@@ -254,7 +254,7 @@ Not verified here, because the cloud browser cannot show a WebGPU canvas: every 
 
 ### Newer WebGPU features on element textures (`/webgpu-features/`)
 
-One page draws a form and a block of text, both uploaded with `drawElementImageToTexture()`, with one newer feature per tile. `shared/backend.js` now asks the adapter for each of `texture-component-swizzle`, `float32-blendable`, `dual-source-blending` and `primitive-index` that it lists, so `device.features.has(name)` is the test on any page. Measured on the software adapter in Chromium 157, by reading an off-screen target back:
+One page draws a form and a block of text, both uploaded with `drawElementImageToTexture()`, with one newer feature per tile. `webgpu({ features: true })` in `shared/backend.js` makes a second device that asks the adapter for each of `texture-component-swizzle`, `float32-blendable`, `dual-source-blending` and `primitive-index` that it lists. The device the other pages share is unchanged. Measured on the software adapter in Chromium 157, by reading an off-screen target back:
 
 | Feature | Use | Without it | Result |
 | --- | --- | --- | --- |

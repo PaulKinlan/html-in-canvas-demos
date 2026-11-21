@@ -58,12 +58,13 @@ async function start(want = choice) {
       if (route === 'webgl') made = await GLStage.create(canvasFor('webgl2'), els);
       else {
         // #region compat
-        // 'webgpu' is the page's core device. 'webgpu-compat' takes a device from a
+        // This page has its own device, made with the optional features. Other pages share one without them.
+        // 'webgpu' is a core device. 'webgpu-compat' takes a device from a
         // compatibility mode adapter: when asked for by name, or when there is no core adapter.
-        const gpu = route === 'webgpu' ? await webgpu() : await webgpu({ compat: want ? 'only' : true });
+        const gpu = await webgpu({ features: true, compat: route === 'webgpu' ? false : want ? 'only' : true });
         // #endregion compat
         if (!gpu) {
-          state.gpuNote ||= route === 'webgpu' ? webgpu.reason : webgpu.compatReason || webgpu.reason;
+          state.gpuNote ||= route === 'webgpu' ? webgpu.featuresReason : webgpu.compatReason || webgpu.featuresReason;
           continue;
         }
         if (!supportedGPU) {
@@ -99,7 +100,7 @@ function fallBack(reason) {
     route?.show();
   });
 }
-addEventListener('webgpulost', () => fallBack(webgpu.reason || 'the WebGPU device was lost'));
+addEventListener('webgpulost', () => fallBack(webgpu.featuresReason || 'the WebGPU device was lost'));
 
 function plain(text) {
   state.backend = 'plain';
@@ -335,8 +336,8 @@ async function fixture({ gl = false, use = {}, compat = false } = {}) {
   let st;
   if (gl) st = await GLStage.create(c, copy);
   else {
-    const gpu = await webgpu({ force: true, compat: compat ? 'only' : false });
-    if (!gpu) throw new NotRun(`no WebGPU device (${compat ? webgpu.compatReason : webgpu.reason})`);
+    const gpu = await webgpu({ features: true, force: true, compat: compat ? 'only' : false });
+    if (!gpu) throw new NotRun(`no WebGPU device (${compat ? webgpu.compatReason : webgpu.featuresReason})`);
     st = await GPUStage.create(c, gpu, copy, { present: false, use });
   }
   made.push(st);
@@ -422,10 +423,10 @@ async function trailRun(use, stamps, fades) {
 const tests = [
   {
     name: 'A WebGPU device with the optional features the adapter has',
-    why: 'backend.js asks the adapter for each feature in OPTIONAL_FEATURES that it lists. This row names what the device ended up with.',
+    why: 'webgpu({ features: true }) asks the adapter for each feature in OPTIONAL_FEATURES that it lists. This row names what the device ended up with.',
     run: async () => {
-      const gpu = await webgpu({ force: true });
-      if (!gpu) throw new NotRun(`no WebGPU device (${webgpu.reason})`);
+      const gpu = await webgpu({ features: true, force: true });
+      if (!gpu) throw new NotRun(`no WebGPU device (${webgpu.featuresReason})`);
       const on = ['texture-component-swizzle', 'float32-blendable', 'primitive-index', 'dual-source-blending'].map((n) => `${n} ${gpu.device.features.has(n) ? 'yes' : 'no'}`);
       return `${gpu.level} device${gpu.software ? ' on a software adapter' : ''}; ${on.join(', ')}; immediates ${navigator.gpu.wgslLanguageFeatures.has('immediate_address_space') ? `yes, up to ${gpu.device.limits.maxImmediateSize} bytes` : 'no'}`;
     },
