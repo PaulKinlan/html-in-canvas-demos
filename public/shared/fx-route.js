@@ -10,6 +10,8 @@
 // usable, marks every target fx-backend="shared". Shared surfaces are 2D
 // canvases drawn through one page-wide WebGL context in turn.
 //
+// A surface whose canvas loses its context is switched to plain HTML with a note.
+//
 // `mount` gets the "Drawn with" menu (/shared/route-switch.js). `?route=webgl`
 // in the address asks for the shared WebGL route without starting WebGPU.
 
@@ -19,7 +21,15 @@ import { routeSwitch } from './route-switch.js';
 export async function loadFx({ targets, mount = null } = {}) {
   const all = () => [...targets()];
   const asked = new URLSearchParams(location.search).get('route');
-  const gpu = asked === 'webgl' ? null : await webgpu();
+  // The elements move into their canvases only after the awaits below. /shared/nav.js
+  // keeps the page unpainted while <html> has data-hold, so that move is not seen.
+  const root = document.documentElement;
+  root.setAttribute('data-hold', '');
+  const release = () => requestAnimationFrame(() => requestAnimationFrame(() => root.removeAttribute('data-hold')));
+  let gpu = null;
+  try {
+    gpu = asked === 'webgl' ? null : await webgpu();
+  } catch {}
   const route = (choice) => {
     for (const el of all()) {
       if (choice === 'webgpu') el.setAttribute('fx-backend', 'webgpu');
@@ -28,7 +38,12 @@ export async function loadFx({ targets, mount = null } = {}) {
     }
   };
   route(asked);
-  const lib = await import('/lib/shader-fx.js');
+  let lib;
+  try {
+    lib = await import('/lib/shader-fx.js');
+  } finally {
+    release();
+  }
   const surfaceOf = (el) => el.closest('fx-surface');
   if (mount) {
     routeSwitch(mount, {
@@ -39,6 +54,20 @@ export async function loadFx({ targets, mount = null } = {}) {
       apply: route,
     });
   }
+  // #region lost
+  // A canvas whose context is lost stays blank. Look every two seconds, and when a
+  // surface's context has been lost on two looks in a row, show that element as
+  // plain HTML with a note (fallBackToPlain is the fx library's own fallback).
+  const lostBefore = new WeakSet();
+  setInterval(() => {
+    for (const el of all()) {
+      const s = surfaceOf(el);
+      if (!s?.live || !s.ctx?.isContextLost?.()) { if (s) lostBefore.delete(s); continue; }
+      if (lostBefore.has(s)) s.fallBackToPlain('the canvas lost its graphics context');
+      else lostBefore.add(s);
+    }
+  }, 2000);
+  // #endregion lost
   return { ...lib, gpu, route, surfaceOf };
 }
 
