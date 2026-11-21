@@ -688,16 +688,15 @@ vec4 transition(vec2 uv) {
     },
     {
       name: 'Losing the WebGL context shows the states as plain HTML, and the canvas returns after',
-      why: 'WEBGL_lose_context on the rig. A lost canvas would otherwise be an empty box with working buttons you cannot see.',
+      why: 'A webglcontextlost event dispatched on the rig, then webglcontextrestored. A lost canvas would otherwise be an empty box with working buttons you cannot see.',
       timeout: 8000,
       async run() {
         await reset();
-        const ext = rig.canvas.getContext('webgl2').getExtension('WEBGL_lose_context');
-        must(ext, 'WEBGL_lose_context is not available here');
+        // The loss is a dispatched event. A real loseContext() on a drawable canvas in the page can crash the tab.
         let reason = null;
         const on = (e) => { if (e.detail.reason) reason = e.detail.reason; };
         rig.addEventListener('livefallback', on);
-        ext.loseContext();
+        rig.canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
         await sleep(150); await frames(3);
         const r = rig.getBoundingClientRect();
         const hit = document.elementFromPoint(r.x + 60, r.y + 80);
@@ -705,7 +704,7 @@ vec4 transition(vec2 uv) {
         await rig.show(1);
         const switched = rig.current === 1 && document.elementFromPoint(r.x + 230, r.y + 25)?.id === 'rb-btn';
         await rig.show(0);
-        ext.restoreContext();
+        rig.canvas.dispatchEvent(new Event('webglcontextrestored'));
         await sleep(300); await frames(4);
         rig.removeEventListener('livefallback', on);
         must(reason, 'no livefallback event');
