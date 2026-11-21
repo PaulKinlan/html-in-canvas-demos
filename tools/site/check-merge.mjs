@@ -24,7 +24,7 @@ if (!process.argv.includes('--no-fetch')) {
   try { git('fetch', '--quiet', '--prune', 'origin'); } catch { console.warn('warning: git fetch failed, using the refs already here'); }
 }
 const conflicts = (other) => tryGit('merge-tree', '--write-tree', '--name-only', 'HEAD', other)
-  .split('\n').filter((l) => l.startsWith('CONFLICT')).map((l) => l.replace(/^CONFLICT \([^)]*\): /, '').replace(/^Merge conflict in /, ''));
+  .split('\n').filter((l) => l.startsWith('CONFLICT')).map((l) => l.replace(/^CONFLICT \([^)]*\): /, '').replace(/^Merge conflict in /, '').replace(/^(\S+) deleted in .*$/, '$1 (deleted on one side, edited on the other)'));
 
 const main = conflicts('origin/main');
 const behind = git('rev-list', '--count', 'HEAD..origin/main');
