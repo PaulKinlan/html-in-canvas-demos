@@ -602,6 +602,16 @@ export class RayPointer {
   }
   // #endregion ray-pointer
 
+  /** The pointer went away (a hand dropped, a finger left the panel): clear hover. */
+  leave() {
+    if (this.over) {
+      this.#fire(this.over, 'pointerout', this.where);
+      this.over.closest('[data-ray-hover]')?.removeAttribute('data-ray-hover');
+      this.over = null;
+    }
+    this.hit = this.where = null;
+  }
+
   down() {
     const where = this.where;
     if (!where) {
