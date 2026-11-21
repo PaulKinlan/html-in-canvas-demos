@@ -101,7 +101,9 @@ export function twinLens(canvas, original, copy, twin, { radius = 96, zoom = 1.1
         view.placed[i] = { top: o.y, scale: s };
         ctx.save();
         ctx.beginPath();
-        ctx.rect(0, o.y, W, o.h);
+        // No taller than the copy's block: a shorter block must leave empty
+        // rows, not show the start of the block after it.
+        ctx.rect(0, o.y, W, Math.min(o.h, t.h * s));
         ctx.clip();
         ctx.translate(o.x, o.y);
         ctx.scale(s, s);
