@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streamed HTML drawn as it arrives</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  #stage { position: relative; height: min(520px, 70svh); border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  /* The streamed document. It is a child of the canvas, so the canvas draws it. */
+  #doc { box-sizing: border-box; width: 100%; height: 100%; overflow-y: auto; padding: 16px 18px 40px; font: 16px/1.5 system-ui; color: var(--fg); overscroll-behavior: contain; }
+  #stage.plain #doc { position: absolute; inset: 0; }
+  #doc h2 { font-size: 22px; margin: 0 0 8px; }
+  #doc h3 { font-size: 17px; margin: 18px 0 6px; }
+  #doc p, #doc ul, #doc ol { margin: 0 0 10px; }
+  #doc pre { margin: 0 0 10px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--fg) 8%, transparent); font: 13px/1.45 var(--mono); overflow-x: auto; }
+  #doc table { border-collapse: collapse; margin: 0 0 10px; font-size: 14px; }
+  #doc td, #doc th { border: 1px solid var(--line); padding: 4px 10px; text-align: left; }
+  #doc blockquote { margin: 0 0 10px; padding: 6px 12px; border-left: 4px solid var(--accent); }
+  #doc button, #doc input { font: inherit; padding: 4px 10px; max-width: 100%; }
+  #doc mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; }
+  .tools { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .tools select, .tools button { font: inherit; padding: 6px 10px; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; margin: 6px 0; }
+  #notice { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--warn); border-radius: 8px; font-size: 14px; }
+  #notice[hidden] { display: none; }
+  td.status.ok { color: var(--ok); } td.status.fail { color: var(--bad); } td.status.idle { color: var(--muted); }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Streamed HTML drawn as it arrives</h1>
+  <p class="lede">
+    Markup is written into an element in small chunks with <code>streamAppendHTML()</code>. The element is a child of a canvas, and each chunk raises the canvas's
+    <code>paint</code> event. A fragment shader draws every new block through an effect and makes the block that is being written glow. The text is real DOM the whole time:
+    select it, scroll it, press the button when it arrives.
+  </p>
+
+  <div class="tools">
+    <button id="run-script" type="button">Stream the sample document</button>
+    <button id="run-model" type="button" disabled>Stream from the on-device model</button>
+  </div>
+  <div id="stage">
+    <!-- #region markup -->
+    <canvas id="canvas" content="drawable" layoutsubtree>
+      <article id="doc" drawable aria-live="polite"></article>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+  <p id="status">Press a button above to start a stream.</p>
+  <p id="notice" hidden></p>
+
+  <div class="tools">
+    <label>Effect
+      <select id="effect">
+        <option value="1">Scan line</option>
+        <option value="2">Condense from noise</option>
+        <option value="3">Ink spread</option>
+        <option value="0">None</option>
+      </select>
+    </label>
+    <label>Speed
+      <select id="speed">
+        <option value="45">Slow</option>
+        <option value="18" selected>Model speed</option>
+        <option value="4">Fast</option>
+      </select>
+    </label>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>stream, track blocks, draw</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The element that receives the stream is a child of the canvas.</b></li>
+      <li data-code="#stream"><b>Write chunks into it.</b> <code>streamAppendHTML()</code> returns a <code>WritableStream</code>. Browsers without it get the same chunks through <code>document.write()</code> on a second document.</li>
+      <li data-code="#track"><b>Record when each block appeared and when it last changed.</b> A <code>MutationObserver</code> maps every change to its top-level block.</li>
+      <li data-code="#paint"><b>On <code>paint</code>, upload the element as a texture and draw it.</b> The rectangles and ages of the blocks go to the shader as uniforms.</li>
+      <li data-code="#shader"><b>The fragment shader.</b> One pass. Each effect is a mask computed from a block's age.</li>
+      <li data-code="/lib/element-gl.js#upload"><b>The upload.</b> <code>texElementSubImage2D()</code> into a texture of exactly the element's picture size.</li>
+      <li data-code="/lib/element-gl.js#context-loss"><b>Losing the WebGL context.</b> The page shows the document as plain HTML until the context comes back.</li>
+    </ol>
+  </details>
+
+  <h2>Findings</h2>
+  <ul>
+    <li><code>streamAppendHTML()</code> raises one <code>paint</code> event per chunk with no call to <code>requestPaint()</code> (Chromium 157). The page counts the events under the stage.</li>
+    <li>The <code>paint</code> event does not say which block is new: <code>changedElements</code> lists drawable children of the canvas, and the whole document is one child. A <code>MutationObserver</code> supplies the per-block timing.</li>
+    <li>The document scrolls inside its own box while it is drawn through the shader, and it keeps to the bottom while text arrives. Block rectangles are measured every frame, so the effect stays on its block during a scroll.</li>
+    <li>Chromium 153 has no <code>streamAppendHTML()</code>. Writing the chunks with <code>document.write()</code> into a second document, after moving that document's container into the canvas child, gives the same result there.</li>
+    <li>Not verified here: the on-device model. The test browser reports the Prompt API as downloadable and cannot download it, so the model button has only been run against a stub.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="checks-gate"><button id="run-checks" type="button">Run these 4 checks</button> <span class="note">They restart the stream on this page.</span></p>
+  <table class="results" id="checks">
+    <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>The browser has <code>streamAppendHTML()</code></td><td class="status idle">not run</td><td></td></tr>
+      <tr><td>Each chunk raises a <code>paint</code> event</td><td class="status idle">not run</td><td></td></tr>
+      <tr><td>The shader output contains the streamed text</td><td class="status idle">not run</td><td></td></tr>
+      <tr><td>A point on a streamed paragraph hit tests to that paragraph</td><td class="status idle">not run</td><td></td></tr>
+    </tbody>
+  </table>
+</main>
+
+<script type="module">
+  import { ElementGL, supported } from '/lib/element-gl.js';
+
+  const stageBox = document.getElementById('stage');
+  const canvas = document.getElementById('canvas');
+  const doc = document.getElementById('doc');
+  const status = document.getElementById('status');
+  const notice = document.getElementById('notice');
+  const effect = document.getElementById('effect');
+  const speed = document.getElementById('speed');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---------------------------------------------------------------- the sample
+  const SAMPLE = `
+<h2>Notes on a canvas that draws HTML</h2>
+<p>This text is arriving in pieces of a few characters. Each piece is appended to a real <code>&lt;article&gt;</code> element, and the canvas draws that element through a shader. Nothing here is a picture of text: you can <mark>select these words</mark> while they are still appearing.</p>
+<h3>What the browser does per chunk</h3>
+<ol><li>The parser adds nodes to the element.</li><li>Layout runs for the new nodes.</li><li>The canvas gets a <code>paint</code> event.</li><li>The page uploads the element as a texture and draws one quad.</li></ol>
+<blockquote>A block that is still being written is tinted. A block that has just appeared is revealed by the effect chosen under the stage.</blockquote>
+<h3>A code block</h3>
+<pre>const writer = article.streamAppendHTML().getWriter();
+for await (const chunk of model.promptStreaming(question)) {
+  await writer.write(chunk);
+}
+await writer.close();</pre>
+<h3>A table</h3>
+<table><tr><th>Step</th><th>Who does it</th></tr><tr><td>Parse and lay out</td><td>The browser</td></tr><tr><td>Decide how it looks</td><td>The shader</td></tr><tr><td>Selection, focus, scrolling</td><td>The browser</td></tr></table>
+<h3>Controls work as soon as they arrive</h3>
+<p><label>Type here <input size="14" placeholder="a real input"></label> <button type="button" onclick="this.textContent = 'Pressed ' + (++this.dataset.n || (this.dataset.n = 1)) + ' times'">Press me</button></p>
+<p>The stream has finished. The effect ends when the last block has settled, and after that the canvas only redraws when the document changes.</p>`;
+
+  // #region stream
+  // Give an element a WritableStream of HTML text.
+  function htmlWriter(element) {
+    if ('streamAppendHTML' in element) return element.streamAppendHTML().getWriter();
+    // Older browsers: document.write() into a second document parses in
+    // pieces too. Its container is moved into the page first, so the nodes
+    // appear in `element` as they are parsed.
+    const other = document.implementation.createHTMLDocument('');
+    other.write('<div>');
+    const container = other.body.firstChild;
+    container.style.display = 'contents';
+    element.append(container);
+    return { write: async (chunk) => other.write(chunk), close: async () => other.close() };
+  }
+
+  let run = 0;
+  async function stream(chunks) {
+    const mine = ++run;
+    doc.replaceChildren();
+    blocks.clear();
+    counts.chunks = counts.paints = 0;
+    const writer = htmlWriter(doc);
+    for await (const chunk of chunks) {
+      if (mine !== run) break;
+      await writer.write(chunk);
+      counts.chunks++;
+      stickToEnd();
+    }
+    await writer.close().catch(() => {});
+    if (mine === run) setTimeout(report, 300, 'Stream finished.');
+  }
+
+  // The sample document, cut into pieces of 2 to 9 characters without cutting a tag or an entity.
+  // One piece is due every `speed` milliseconds; pieces that fell due while the last write was
+  // pending go out together, so a slow device takes the same total time.
+  async function* sampleChunks() {
+    const parts = SAMPLE.match(/<[^>]+>|&[a-z]+;|[^<&]{1,9}/g);
+    const start = performance.now();
+    let sent = 0;
+    while (sent < parts.length) {
+      await sleep(+speed.value);
+      const due = Math.min(parts.length, Math.max(sent + 1, Math.floor((performance.now() - start) / +speed.value)));
+      yield parts.slice(sent, due).join('');
+      sent = due;
+    }
+  }
+  // #endregion stream
+
+  // The Prompt API, where the browser has the model.
+  async function* modelChunks() {
+    const session = await LanguageModel.create();
+    const question = 'Write a short article of about 150 words on why rivers meander. Output an HTML fragment only: one h2, three p elements and one ul. No markdown, no code fence.';
+    for await (const chunk of session.promptStreaming(question)) yield chunk;
+    session.destroy?.();
+  }
+
+  // #region track
+  // For each top-level block of the document: when it appeared and when it last changed.
+  const blocks = new Map();
+  const blockOf = (node) => {
+    while (node && node.parentNode !== doc && node.parentNode?.parentNode !== doc) node = node.parentNode;
+    // The fallback writer adds one container element; its children are the blocks.
+    if (node?.parentNode !== doc && node?.parentNode?.style?.display !== 'contents') return null;
+    return node?.nodeType === 1 && node.style.display !== 'contents' ? node : null;
+  };
+  new MutationObserver((records) => {
+    const now = performance.now();
+    for (const r of records) {
+      for (const n of r.addedNodes) {
+        const b = blockOf(n);
+        if (b && !blocks.has(b)) blocks.set(b, { born: now, changed: now });
+      }
+      const b = blockOf(r.target);
+      if (b) (blocks.get(b) ?? blocks.set(b, { born: now, changed: now }).get(b)).changed = now;
+    }
+    animate();
+  }).observe(doc, { childList: true, subtree: true, characterData: true });
+  // #endregion track
+
+  let pinned = true;
+  doc.addEventListener('scroll', () => { pinned = doc.scrollHeight - doc.scrollTop - doc.clientHeight < 40; });
+  const stickToEnd = () => { if (pinned) doc.scrollTop = doc.scrollHeight; };
+
+  // #region shader
+  const FRAGMENT = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uSize;        // document size in CSS pixels
+uniform float uTime;
+uniform int uMode;         // 0 none, 1 scan line, 2 condense, 3 ink
+uniform int uCount;
+uniform vec4 uRect[16];    // block rectangles: x, y, width, height as fractions of the document
+uniform vec2 uAge[16];     // seconds since the block appeared, seconds since it last changed
+uniform vec3 uAccent;
+in vec2 vUv;
+out vec4 outColor;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+}
+
+void main() {
+  vec2 px = vUv * uSize;
+  float reveal = 1.0, writing = 0.0, edge = 0.0;
+  vec2 shift = vec2(0.0);
+  for (int i = 0; i < 16; i++) {
+    if (i >= uCount) break;
+    vec4 r = uRect[i];
+    vec2 local = (vUv - r.xy) / r.zw;
+    if (local.x < 0.0 || local.x > 1.0 || local.y < 0.0 || local.y > 1.0) continue;
+    float born = clamp(uAge[i].x / 0.9, 0.0, 1.0);
+    writing = max(writing, exp(-uAge[i].y * 4.0));
+    if (uMode == 1) {
+      // A line moves down the block. Above it the block is visible.
+      float d = (local.y - born * 1.2) * r.w * uSize.y;
+      reveal = min(reveal, step(d, 0.0));
+      edge = max(edge, exp(-abs(d) * 0.35) * (1.0 - born));
+    } else if (uMode == 2) {
+      // 3-pixel cells switch on in random order while the picture is pulled in from an offset.
+      reveal = min(reveal, step(hash(floor(px / 3.0)), born * 1.1));
+      shift += (vec2(noise(px * 0.05 + uTime * 2.0), noise(px * 0.05 - uTime * 2.0)) - 0.5) * 30.0 * (1.0 - born) / uSize;
+    } else if (uMode == 3) {
+      // A noisy front spreads from the top left corner.
+      float d = local.x * 0.7 + local.y * 0.3 + noise(px * 0.04) * 0.35;
+      float front = born * 1.6;
+      reveal = min(reveal, smoothstep(front, front - 0.1, d));
+      edge = max(edge, smoothstep(0.1, 0.0, abs(d - front)) * (1.0 - born));
+    }
+  }
+  vec4 c = texture(uTex, vUv + shift);
+  if (uMode == 2 && writing > 0.02) {
+    float s = writing * 1.5 / uSize.x;
+    c.r = texture(uTex, vUv + shift + vec2(s, 0.0)).r;
+    c.b = texture(uTex, vUv + shift - vec2(s, 0.0)).b;
+  }
+  c *= reveal;
+  // Text in a block that is being written is tinted. The colour is premultiplied.
+  if (uMode != 0) c.rgb = mix(c.rgb, uAccent * c.a, writing * 0.75);
+  outColor = c + vec4(uAccent, 1.0) * edge * 0.85;
+}`;
+  // #endregion shader
+
+  // ---------------------------------------------------------------- drawing
+  const counts = { chunks: 0, paints: 0 };
+  let gl = null;
+  const accent = () => {
+    const m = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().match(/^#([0-9a-f]{6})$/i);
+    return m ? [1, 3, 5].map((i) => parseInt(m[0].slice(i, i + 2), 16) / 255) : [0.9, 0.3, 0.15];
+  };
+
+  // Without WebGL, or after the context is lost, the document is shown as plain HTML.
+  function plain(reason) {
+    if (!stageBox.classList.contains('plain')) {
+      stageBox.classList.add('plain');
+      stageBox.append(doc);
+      canvas.hidden = true;
+    }
+    notice.hidden = false;
+    notice.textContent = reason;
+  }
+  function drawn() {
+    if (!stageBox.classList.contains('plain')) return;
+    stageBox.classList.remove('plain');
+    canvas.hidden = false;
+    canvas.append(doc);
+    notice.hidden = true;
+  }
+
+  if (!supported) {
+    plain('This browser does not have HTML-in-canvas for WebGL (texElementSubImage2D), so the stream is shown as plain HTML with no effect.');
+  } else {
+    try {
+      gl = new ElementGL(canvas, {
+        fragment: FRAGMENT,
+        onLost: () => plain('The browser took the WebGL context away. The document is shown as plain HTML until the context returns.'),
+        onRestored: () => { drawn(); canvas.requestPaint(); },
+      });
+    } catch (e) {
+      plain(`WebGL could not start (${e.message}). The stream is shown as plain HTML.`);
+    }
+  }
+
+  // #region paint
+  const rects = new Float32Array(64), ages = new Float32Array(32);
+  function draw() {
+    if (!gl || gl.lost || !gl.begin()) return false;
+    const now = performance.now(), box = doc.getBoundingClientRect();
+    let n = 0, active = false;
+    for (const [el, t] of blocks) {
+      if (!el.isConnected) { blocks.delete(el); continue; }
+      const born = (now - t.born) / 1000, changed = (now - t.changed) / 1000;
+      if (born > 1.2 && changed > 1.2) continue;          // settled: drawn with no effect
+      active = true;
+      const r = el.getBoundingClientRect();
+      if (r.bottom < box.top || r.top > box.bottom || n === 16) continue;
+      rects.set([(r.left - box.left) / box.width, (r.top - box.top) / box.height, r.width / box.width, r.height / box.height], n * 4);
+      ages.set([born, changed], n * 2);
+      n++;
+    }
+    gl.quad(doc, ElementGL.rect(canvas, 0, 0, canvas.clientWidth, canvas.clientHeight), (g, u) => {
+      g.uniform1i(u('uMode'), +effect.value);
+      g.uniform1i(u('uCount'), n);
+      g.uniform4fv(u('uRect[0]'), rects);
+      g.uniform2fv(u('uAge[0]'), ages);
+      g.uniform3fv(u('uAccent'), accent());
+    });
+    return active;
+  }
+
+  // The browser raises paint when the document's rendering changed.
+  canvas.addEventListener('paint', () => {
+    counts.paints++;
+    if (!gl || gl.lost) return;
+    gl.upload(doc);
+    // A WebGL draw does not tell the browser where the element is. The quad
+    // covers the element's own box, so the identity transform is right.
+    canvas.updateElementGeometry(doc, { canvasTransform: new DOMMatrix() });
+    draw();
+  });
+
+  // While a block is younger than 1.2 s the effect is moving, so draw every frame.
+  let looping = false;
+  function animate() {
+    if (looping) return;
+    looping = true;
+    requestAnimationFrame(function frame() {
+      looping = draw();
+      if (looping) requestAnimationFrame(frame);
+    });
+  }
+  // #endregion paint
+
+  new ResizeObserver(() => canvas.requestPaint?.()).observe(canvas);
+  effect.addEventListener('change', () => canvas.requestPaint?.());
+
+  function report(lead) {
+    status.textContent = `${lead} ${counts.chunks} chunks written, ${counts.paints} paint events, ${blocks.size} blocks. Writer: ${'streamAppendHTML' in doc ? 'streamAppendHTML()' : 'document.write() fallback'}.`;
+  }
+
+  document.getElementById('run-script').onclick = () => { status.textContent = 'Streaming the sample document.'; pinned = true; stream(sampleChunks()); };
+
+  const modelButton = document.getElementById('run-model');
+  if ('LanguageModel' in self) {
+    LanguageModel.availability().then((a) => {
+      modelButton.disabled = a === 'unavailable';
+      modelButton.title = `LanguageModel.availability(): ${a}`;
+      if (a !== 'available') modelButton.textContent = a === 'unavailable' ? 'On-device model: unavailable' : `Stream from the on-device model (${a})`;
+    }).catch(() => {});
+  } else {
+    modelButton.textContent = 'On-device model: not in this browser';
+  }
+  modelButton.onclick = async () => {
+    status.textContent = 'Asking the on-device model. The first use downloads the model.';
+    pinned = true;
+    try { await stream(modelChunks()); } catch (e) { status.textContent = `The model did not answer: ${e.message}`; }
+  };
+
+  // ---------------------------------------------------------------- live checks (run on a tap)
+  const rows = [...document.querySelectorAll('#checks tbody tr')];
+  const set = (i, ok, detail) => { rows[i].children[1].className = `status ${ok ? 'ok' : 'fail'}`; rows[i].children[1].textContent = ok ? 'pass' : 'fail'; rows[i].children[2].textContent = detail; };
+  document.getElementById('run-checks').onclick = async () => {
+    const results = [];
+    const check = (i, name, ok, detail) => { set(i, ok, detail); results.push({ name, ok }); };
+    check(0, 'streamAppendHTML', 'streamAppendHTML' in doc, 'streamAppendHTML' in doc ? 'Present.' : 'Missing. The page uses the document.write() fallback.');
+    const old = speed.value; speed.value = '4';
+    await stream(sampleChunks());
+    speed.value = old;
+    await sleep(1500);
+    check(1, 'paint per chunk', counts.paints >= counts.chunks * 0.5, `${counts.chunks} chunks, ${counts.paints} paint events.`);
+    let ink = -1;
+    if (gl && !gl.lost) {
+      draw();
+      const g = gl.gl, px = new Uint8Array(canvas.width * 80 * 4);
+      g.readPixels(0, canvas.height - 80, canvas.width, 80, g.RGBA, g.UNSIGNED_BYTE, px);
+      ink = 0;
+      for (let i = 3; i < px.length; i += 4) if (px[i] > 128) ink++;
+    }
+    check(2, 'shader output', ink > 200, ink < 0 ? 'No WebGL context.' : `${ink} opaque pixels in the top 80 rows of the canvas.`);
+    doc.scrollTop = 0;
+    await sleep(100);
+    const p = doc.querySelector('p');
+    const r = p.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + 20, r.top + 8);
+    check(3, 'hit test', !!hit && p.contains(hit), `elementFromPoint() returned <${hit?.tagName.toLowerCase() ?? 'nothing'}>.`);
+    window.__results = results;
+  };
+  if (new URLSearchParams(location.search).get('autochecks') === '1') document.getElementById('run-checks').click();
+  else window.__results = [];
+</script>
+</body>
+</html>

@@ -58,6 +58,7 @@ These run in Chrome 157 to 159 today, and most have a measured result behind the
 
 #### 1. Streamed HTML that the canvas draws as it arrives
 
+- **Built:** [/stream/](https://html-in-canvas.page/stream/)
 - **Shows:** Markup streamed into a drawable element with streamAppendHTML(), from the Prompt API or from a fetch. The paint event's changedElements names each new block, and the canvas draws new blocks through an effect (noise that resolves into the text, a scan line, ink that spreads) while older blocks are already plain and selectable.
 - **Build:** One drawable article element. A WritableStream from streamAppendHTML() takes chunks from LanguageModel.promptStreaming() where the model is on the device, and from a Workers AI endpoint otherwise. A per-block age map drives one uniform per block. A second mode uses out-of-order streaming: the server sends a page skeleton, then fills sections in a different order, and each section arrives with its own effect.
 - **Measured:** streamAppendHTML() raised one paint event per chunk with no requestPaint() in Chromium 157.
