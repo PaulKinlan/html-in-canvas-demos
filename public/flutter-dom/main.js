@@ -144,7 +144,7 @@ async function until(test, timeout = 3000) {
 // What Flutter has on its canvas. A WebGL canvas keeps its pixels only until the frame is
 // presented, so ask Flutter for a frame and read in the same animation frame, after Flutter.
 let nudge = 0;
-function flutterPixel(win, fd, canvas, x, y) {
+async function flutterPixel(win, fd, canvas, x, y) {
   fd.control('opacity', (nudge ^= 1) ? 0.999 : 1);
   // The copy of one pixel is made in the frame callback, while Flutter's canvas holds the picture.
   // The readback is from the plain 1 by 1 canvas, after the callback.
