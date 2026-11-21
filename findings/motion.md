@@ -105,3 +105,52 @@ Measured in headless Chromium 157 (C157) on 2026-11-21, by the page's live check
 - A library element, for example `<canvas-transition>`, that wraps experiment 5: any DOM change inside it is drawn by a chosen effect.
 - The same clock driving a WebGPU shader, and effects that use both the old `ElementImage` and the live state as textures.
 - Navigation API `intercept()` calling the function of experiment 5 for route changes.
+
+## Rewind to video, and two pointers on moving pieces (`/motion-capture/`)
+
+Measured in headless Chromium 157 (C157) on 2026-11-21, by the page's live checks and by a Playwright script that sent real touches through the DevTools protocol (`Input.dispatchTouchEvent`, two touch points) at 412 px wide and a device scale factor of 2.625. Builds backlog group 25. Files: `public/motion-capture/` (`index.html`, `rewind-encode.js`, `pieces.js`), and `#region frames` comments in `lib/dom-rewind.js`.
+
+| Experiment | Result | Why |
+|---|---|---|
+| `<dom-rewind>.frames()` fed to `VideoEncoder` | works | Each bitmap is drawn over a background colour on a plain `OffscreenCanvas`, a `VideoFrame` is made from that canvas and encoded. 121 frames at 720 by 568 took 5.0 ms each (0.6 s of work for 4 s of video, 680 kB as VP9). |
+| The WebM file in a `<video>` | plays | `lib/webm-mux.js` writes the VP9 or VP8 chunks. The check loads the file, reads its size and duration, seeks to the start and the end and finds the card on the left and then on the right. |
+| VP9, VP8, AV1, H.264 encoders | all four accept the frames | Each output is decoded back with `VideoDecoder`: 11 frames in, 11 out, the first and last pictures are right. AV1 and H.264 have no container in this project, so the page shows the last decoded frame and no file. |
+| `MediaRecorder` on the canvas stream while `replay()` runs | works, in real time | 4.0 s for 4 s of video, 893 kB. The history has to be played on screen. |
+| Two fingers on two pads, every pad in one `drawable` element | 1 of 6 presses reached its pad, 0 of 3 second fingers | The element has one hit box. The browser picks the target of `pointerdown` before a script can move it. |
+| A single tap on a pad the hit box is not under | `pointerdown` misses, `click` arrives at the right pad | The canvas moves the box in its `pointerdown` capture listener and the browser hit tests again for the `click`. Two fingers down at once give no `click`. |
+| One `drawable` element for each pad | 6 of 6 | Eight hit boxes, each placed with `updateElementGeometry()` in every paint. |
+| One element, the canvas routes each pointer (moves the box, toggles an attribute, asks `elementFromPoint()`, dispatches a copy) | 6 of 6, the browser's own target was wrong for 4 | The pad's listener gets an untrusted copy. Pointer capture and `:active` stay with the browser's target. |
+| Hit testing an element that was drawn in parts with nine-argument draws | only the last source rectangle drawn takes hits | With the box put under pad A by `updateElementGeometry()`, the point on A answers the canvas. A last draw of the whole element at `globalAlpha` 0 makes the whole element take hits. |
+| `elementFromPoint()` after `updateElementGeometry()` with no attribute change | old answer | Same as the earlier finding on `/view-transitions/`. |
+
+### Things that bit
+
+- `<meta name="checks" content="tap">` makes `?checks` wait as well. Automation uses `?autochecks=1`.
+- `<dom-rewind>` records a frame only when something changed, so a still fixture has one frame however long it waits.
+- `onprogress?.(++i)` does not count when there is no callback: the argument of an optional call that is skipped is not evaluated.
+- A capture listener that queues a microtask runs it before the target's own listener, because the microtask checkpoint comes after each listener.
+
+### Not verified
+
+- Everything on a phone. Hardware encoders can refuse odd sizes or these codec strings: the Codec list on the page shows what the device accepts, and the checks encode with each one. Run the live checks on the phone.
+- Whether `captureStream()` on a drawable canvas (the MediaRecorder button) is safe on the Android phone that lost canvases with `willReadFrequently`. It runs only on a tap.
+- Real fingers. The two-finger numbers come from touches sent by the DevTools protocol. The status line under experiment 2 counts presses on the device.
+- Three or more pointers, and a pen with a finger.
+- `npm run check:jank -- --checks /motion-capture/` reports 10 blank frames while the checks build and remove fixtures in the bottom panel. The page's checks wait for a tap, and the default run passes.
+
+### For the index
+
+- Capture: the history of `<dom-rewind>` encodes to WebM through `frames()`, `VideoFrame` and `VideoEncoder` without reading the drawable canvas (`/motion-capture/`, C157, measured).
+- Hit testing: one `drawable` element has one hit box, so a second simultaneous pointer misses; one element for each piece, or routing in a capture listener, fixes it (`/motion-capture/`, C157, measured).
+- Hit testing: a nine-argument `drawElementImage()` limits the element's hit region to the source rectangle of the last draw (`/motion-capture/`, C157, measured).
+- Hit testing: `click` after a tap is hit tested again and follows a box moved during `pointerdown` (`/motion-capture/`, C157, measured).
+
+### API requests
+
+- A way to give one element several hit regions, one for each place it is drawn, for example `updateElementGeometry()` accepting a list of source rectangle and transform pairs.
+
+### Open ideas
+
+- An MP4 writer so that H.264 and AV1 output becomes a file.
+- Sound in the export: page sounds recorded with their times and mixed in with `AudioEncoder`.
+- `setPointerCapture()` on the routed element, to see whether later events of that pointer can be made trusted.
