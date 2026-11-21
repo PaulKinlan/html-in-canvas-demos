@@ -243,6 +243,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 20. Capture additions: clipboard, print margins, files
 
+- **Built:** [/capture/#folder-h](https://html-in-canvas.page/capture/#folder-h)
 - **Shows:** Copy an element as a picture and as HTML in one clipboard item. Page headers and numbers on a printed capture with @page margin boxes. Save to a folder on Android. A board that watches a folder of HTML files and redraws a tile when its file changes.
 - **Build:** Additions to element-capture.js and the board.
 - **Uncertain:** FileSystemObserver on Android.

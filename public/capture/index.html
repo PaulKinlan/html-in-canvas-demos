@@ -33,6 +33,12 @@
   #lab { position: fixed; left: 0; top: 72px; width: 0; height: 0; z-index: 5; }
   #lab > * { position: absolute; left: 0; top: 0; opacity: 0.02; pointer-events: none; }
   h2 small { font: 13px var(--mono); color: var(--muted); font-weight: 400; margin-left: 8px; }
+  #tiles { display: block; width: 100%; height: 190px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  #tileGrid { box-sizing: border-box; width: 100%; padding: 10px; display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; }
+  #tileGrid figure { margin: 0; width: 200px; max-width: 100%; }
+  #tileGrid iframe { display: block; width: 200px; height: 130px; border: 1px solid #c9c2b2; border-radius: 8px; background: #fff; }
+  #tileGrid figcaption { font: 12px var(--mono); color: var(--muted); padding: 3px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #tileGrid:empty::before { content: 'Open a folder to see its HTML files here.'; font-size: 14px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -65,6 +71,11 @@
         <button data-do="video">Record 3s</button>
         <button data-do="export">Export video (WebCodecs)</button>
         <button data-do="print">Print</button>
+      </div>
+      <div class="tools">
+        <button data-do="copyhtml">Copy as image and HTML</button>
+        <button data-do="printnum">Print with page numbers</button>
+        <button data-do="savefolder">Save into a folder…</button>
       </div>
       <div class="tools">
         <button data-do="pageview">This page: viewport</button>
@@ -112,6 +123,33 @@ await printElement(el);                                   // paginated, 200 dpi<
   <div class="tools"><button id="runB" type="button">Run the page tests</button> <span id="scoreB" class="note">Twelve whole-page captures in the frame above. They scroll and focus that page, so they wait for you.</span></div>
   <table class="lab"><tbody id="tB"></tbody></table>
 
+  <h2 id="folder-h">C · A folder of HTML files <small>pickFolder, watchFolder, saveToFolder</small></h2>
+  <p>
+    Each <code>.html</code> file in a folder becomes a tile in the canvas below. Save a file in your editor and its tile redraws.
+    "Save a PNG of every tile" writes the pictures back into the same folder. The private folder is storage that belongs to this site in your browser;
+    it comes with three sample files and works where there is no folder picker.
+  </p>
+  <div class="tools">
+    <button id="fPick" type="button">Pick a folder…</button>
+    <button id="fPrivate" type="button">Use a private folder with sample files</button>
+    <button id="fEdit" type="button" disabled>Change a sample file</button>
+    <button id="fSave" type="button" disabled>Save a PNG of every tile</button>
+  </div>
+  <p id="fNow" class="note">No folder open.</p>
+  <!-- #region folder-markup -->
+  <canvas id="tiles" content="drawable" layoutsubtree><div id="tileGrid" drawable></div></canvas>
+  <!-- #endregion folder-markup -->
+  <details class="show-code">
+    <summary>Show the code <small>clipboard, print margins and folders</small></summary>
+    <ol>
+      <li data-code="/lib/element-capture.js#copy"><b><code>copyElement(el, { html: true })</code>: one <code>ClipboardItem</code> with three types.</b> The PNG is a promise, so the write starts inside the tap.</li>
+      <li data-code="/lib/element-capture.js#print"><b><code>printElement()</code>: <code>@page</code> margin boxes for the header, footer and page numbers.</b></li>
+      <li data-code="/lib/element-capture.js#folder"><b><code>pickFolder()</code>, <code>saveToFolder()</code> and <code>watchFolder()</code>.</b></li>
+      <li data-code="#folder-markup"><b>The tile canvas.</b></li>
+      <li data-code="#folder"><b>One tile per file, redrawn when <code>FileSystemObserver</code> reports a change.</b> Each file is shown in an <code>&lt;iframe sandbox="allow-same-origin"&gt;</code>: its scripts do not run, and it stays same-origin so the canvas may draw it.</li>
+    </ol>
+  </details>
+
   <h2>Findings</h2>
   <ul class="findings">
     <li><strong>Yes, body can be wrapped in a canvas for one frame.</strong> The snapshot is ready in the first rendering update after the canvas goes in: the <code>paint</code> event fires in that same frame, so there is no waiting and nothing to await but one frame.</li>
@@ -121,6 +159,10 @@ await printElement(el);                                   // paginated, 200 dpi<
     <li><strong>Fixed and sticky need a stand-in viewport.</strong> A drawable element is a containing block, so fixed elements attach to it. Wrapping the content in a viewport-sized frame with an inner scroller set to the page's scroll offset gives a faithful viewport shot. In a full-page shot fixed elements land at the end of the document and sticky ones at their static position.</li>
     <li><strong>Cross-origin iframes come out blank</strong>, by design, and so do cross-origin images without CORS. Same-origin iframes paint.</li>
     <li><strong>Video does not have to be a screen recording.</strong> <code>exportVideo()</code> pauses the element's animations, steps them one frame at a time and encodes each frame with WebCodecs, so a 60 fps file has all 60 frames a second in the right place on any machine. The WebM container is written by a hundred lines of script.</li>
+    <li><strong>One clipboard item can hold the picture and the content.</strong> <code>copyElement(el, { html: true })</code> writes <code>image/png</code>, <code>text/html</code> and <code>text/plain</code> together, and <code>navigator.clipboard.read()</code> returns all three. The markup has to be read before the capture starts, because the capture adds temporary attributes to the element.</li>
+    <li><strong><code>@page</code> margin boxes work for a printed capture.</strong> Chromium 157 keeps all three boxes (<code>@top-center</code>, <code>@bottom-left</code>, <code>@bottom-right</code> with <code>counter(page)</code> and <code>counter(pages)</code>) on the print document.</li>
+    <li><strong>A folder can be the source and the destination.</strong> <code>FileSystemObserver</code> reported a changed file 2 to 5 ms after the write in the test browser, once per write step. A sandboxed <code>srcdoc</code> iframe is drawn only with <code>allow-same-origin</code>; with a bare <code>sandbox</code> its origin is opaque and the canvas leaves it out.</li>
+    <li><strong>Open:</strong> the folder picker and <code>FileSystemObserver</code> on Android, and HEVC recording, need a real device. The test browser records VP8, VP9, AV1 and H.264 and has no HEVC encoder.</li>
     <li><strong>Output is re-rasterized, not upscaled.</strong> <code>drawElementImage(el, 0, 0, w × 4, h × 4)</code> replays the element's paint record at the new size, so a 4× PNG has sharp text and hairlines. That is what makes print output usable.</li>
   </ul>
 
@@ -191,6 +233,20 @@ await printElement(el);                                   // paginated, 200 dpi<
       show(wrap, `· ${m.frames} frames at ${m.fps} fps · ${m.codec} · ${(blob.size / 1024).toFixed(0)} kB · rendered in ${(m.ms / 1000).toFixed(1)} s for ${(m.duration / 1000).toFixed(1)} s of video`);
     },
     print: async () => { const r = await cap.printElement(ticket); show(document.createTextNode(`Sent ${r.pages} page(s) to the print dialog at ${(r.scale * 96).toFixed(0)} dpi.`)); },
+    copyhtml: async () => {
+      const b = await cap.copyElement(ticket, { scale: 2, html: true });
+      show(document.createTextNode(`Copied one clipboard item holding ${b.types.join(', ')}. Paste into an image editor for the picture and into a document or a text field for the content.`));
+    },
+    printnum: async () => {
+      const r = await cap.printElement(ticket, { header: document.title, footer: { left: location.host, right: 'Page {page} of {pages}' } });
+      show(document.createTextNode(`Sent ${r.pages} page(s) to the print dialog. The browser kept ${r.marginBoxes} of ${r.marginBoxesWanted} @page margin boxes: a title at the top, the site and the page number at the bottom.`));
+    },
+    savefolder: async () => {
+      const folder = await cap.pickFolder();
+      const blob = await cap.captureElement(ticket, { scale: 2 });
+      const r = await cap.saveToFolder(blob, `ticket-${Date.now()}.png`, folder);
+      show(img(blob), r.where === 'download' ? '· this browser has no folder picker, so the file was downloaded' : `· wrote ${r.filename} (${(r.bytes / 1024).toFixed(0)} kB) into "${r.where}"`);
+    },
     pageview: async () => show(img(await cap.capturePage({ full: false }))),
     pagefull: async () => show(img(await cap.capturePage({ full: true, scale: 1 }))),
     flicker: async () => {
@@ -205,6 +261,110 @@ await printElement(el);                                   // paginated, 200 dpi<
       try { await actions[b.dataset.do](); } catch (err) { show(document.createTextNode(`${err.name}: ${err.message}`)); }
     };
   }
+
+  // ------------------------------------------------- a folder of HTML files
+  // #region folder
+  const tiles = $('#tiles'), grid = $('#tileGrid'), fNow = $('#fNow');
+  const tctx = tiles.getContext('2d');
+  const flash = new Map(); // file name → time its tile last changed
+  new ResizeObserver(([e]) => {
+    const b = e.devicePixelContentBoxSize?.[0];
+    const w = Math.max(1, b ? b.inlineSize : Math.round(e.contentRect.width * devicePixelRatio));
+    const h = Math.max(1, b ? b.blockSize : Math.round(e.contentRect.height * devicePixelRatio));
+    if (tiles.width !== w || tiles.height !== h) { tiles.width = w; tiles.height = h; }
+    tiles.requestPaint();
+  }).observe(tiles, { box: 'device-pixel-content-box' });
+  new ResizeObserver(() => { tiles.style.height = `${Math.max(190, grid.offsetHeight + 2)}px`; }).observe(grid);
+  tiles.addEventListener('paint', () => {
+    const s = tiles.width / (tiles.clientWidth || 1);
+    tctx.reset();
+    tctx.scale(s, s);
+    tctx.drawElementImage(grid, 0, 0, grid.offsetWidth, grid.offsetHeight);
+    // A ring around a tile that just changed, fading over a second.
+    let animating = false;
+    for (const fig of grid.children) {
+      const age = performance.now() - (flash.get(fig.dataset.name) ?? -1e9);
+      if (age > 1000) continue;
+      animating = true;
+      tctx.strokeStyle = `rgba(232, 93, 4, ${1 - age / 1000})`;
+      tctx.lineWidth = 4;
+      tctx.strokeRect(fig.offsetLeft - 3, fig.offsetTop - 3, fig.offsetWidth + 6, 136);
+    }
+    if (animating) requestAnimationFrame(() => tiles.requestPaint());
+  });
+
+  let folder = null, watching = null, wroteAt = 0;
+  // Never called from the paint handler: changing an iframe there crashes the tab.
+  async function showFile(name) {
+    let text = null;
+    try { text = await (await (await folder.getFileHandle(name)).getFile()).text(); } catch {}
+    let fig = [...grid.children].find((f) => f.dataset.name === name);
+    if (text === null) { fig?.remove(); return; }
+    if (!fig) {
+      fig = document.createElement('figure');
+      fig.dataset.name = name;
+      // Scripts in the file do not run. allow-same-origin keeps the frame drawable.
+      fig.innerHTML = '<iframe sandbox="allow-same-origin" tabindex="-1"></iframe><figcaption></figcaption>';
+      fig.querySelector('figcaption').textContent = name;
+      grid.append(fig);
+    }
+    const frame = fig.querySelector('iframe');
+    await new Promise((r) => { frame.onload = r; frame.srcdoc = text; setTimeout(r, 1500); });
+    flash.set(name, performance.now());
+    tiles.requestPaint();
+  }
+  async function openFolder(handle, label) {
+    watching?.stop();
+    folder = handle;
+    grid.replaceChildren();
+    const names = [];
+    for await (const [name, h] of folder.entries()) if (h.kind === 'file' && /\.html?$/i.test(name)) names.push(name);
+    names.sort();
+    for (const name of names.slice(0, 12)) await showFile(name);
+    watching = await cap.watchFolder(folder, async (changed) => {
+      const html = changed.filter((n) => /\.html?$/i.test(n));
+      for (const name of html) await showFile(name);
+      if (html.length) fNow.textContent = `${html.join(', ')} changed${wroteAt ? `, redrawn ${Math.round(performance.now() - wroteAt)} ms after the write` : ''}. Watching with ${watching.how}.`;
+      wroteAt = 0;
+    });
+    fNow.textContent = `${label}: ${names.length} HTML file${names.length === 1 ? '' : 's'}${names.length > 12 ? ', showing the first 12' : ''}. Watching with ${watching.how}.`;
+    $('#fSave').disabled = !names.length;
+    return names;
+  }
+  // #endregion folder
+  const SAMPLES = {
+    'card.html': '<body style="margin:0;font:14px system-ui;background:#fff6e6"><div style="padding:12px"><h3 style="margin:0 0 4px">Order 1042</h3>Three quokka lanterns<br><b>Shipped Tuesday</b></div>',
+    'chart.html': '<body style="margin:0;background:#101820"><svg viewBox="0 0 200 130" width="200" height="130"><polyline fill="none" stroke="#fee715" stroke-width="3" points="10,110 50,70 90,85 130,40 190,20"/><text x="10" y="20" fill="#fff" font-family="system-ui" font-size="12">Visits this week</text></svg>',
+    'note.html': '<body style="margin:0;font:13px Georgia,serif;background:#e8f1ff"><p style="margin:12px">Edit this file and save it. The tile redraws without a reload.</p>',
+  };
+  const privateFolder = async () => {
+    const root = await navigator.storage.getDirectory();
+    const dir = await root.getDirectoryHandle('capture-samples', { create: true });
+    for (const [name, text] of Object.entries(SAMPLES)) await cap.saveToFolder(new Blob([text], { type: 'text/html' }), name, dir);
+    return dir;
+  };
+  let edits = 0;
+  const editSample = async () => {
+    edits++;
+    wroteAt = performance.now();
+    await cap.saveToFolder(new Blob([SAMPLES['note.html'].replace(/Edit this file.*reload\./, `This file has been rewritten ${edits} time${edits === 1 ? '' : 's'} by the button.`)], { type: 'text/html' }), 'note.html', folder);
+  };
+  const saveTiles = async () => {
+    let n = 0;
+    for (const fig of grid.children) {
+      const blob = await cap.captureElement(fig.querySelector('iframe'), { scale: 2 });
+      await cap.saveToFolder(blob, fig.dataset.name.replace(/\.html?$/i, '.png'), folder);
+      n++;
+    }
+    return n;
+  };
+  const guard = (fn) => async () => { try { await fn(); } catch (err) { fNow.textContent = err.name === 'AbortError' ? 'No folder chosen.' : `${err.name}: ${err.message}`; } };
+  if (!('showDirectoryPicker' in window)) { $('#fPick').disabled = true; $('#fPick').title = 'This browser has no folder picker'; }
+  $('#fPick').onclick = guard(async () => { const h = await cap.pickFolder(); if (h) { await openFolder(h, `"${h.name}"`); $('#fEdit').disabled = true; } });
+  $('#fPrivate').onclick = guard(async () => { await openFolder(await privateFolder(), 'Private folder'); $('#fEdit').disabled = false; });
+  $('#fEdit').onclick = guard(editSample);
+  $('#fSave').onclick = guard(async () => { const n = await saveTiles(); fNow.textContent = `Wrote ${n} PNG file${n === 1 ? '' : 's'} into the folder, next to the HTML.`; });
+  window.__folder = { privateFolder, openFolder, editSample, saveTiles, get dir() { return folder; } };
 
   // ---------------------------------------------------------- test harness
   // Each test: [name, why, run(thumbCanvas) → detail string, { expect: 'fail' }?]
@@ -583,6 +743,53 @@ await printElement(el);                                   // paginated, 200 dpi<
       const m = cap.lastCapture;
       if (!near(pxOf(c, 5, c.height - 5), [255, 204, 0])) throw new Error('bottom of the element missing');
       return `asked for 4×, got ${m.scale.toFixed(2)}× (${c.width}×${c.height})`;
+    }],
+    ['copyElement({ html: true }) writes a picture, markup and text in one clipboard item', 'ClipboardItem takes several types. A promise for the PNG lets the write start inside the tap.', async (t) => {
+      const el = fixture(`<div style="${BOX}"><b>Copy me</b> as two things</div>`);
+      let blob;
+      try { blob = await cap.copyElement(el, { html: true }); }
+      catch (err) { if (err.name === 'NotAllowedError') return 'skipped: the clipboard needs a tap and a focused page. Use "Copy as image and HTML" above.'; throw err; }
+      thumbOf(t, await createImageBitmap(blob));
+      let read = 'not read back';
+      try {
+        const [item] = await navigator.clipboard.read();
+        const html = item.types.includes('text/html') ? await (await item.getType('text/html')).text() : '';
+        if (!item.types.includes('image/png') || !html.includes('Copy me')) throw new Error(`clipboard holds ${item.types.join(', ')}`);
+        if (/drawable/.test(html)) throw new Error('the copied markup carries capture attributes');
+        read = `read back ${item.types.join(', ')}`;
+      } catch (err) { if (err.name !== 'NotAllowedError') throw err; read = 'reading the clipboard back was not allowed'; }
+      return `wrote ${blob.types.join(', ')}; ${read}`;
+    }],
+    ['printElement({ header, footer }) keeps its @page margin boxes', 'Page numbers come from counter(page) and counter(pages) in @bottom-right.', async (t) => {
+      const el = fixture(`<div style="width:220px;height:1500px;background:linear-gradient(#ffd166,#118ab2)"></div>`);
+      const r = await cap.printElement(el, { print: false, dpi: 96, header: 'Capture', footer: { left: 'site', right: 'Page {page} of {pages}' } });
+      const first = r.frame.contentDocument.querySelector('img');
+      thumbOf(t, await createImageBitmap(first));
+      r.frame.remove();
+      if (r.marginBoxes !== 3) throw new Error(`the browser kept ${r.marginBoxes} of 3 margin boxes`);
+      if (r.pages < 2) throw new Error(`${r.pages} page`);
+      return `${r.pages} pages, ${r.marginBoxes} margin boxes in the print document, print-color-adjust: exact`;
+    }],
+    ['saveToFolder() and watchFolder() on a folder handle', 'Uses the site\'s private folder, which has the same API as a folder the person picks.', async (t) => {
+      if (!navigator.storage?.getDirectory) return 'skipped: no private file system in this browser';
+      const root = await navigator.storage.getDirectory();
+      const dir = await root.getDirectoryHandle('capture-test', { create: true });
+      const el = fixture(`<div style="${BOX}">saved</div>`);
+      const blob = await cap.captureElement(el);
+      thumbOf(t, await createImageBitmap(blob));
+      const seen = [];
+      const t0 = performance.now();
+      let at = 0;
+      const watch = await cap.watchFolder(dir, (names) => { seen.push(...names); at ||= performance.now() - t0; }, { interval: 300 });
+      const name = `t-${Date.now()}.png`;
+      const r = await cap.saveToFolder(blob, name, dir);
+      for (let i = 0; i < 40 && !seen.includes(name); i++) await sleep(50);
+      watch.stop();
+      const size = (await (await dir.getFileHandle(name)).getFile()).size;
+      await dir.removeEntry(name).catch(() => {});
+      if (size !== blob.size) throw new Error(`wrote ${size} of ${blob.size} bytes`);
+      if (!seen.includes(name)) throw new Error(`no change reported by ${watch.how}`);
+      return `${r.bytes} bytes written and read back; ${watch.how} reported the file after ${Math.round(at)} ms`;
     }],
   ];
 

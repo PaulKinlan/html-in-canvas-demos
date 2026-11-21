@@ -12,6 +12,10 @@
 //   const print = await captureElement(el, { dpi: 300 });      // print-quality PNG, size recorded in the file
 //   const webm  = await exportVideo(el, { fps: 60 });          // WebCodecs: animations stepped frame by frame
 //   const clip  = await encodeFrames(frames, { fps: 30 });     // any canvases / bitmaps you already have
+//   await copyElement(el, { html: true });                     // one clipboard item: PNG, HTML and text
+//   await printElement(el, { footer: 'Page {page} of {pages}' });   // @page margin boxes
+//   const folder = await pickFolder();  await saveToFolder(blob, 'card.png', folder);
+//   const watch  = await watchFolder(folder, (names) => …);    // FileSystemObserver, or polling
 //
 // How it gets an arbitrary element into a canvas (opts.strategy):
 //   'move'    (default) a temporary <canvas content="drawable"> takes the element's place and the
@@ -927,18 +931,42 @@ export function saveBlob(blob, filename) {
   return blob;
 }
 
+/** The MediaRecorder formats this browser can write, for recordElement({ mimeType }). HEVC in MP4 is in Chrome 136 and later where the device has an encoder. */
+export function recordFormats() {
+  const all = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm;codecs=av1', 'video/mp4;codecs=avc1.640028', 'video/mp4;codecs=hvc1.1.6.L93.B0', 'video/mp4;codecs=av01.0.08M.08'];
+  return typeof MediaRecorder === 'undefined' ? [] : all.filter((t) => MediaRecorder.isTypeSupported(t));
+}
+
 // ------------------------------------------------------------------- print
 
 const PAPER = { A4: [210, 297], A5: [148, 210], Letter: [215.9, 279.4] };
 
+// #region print
+/** CSS string for an @page margin box: text with {page} and {pages} replaced by counters. */
+function marginBox(where, text) {
+  if (!text) return '';
+  const parts = String(text).split(/(\{pages?\})/).filter(Boolean).map((part) =>
+    part === '{page}' ? 'counter(page)' : part === '{pages}' ? 'counter(pages)' : JSON.stringify(part));
+  return `@${where}{content:${parts.join(' ')};font:9pt system-ui,sans-serif;color:#444}`;
+}
+
 /**
  * Print one element on its own, paginated, at print resolution.
  * @param {object} [opts] dpi (default 200), paper ('A4'|'A5'|'Letter'), margin in mm,
- *   print (default true; false builds the print document and returns it without opening the dialog).
- * @returns {Promise<{ pages: number, frame: HTMLIFrameElement, scale: number }>}
+ *   print (default true; false builds the print document and returns it without opening the dialog),
+ *   header, footer: text for the page's margin boxes. A string goes in the centre; an object
+ *   { left, center, right } fills up to three boxes. {page} and {pages} become the page number
+ *   and the page count. The margin is raised to at least 14 mm so the boxes have room.
  */
-export async function printElement(el, { dpi = 200, paper = 'A4', margin = 12, print = true, ...rest } = {}) {
+export async function printElement(el, { dpi = 200, paper = 'A4', margin = 12, print = true, header, footer, ...rest } = {}) {
   const [pw, ph] = PAPER[paper] ?? PAPER.A4;
+  const boxes = [];
+  for (const [side, value] of [['top', header], ['bottom', footer]]) {
+    const v = typeof value === 'string' ? { center: value } : value ?? {};
+    for (const at of ['left', 'center', 'right']) boxes.push(marginBox(`${side}-${at}`, v[at]));
+  }
+  const marginCss = boxes.join('');
+  if (marginCss) margin = Math.max(margin, 14);
   const big = await captureElement(el, { ...rest, scale: dpi / 96, as: 'canvas' });
   const meta = lastCapture;
   const innerW = pw - margin * 2, innerH = ph - margin * 2;
@@ -952,9 +980,14 @@ export async function printElement(el, { dpi = 200, paper = 'A4', margin = 12, p
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
   document.body.append(frame);
   const d = frame.contentDocument;
+  // print-color-adjust keeps the picture's background colours when the person has "background graphics" off.
+  const css = `@page{size:${pw}mm ${ph}mm;margin:${margin}mm;${marginCss}}html,body{margin:0;print-color-adjust:exact;-webkit-print-color-adjust:exact}img{display:block;width:${widthMm}mm;break-after:page}img:last-child{break-after:auto}`;
   d.open();
-  d.write(`<!doctype html><title>${document.title}</title><style>@page{size:${pw}mm ${ph}mm;margin:${margin}mm}html,body{margin:0}img{display:block;width:${widthMm}mm;break-after:page}img:last-child{break-after:auto}</style>`);
+  d.write(`<!doctype html><title>${document.title.replace(/[<&]/g, '')}</title><style>${css}</style>`);
   d.close();
+  // Did the browser keep the margin boxes? A CSSPageRule lists them as child rules.
+  let marginBoxes = 0;
+  try { marginBoxes = [...d.styleSheets[0].cssRules].find((r) => r.type === 6 || r.constructor.name === 'CSSPageRule')?.cssRules?.length ?? 0; } catch {}
   let pages = 0;
   for (let y = 0; y < big.height; y += sliceH) {
     const slice = copyOut(big, 0, y, big.width, Math.min(sliceH, big.height - y));
@@ -971,17 +1004,96 @@ export async function printElement(el, { dpi = 200, paper = 'A4', margin = 12, p
     frame.contentWindow.focus();
     frame.contentWindow.print();
   }
-  return { pages, frame, scale: meta.scale };
+  return { pages, frame, scale: meta.scale, css, marginBoxes, marginBoxesWanted: boxes.filter(Boolean).length };
 }
+// #endregion print
 
 // ------------------------------------------------------------- conveniences
 
-/** Copy an element to the clipboard as a PNG. Needs a user gesture. */
-export async function copyElement(el, opts = {}) {
-  const blob = captureElement(el, { ...opts, type: 'image/png', as: 'blob' });
-  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+// #region copy
+/**
+ * Copy an element to the clipboard. Needs a user gesture.
+ * By default the clipboard item holds a PNG only. With { html: true } the same item also
+ * holds the element's markup as text/html and its text as text/plain, so a paste into an
+ * image editor gives the picture and a paste into a document or a text field gives the content.
+ * @returns {Promise<Blob>} the PNG, with `.types` listing what was written.
+ */
+export async function copyElement(el, { html = false, ...opts } = {}) {
+  // Read the markup first: the capture adds temporary attributes to the element.
+  const markup = html ? el.outerHTML : '', text = html ? el.innerText ?? el.textContent ?? '' : '';
+  // A promise, so the clipboard write starts inside the user gesture and the capture finishes later.
+  const png = captureElement(el, { ...opts, type: 'image/png', as: 'blob' });
+  const data = { 'image/png': png };
+  if (html) {
+    // Chrome 133 and later take strings here. Earlier versions need Blobs.
+    const strings = (() => { try { new ClipboardItem({ 'text/plain': 'x' }); return true; } catch { return false; } })();
+    data['text/html'] = strings ? markup : new Blob([markup], { type: 'text/html' });
+    data['text/plain'] = strings ? text : new Blob([text], { type: 'text/plain' });
+  }
+  await navigator.clipboard.write([new ClipboardItem(data)]);
+  const blob = await png;
+  blob.types = Object.keys(data);
   return blob;
 }
+// #endregion copy
+
+// #region folder
+/**
+ * Ask the person for a folder to save into (File System Access, on desktop and on Android
+ * from Chrome 132). Returns a FileSystemDirectoryHandle, or null where the picker is missing.
+ */
+export async function pickFolder({ mode = 'readwrite', id = 'element-capture' } = {}) {
+  if (!('showDirectoryPicker' in window)) return null;
+  return window.showDirectoryPicker({ mode, id });
+}
+
+/** Write a Blob into a folder handle. With no handle it falls back to a download. */
+export async function saveToFolder(blob, filename, folder) {
+  if (!folder) { saveBlob(blob, filename); return { where: 'download', filename }; }
+  const file = await folder.getFileHandle(filename, { create: true });
+  const w = await file.createWritable();
+  await w.write(blob);
+  await w.close();
+  return { where: folder.name || 'folder', filename, bytes: blob.size };
+}
+
+/**
+ * Call onchange(names) when a file in a folder handle is added, changed or removed.
+ * Uses FileSystemObserver where the browser has it and compares lastModified once a
+ * second where it does not. Returns { stop(), how }.
+ */
+export async function watchFolder(folder, onchange, { interval = 1000 } = {}) {
+  if ('FileSystemObserver' in window) {
+    try {
+      const observer = new FileSystemObserver((records) => {
+        const names = [...new Set(records.map((r) => r.relativePathComponents?.[0]).filter(Boolean))];
+        // Writes go through a swap file (name.crswap) first. Report the real files only.
+        const real = names.filter((n) => !n.endsWith('.crswap'));
+        if (real.length || !names.length) onchange(real);
+      });
+      await observer.observe(folder);
+      return { how: 'FileSystemObserver', stop: () => observer.disconnect() };
+    } catch {}
+  }
+  const stamp = async () => {
+    const m = new Map();
+    for await (const [name, h] of folder.entries()) if (h.kind === 'file') { try { const f = await h.getFile(); m.set(name, `${f.lastModified}:${f.size}`); } catch {} }
+    return m;
+  };
+  let before = await stamp(), stopped = false;
+  (async function poll() {
+    while (!stopped) {
+      await new Promise((r) => setTimeout(r, interval));
+      if (stopped) break;
+      const now = await stamp();
+      const names = [...new Set([...now.keys(), ...before.keys()])].filter((n) => now.get(n) !== before.get(n));
+      before = now;
+      if (names.length) onchange(names);
+    }
+  })();
+  return { how: 'polling', stop: () => { stopped = true; } };
+}
+// #endregion folder
 
 /** Capture and save as a file. */
 export async function downloadElement(el, filename = 'element.png', opts = {}) {
