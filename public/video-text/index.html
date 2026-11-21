@@ -64,7 +64,7 @@
     <canvas id="stage" content="drawable" layoutsubtree aria-label="Editable text drawn with a video">
       <div id="text" drawable>
         <div class="big" contenteditable="true" spellcheck="false" role="textbox" aria-label="Large text">VIDEO IN TYPE</div>
-        <p class="small" contenteditable="true" spellcheck="false" role="textbox" aria-label="Paragraph">Edit these words. The browser wraps them, places the caret and draws the selection. The canvas receives the result as a picture, and the video is the paint.</p>
+        <p class="small" contenteditable="true" spellcheck="false" role="textbox" aria-label="Paragraph">Edit these words. The browser wraps them, places the caret and draws the selection. The canvas receives the result as a picture and a shader fills it with the video.</p>
       </div>
     </canvas>
     <video id="src" hidden muted playsinline loop preload="auto"></video>
@@ -166,14 +166,18 @@
   <h2>Findings</h2>
   <p class="note">From Chromium 157 headless with software rendering and software video decoding, 2026-11-21. The rows above say what your browser does.</p>
   <ul class="findings" id="findingsList">
-    <li><strong>Works: editable DOM text as a shader input next to a video frame.</strong> The text stays editable, selectable and wrapped by the browser in every route. Six effects are built.</li>
-    <li><strong>Works with CSS and no canvas: fill and punch.</strong> <code>mix-blend-mode: multiply</code> or <code>screen</code> on text over a video gives both, with editable HTML text. An SVG <code>&lt;clipPath&gt;</code> or <code>&lt;mask&gt;</code> with <code>&lt;text&gt;</code> gives the fill for SVG text only.</li>
+    <li><strong>Works: editable DOM text as a shader input next to a video frame.</strong> The text stays editable, selectable and wrapped by the browser in every route. Six effects are built. A pixel inside a glyph differed from the video pixel by 1 of 255.</li>
+    <li><strong>Works with CSS and no canvas: fill and punch.</strong> <code>mix-blend-mode: multiply</code> or <code>screen</code> on text over a video gives both, with editable HTML text. An SVG <code>&lt;clipPath&gt;</code> or <code>&lt;mask&gt;</code> gives the fill for SVG text and shapes only.</li>
     <li><strong>Works: the CSS blend inside a drawable element.</strong> When the video and the blended text are both inside the drawn element, the blend is in its picture.</li>
-    <li><strong>Limit: the blend does not reach the canvas.</strong> <code>mix-blend-mode</code> on a drawn element does not blend with pixels the canvas already holds. <code>globalCompositeOperation</code> does that job in a 2D canvas.</li>
-    <li><strong>Limit: <code>background-clip: text</code> cannot use a video.</strong> Chromium has no <code>element()</code> and no <code>-webkit-canvas()</code> image. A <code>paint()</code> worklet exists but cannot be given a video frame.</li>
-    <li><strong>Needs the canvas: displace, chrome, mosaic and weight.</strong> Each one reads the text's pixels and the video's pixels at different places and computes a new pixel. CSS blending and clipping combine the two pictures at the same place only. The 2D canvas route is in the same position without a per-pixel loop in script.</li>
-    <li><strong>Selection and caret are in the text texture.</strong> A route that uses alpha as coverage (2D <code>source-in</code>) turns the selection highlight into a block of video. The shader keys on white, so it can tell glyphs from the highlight.</li>
-    <li><strong>Not verified here:</strong> the WebGPU route on screen, a hardware-decoded frame through <code>texImage2D(video)</code> on Android, touch selection handles and the on-screen keyboard on the drawn text, and the frame rate on a phone.</li>
+    <li><strong>Works in 2D only: the blend mode of the drawn element itself.</strong> <code>drawElementImage()</code> applied <code>mix-blend-mode: multiply</code> on the element against the pixels the canvas already held. <code>texElementSubImage2D()</code> gave the unblended picture, so a shader does not see the blend.</li>
+    <li><strong>Works: three ways to fill text with video in a 2D canvas.</strong> <code>source-in</code>, <code>globalCompositeOperation = 'multiply'</code>, and the element's own blend mode. Mean difference from the shader fill: 1.5 of 255.</li>
+    <li><strong>Limit: <code>background-clip: text</code> cannot use a video.</strong> Chromium has no <code>element()</code> and no <code>-webkit-canvas()</code> image. <code>paint()</code> parses, but a paint worklet draws CSS image values only (inferred from its interface, not measured).</li>
+    <li><strong>Needs the canvas: displace, chrome, mosaic and weight.</strong> Each one reads the text's pixels and the video's pixels at different places and computes a new pixel. CSS blending and clipping combine the two pictures at the same place only. The 2D route cannot build them without a per-pixel loop in script.</li>
+    <li><strong>Selection and caret are in the text texture.</strong> A route that uses alpha as coverage (2D <code>source-in</code>) turns the selection highlight and the caret into video. The shader keys on white, so it draws glyphs with the effect and the highlight and caret in their own colours.</li>
+    <li><strong>Timing: a video beside the canvas raises no paint.</strong> 0 paints a second, against 30 with the video inside the drawn element. <code>requestVideoFrameCallback()</code> supplies them. With the page idle, the frame from <code>texImage2D(video)</code> was the frame the callback reported in 26 of 28 paints. With a second canvas drawing in software at the same time it was 2 to 6 frames newer.</li>
+    <li><strong>Limit: a WebGL canvas needs <code>updateElementGeometry()</code>.</strong> Before the call, <code>elementFromPoint()</code> at a drawn letter returned the canvas and no caret position. After it, the paragraph and the right offset.</li>
+    <li><strong>WebGPU: built, compared off screen only.</strong> On the software adapter the six WGSL effects matched WebGL exactly. That adapter refused <code>copyExternalImageToTexture(video)</code> and <code>importExternalTexture(video)</code>, so the frame went through a 2D canvas.</li>
+    <li><strong>Not verified here:</strong> the WebGPU route on screen and a video frame straight into a GPU texture, a hardware-decoded frame through <code>texImage2D(video)</code> on Android, touch selection handles and the on-screen keyboard on the drawn text, and the frame rate on a phone.</li>
   </ul>
 </main>
 
@@ -649,7 +653,7 @@
     'Weight. Strokes are thick where the frame is bright and thin where it is dark. Amount is how far the weight moves.',
   ];
   const routeNote = {
-    webgpu: 'Drawn with WebGPU: drawElementImageToTexture() for the text, copyExternalImageToTexture() for the frame.',
+    webgpu: 'Drawn with WebGPU: drawElementImageToTexture() for the text, copyExternalImageToTexture() for the frame (through a 2D canvas when the adapter refuses the video element).',
     webgl: 'Drawn with WebGL 2: texElementSubImage2D() for the text, texImage2D(video) for the frame.',
     '2d': 'Drawn with a 2D canvas and no shader: drawElementImage(), then drawImage(video) with source-in or source-out. Only Fill and Punch can be drawn this way. Selected text becomes a block of video, because source-in reads alpha and the highlight has alpha.',
   };
@@ -696,7 +700,7 @@
     }
     if (demo.back.name === 'webgpu') demo.back.onBlank = (why) => { problem = `${why}, so the page changed to WebGL 2.`; start('webgl'); };
     canvas.addEventListener('routelost', () => {
-      blank('The WebGL context was lost. Choose a route under "Drawn with" to draw the text again.');
+      blank('The WebGL context was lost. Choose a route under "Drawn with" to draw the text again. The text is still on the page: "' + textEl.textContent.trim().replace(/\s+/g, ' ').slice(0, 120) + '"');
     });
     $('route').value = demo.route;
     for (const o of $('effect').options) o.disabled = demo.route === '2d' && o.value !== '0' && o.value !== '3';
@@ -792,6 +796,10 @@
     }
     describe();
   };
+  // A lost WebGPU device takes the page's WebGL contexts with it. Say so over the canvas.
+  addEventListener('webgpulost', () => {
+    if (demo && demo.route !== '2d') blank('The graphics device was lost. Choose "2D canvas" under "Drawn with" to draw the text again, or reload the page.');
+  });
   addEventListener('pagehide', () => { for (const t of camera?.getTracks() ?? []) t.stop(); });
 
   // ---- live checks: every one on its own fixture ----
@@ -826,6 +834,7 @@
   let glRig = null;
   async function rig(route, html, { w = 320, h = 180, video = null, effect = 0, amount = 0, geometry = true, gpu = null, present = true, fresh = false } = {}) {
     let r;
+    if (glRig?.back.lost) glRig = null;   // the context guard may take the context of a removed canvas when the tab is near its limit
     if (route === 'webgl' && glRig && !fresh) {
       r = glRig;
       r.canvas.style.width = `${w}px`; r.canvas.style.height = `${h}px`;
