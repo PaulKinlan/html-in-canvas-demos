@@ -84,6 +84,7 @@ window.DEMOS = [
   { group: 'audit', href: '/perf/', title: 'Performance wall', blurb: 'How many live elements a canvas can carry before frames drop, as plain DOM, a 2D canvas and a worker, measured on your device.', tags: ['requestPaint', 'worker', 'fps'] },
   { group: 'audit', href: '/chrome-apis/', title: 'Plan: new platform features', blurb: 'All 678 features that chromestatus.com lists for Chrome 130 to 160, each with a note on how it could be used with a canvas that draws live DOM, and a ranked list of 28 demos to build.', tags: ['chromestatus', 'plan'] },
   { group: 'audit', href: '/chrome-apis/probes.html', title: 'Probes: new features on drawn elements', blurb: '27 short tests of recent CSS and DOM features on elements that a canvas draws: carousels, anchor positioning, <code>corner-shape</code>, HDR colour, <code>:visited</code>, permission elements.', tags: ['drawElementImage', 'getImageData', 'CSS'] },
+  { group: 'audit', href: '/protected/', title: 'What a canvas may not see', blurb: 'Permission buttons, visited links, spelling markers, autofill and content from other origins, each placed in a drawable canvas: is it in the picture, can script read it, and does it still work.', tags: ['getImageData', '<geolocation>', ':visited', 'cross-origin'] },
 ];
 
 // Put the entries in group order, keeping the order within each group, so the

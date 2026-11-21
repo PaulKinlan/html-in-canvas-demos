@@ -85,6 +85,7 @@
       '/perf/': { question: 'How many elements can a canvas draw per frame on your device, compared with plain DOM and with a worker?', first: ['/start/', '/offscreen/'], api: ['requestPaint()', 'captureElementImage()'] },
       '/chrome-apis/': { question: 'Which features from Chrome 130 to 160 can be combined with a canvas that draws live DOM, and which demos should be built from them?', result: '359 of 678 features have an idea, 44 are measured, and 28 demos are planned.', first: ['/chrome-apis/probes.html'] },
       '/chrome-apis/probes.html': { question: 'Do recent CSS and DOM features take effect on an element that a canvas draws?', result: 'Shapes, carets, highlights, scroll markers and scroll-driven animations do. Popovers are not in the picture, links are drawn as unvisited, and permission elements report that they are distorted.', first: ['/start/'], api: ['drawElementImage()', 'requestPaint()', 'getImageData()'] },
+      '/protected/': { question: 'What does the browser do with protected content, such as permission buttons, visited links and cross-origin frames, when a canvas draws it?', result: 'Cross-origin content is left out of the picture and the canvas is never tainted. Permission elements are drawn and stop working. Links are drawn as unvisited.', first: ['/start/', '/chrome-apis/probes.html'], api: ['drawElementImage()', 'getImageData()', 'texElementSubImage2D()'] },
     },
   };
   window.LEARN = LEARN;
