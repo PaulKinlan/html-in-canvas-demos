@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shaders that join the native controls and the video frame</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .bar label { display: inline-flex; gap: 6px; align-items: center; }
+  .bar select { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; max-width: 100%; }
+  .stage { max-width: 640px; position: relative; }
+  .say { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; }
+  [hidden] { display: none !important; }
+  #stage { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #0f1116; touch-action: manipulation; }
+  #blank { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; border-radius: 10px; background: #0f1116; color: #fff; font-size: 14px; }
+  #partsList { font: 12px/1.6 var(--mono); color: var(--muted); margin: 8px 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0 12px; }
+  #partsList i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+
+  /* #region layer */
+  /* The <video> fills the canvas, but its frame is moved out of its box. What the browser paints for it is the
+     controls on a clear background. The frame is taken from the same element with texImage2D(video). */
+  .controls-layer { width: 100%; height: 100%; }
+  .controls-layer video { display: block; width: 100%; height: 100%; background: transparent; object-fit: none; object-position: -9999px 0; }
+  .controls-layer video::-webkit-media-controls-panel { background: none; }
+  /* #endregion layer */
+
+  /* #region probe */
+  /* The parts cannot be reached from script. For one paint, each part gets a flat colour of its own.
+     The page reads that picture back and finds the box of each colour. The picture is never shown. */
+  .probe video::-webkit-media-controls-play-button { background: rgb(0 0 255) !important; }
+  .probe video::-webkit-media-controls-timeline { background: rgb(255 0 255) !important; }
+  .probe video::-webkit-media-controls-mute-button { background: rgb(0 255 0) !important; }
+  .probe video::-webkit-media-controls-fullscreen-button { background: rgb(255 0 0) !important; }
+  .probe video::-webkit-media-controls-current-time-display { background: rgb(0 255 255) !important; }
+  .probe video::-webkit-media-controls-time-remaining-display { background: rgb(255 255 0) !important; }
+  /* #endregion probe */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Shaders that join the native controls and the video frame</h1>
+  <p class="lede">
+    One <code>&lt;video controls&gt;</code> gives a WebGL canvas two textures: its controls, and its frame. One fragment shader reads both.
+    The page also finds where the play button, the timeline and four other parts are, although no script can reach them, so an effect can start at one part.
+  </p>
+
+  <div class="bar">
+    <label>Effect
+      <select id="effect">
+        <option value="6" selected>Meld: the play button grows into a lens over the video</option>
+        <option value="1">Glass: a frosted bar, each control a lens</option>
+        <option value="2">Melt: the controls are made of the video</option>
+        <option value="3">Ripple: play and pause send a wave from the play button</option>
+        <option value="4">Light: the timeline thumb lights the frame</option>
+        <option value="5">Parts found: an outline around each one</option>
+        <option value="0">None: controls over the frame</option>
+      </select>
+    </label>
+  </div>
+  <div class="stage">
+    <!-- #region markup -->
+    <canvas id="stage" content="drawable" layoutsubtree aria-label="Video player drawn by a shader">
+      <div class="controls-layer" drawable>
+        <video data-src="/media/clip.webm" controls muted playsinline loop preload="auto"></video>
+      </div>
+    </canvas>
+    <!-- #endregion markup -->
+    <div id="blank" hidden role="status"></div>
+  </div>
+  <p class="say" id="say" role="status"></p>
+  <ul id="partsList" aria-label="Parts found"></ul>
+  <p class="note">The controls are the browser's own and work as usual: tap the video to show them, then play, seek, mute, open the menu.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>two textures from one video, finding the parts, the shader</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> One video in a drawable element that fills the canvas.</li>
+      <li data-code="#layer"><b>The CSS that leaves only the controls in the element's picture.</b></li>
+      <li data-code="#upload"><b>Two textures.</b> <code>texElementSubImage2D()</code> for the controls and <code>texImage2D(video)</code> for the frame, in the <code>paint</code> handler.</li>
+      <li data-code="#probe"><b>Finding the parts: the CSS.</b></li>
+      <li data-code="#measure"><b>Finding the parts: the readback.</b></li>
+      <li data-code="#shader"><b>The fragment shader.</b> Six effects. <code>uParts</code> holds the boxes that were found.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The video is a child of the canvas and fills it. <code>object-position: -9999px 0</code> moves its frame out of its box, so the browser paints only the controls for it. That picture goes into one texture.</li>
+    <li><code>texImage2D(video)</code> on the same element still gives the frame. That is the second texture. One decoder serves both.</li>
+    <li>The controls are drawn where the element lies, so taps reach them with no extra work.</li>
+    <li>To find one part, the page adds a class for a single paint. The class gives each part a flat colour through its pseudo-element. The page uploads that picture to a spare texture, reads it back, and takes the bounding box of each colour. The spare texture is never drawn to the screen.</li>
+    <li>The shader gets the boxes as uniforms, with the playback position and the time since the last play or pause.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small player in a corner of the window. The player above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: controls and frame as two textures from one element.</strong> A shader can refract the frame through the controls, fill the controls with the frame, or light the frame from a control.</li>
+    <li><strong>Works: one part used as a shape.</strong> With the box of the play button known, the shader reads its glyph out of the controls texture and draws it at any size. The glyph is the browser's, so it changes between play and pause without any code here.</li>
+    <li><strong>Works: the position of one part.</strong> A colour per pseudo-element and one readback give the box of the play button, timeline, mute button, fullscreen button and both time displays. The boxes are measured, so they follow the layout the browser chose, including a touch layout.</li>
+    <li><strong>Works: the browser's own fade is an input.</strong> During playback the browser fades the buttons. The fade arrives in the texture as alpha, so the melt effect shrinks the shapes with it.</li>
+    <li><strong>Works: everything the player paints is in the controls texture.</strong> The loading ring and the menu are there too, so the effects apply to them with no extra code.</li>
+    <li><strong>Limit: parts with no pseudo-element name cannot be found.</strong> The menu button and the row that holds the buttons have internal names only.</li>
+    <li><strong>Limit: one part cannot be drawn by itself.</strong> The shader can treat the area of a part differently. It cannot have the play button as a texture of its own. A second copy of the element with every other part set to <code>display: none</code> would give that, at the cost of another video element.</li>
+    <li><strong>Limit: the boxes go stale.</strong> They are measured after loading, on resize and when the controls come back. A layout change between those moments is not seen.</li>
+    <li><strong>Not built:</strong> a WebGPU version of this shader. The page uses WebGL 2.</li>
+    <li><strong>Not verified here:</strong> a hardware-decoded frame through <code>texImage2D(video)</code> on Android, the boxes found in the touch layout of the controls, and the frame rate on a phone.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // #region shader
+  const FRAG = `#version 300 es
+  precision highp float;
+  uniform sampler2D uC;      // the controls, premultiplied, clear where there is no control
+  uniform sampler2D uF;      // the video frame
+  uniform vec2 uRes;         // canvas buffer size
+  uniform float uPx;         // buffer pixels per CSS pixel
+  uniform float uTime, uPulse, uProgress, uPaused, uHasFrame;
+  uniform int uEffect;
+  uniform vec4 uParts[6];    // x0, y0, x1, y1 of each part, 0 to 1 from the top left. x1 < x0: not found
+  out vec4 outColor;
+
+  vec4 C(vec2 p) { return texture(uC, p); }
+  vec3 F(vec2 p) { return uHasFrame > 0.5 ? texture(uF, clamp(p, 0.0, 1.0)).rgb : vec3(0.06, 0.07, 0.09); }
+  bool found(vec4 r) { return r.z > r.x; }
+  vec2 aspect() { return vec2(uRes.x / uRes.y, 1.0); }
+
+  // Alpha of the controls, blurred over r CSS pixels. A height map of the controls.
+  float soft(vec2 p, float r) {
+    vec2 s = r * uPx / uRes;
+    float a = C(p).a * 2.0;
+    for (int i = 0; i < 8; i++) {
+      float t = float(i) * 0.7854;
+      vec2 d = vec2(cos(t), sin(t)) * s;
+      a += C(p + d).a + C(p + d * 0.5).a;
+    }
+    return a / 18.0;
+  }
+  vec2 slope(vec2 p, float r) {
+    vec2 e = 2.0 * uPx / uRes;
+    return vec2(soft(p + vec2(e.x, 0.0), r) - soft(p - vec2(e.x, 0.0), r),
+                soft(p + vec2(0.0, e.y), r) - soft(p - vec2(0.0, e.y), r));
+  }
+  // Distance to a part's box, in units of the canvas height. Negative inside.
+  float box(vec2 p, vec4 r) {
+    vec2 d = abs((p - (r.xy + r.zw) * 0.5) * aspect()) - (r.zw - r.xy) * 0.5 * aspect();
+    return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+  }
+  vec3 over(vec3 under, vec4 top) { return under * (1.0 - top.a) + top.rgb; }
+
+  void main() {
+    vec2 uv = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y) / uRes;
+    vec4 c = C(uv);
+    vec3 col = F(uv);
+
+    // 1 while paused, 0 while playing, eased over 0.6 s after each play or pause.
+    float t = smoothstep(0.0, 0.6, uPulse);
+    float k = uPaused > 0.5 ? t : 1.0 - t;
+
+    if (uEffect == 0) {
+      col = over(col, c);
+    } else if (uEffect == 6) {
+      // Meld. The glyph of the play button is read from its measured box and drawn again, large,
+      // as a lens in the middle of the frame. On play it shrinks back into the button. On pause it comes out.
+      vec4 r = uParts[0];
+      if (found(r)) {
+        vec2 home = (r.xy + r.zw) * 0.5;
+        float small = (r.w - r.y) * 0.5;                       // half height of the button, in canvas heights
+        vec2 centre = mix(home, vec2(0.5, 0.46), k);
+        float half_ = mix(small * 0.3, 0.34, k);
+        vec2 d = (uv - centre) * aspect() / half_;             // -1 to 1 across the large glyph
+        vec2 src = home + d * small * 0.3 / aspect();          // the same place in the real button. The glyph is the middle third of the box
+        float inside = step(max(abs(d.x), abs(d.y)), 1.0);
+        float g = smoothstep(0.35, 0.6, C(src).a) * inside * smoothstep(0.02, 0.2, k);
+        float edge = g * (1.0 - g) * 4.0;
+        // Outside the glyph the frame dims while paused, with rings that follow the glyph in or out.
+        float dist = length((uv - centre) * aspect());
+        float ring = sin(dist * 40.0 - uPulse * 14.0) * exp(-dist * 3.0) * max(0.0, 1.0 - uPulse / 1.2);
+        col = F(uv + normalize(uv - centre + 1e-5) * ring * 0.02) * (1.0 - 0.45 * k);
+        // Inside it the frame is magnified, its colours are split, and it is brighter.
+        vec2 lens = centre + (uv - centre) * 0.72;
+        vec3 inner = vec3(F(lens + vec2(0.006, 0.0)).r, F(lens).g, F(lens - vec2(0.006, 0.0)).b) * 1.35 + 0.08;
+        col = mix(col, inner, g) + edge * 0.55;
+      }
+      col = over(col, c);
+    } else if (uEffect == 1) {
+      // Glass. The row of controls is a frosted bar, and each control is a lens in it:
+      // the frame is looked up along the slope of the blurred alpha of the controls.
+      float top = 1.0;
+      for (int i = 0; i < 6; i++) if (found(uParts[i])) top = min(top, uParts[i].y);
+      float bar = smoothstep(top - 0.035, top - 0.015, uv.y);
+      vec3 frost = vec3(0.0);
+      for (int i = 0; i < 12; i++) {
+        float a = float(i) * 2.4;
+        frost += F(uv + vec2(cos(a), sin(a)) * (4.0 + float(i)) * uPx / uRes);
+      }
+      col = mix(col, frost / 12.0 * 0.8 + 0.1, bar);
+      float h = soft(uv, 7.0);
+      vec2 g = slope(uv, 7.0);
+      vec3 through = F(uv - g / aspect() * 0.22) * (1.0 + 0.5 * h);
+      col = mix(col, through, smoothstep(0.02, 0.2, h));
+      vec3 n = normalize(vec3(-g * 9.0, 1.0));
+      col += pow(clamp(dot(n, normalize(vec3(-0.4, -0.6, 0.7))), 0.0, 1.0), 24.0) * 0.9 * step(0.02, h);
+      col = mix(col, vec3(1.0), c.a * 0.3);
+    } else if (uEffect == 2) {
+      // Melt. The shapes of the controls are thickened and filled with the inverted frame.
+      // For a second after play or pause they run downwards.
+      float e = uPulse < 1.4 ? sin(uPulse / 1.4 * 3.14159) : 0.0;
+      float wob = 0.5 + 0.5 * sin(uv.x * 38.0 + uTime * 1.3);
+      vec2 q = uv - vec2(0.004 * sin(uv.y * 60.0 + uTime * 3.0), -0.01 * sin(uv.x * 25.0 + uTime * 2.0) + e * 0.2 * wob);
+      float a = smoothstep(0.10, 0.18, soft(q, 6.0));
+      vec3 fill = mix(1.0 - F(uv + vec2(0.012 * sin(uv.y * 30.0 + uTime * 2.0), 0.0)), vec3(1.0), 0.3);
+      col = mix(col, fill, a);
+      col += a * (1.0 - a) * 2.0;
+      col = mix(col, vec3(1.0), c.a * 0.5);
+    } else if (uEffect == 3) {
+      // Ripple. A wave leaves the centre of the play button when playback starts or stops.
+      vec4 r = uParts[0];
+      vec2 centre = found(r) ? (r.xy + r.zw) * 0.5 : vec2(0.06, 0.9);
+      vec2 d = (uv - centre) * aspect();
+      float dist = length(d), front = uPulse * 0.9;
+      float w = sin((dist - front) * 36.0) * exp(-abs(dist - front) * 5.0) * max(0.0, 1.0 - uPulse / 2.4);
+      col = F(uv + normalize(d + 1e-5) / aspect() * w * 0.06) * (1.0 + w * 0.8);
+      if (found(r)) col += vec3(1.0, 0.5, 0.2) * uPaused * exp(-max(box(uv, r), 0.0) * 22.0) * (0.5 + 0.3 * sin(uTime * 3.0));
+      col = over(col, c);
+    } else if (uEffect == 4) {
+      // Light. The frame is dim except around the timeline thumb. The played part glows upwards.
+      vec4 tl = uParts[1];
+      if (found(tl)) {
+        float pad = 8.0 * uPx / uRes.x;
+        vec2 thumb = vec2(mix(tl.x + pad, tl.z - pad, uProgress), (tl.y + tl.w) * 0.5);
+        vec2 d = (uv - thumb) * aspect();
+        col *= 0.3 + 1.9 * exp(-dot(d, d) * 9.0);
+        float played = step(tl.x, uv.x) * step(uv.x, thumb.x) * step(uv.y, thumb.y);
+        col += played * exp(-(thumb.y - uv.y) * 11.0) * 0.6 * vec3(1.0, 0.75, 0.3);
+      }
+      col = over(col, c);
+    } else {
+      // Parts found. An outline around each measured box.
+      col = over(col * 0.35, c);
+      for (int i = 0; i < 6; i++) {
+        if (!found(uParts[i])) continue;
+        float line = 1.0 - smoothstep(0.0, 2.0, abs(box(uv, uParts[i])) * uRes.y / uPx);
+        vec3 tint = 0.5 + 0.5 * cos(6.2832 * (float(i) / 6.0 + vec3(0.0, 0.33, 0.67)));
+        col = mix(col, tint, line);
+      }
+    }
+    outColor = vec4(col, 1.0);
+  }`;
+  // #endregion shader
+  const VERT = `#version 300 es
+  void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+
+  const PARTS = [
+    { name: 'play button', rgb: [0, 0, 255] },
+    { name: 'timeline', rgb: [255, 0, 255] },
+    { name: 'mute button', rgb: [0, 255, 0] },
+    { name: 'fullscreen button', rgb: [255, 0, 0] },
+    { name: 'current time', rgb: [0, 255, 255] },
+    { name: 'duration', rgb: [255, 255, 0] },
+  ];
+
+  /** Start the player in a canvas. Returns what the page and the checks need. */
+  function mount(canvas, { onParts = () => {}, onFail = () => {} } = {}) {
+    const layer = canvas.querySelector('.controls-layer'), video = layer.querySelector('video');
+    const gl = canvas.getContext('webgl2', { alpha: false, antialias: false });
+    if (!gl || !('texElementSubImage2D' in gl)) { onFail('WebGL 2 with texElementSubImage2D() is not available in this browser.'); return null; }
+
+    const program = gl.createProgram();
+    for (const [type, src] of [[gl.VERTEX_SHADER, VERT], [gl.FRAGMENT_SHADER, FRAG]]) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { onFail(`The shader did not compile: ${gl.getShaderInfoLog(s)}`); return null; }
+      gl.attachShader(program, s);
+    }
+    gl.linkProgram(program);
+    gl.useProgram(program);
+    const U = (name) => gl.getUniformLocation(program, name);
+    const makeTexture = () => {
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      return t;
+    };
+    const controlsTex = makeTexture(), probeTex = makeTexture(), frameTex = makeTexture();
+    const fbo = gl.createFramebuffer();
+    const state = {
+      effect: 6, parts: PARTS.map(() => null), partsFlat: new Float32Array(24).fill(-1),
+      tw: 0, th: 0, hasFrame: false, toggledAt: -1e9, lost: false, probing: false, probeWanted: true, grab: null, paints: 0,
+    };
+    for (let i = 0; i < 6; i++) { state.partsFlat[i * 4] = 1; state.partsFlat[i * 4 + 2] = 0; } // x1 < x0: not found
+
+    function size() {
+      const dpr = Math.min(devicePixelRatio, 2);
+      const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w; canvas.height = h; state.probeWanted = true;
+        // A WebGL draw does not tell the browser where the element is. This does: at the canvas origin, unscaled.
+        canvas.updateElementGeometry?.(layer, { canvasTransform: new DOMMatrix() });
+        layer.toggleAttribute('data-placed'); // Chromium 157 remembers old hit-test answers until an attribute changes
+      }
+      return w / Math.max(1, canvas.clientWidth);
+    }
+
+    // #region upload
+    function upload(texture) {
+      // The texture must have the size the browser paints the element at.
+      const want = canvas.getElementImageDefaultSize(layer);
+      const tw = Math.max(1, Math.ceil(want.width)), th = Math.max(1, Math.ceil(want.height));
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      if (texture.w !== tw || texture.h !== th) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, tw, th, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        texture.w = tw; texture.h = th;
+      }
+      gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, layer); // the controls, on a clear background
+      state.tw = tw; state.th = th;
+    }
+    function uploadFrame() {
+      if (video.readyState < 2 || (state.freeze && state.hasFrame)) return;
+      gl.bindTexture(gl.TEXTURE_2D, frameTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video); // the frame, from the same element
+      state.hasFrame = true;
+    }
+    // #endregion upload
+
+    // #region measure
+    // Called in a paint where the layer has the class "probe". Reads the coloured picture back
+    // and takes the bounding box of each part's colour.
+    function measure() {
+      upload(probeTex);
+      const w = state.tw, h = state.th, px = new Uint8Array(w * h * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, probeTex, 0);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      const boxes = PARTS.map(() => [w, h, -1, -1, 0]);
+      for (let y = 0, i = 0; y < h; y++) {
+        for (let x = 0; x < w; x++, i += 4) {
+          if (px[i + 3] < 250) continue;
+          // Each colour has every channel at 0 or 255, so three bits name the part.
+          const r = px[i], g = px[i + 1], b = px[i + 2];
+          if ((r > 12 && r < 243) || (g > 12 && g < 243) || (b > 12 && b < 243)) continue;
+          const key = (r > 128 ? 4 : 0) | (g > 128 ? 2 : 0) | (b > 128 ? 1 : 0);
+          const at = [-1, 0, 2, 4, 3, 1, 5, -1][key]; // 001 blue: play, 101 magenta: timeline, 010 green: mute, 100 red: fullscreen, 011 cyan: time, 110 yellow: duration
+          if (at < 0) continue;
+          const bx = boxes[at];
+          if (x < bx[0]) bx[0] = x;
+          if (y < bx[1]) bx[1] = y;
+          if (x > bx[2]) bx[2] = x;
+          if (y > bx[3]) bx[3] = y;
+          bx[4]++;
+        }
+      }
+      let any = false;
+      boxes.forEach((bx, i) => {
+        if (bx[4] < 12) return; // not showing now: keep the last box
+        any = true;
+        state.parts[i] = { x: bx[0] / w, y: bx[1] / h, w: (bx[2] + 1 - bx[0]) / w, h: (bx[3] + 1 - bx[1]) / h };
+        state.partsFlat.set([bx[0] / w, bx[1] / h, (bx[2] + 1) / w, (bx[3] + 1) / h], i * 4);
+      });
+      return any;
+    }
+    // #endregion measure
+
+    function draw(scale) {
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, controlsTex);
+      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, frameTex);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.uniform1i(U('uC'), 0);
+      gl.uniform1i(U('uF'), 1);
+      gl.uniform2f(U('uRes'), canvas.width, canvas.height);
+      gl.uniform1f(U('uPx'), scale);
+      gl.uniform1f(U('uTime'), (performance.now() / 1000) % 1000);
+      gl.uniform1f(U('uPulse'), Math.min(100, (performance.now() - state.toggledAt) / 1000));
+      gl.uniform1f(U('uProgress'), video.duration ? video.currentTime / video.duration : 0);
+      gl.uniform1f(U('uPaused'), video.paused ? 1 : 0);
+      gl.uniform1f(U('uHasFrame'), state.hasFrame ? 1 : 0);
+      gl.uniform1i(U('uEffect'), state.effect);
+      gl.uniform4fv(U('uParts'), state.partsFlat);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    canvas.addEventListener('paint', () => {
+      if (state.lost) return;
+      state.paints++;
+      const scale = size();
+      if (state.probing) {
+        // This paint has the probe colours. Measure it, and draw the frame from the last normal picture.
+        state.probing = false;
+        layer.classList.remove('probe');
+        if (measure()) onParts(state.parts);
+      } else {
+        upload(controlsTex);
+      }
+      uploadFrame();
+      draw(scale);
+      if (state.grab) {
+        const px = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        state.grab({ data: px, width: canvas.width, height: canvas.height });
+        state.grab = null;
+      }
+    });
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); state.lost = true; onFail('The WebGL context was lost.'); });
+
+    // The effects move with time, so the canvas is painted every frame while it is on screen.
+    let onScreen = false, raf = 0;
+    const tick = () => {
+      raf = 0;
+      if (!onScreen || state.lost) return;
+      if (state.probeWanted && video.readyState >= 1 && !state.probing) {
+        state.probeWanted = false;
+        state.probing = true;
+        layer.classList.add('probe');
+      }
+      canvas.requestPaint();
+      raf = requestAnimationFrame(tick);
+    };
+    const seen = new IntersectionObserver(([e]) => {
+      onScreen = e.isIntersecting;
+      if (onScreen && !video.src && video.dataset.src) video.src = video.dataset.src; // one decoder, and only when the player is near
+      if (!onScreen && !video.paused) video.pause();
+      if (onScreen && !raf) raf = requestAnimationFrame(tick);
+    }, { rootMargin: '100px 0px' });
+    seen.observe(canvas);
+
+    const toggled = () => { state.toggledAt = performance.now(); state.probeWanted = true; };
+    video.addEventListener('play', toggled);
+    video.addEventListener('pause', toggled);
+    for (const type of ['loadeddata', 'pointerenter', 'pointerdown', 'volumechange']) video.addEventListener(type, () => setTimeout(() => (state.probeWanted = true), 350));
+
+    return {
+      video, state, gl,
+      probe: () => { state.probeWanted = true; },
+      /** The canvas as drawn in one paint: { data, width, height }, rows from the bottom. */
+      grab: () => new Promise((resolve) => { state.grab = resolve; canvas.requestPaint(); }),
+      stop: () => { seen.disconnect(); cancelAnimationFrame(raf); onScreen = false; },
+      idle: () => { onScreen = false; },
+      start: () => { onScreen = true; if (!video.src && video.dataset.src) video.src = video.dataset.src; if (!raf) raf = requestAnimationFrame(tick); },
+    };
+  }
+
+  // ---- the page's player ----
+  const explain = {
+    0: 'The frame with the controls over it. Both come from the same <video>.',
+    6: 'While paused, the glyph of the play button is drawn again as a large lens: the shader reads it from the box the page measured. Press play and it shrinks into the real button. Press pause and it comes back out.',
+    1: 'The row of controls is a frosted bar. The alpha of the controls is blurred into a height map, and the frame is looked up along its slope, so each button and the timeline bend the picture under them.',
+    2: 'The shapes of the controls are thickened and filled with the inverted frame. Press play or pause and they run downwards for a second. During playback the browser fades the buttons, and the shapes shrink with that fade.',
+    3: 'Press play or pause. The wave starts at the centre of the play button, which the page measured. While paused the button glows.',
+    4: 'The frame is lit from the timeline thumb. Its position is the measured box of the timeline and currentTime / duration. Drag the timeline.',
+    5: 'Each outline is a box found by colouring one part for a single paint and reading the picture back.',
+  };
+  const say = (text) => { $('say').textContent = text; };
+  const fail = (text) => { $('blank').hidden = false; $('blank').textContent = `${text} The player cannot be drawn here.`; };
+  let player = null;
+  if (supported) {
+    player = mount($('stage'), {
+      onFail: fail,
+      onParts(parts) {
+        $('partsList').replaceChildren(...PARTS.map((p, i) => {
+          const li = document.createElement('li');
+          const at = parts[i];
+          const sw = document.createElement('i');
+          sw.style.background = `rgb(${p.rgb.join(' ')})`;
+          li.append(sw, at ? `${p.name}: ${Math.round(at.w * $('stage').clientWidth)}×${Math.round(at.h * $('stage').clientHeight)} at ${Math.round(at.x * $('stage').clientWidth)}, ${Math.round(at.y * $('stage').clientHeight)}` : `${p.name}: not found`);
+          return li;
+        }));
+      },
+    });
+    if (player) {
+      const pick = () => { player.state.effect = +$('effect').value; say(explain[$('effect').value]); };
+      $('effect').onchange = pick;
+      pick();
+      new ResizeObserver(() => player.probe()).observe($('stage'));
+      player.video.addEventListener('error', () => {
+        const err = player.video.error;
+        say(`The video stopped with an error: ${{ 1: 'aborted', 2: 'network', 3: 'decode', 4: 'source not supported' }[err?.code] ?? 'unknown'}${err?.message ? ` (${err.message})` : ''}.`);
+      });
+    }
+  } else {
+    fail('HTML-in-canvas is not available.');
+  }
+
+  // ---- live checks: each on its own small player ----
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const hitAt = (x, y) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { s.style.pointerEvents = 'none'; } };
+  let rig = null;
+  async function fixture(effect = 0) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = 'display:block;flex:none;width:320px;height:180px';
+    c.innerHTML = '<div class="controls-layer" drawable><video src="/media/clip.webm" controls muted playsinline loop preload="auto"></video></div>';
+    quietStage().append(c);
+    let failed = '';
+    const p = mount(c, { onFail: (t) => (failed = t) });
+    if (!p) throw new Error(failed);
+    rig = p;
+    p.state.effect = effect;
+    p.start();
+    for (let i = 0; i < 80 && p.video.readyState < 2; i++) await sleep(100);
+    if (p.video.readyState < 2) throw new Error('the clip did not load');
+    p.video.currentTime = 2; // a frame with colour in it
+    await new Promise((r) => p.video.addEventListener('seeked', r, { once: true }));
+    for (let i = 0; i < 40 && !p.state.parts[0]; i++) await sleep(100);
+    await sleep(200);
+    return { c, p };
+  }
+  function release() {
+    if (!rig) return;
+    rig.stop();
+    try { rig.video.pause(); rig.video.removeAttribute('src'); rig.video.load(); } catch {}
+    // The context is left for the garbage collector. Calling WEBGL_lose_context.loseContext() here
+    // crashed the tab in Chromium 157. A smaller case with one canvas did not, so the cause is not known.
+    rig = null;
+  }
+  // Count pixels that differ between two grabs, inside and outside a band of rows (0 = top).
+  function differing(a, b, from, to) {
+    let inside = 0, outside = 0;
+    for (let y = 0; y < a.height; y++) {
+      const top = 1 - (y + 0.5) / a.height, inBand = top >= from && top <= to;
+      for (let x = 0, i = y * a.width * 4; x < a.width; x++, i += 4) {
+        if (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2]) > 36) inBand ? inside++ : outside++;
+      }
+    }
+    return { inside, outside };
+  }
+  const each = (tests) => tests.map((t) => ({ timeout: 20000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { release(); } } }));
+
+  runTests($('results'), each([
+    {
+      name: 'One video gives two textures: its controls and its frame',
+      why: 'The element\'s picture must be clear where the frame was (read from the controls texture) while texImage2D(video) gives the frame. The canvas with no effect must show both.',
+      run: async () => {
+        const { p } = await fixture(0);
+        const shot = await p.grab();
+        let lit = 0, white = 0;
+        for (let i = 0; i < shot.data.length; i += 4) {
+          const s = shot.data[i] + shot.data[i + 1] + shot.data[i + 2];
+          if (s > 60) lit++;
+          if (shot.data[i] > 235 && shot.data[i + 1] > 235 && shot.data[i + 2] > 235) white++;
+        }
+        const total = shot.width * shot.height;
+        if (lit / total < 0.5) throw new Error(`only ${(lit / total * 100).toFixed(0)}% of the canvas has the frame`);
+        if (white < 40) throw new Error(`${white} white control pixels`);
+        return `${(lit / total * 100).toFixed(0)}% of the canvas has the frame and ${white} pixels are white control glyphs; controls texture ${p.state.tw}×${p.state.th}`;
+      },
+    },
+    {
+      name: 'The page finds the play button and the timeline',
+      why: 'Each part is given a flat colour through its pseudo-element for one paint. The play button must be at the left and the timeline wide. A narrow player moves some buttons into the menu, so the others are reported and not required.',
+      run: async () => {
+        const { p } = await fixture(5);
+        const [play, timeline] = p.state.parts;
+        const names = PARTS.filter((_, i) => p.state.parts[i]).map((x) => x.name);
+        if (!play || !timeline) throw new Error(`found only: ${names.join(', ') || 'nothing'}`);
+        if (!(play.x < 0.25 && timeline.w > 0.6)) throw new Error(`play at ${play.x.toFixed(2)}, timeline ${timeline.w.toFixed(2)} wide`);
+        const px = (r) => `${Math.round(r.w * 320)}×${Math.round(r.h * 180)} at ${Math.round(r.x * 320)}, ${Math.round(r.y * 180)}`;
+        return `found ${names.length} of 6: ${names.join(', ')}. Play button ${px(play)}, timeline ${px(timeline)}`;
+      },
+    },
+    {
+      name: 'The measured play button is where the browser takes the hit',
+      why: 'elementFromPoint() at the centre of the measured box must return the video, and the probe colours must not reach the screen.',
+      run: async () => {
+        const { c, p } = await fixture(0);
+        const play = p.state.parts[0];
+        if (!play) throw new Error('the play button was not found');
+        const box = c.getBoundingClientRect();
+        const hit = hitAt(box.left + (play.x + play.w / 2) * box.width, box.top + (play.y + play.h / 2) * box.height);
+        if (hit !== p.video) throw new Error(`elementFromPoint() returned ${hit ? `<${hit.localName}>` : 'nothing'}`);
+        // Ask for a new probe and look at the next three presented frames for a pure probe colour.
+        let leaked = 0;
+        p.probe();
+        for (let n = 0; n < 3; n++) {
+          const shot = await p.grab();
+          for (let i = 0; i < shot.data.length; i += 4) if (shot.data[i] < 8 && shot.data[i + 1] < 8 && shot.data[i + 2] > 247) leaked++;
+        }
+        if (leaked > 20) throw new Error(`${leaked} pixels of the probe colour were drawn to the canvas`);
+        return `the video is hit at the centre of the measured play button, and ${leaked} probe-coloured pixels reached the canvas in three frames`;
+      },
+    },
+    {
+      name: 'Glass: the frame changes under the controls and not where there is none',
+      why: 'The same paused frame with no effect and with the glass effect. Pixels must differ in the lower part, where the controls are. The top fifth has no control (the loading ring, when it shows, is lower) and must stay the same.',
+      run: async () => {
+        const { p } = await fixture(0);
+        p.state.freeze = true; // both grabs use the same uploaded frame
+        const plain = await p.grab();
+        p.state.effect = 1;
+        const glass = await p.grab();
+        const d = differing(plain, glass, 0.2, 1);
+        if (d.inside < 150) throw new Error(`only ${d.inside} pixels changed under the controls`);
+        if (d.outside > plain.width * plain.height * 0.002) throw new Error(`${d.outside} pixels changed in the top fifth`);
+        return `${d.inside} pixels changed where the controls are, ${d.outside} in the top fifth`;
+      },
+    },
+    {
+      name: 'Ripple: play sends a wave across the frame from the play button',
+      why: 'With the ripple effect, the frame 0.4 s after play() is compared with the frame the video has then. Pixels above the controls must differ.',
+      run: async () => {
+        const { p } = await fixture(3);
+        await p.video.play();
+        await sleep(400);
+        p.video.pause();
+        await sleep(120);
+        p.state.freeze = true; // both grabs use the same uploaded frame
+        await p.grab();
+        p.state.toggledAt = performance.now() - 500; // the wave half a second after a toggle
+        const wave = await p.grab();
+        p.state.toggledAt = -1e9;
+        p.state.effect = 0;
+        const still = await p.grab();
+        const d = differing(still, wave, 0, 0.6);
+        if (d.inside < 300) throw new Error(`only ${d.inside} pixels of the frame moved`);
+        return `${d.inside} pixels of the frame above the controls are displaced by the wave`;
+      },
+    },
+  ]).concat([{
+    name: 'The player above still has a picture',
+    why: 'Run last. A canvas that lost its context or ended up blank fails here and shows a message.',
+    timeout: 8000,
+    run: async () => {
+      if (!player) throw new Error('the player did not start');
+      if (player.state.lost) throw new Error('the WebGL context was lost');
+      player.start();
+      const shot = await player.grab();
+      const box = $('stage').getBoundingClientRect();
+      if (box.bottom < 0 || box.top > innerHeight) player.idle(); // off screen again: stop painting
+      let lit = 0;
+      for (let i = 0; i < shot.data.length; i += 16) if (shot.data[i] + shot.data[i + 1] + shot.data[i + 2] > 45) lit++;
+      const f = lit / (shot.data.length / 16);
+      if (f < 0.002) { fail('The canvas is blank.'); throw new Error('blank'); }
+      return `${(f * 100).toFixed(0)}% of sampled pixels are lit`;
+    },
+  }]));
+</script>
+</body>
+</html>

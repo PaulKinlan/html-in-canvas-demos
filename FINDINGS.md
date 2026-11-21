@@ -1,8 +1,332 @@
 # Findings
 
-Verified in Chromium 153 and 157 (headless, API on by default in those builds) on 2026-11-20. Every demo page re-runs these checks live in your browser.
+What the experiments in this repository measured about the HTML-in-canvas API: what works, what fails, what is only reported and what has not been verified. Every thread of work appends its results to this file.
 
-The API surface used here is the current WICG explainer shape: `<canvas content="drawable">` (older builds: `layoutsubtree`), the `drawable` attribute on drawn elements, the `paint` event, `drawElementImage()`, `captureElementImage()` and `ElementImage`.
+The API surface used here is the current WICG explainer shape: `<canvas content="drawable">` (older builds: `layoutsubtree`), the `drawable` attribute on drawn elements, the `paint` event, `drawElementImage()`, `captureElementImage()`, `ElementImage`, `updateElementGeometry()`, `texElementSubImage2D()` and `GPUQueue.drawElementImageToTexture()`.
+
+Related files: [PLAN.md](PLAN.md) (open work and what needs real hardware), [ARCHITECTURE.md](ARCHITECTURE.md) (how the code uses these results), [KNOWN-LINKS-AND-RESOURCES.md](KNOWN-LINKS-AND-RESOURCES.md) (the explainer and other sources).
+
+## How to read this file
+
+The file has three layers.
+
+1. **This top part.** How results are labelled, an index of the main results by API area, the Chromium bugs worth filing, and the API changes the experiments asked for.
+2. **Summary.** The conclusions in prose.
+3. **One section per strand of work**, in the order the work was done. Each has the full tables. A new strand appends a section at the end and adds one line to Contents. Do not reorder the sections: several branches append at the same time.
+
+Labels used in the index:
+
+| Label | Meaning |
+|---|---|
+| measured | A live check on the named page, or a test script, produced the result in the named browser. |
+| reported | Seen by Paul on his phone and described in the project chat. Not reproduced in the test browser. |
+| inferred | Reasoned from other results or from documentation. No test produced it. |
+| not verified | Built or expected, and nothing has run that could confirm it. |
+
+Browsers:
+
+| Short name | What it is |
+|---|---|
+| C157 | Chromium 157 headless shell on Linux, software rendering, no GPU, no sound, no native popup windows. The API is on by default and it behaves as if experimental web platform features were on. Dates: 2026-11-20 and 2026-11-21. |
+| C153 | Chromium 153 full browser with `--enable-features=CanvasDrawElement --enable-blink-features=CanvasDrawElement`. Used for some probes and the earliest checks. |
+| A159 | Chrome 159 on an Android phone. |
+
+Unless a row or a section says otherwise, a result in the sections below was measured in C157. Numbers for speed come from software rendering with no GPU and only show the shape of a result. Every experiment page re-runs its checks live in the browser that opens it, so the page named in the index is where to confirm a row.
+
+Device scale factor matters. Results marked "real HiDPI" were measured with `--force-device-scale-factor` (1.5, 2 or 2.625) and no viewport emulation. DevTools and Playwright device emulation hide size bugs (see "Accessibility", "Pattern by pattern").
+
+## Index of results by API area
+
+One row per main result. "Section" is the section of this file with the detail.
+
+### The canvas, the attributes and the paint event
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| `content="drawable"` on the canvas is required. `layoutsubtree` alone is not enough. | measured | C157 | `/start/` | not in a section; checked for the tutorial, PR #36 |
+| A descendant passed to `drawElementImage()` needs the `drawable` attribute, or the call throws. | measured | C157 | `/slot/` | Slots |
+| An element can be drawn only into its nearest ancestor canvas. | measured | C157 | `/slot/` | Slots |
+| Direct `drawable` children of a canvas do not flow together. Each is laid out alone at the canvas origin and is shrink-to-fit. | measured | C157 | `/view-transitions/`, `/tear-off/` | View Transitions API; Cross-context |
+| The computed `display` of a drawable child is `block`. An inline element or table part drawn alone loses its layout. | measured | C157 | `/elements/` | Every HTML element (PR #48) |
+| `paint` fires when a drawn element's rendering changes, and `changedElements` lists only the children that repainted (a caret blink, a CSS animation). | measured | C157 | `/time-scrubber/` | Transitions and motion |
+| The first `paint` can arrive before the element has a paint record, and nothing triggers another. Ask again. | measured | C157 | `/tear-off/` | Cross-context |
+| No `paint` while the canvas is scrolled out of view, far off screen, clipped by `overflow: hidden`, `display: none`, `visibility: hidden`, or in a hidden tab. `opacity: 0` still paints. | measured | C157 | `/offscreen/`, `/portal/` | ElementImage and OffscreenCanvas; UI primitives |
+| No `paint` while a view transition holds rendering or while its update callback is pending. | measured | C157 | `/capture/`, `/view-transitions/` | Capture; View Transitions API |
+| A video, an animated image, a `marquee`, an indeterminate `progress`, a focused input, a scroll-driven animation and a `scroll-state()` change each raise `paint` with no `requestPaint()`. | measured | C157 | `/video/`, `/elements/`, `/chrome-apis/probes.html` | Video and sound; PR #48; PR #50 |
+| Becoming a canvas descendant restarts an element's CSS animations. | measured | C157 | `/capture/` | Capture |
+| Inserting, moving or removing an iframe inside a `paint` handler crashes the tab. | measured | C157 | `/capture/` | Capture |
+
+### drawElementImage() in a 2D context
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| `drawElementImage()` returns `undefined`. | measured | C157 | `/start/` | not in a section; checked for the tutorial, PR #36 |
+| The picture is replayed paint commands. Drawing at 4× or 8× is sharp, not upscaled. | measured | C157 | `/lens/`, `/board/`, `/capture/` | UI primitives; 3D and spatial; Capture |
+| With no width and height, the element is drawn in device pixels. Under `ctx.scale(devicePixelRatio)` it is then too large. Always pass a size. | measured, real HiDPI | C157 | `/a11y/` | Accessibility, Pattern by pattern |
+| The default size is fractional at phone ratios (262.33 × 104.8 for a 100 × 40 element at 2.625). | measured, real HiDPI | C157 | `/transitions/` | Accessibility, Pattern by pattern |
+| The nine-argument form takes a source rectangle in the element's CSS pixels. | measured | C157 | `/time-scrubber/` | Transitions and motion |
+| `globalAlpha`, `filter`, `globalCompositeOperation`, transforms and clips apply. | measured | C157 | `/time-scrubber/` | Transitions and motion |
+| The picture is the element's border box. A box shadow, outline, overflowing child or pseudo-element outside the box is cut off. | measured | C157 | `/capture/`, `/portal/` | Capture; UI primitives |
+| A nested element with its own `drawable` attribute is left out of its `drawable` parent's picture in the video test, and included in the motion test. The two results disagree. | measured | C157 | `/video/`, `/time-scrubber/` | Video and sound; Transitions and motion |
+| About 7 µs of script per call. More than about 100 clipped draws a frame is slow (85 draws 2 ms, 136 draws 140 ms). 1,000 draws of text each at its own angle take about 1.5 s. | measured, software rendering | C157 | `/perf/`, `/lens/`, `/particles/` | Performance; UI primitives; Transitions and motion |
+| Pixels of drawn DOM can be read back (`getImageData`, `createImageBitmap`, `toDataURL`). The canvas is not tainted. | measured | C157 | `/offscreen/` | ElementImage and OffscreenCanvas |
+
+### Hit testing and updateElementGeometry()
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| A 2D `drawElementImage()` moves the element's hit box to where it was drawn, at once. Clicks, focus rings, caret, selection, `getBoundingClientRect()` and `elementFromPoint()` follow. | measured | C157 | `/slot/`, `/a11y/` | Slots; Accessibility |
+| Drawing an `ElementImage` also moves the live element's hit box. | measured | C157 | `/time-scrubber/` | Transitions and motion |
+| WebGL and WebGPU draws do not move the hit box. Call `updateElementGeometry()`. | measured | C157 | `/slot-effects/`, `/three-form/` | Named effects and shader slots; 3D and spatial |
+| `canvasTransform` accepts a `DOMMatrix` with perspective and hit testing follows it. | measured | C157 | `/slot-effects/`, `/three-form/` | Named effects and shader slots; 3D and spatial |
+| A CSS `matrix3d` on the element (three's `InteractionManager` route) does not make a WebGL-drawn element hit-testable. | measured | C157 | `/three-form/` | 3D and spatial |
+| `canvasClip` clips hit testing. The rectangle is in the element's own coordinates, before the transform. | measured | C157 | `/portal/` | UI primitives |
+| One element has one hit box. The last draw or geometry update wins. `z-index` on the elements changes nothing. | measured | C157 | `/portal/`, `/board/`, `/select/` | UI primitives; 3D and spatial; Customisable select |
+| An element that is no longer drawn keeps the hit box of its last draw until it is moved away. `clearElementGeometry()` did not remove it. | measured | C157 | `/board/`, `/three-form/` | 3D and spatial |
+| Hit testing cannot be placed outside the canvas box. | measured | C157 | `/transports/` | Transport lab |
+| `canvasTransform` behaved as CSS pixels on some canvases and canvas-buffer pixels on others. | measured | C157 | `/portal/` | UI primitives |
+| Under the CSS `zoom` property `canvasTransform` is in unzoomed layout pixels, while client rects and pointer coordinates include the zoom. | measured | C157 | `/particles/`, `/board/` | Transitions and motion; 3D and spatial |
+| `updateElementGeometry()` does not clear the browser's remembered hit-test answer for a point. `elementFromPoint()` and a click there are stale until any DOM attribute changes. | measured | C157 | `/particles/` | Transitions and motion; Native UI toolkits |
+| Moving the geometry of a focused text field scrolls the page (scroll anchoring). `overflow-anchor: none` on the canvas stops it. | measured | C157 | `/three-form/` | 3D and spatial |
+| Untrusted (synthetic) events do not focus, place a caret, drag a range or open a `<select>`. | measured | C157 | `/xr/` | 3D and spatial |
+| A drawable canvas in the top layer takes its content out of the page's scroll chain. | measured | C157 | `/portal/` | UI primitives, Touch, top layer and live checks |
+| In C157 the browser tracks where an element is drawn for anchor positioning, `interestfor`, `highlightsFromPoint()` and `OpaqueRange` rects. In C153 they use the layout box. | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
+
+### ElementImage, workers and OffscreenCanvas
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| An `ElementImage` transfers to a worker and draws into the source canvas's transferred OffscreenCanvas, for many frames, until `close()`. | measured | C157, C153 | `/offscreen/` | ElementImage and OffscreenCanvas |
+| An `ElementImage` draws only into its source canvas. Any other canvas throws "The source was captured from a different canvas." | measured | C157, C153 | `/offscreen/`, `/transports/` | ElementImage and OffscreenCanvas; Transport lab |
+| It is transferable and not cloneable: `postMessage` and MessagePort work, same or cross origin. `structuredClone` and BroadcastChannel fail. | measured | C157, C153 | `/cross-origin/`, `/transports/` | Tabs and origins |
+| `drawImage(ElementImage)`, `createImageBitmap(ElementImage)` and `new VideoFrame(ElementImage)` fail. | measured | C157 | `/transports/` | Transport lab |
+| Snapshots are made only by the main thread's rendering update. A worker keeps animating old snapshots while the main thread is blocked. | measured | C157 | `/offscreen/`, `/perf/` | ElementImage and OffscreenCanvas; Performance |
+| Worker draws update main-thread hit testing, batched. `elementgeometryupdate` fires on the canvas. | measured | C157 | `/offscreen/` | ElementImage and OffscreenCanvas |
+| A snapshot keeps drawing after its element changes or is removed and after the canvas is resized. It has `close()` and no other member: no text, no selection. | measured | C157 | `/time-scrubber/` | Transitions and motion |
+| Holding 600 snapshots costs about 0.014 ms per capture, against 0.26 ms and 33 MB for the same frames as ImageBitmaps. | measured, software rendering | C157 | `/time-scrubber/` | Transitions and motion |
+| An `ElementImage` cannot follow a navigation. | measured | C157 | `/view-transitions/` | View Transitions API |
+
+### WebGL: texElementSubImage2D()
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| The method in C157 is `gl.texElementSubImage2D()`. It takes an element or an `ElementImage`. | measured | C157 | `/shader-css/`, `/transports/` | UI primitives; Transport lab |
+| Texture storage must be exactly `getElementImageDefaultSize()` rounded up. Row 0 is the top of the element. | measured | C157 | `/shader-css/` | UI primitives |
+| Immutable sRGB storage (`SRGB8_ALPHA8`), `UNPACK_FLIP_Y_WEBGL` and `generateMipmap` work. RGBA8 washes out sRGB colours. | measured | C157 | `/three-form/` | 3D and spatial |
+| Toolkits that blend premultiplied alpha need `UNPACK_PREMULTIPLY_ALPHA_WEBGL`. | measured | C157 | `/native-ui/` | Native UI toolkits |
+| three.js r187 calls older method names, so its `HTMLTexture` draws nothing until `installThreeShims()` maps them. | measured | C157 | `/three-form/` | 3D and spatial |
+| A page gets about 16 WebGL contexts. Past six to eight shaded elements, sharing one context (draw to 2D, upload, shade, copy back) gives pixel-identical output. | measured | C157 | `/shader-css/`, `/slot-effects/` | UI primitives; Named effects and shader slots |
+| A canvas keeps its first context type. Switching between 2D, WebGL and WebGPU means swapping the canvas. | measured | C157 | `/slot-effects/` | Named effects and shader slots |
+| A dying WebGL context fails shader compiles with an empty log before `isContextLost()` is true. | measured | C157 | `/shader-css/` | UI primitives, Touch, top layer and live checks |
+| A WebGL canvas losing its context fires `webglcontextlost`, not `contextlost`. | measured | C157 | `/selection/` | Text selection |
+| `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas that holds an element texture crashed the tab in two check fixtures. A smaller case did not crash. | measured | C157 | `/selection/`, `/player-fx/` | Text selection; Video and sound |
+| An animated transparent WebGL canvas with drawable children became a solid white block on the phone. | reported | A159 | `/particles/` | Transitions and motion |
+
+### WebGPU: drawElementImageToTexture()
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| The method in C157 is `GPUQueue.drawElementImageToTexture({ source: element }, { texture })`. The texture is `rgba8unorm` with `COPY_DST`, `RENDER_ATTACHMENT` and `TEXTURE_BINDING`. Row 0 is the top. Pixels are premultiplied. The canvas must hold a `webgpu` context. | measured by texture readback, software adapter | C157 | `/shader-css/` | WebGPU across the shader demos |
+| WGSL versions of the effects give the same picture as GLSL (mean difference 0.00 to 0.58 of 255). | measured by texture readback, software adapter | C157 | the shader pages | WebGPU across the shader demos |
+| It draws the element at its own size, so it cannot re-rasterize at a zoom. The lens starts from a 2D patch for that reason. | measured | C157 | `/lens/` | Lens pipeline |
+| Showing a WebGPU canvas destroys the device in the headless test browser. | measured | C157 | the shader pages | WebGPU across the shader demos |
+| Losing a WebGPU device also loses every WebGL context and large 2D canvas on the page, even when the device lived in a worker. | measured | C157 | `/slot-effects/` | Named effects and shader slots; WebGPU across the shader demos |
+| WebGPU draws on screen on the phone for the `fx` attribute ("Drawn with WebGPU (6), WebGL (1)"). | reported | A159 | `/shader-css/` | not in a section; from the project notes, 2026-11-21 |
+| Every other on-screen WebGPU path, its speed against WebGL, and three `WebGPURenderer`. | not verified | | the shader pages, `/three-form/` | WebGPU across the shader demos |
+| `XRGPUBinding` is missing, so WebXR stays on WebGL. | measured | C157 | `/xr/` | WebGPU across the shader demos |
+| A real phone GPU should do relatively better on the shader lens route than software rendering does. | inferred | | `/lens/` | Lens pipeline |
+
+### What is in an element's picture
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| Every element that lays out a box draws and hit tests: 150 of 180 entries work, 4 partly, 3 are blank, 22 have no box, 1 could not be measured. | measured | C157 | `/elements/` | PR #48 |
+| Focus rings, carets, typed text, selection highlight, `::selection` colours, `::highlight()`, IME composing text, forced colours and system colours are painted. | measured | C157 | `/a11y/`, `/selection/` | Accessibility; Text selection |
+| The top layer is not in the picture: a modal `<dialog>`, a popover, and the picker of a `base-select` select are painted by the page. | measured | C157 | `/transitions/`, `/select/`, `/elements/` | Transitions and motion; Customisable select; PR #48 |
+| A cross-origin iframe, a cross-origin image or video without CORS, and a sandboxed opaque-origin iframe are left out. The canvas stays readable. A blank cross-origin iframe still takes clicks where it is drawn. | measured | C157 | `/cross-origin/`, `/capture/`, `/video/`, `/elements/` | Tabs and origins; Capture; Video and sound; PR #48 |
+| Clear Key encrypted video is drawn black. The canvas is not tainted. | measured | C157 | `/video/` | Video and sound |
+| Same-origin iframes paint, take input at any zoom and nest. | measured | C157 | `/board/` | 3D and spatial |
+| Links are drawn as unvisited. | measured | C153 | `/chrome-apis/probes.html` | PR #50 |
+| Spelling markers on a `spellcheck` textarea are not drawn. | measured | C157 | `/native-ui/` | Native UI toolkits |
+| Find-in-page marks, `::target-text`, autofill previews. | not verified | | | Transitions and motion; Text selection |
+| Permission elements (`<geolocation>` and others) are drawn and report themselves invalid (`intersection_occluded_or_distorted`). | measured | C157 | `/elements/`, `/chrome-apis/probes.html` | PR #48; PR #50 |
+| A `float16` `display-p3` 2D canvas keeps values above 1.0 from a drawn element (4.0 read back as 1.82). | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
+| Recent CSS is applied in the picture: `corner-shape`, `border-shape`, `clip-path: shape()`, gap decorations, `text-fit`, `caret-shape`, `::scroll-marker`, `::scroll-button()`. | measured | C157, C153 | `/chrome-apis/probes.html` | PR #50 |
+| Native media controls, `::cue` captions and rules on `::-webkit-media-controls-*` are drawn. | measured | C157 | `/video/`, `/player-parts/` | Video and sound |
+
+### Slots and shadow DOM
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| A light-DOM element slotted into a canvas in a shadow root draws and stays interactive. Layout and paint use the flat tree. | measured | C157, C153 | `/slot/` | Slots |
+| `<slot drawable>` fails: a slot has no box. `<div drawable><slot></slot></div>` draws everything slotted into it. | measured | C157 | `/slot/` | Slots |
+| Declarative shadow DOM works with no custom element. `<template shadowrootmode>` through `innerHTML` does not build a shadow root. | measured | C157 | `/slot-bare/` | Slots |
+| A `<slot>` in a light-DOM canvas projects nothing. Used as a named mount point that script moves elements into, it works. | measured | C157 | `/slot-bare/plain.html`, `/slot/mount.html` | Slots |
+| A shadow root on `<body>` with a canvas and named slots works for page-level slots and for capturing a whole page. | measured | C157 | `/slot-bare/`, `/capture/` | Slots; Capture |
+| `moveBefore()` out of a drawable canvas and back in the same task breaks later draws of that element. | measured | C157 | `/slot/` | Slots |
+| `moveBefore()` into a canvas keeps focus, caret, typed value, scroll offsets and iframes. | measured | C157 | `/capture/` | Capture |
+
+### Across workers, tabs, origins and devices
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| 49 routes for moving DOM out of its canvas: 30 work, 15 fail, 4 cannot be tested in the test browser. | measured | C157 | `/transports/` | Transport lab |
+| Sharing across documents is a pixel stream (ImageBitmap, VideoFrame, `captureStream()`, WebRTC, JPEG) plus input sent back. Semantics stay in the source document. | measured | C157 | `/cross-tab/`, `/tear-off/`, `/remote/` | Tabs and origins; Cross-context |
+| A cross-origin frame can draw our `ElementImage` into our transferred OffscreenCanvas, and our clicks land on our real element under its rendering. | measured | C157 | `/cross-origin/` | Tabs and origins |
+| A lent canvas is a clickjacking surface: hit testing follows the host's last draw. | measured | C157 | `/embed/` | Cross-context |
+| VideoFrame and `ReadableStream<VideoFrame>` do not cross to a cross-origin document. MediaStreamTrack is not transferable in this build. | measured | C157 | `/transports/` | Transport lab |
+| The real element can be moved into a popup or a Document Picture-in-Picture window and keeps its listeners, timers and values. | measured | C157 | `/tear-off/`, `/pip/` | Cross-context |
+| WebRTC video plus a data channel for input works between two browser contexts on one machine. | measured | C157 | `/remote/` | Cross-context |
+| Any connection between two real networks, and TURN. | not verified | | `/remote/` | Remote across real networks |
+| Chrome's storage partitioning is expected to block the BroadcastChannel bridge between two real sites. | inferred | | `/tear-off/` | Cross-context |
+| `adoptNode()` of a drawable canvas that has painted, into a same-origin iframe, crashes the tab. | measured | C157 | `/transports/crash-adopt.html` | Transport lab |
+
+### Accessibility, focus and selection
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| Canvas children are ordinary nodes in the accessibility tree under a "Canvas" node, however they got into the canvas (child, slot, worker, WebGL texture). | measured through the DevTools protocol | C157 | `/a11y/` | Accessibility |
+| Tab order is DOM order. `window.find()` finds and highlights text. Mouse drag and double click select. | measured | C157 | `/a11y/` | Accessibility |
+| A drawable child that is never drawn is still a Tab stop and in the accessibility tree, at the canvas origin. `inert` fixes it. | measured | C157 | `/a11y/` | Accessibility |
+| A pixel mirror (another tab, another origin, a video) has no role, name, focus or text. | measured | C157 | `/a11y/` | Accessibility |
+| Selection hit testing follows the drawn geometry, also rotated and scaled. `Range.getClientRects()` follows the drawn position and returns upright bounding boxes under rotation. | measured | C157 | `/selection/` | Text selection |
+| Screen reader output, IME candidate windows, the find bar, OS magnifiers. | not verified | | `/a11y/` section C | Accessibility |
+
+### Form controls and pickers
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| Built-in form controls draw and work rotated in a canvas. | measured | C157 | `/inputs/` | Datalist and other inputs |
+| A `base-select` select can hold a drawable canvas that draws its options, and keeps the value, keyboard and form entry. | measured | C157 | `/select/` | Customisable select |
+| The picker of a select that is itself inside a canvas is not drawn by that canvas, and its options are not hit-testable there. | measured | C157 | `/select/`, `/elements/` | Customisable select; PR #48 |
+| The select fires no `toggle` event, has no `hidePicker()`, and `showPicker()` uses up user activation. | measured | C157 | `/select/` | Customisable select |
+| The built-in popups of `<input list>`, date, time and colour have no element. A canvas cannot draw them. | measured | C157 | `/datalist/`, `/inputs/` | Datalist and other inputs |
+| Where native popups open for a control that is drawn transformed. | not verified | | `/inputs/`, `/elements/` | Datalist and other inputs; PR #48 |
+
+### Video and sound
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| A `<video>` is an ordinary canvas child. `paint` fires once per video frame. After `requestVideoFrameCallback()` or `seeked`, one `requestPaint()` gives the exact frame (40 of 40, 10 of 10). | measured, software decoding | C157 | `/video/` | Video and sound |
+| HTML over video can be recorded with sound, exported frame by frame with WebCodecs, and sent over WebRTC. | measured | C157 | `/overlay/` | Video and sound |
+| Media state pseudo-classes (`:paused`, `:playing` and others) are valid only with experimental web platform features on. | measured | C157 | `/player-parts/` | Video and sound |
+| `video.shadowRoot` is `null`. No part of the native controls can be drawn by itself. | measured | C157 | `/player-parts/` | Video and sound |
+| Videos errored and the page jumped when checks started on load on the phone. | reported | A159 | the media pages | Video and sound |
+| Hardware-decoded video, Widevine, HDR, audible output. | not verified | | `/video/` | Video and sound, Not verified |
+
+### View transitions
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| A named drawable canvas works in a document view transition. The new snapshot is live. | measured | C157 | `/view-transitions/` | View Transitions API |
+| A named child of the canvas gets a group and empty snapshots. | measured | C157 | `/view-transitions/` | View Transitions API |
+| `element.startViewTransition()` on the canvas blanks it unless the canvas has `view-transition-name: none`. Group positions inside a canvas scope read 0,0. | measured | C157 | `/view-transitions/` | View Transitions API |
+| `element.startViewTransition()` on a `drawable` child of a drawable canvas crashes the renderer. | measured | C157 | `/view-transitions/crash.html` | View Transitions API |
+
+### Capture and export
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| Any ordinary element can be wrapped in a temporary canvas and captured in the first rendering update, in about 10 to 20 ms. | measured | C157 | `/capture/` | Capture |
+| Frame-exact video export: set `animation.currentTime`, ask for a paint, wrap the canvas in a `VideoFrame`, encode. | measured | C157 | `/capture/`, `/overlay/` | Capture; Video and sound |
+| `page.pdf()` includes drawn DOM as a bitmap. | measured | C157 | `/capture/` | Capture |
+| Whether a capture flickers on a real screen. | not verified | | `/capture/` | Capture |
+
+### 3D, XR and native toolkits
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| Live HTML on flat and curved three.js surfaces takes clicks, typing and selection through `updateElementGeometry()`. A curved surface needs the geometry re-placed on each pointer move. | measured | C157 | `/three-form/` | 3D and spatial |
+| In an emulated WebXR session `paint` keeps arriving and DOM changes re-upload. Controller input is synthetic. | measured with the IWER emulator | C157 | `/xr/` | 3D and spatial |
+| A real headset, Android AR, `XRQuadLayer`. | not verified | | `/xr/` | 3D and spatial |
+| egui and Qt Quick compiled to WebAssembly can use DOM elements as widgets with a bridge of about 200 lines each. | measured | C157 | `/native-ui/` | Native UI toolkits |
+| The browser does not know what a toolkit draws over an element, and Tab does not cross from a DOM field to a toolkit widget. | measured | C157 | `/native-ui/` | Native UI toolkits |
+
+### Phones and lost contexts
+
+| Result | Label | Browser | Page | Section |
+|---|---|---|---|---|
+| Live checks that scroll, focus or rebuild the visible demo are the main way a page misbehaves on a phone. | reported, then measured under phone emulation | A159, C157 | every page | Pages that hold still |
+| After the fixes all 28 pages measured hold still on load. | measured, phone emulation | C157 | `npm run check:jank` | Pages that hold still |
+| Paul tried the fixes on his phone and said "I think it all works". No pages were named. | reported | A159 | | not in a section; project notes, 2026-11-20 |
+| `/embed/` ended as a white box on the phone. The cause was not reproduced. | reported | A159 | `/embed/` | Cross-context, Live checks and lost pictures |
+| New pages showed a white box with a broken-picture icon on first load: a canvas with a lost context. | reported | A159 | `/selection/` and other new pages | Text selection |
+| The cause is several WebGL contexts and a WebGPU device opened at once. | inferred | | | PLAN.md, Site-wide work that is open |
+| `dvh` on a canvas stage resizes it each time the URL bar moves. Assigning `canvas.width` clears the canvas even when the value is unchanged. | measured | C157 | `/board/` | Pages that hold still |
+| An opacity effect around a drawable canvas inside an iframe that is itself drawn into a canvas crashes the tab. | measured | C157 | `/board/` | Pages that hold still |
+
+## Chromium bugs worth filing
+
+Crashes and behaviour that looks wrong, each with where to reproduce it. All were seen in headless Chromium 157 unless the row says otherwise. None has been filed. Some may be intended behaviour: the notes say where that is likely.
+
+| # | What happens | Reproduce | Note |
+|---|---|---|---|
+| 1 | Renderer crash: `element.startViewTransition()` on a `drawable` child of `<canvas content="drawable">`. | `/view-transitions/crash.html` | Crashes with or without `layoutsubtree`, with or without a draw. A child without `drawable` does not crash. |
+| 2 | Tab crash: inserting, moving or removing an iframe inside a `paint` handler or a microtask of one. | `/capture/` (the library avoids it with a MessageChannel task) | The same CHECK every time (`trap int3`, same address). |
+| 3 | Tab crash: `adoptNode()` of a drawable canvas that has painted into a same-origin iframe. | `/transports/crash-adopt.html`, button B | Works if the canvas has never painted. Probably the same failure as 2. |
+| 4 | Tab crash: an opacity effect around a drawable canvas, inside an iframe that is itself drawn into a canvas. | `/board/` with a page tile whose fixtures sit in a box with `opacity: .02` | `visibility: hidden` does not crash. |
+| 5 | Tab crash: `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas holding an element texture. | Seen in check fixtures of `/selection/` and `/player-fx/` | A smaller case with one canvas did not crash. The cause is not known. |
+| 6 | `updateElementGeometry()` does not invalidate the cached hit-test result for a point. `elementFromPoint()` and a click at the same point see the old layout. | Live check on `/particles/`; also `/native-ui/` | A point 1 or 2 px away is correct. Any DOM attribute change clears it. |
+| 7 | After `moveBefore()` takes an element out of a drawable canvas and back in the same task, drawing throws "The element can only be drawn into its nearest ancestor <canvas>". | `/slot/` | A plain insert works. |
+| 8 | `clearElementGeometry()` does not remove the old hit region. | `/three-form/` | |
+| 9 | `canvasTransform` is in CSS pixels on some canvases and buffer pixels on others. | `/portal/` on a HiDPI screen | Seen in the UI primitives work. The motion work later measured unzoomed layout pixels at 1× and 2× backing. The conditions for the difference were not isolated. |
+| 10 | Losing a WebGPU device loses every WebGL context and every large 2D canvas context on the page, including when the device lived in a worker. Restored contexts came back but slots drawn into them stayed blank. | `/slot-effects/` with a software adapter | A cross-site iframe is spared. Possibly a GPU process restart, which would make it intended. |
+| 11 | Setting `appearance: auto` on a `base-select` select for one style recalculation while the mouse is over the open picker leaves its computed `appearance` at `auto` until reload. | `/select/` | Chromium logs a console warning. |
+| 12 | In a canvas-scoped view transition every group's transform is 0,0. Width and height are right. | `/view-transitions/` | In a document transition the group of a canvas child has the right position. |
+| 13 | `element.startViewTransition()` on the canvas itself blanks the canvas for the transition. | `/view-transitions/` | Follows from the scope taking part as `view-transition-name: root` inside a canvas that renders none of its contents. May be intended. |
+| 14 | A `base-select` picker of a select inside a canvas: `elementFromPoint()` at an option returns the canvas, and ArrowDown then Enter leaves the value unchanged. The picker was painted under the drawn select in some runs and not in others. | `/elements/` (PR #48) | |
+| 15 | `touch-action: none` on a picker canvas and its options does not stop the page panning. | `/select/`, touch emulation | Needs a check on a real phone before it is reported. |
+| 16 | The H.264 software encoder in WebCodecs crashed the tab. | Earlier testing for `/capture/` | Not re-tested. The library uses VP9 with a VP8 fallback. |
+| 17 | A click on a new canvas at the spot where the pointer already rested does not focus the element under it until the pointer moves. | `/elements/` recording (PR #48) | Seen with Playwright input. |
+| 18 | Reported from Chrome 159 on Android: an animated transparent WebGL canvas with drawable children becomes a solid white block. | `/particles/` with `engine="webgl"` | Not reproduced in software rendering. Cause unconfirmed. |
+| 19 | Reported from Chrome 159 on Android: canvases on new pages lose their context on first load and show a white box with a broken-picture icon. | `/selection/` and other pages built on 2026-11-21 | Cause not identified. May be a resource limit and not a bug. |
+
+## API changes that would help
+
+Requests that came out of the experiments. Each is followed by the section that explains it.
+
+Drawing:
+
+- Draw an element by reference (an id) and not only by DOM containment. It would remove the need for a shadow root in the slot pattern. (Summary; Slots)
+- Draw one element into more than one canvas, or draw an `ElementImage` into a second canvas. It would make cross-document reprojection possible without pixels. (Summary; ElementImage and OffscreenCanvas)
+- `drawElementImage()` taking a pseudo-element or a `::part()`, so one part of a closed shadow tree (for example one media control) can be drawn. (Video and sound, Further experiments)
+- A way to read a view transition's old snapshot into a canvas or texture. (View Transitions API)
+- A way for top-layer content (a popover, a dialog, a select's picker) to be in a canvas's picture, or for a picker's content to keep painting for a moment after it closes. (Customisable select)
+
+Hit testing and input:
+
+- Several regions for one element in `updateElementGeometry()`, or a hit-test callback. It would make two pointers on shards or glyphs correct. (Summary; Transitions and motion)
+- A way to describe occlusion: subtract regions from an element's geometry, or let the browser ask what covers it. Asked for by the portal, lens, 3D and native toolkit work. (3D and spatial; `docs/native-frameworks.md`)
+- A way to hand the browser a ray hit (element plus point) and have it dispatch a trusted event, for XR controllers. (Summary; 3D and spatial)
+- `updateElementGeometry()` invalidating cached hit-test results. (Transitions and motion)
+- One documented unit for `canvasTransform`. (UI primitives)
+- `touch-action` taking effect for elements drawn by a canvas in the top layer. (Customisable select)
+
+Accessibility and focus:
+
+- An opt-in such as "an undrawn drawable child is inert". (Summary; Accessibility)
+- A way to interleave canvas-drawn widgets with real elements in the tab order. (`docs/native-frameworks.md`)
+
+Form controls:
+
+- `hidePicker()` and `toggle` events on a customisable select, as popovers have. (Customisable select)
+- `<selectedcontent>` cloning a canvas with its bitmap, or an event when it replaces its clone. (Customisable select)
+- A picker pseudo-element for `<input list>`, `type="date"`, `type="time"` and `type="color"`, as `::picker(select)` is for select. (Datalist and other inputs)
+- Options in a datalist rendering their children. (Datalist and other inputs)
+- A way to stop a built-in picker opening without removing the feature that provides it. (Datalist and other inputs)
+
+Geometry:
+
+- `getBoxQuads()`, or `Range.getClientRects()` that returns quads, so a selection on a rotated element can be measured. (Text selection)
+
+Libraries:
+
+- three.js using the current method names (`texElementSubImage2D`, `drawElementImageToTexture`). (3D and spatial)
+- IDL-generated bindings (web-sys, Emscripten, Dart `web`) that include the new methods. (`docs/native-frameworks.md`)
+
+## What is not verified
+
+The full list of what waits on real hardware or a person, with how to verify each item, is in [PLAN.md](PLAN.md), "Not verified: needs real hardware or a person". Each section below also ends with its own "Not verified" or "Not tested" note.
 
 ## Summary
 
@@ -12,9 +336,11 @@ The main results. Each is backed by the tables in the sections below.
 - Reprojection across documents is a pixel stream plus input forwarding, not a shared snapshot. Semantics (selection, accessibility tree, find-in-page) stay in the source document.
 - The primitives all rest on the same wrapper and the same two workarounds: stretch one canvas over everywhere the element must appear, and move the single hit-test geometry to wherever the pointer is. A way to draw one element into several canvases, and a per-region geometry, would remove both.
 - One element has one hit box. Effects that show an element in many pieces (shards, glyphs) can route one pointer correctly but not two, and a way to give `updateElementGeometry` several regions, or a hit-test callback, would close that gap.
-- Accessibility largely survives, with one sharp edge: whatever is in the canvas but not drawn is still focusable. An opt-in such as "undrawn means inert" would remove the main hazard.
+- Accessibility largely survives, with one hazard: whatever is in the canvas but not drawn is still focusable. An opt-in such as "undrawn means inert" would remove the main hazard.
 - Any element can be exported with one call today, and a whole ordinary page can be wrapped in a canvas for a single frame without the user seeing it.
 - A native "draw this element by reference" hook for canvas (an id reference rather than DOM containment) would remove the need for the shadow root. An ElementImage that could be drawn into a second canvas would make cross-document reprojection first class; today it is deliberately bound to one canvas.
+- Every HTML element with a box draws and hit tests in a canvas (180 entries measured on `/elements/`). The exceptions are the top layer (modal dialogs, popovers, the base-select picker), other origins (blank, though a cross-origin iframe still takes clicks) and permission elements (they report themselves invalid).
+- Any descendant of the canvas with `drawable` can be drawn on its own, including `<option>`, `<li>` and `<td>`, while its undrawn parent keeps working. `/element-ideas/` builds 17 demos on this. A range input turned 90 degrees cannot be dragged by touch.
 - A customisable select can hand its options to a canvas inside its own picker and keep the value, the keyboard and hit testing. A select inside a canvas cannot have its picker drawn by that canvas, because the picker is in the top layer.
 - Datalist, date, time and colour popups have no element, so a canvas cannot draw them. The `<datalist>` element and its options can be drawn, and a picker made of real buttons in a popover canvas can replace the others on the same input.
 - For 3D, the texture half of the API is ready and the method names are the only obstacle in three.js today. The input half rests entirely on `updateElementGeometry()`: it accepts a perspective matrix, which covers every flat surface, and anything curved or occluded needs the app to re-place the element under the pointer.
@@ -24,6 +350,12 @@ The main results. Each is backed by the tables in the sections below.
 
 ## Contents
 
+- [How to read this file](#how-to-read-this-file)
+- [Index of results by API area](#index-of-results-by-api-area)
+- [Chromium bugs worth filing](#chromium-bugs-worth-filing)
+- [API changes that would help](#api-changes-that-would-help)
+- [What is not verified](#what-is-not-verified)
+- [Summary](#summary)
 - [Slots](#slots)
 - [ElementImage and OffscreenCanvas](#elementimage-and-offscreencanvas)
 - [Tabs and origins](#tabs-and-origins)
@@ -36,10 +368,11 @@ The main results. Each is backed by the tables in the sections below.
 - [Accessibility (/a11y/)](#accessibility-a11y)
 - [Capture (/capture/, public/lib/element-capture.js)](#capture-capture-publiclibelement-capturejs)
 - [Performance (/perf/)](#performance-perf)
-- [Video and sound (/video/, /overlay/, /audio/, /player-parts/)](#video-and-sound-video-overlay-audio-player-parts)
+- [Video and sound (/video/, /overlay/, /audio/, /player-parts/, /player-fx/)](#video-and-sound-video-overlay-audio-player-parts-player-fx)
 - [Customisable select (/select/, lib/select-picker.js)](#customisable-select-select-libselect-pickerjs)
 - [Datalist and other inputs (/datalist/, /inputs/)](#datalist-and-other-inputs-datalist-inputs)
 - [3D and spatial (/three-form/, /board/, /xr/)](#3d-and-spatial-three-form-board-xr)
+- [Every HTML element (/elements/)](#every-html-element-elements)
 - [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
 - [Native UI toolkits (/native-ui/)](#native-ui-toolkits-native-ui)
@@ -655,7 +988,56 @@ Reported from a phone on 2026-11-20: on `html-in-canvas.page` the room WebSocket
 
 Not verified: any connection between two real networks. The cloud test browser has no outbound UDP at all (STUN fails with 701), so only host candidates on one machine were exercised here. Two new live checks on `/remote/` report STUN and TURN from whatever device opens the page.
 
-## Video and sound (`/video/`, `/overlay/`, `/audio/`, `/player-parts/`)
+## Every HTML element (`/elements/`)
+
+180 entries (each element in the HTML standard, each input type, a few attributes, some obsolete elements) put in a drawable canvas and measured in headless Chromium 157: drawn or not, share of the box with ink, what `elementsFromPoint()` returns at the drawn position, paint events with nothing touching the element, a screenshot compared with the same markup as plain DOM, and checks with real mouse and keyboard input. `ELEMENTS.md` has one row per element; `npm run record:elements` rewrites it and `public/elements/recorded.json`. 150 work, 4 work partly, 3 are blank, 22 have no box, 1 could not be measured (PDF).
+
+| Experiment | Result | Why |
+|---|---|---|
+| Any element that lays out a box: draw it, hit test it, click it | works | All sectioning, grouping, text-level, table and form elements, including `select multiple`, `details`, `iframe` (same origin), `svg`, `math`, `video` with native controls, a nested drawable canvas and custom elements with shadow trees. |
+| Inline element or table part as the drawable child itself | draws as a block | The computed `display` of the drawable child is `block`. A `td` or `tr` drawn alone loses the table layout. |
+| Content that overflows the drawn element (`dialog.show()` with the default `position: absolute`, overflowing `nobr` text, inline padding) | clipped | The picture is the element's box. |
+| `dialog.showModal()`, `[popover]`, the picker of `select` with `appearance: base-select` | not in the canvas | They are in the top layer and the page paints them. `drawElementImage(dialog)` throws "No cached paint record". |
+| CSS anchor positioning from a popover to an anchor drawn in a canvas | works | The popover sits against the drawn position of the anchor, and moves when the anchor is drawn 40 px away. |
+| Base-select picker inside a canvas: click an option, or ArrowDown then Enter | fails | `elementFromPoint()` at the option returns the canvas, and the keys leave the value unchanged (they work on the same select outside a canvas). The picker was painted under the drawn select in some runs and not in others. |
+| Cross-origin `iframe`, cross-origin `img` without CORS, `object` with a `data:` document | blank | Excluded by read-back-allowed rendering. |
+| Click the place where a blank cross-origin `iframe` is drawn | reaches the frame | The frame's button reported the click by `postMessage`. The frame is invisible and live. |
+| `geolocation` (permission element) | draws, refuses clicks | `isValid` is false with `invalidReason` "intersection_occluded_or_distorted". Outside a canvas it is true. |
+| `video`, animated `img`, `marquee`, indeterminate `progress`, a focused `input` | fire `paint` on their own | Each new frame or caret blink changes the element's picture. No `requestAnimationFrame` loop is needed while one of them is drawn. |
+| Captions from `track` | drawn with the video | The active cue is part of the video's picture. |
+| `area` in an image map | works | A click on the mapped part of the drawn image follows the link. |
+| `[inert]` | works | A click on a drawn inert subtree goes to what is behind it. This is a fix for "undrawn children are still focusable". |
+| `[draggable]`, text selection by dragging, `textarea` resize handle, `input type=range` thumb, `input type=file` chooser | work | All at the drawn position. |
+| `script`, `style`, `title`, `head` with `display: block` | draw their text | A `style` element with `contenteditable` can be edited in the canvas and its rules apply as you type. |
+| Elements with no box (`datalist`, `template`, `slot`, `br`, `wbr`, `source`, `track`, `map`, `audio` without controls, metadata) | nothing to draw | `drawElementImage()` throws "No cached paint record for element". |
+
+Not measured, because headless Chromium does not show native popup windows: where the list of a plain `select`, the date, time and colour pickers, `datalist` suggestions and `title` tooltips appear when the element is drawn transformed. The PDF viewer is also missing there. `hidden=until-found` needs find-in-page driven by a person.
+
+Two things the measurements had to work around. The page's stylesheet restyles test markup, so fixtures live in a shadow root. And a click on a new canvas at the spot where the pointer already rested did not focus the element under it until the pointer moved.
+
+### 17 ideas from the catalogue, built (`/element-ideas/`)
+
+Each demo keeps the real element and draws it with a 2D canvas. Tested in headless Chromium 157 with mouse, keyboard and emulated touch (`npm run check:ideas`).
+
+| Experiment | Result | Detail |
+| --- | --- | --- |
+| `drawable` on `<option>` in `<select multiple>`, `<li>` in `<ul>` and `<menu>`, `<th>` and `<td>` in a table | works | Each one is drawn on its own and has its own hit region. The parent is not drawn and keeps its job: the select owns the selection, the table lays out the cells. |
+| A draw with `globalAlpha = 0`, or clipped away completely | moves the hit region | Used to say where input goes after the element was drawn in distorted pieces (CRT bulge, raised room). |
+| `<input type="range">` drawn rotated 90 degrees, mouse drag | works | Up raises the value. |
+| The same, touch drag | fails | A tap on the track is mapped through the rotation, a drag is not followed. A slider drawn at 17 degrees drags by touch. Chrome appears to test the drag's direction in screen space for a horizontal slider. The page sets the value from the pointer. Also needs `touch-action: none`. |
+| `<area>` on an image drawn rotated 45 degrees and scaled to half height | works | The click target is the area. Tab moves between areas. |
+| `<dialog>` opened with `show()`, drawn with a blurred page behind it | works | Needs `position: static`. The page adds `inert` on the content behind, Escape and focus return. |
+| `popover` anchored to a `popovertarget` button that the canvas moves each frame | works | The popover follows with no script. `showPopover()` from script needs `{ source: button }` or there is no anchor. |
+| Hide an element by moving its hit region far away with `updateElementGeometry()`, then focus it | scrolls the page | The page scrolls towards the far place. Shrinking the region to a point inside the canvas does not. |
+| `ctx.filter` (blur, grayscale, brightness) and `globalCompositeOperation` (`lighter`, `destination-in`) on element pictures | work | Glow, dialog backdrop, LED dot mask. |
+| `getClientRects()` on `<ins>`, `<del>` and MathML tokens inside a drawn element | works | Boxes are in the drawn position, so differences between two boxes of one element are layout offsets. |
+| A scroll container in the canvas, scrolled by script, then scrolled back and replayed as an animation | works | `window.find()` in headless Chromium does not scroll a container, in or out of a canvas, so the page's own search form is what was tested. |
+| `<video controls>` drawn three times (blurred, mirrored, sheared) | works | Controls and captions are in every copy. The controls take clicks on the last copy drawn. |
+| `<marquee>` enlarged and masked | works | 60 `paint` events a second with no timer. The link inside is hit on the enlarged picture. |
+
+Not verified: the browser's find-in-page on `/element-ideas/#find`, whether Chrome on Android has a list box for `<select multiple>` (the wheel shows a message if the options have no boxes), and the touch-drag result on a real phone.
+
+## Video and sound (`/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/`)
 
 Chromium 157 headless, software video decoding and software rendering, 2026-11-21. The test clips are generated by `tools/media/make.sh`. `clip.webm` carries its frame number as 16 stripes in the top right corner, so a check can read which video frame a canvas holds.
 
@@ -726,6 +1108,32 @@ Compared with controls written in HTML: the native ones bring the overflow menu,
 While checks run, the shared fixture box covered the bottom left of the window and took taps meant for the page. The four media pages now set `pointer-events: none` on it, and switch it back only for the synchronous `elementFromPoint()` call of a hit-test check.
 
 Reported from Chrome on Android (2026-11-21): with the checks starting on load, videos on these pages errored and the page jumped. A check fixture is one or two more playing videos beside the three on the page, and a phone has a small number of hardware decoders. Since then the checks on the four media pages wait for a tap, each player on `/player-parts/` gets its file only when it is scrolled near and pauses when it leaves the window, and a media error is written under the player with a button to load the file again. Whether that is the whole cause is not confirmed on the device.
+
+### One shader over the controls and the frame (`/player-fx/`)
+
+Paul asked for effects where the controls and the picture work on each other, for example the play button melding in and out of the video. One `<video controls>` fills a WebGL 2 canvas with its frame moved out of its box.
+
+| Experiment | Result | Notes |
+| --- | --- | --- |
+| `texElementSubImage2D()` for the controls and `texImage2D(video)` for the frame, same element | two textures, one decoder | The controls texture is clear where there is no control. The loading ring and the menu are in it too. |
+| Hit testing with a WebGL canvas | needs `updateElementGeometry()` | A WebGL draw does not place the element. With an identity `canvasTransform` taps reach the native controls. |
+| Position of one part | found | A class gives each named part a flat colour for one paint. That picture goes to a spare texture, is read back, and each colour's bounding box is the part. Play button, timeline, mute, fullscreen and both time displays. The coloured picture never reaches the screen (0 pixels in three frames). |
+| Glyph of one part as a shape | works | The shader reads the play button's glyph out of its measured box and draws it large as a lens. The browser swaps the glyph between play and pause. |
+| Effects | six | Meld (large play glyph that shrinks into the button on play), glass (frosted bar, each control refracts the frame), melt (thickened shapes filled with the inverted frame that run downwards on play and pause), ripple (wave from the play button's centre), light (the frame lit from the timeline thumb), outlines of the measured parts. |
+| `WEBGL_lose_context.loseContext()` on a check fixture | the tab crashed | Chromium 157. A smaller case with one canvas did not crash, so the cause is not known. The checks leave the context to the garbage collector. |
+
+Not built: a WebGPU version of the shader. Not found by the colour method: parts with internal names only (menu button, the row of buttons). Not verified: `texImage2D(video)` with a hardware decoder on Android, the boxes in the touch layout, the frame rate on a phone.
+
+### Media state, lazy loading, the iframe policy, output latency (demo 19 of the Chrome APIs plan)
+
+Added to `/player-parts/`, `/video/` and `/audio/`.
+
+| Experiment | Result | Notes |
+| --- | --- | --- |
+| HTML controls in a canvas whose labels come from `:has(#lv:paused)`, `:has(#lv:muted)`, `:has(#lv:buffering)` | work, no state code | `/player-parts/` part 3. The style change raises `paint` with no `requestPaint()`. Chromium 157 needs the experimental features flag for the selectors, and the page falls back to attributes set from media events. chromestatus lists the selectors for Chrome 158. |
+| `<video loading="lazy">` as a canvas child | loads and is drawn | The browser has `video.loading`. A canvas in the window counts as near the viewport for its child. |
+| Video in an iframe with `media-playback-while-not-visible 'none'`, iframe a canvas child | keeps playing | The frame counts as rendered. `getImageData()` after a forced repaint of that fixture crashed the tab. It did not crash in smaller cases, so the cause is not known and the check reads only the clock. |
+| Visualiser delayed by `AudioContext.playbackStats.averageLatency`, else `outputLatency` | built | `/audio/`. The test browser reports 0 ms and has no sound card, so the alignment is not verified. A checkbox turns the delay off. |
 
 ### Not verified
 
@@ -806,9 +1214,36 @@ Measured in headless Chromium 157 (Linux, software renderer) on 2026-11-21. The 
 | `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas that holds an element texture | crashes the tab (Chromium 157) | Seen in a live check that released its context while the fixture was still in the document. Removing the canvas first avoids it. |
 | A WebGL canvas losing its context | fires `webglcontextlost`, not `contextlost` | `SurfaceElement` in `lib/surface.js` only listens for `contextlost`, so a subclass using WebGL has to listen itself. `<selection-fx>` moves its content to a new 2D canvas on either event. |
 | A canvas with a lost context on Android Chrome 159 | shows a white box with a broken-picture icon | Reported from Paul's phone on first load of `/selection/` (2026-11-21), cause not identified. The page now starts on a 2D effect, starts GPU checks only on a tap, and replaces a lost or picture-less canvas. |
+| `caret-color` and `caret-shape` in the element's picture (`/caret/`) | works | At device scale factor 2 a block caret covers 578 canvas pixels and a bar 102. |
+| `caret-animation: manual` | works | The caret pixels stay in every read-back and no `paint` fires while the caret rests. With `auto` the caret is in about one read-back in three. |
+| Caret position from a collapsed `Range` | works | `getClientRects()` returns one zero-width rectangle at the drawn position. Nothing on an empty line. |
+| `CSS.highlights.highlightsFromPoint()` on an element drawn away from its layout position | works | Returns the Highlight and range at the drawn position, and nothing at an empty point of the canvas. |
+| `::highlight(*)` | not in Chromium 157 | `CSS.supports('selector(::highlight(*))')` is false. Listed for 158. |
+| A shader finding the caret and highlights by colour key, with no rectangles (`key-glow`) | works | Checked on WebGL with a keyed `::highlight()` background. |
+| Playwright screenshots | hide the caret | `page.screenshot()` defaults to `caret: 'hide'`. Pass `caret: 'initial'` when the caret is the subject. |
 | WebGPU on screen, and shader speed on a phone | not verified | The software adapter cannot present a WebGPU canvas. |
 
 How `<selection-fx>` uses this: one `::selection` rule hides the browser's highlight inside the element, `selectionchange` triggers a measurement of one Range per text node, and the rectangles go to a 2D effect directly or to a shader as a mask texture (red: selected, green: selected in the last 1.2 s, blue: selected and blurred by 10 px). The element's geometry stays at its layout position, so the caret and hit testing do not follow what an effect draws.
+
+## Newer DOM features in a drawable custom element (`/component-kit/`)
+
+Tested in headless Chromium 157 at 1x, 1.5x and a phone profile. `<kit-slot>` and `<kit-field>` in `public/component-kit/kit.js` are written with each feature and with the code it replaces; the page runs both.
+
+| Feature | Result | Detail |
+| --- | --- | --- |
+| Scoped `CustomElementRegistry` on the shadow root that holds the element | works | The element draws its slotted children and `elementFromPoint()` on that root returns them at the drawn position. A scoped registry does not change how the canvas finds slotted children. Two classes share one tag name on one page. |
+| `slotAssignment: 'manual'` with `slot.assign(child)` | works | The assigned child is drawn. An unassigned child has no box, cannot take focus and needs no `slot` attribute. A child added later is not drawn until script assigns it. |
+| Reference Target (`shadowRoot.referenceTarget`) for an input that is a canvas child | works | A `<label for>` in the page focuses the input and labels it. `label.control` is the host. The target must be inside the shadow root, so it cannot name a slotted light-DOM child. |
+| `using` with `ElementImage` | needs a wrapper | `ElementImage` has `close()` and no `[Symbol.dispose]`. `DisposableStack.adopt(image, (i) => i.close())` or a wrapper object closes it at the end of the block, at an early return and on a throw. Drawing a closed image throws `InvalidStateError`. |
+| `using` as a feature check | needs its own module | It is syntax, so the code that uses it is in `using.js` and loaded with `import()` after a parse test. |
+| `canvas.when('paint')` (Observable) | works | Same events as `addEventListener('paint')`. `map()`, `take()` and an AbortSignal work. |
+| `moveBefore()` into a host that slots the node into a canvas | works | Focus stays and an iframe inside does not reload. `replaceWith()` plus `append()` reloads the iframe once. `surface.js` (fx, dom-lens, physical-ui) and `dom-portal.js` now wrap with `moveBefore()` where it exists. |
+| `:has-slotted` | not in Chromium 157 | Not tested. |
+
+Lines in the element, old code against new: registry 11 to 5, slots 15 to 6, label 15 to 1, closing snapshots 22 to 21, paint handlers 13 to 6. `moveBefore()` adds lines because the old path stays as the fallback. The page counts these from the running source.
+
+Not confirmed on a phone: which of the six features Chrome 159 on Android reports, and whether the three small canvases on the page keep their contexts there.
+
 ## Recent platform features on drawn elements (`/chrome-apis/`)
 
 `/chrome-apis/` lists the 678 features that chromestatus.com records for Chrome 130 to 160 with an idea for 359 of them and a ranked plan of 28 demos; the same content is `docs/chrome-apis-plan.md`. `/chrome-apis/probes.html` holds 27 probes, each of which draws one small element with one feature on and reads the result back. `npm run record:probes` runs them with real mouse and keyboard input in the two Chromium builds installed beside Playwright: the 157 headless shell and the 153 full browser with the `canvas-draw-element` flag.
