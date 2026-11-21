@@ -33,7 +33,12 @@
   div.specimen { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: #111; overflow: hidden; }
   .specimen-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .specimen-tools button, #run, #copy { font: inherit; min-height: 40px; padding: 4px 12px; }
-  #rules li, #unbuilt li { margin-bottom: 8px; }
+  #rules li, #ideaList li { margin-bottom: 10px; }
+  #ideaList small { color: var(--muted); }
+  details.rank { border-top: 1px solid var(--line); }
+  details.rank > summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  details.rank > summary small { font-weight: 400; color: var(--muted); }
+  a.chip { text-decoration: none; }
 </style>
 </head>
 <body>
@@ -44,6 +49,7 @@
   <p class="lede">
     What does each HTML element do as a child of <code>&lt;canvas content="drawable"&gt;</code>: is it drawn, can it be hit, does it take input?
     Each row below is one element that was put in a canvas and measured, with one thing that could be built with it.
+    The measurements also decide which of the ideas further down are possible.
   </p>
   <p class="note" id="recorded"></p>
 
@@ -61,6 +67,7 @@
       <li data-code="/elements/probe.js#probe"><b>Measure both ways.</b> Once inside a drawable wrapper, once as the drawable child itself, and once more with <code>display: block</code> forced when the element has no box.</li>
       <li data-code="/elements/verdict.js"><b>Turn the numbers into the label on each row.</b></li>
       <li data-code="#specimen"><b>"Draw it here": a canvas you can use.</b> The same markup, drawn with a small rotation so native popups and hit regions can be compared with the picture.</li>
+      <li data-code="#ideas"><b>Check each idea against the measurements.</b> <code>ideas.js</code> lists what each idea needs; <code>evaluate()</code> looks those entries up.</li>
       <li data-code="/elements/data.js"><b>The list of elements and their test markup.</b></li>
     </ol>
     <p>The recorded results also include checks made with real mouse and keyboard input. Those are driven by <code>tools/elements/record.mjs</code> (run <code>npm run record:elements</code>), because a page cannot send itself trusted clicks.</p>
@@ -69,9 +76,11 @@
   <h2>Findings</h2>
   <ul class="findings" id="rules"></ul>
 
-  <h2>Ideas that are not built yet</h2>
-  <p class="note">Picked from the rows below. Each links to its element.</p>
-  <ul class="findings" id="unbuilt"></ul>
+  <h2 id="ideas">Ideas</h2>
+  <p class="note" id="ideaNote"></p>
+  <div class="tools"><select id="ideaTheme" aria-label="Theme"><option value="">All themes</option></select></div>
+  <div class="filters" id="ideaFilters"></div>
+  <div id="ideaList"></div>
 
   <h2 id="all">All elements</h2>
   <div class="tools">
@@ -98,6 +107,7 @@
   import { GROUPS, ELEMENTS } from './data.js';
   import { noteFor, RULES } from './notes.js';
   import { verdict, LABEL } from './verdict.js';
+  import { THEMES, IDEAS, BUILT_PAGE, evaluate } from './ideas.js';
   import { assets } from './media.js';
   import { build, probeAll } from './probe.js';
   import recorded from './recorded.json' with { type: 'json' };
@@ -120,8 +130,44 @@
 
   // ---------------------------------------------------------------- findings and ideas
   $('rules').innerHTML = RULES.map(([title, text]) => `<li><strong>${esc(title)}.</strong> ${esc(text)}</li>`).join('');
-  $('unbuilt').innerHTML = ELEMENTS.map((e) => [e, noteFor(e)]).filter(([, n]) => n.build)
-    .map(([e, n]) => `<li><a href="#${slug(e.tag)}"><strong>${esc(n.build)}</strong></a> <code>${esc(display(e.tag))}</code><br>${esc(n.idea)}</li>`).join('');
+  // #region ideas
+  // Every idea names the entries it needs. Its status comes from the measurements of those entries:
+  // the recording at first, and this browser's numbers after "Run the measurements in this browser".
+  const RANKS = { 1: 'Build next', 2: 'Worth building', 3: 'Small, speculative or blocked' };
+  const STATUS = { possible: 'Possible', partly: 'Partly', blocked: 'Blocked' };
+  let ideaFilter = '';
+  function showIdeas(source, label) {
+    const verdictOf = (tag) => verdict(source[tag], tag);
+    const judged = IDEAS.map((idea) => ({ idea, ...evaluate(idea, verdictOf) }));
+    const n = (k) => judged.filter((j) => j.status === k).length;
+    $('ideaNote').textContent = `${IDEAS.length} ideas, ranked. Each one lists the elements it needs and is checked against ${label}: ${n('possible')} possible, ${n('partly')} partly, ${n('blocked')} blocked.`;
+    const themes = Object.fromEntries(THEMES);
+    const item = ({ idea, status, why }) => `<li data-status="${status}" data-theme="${idea.theme}"${hiddenIdea(status, idea.theme) ? ' hidden' : ''}>
+      <strong>${esc(idea.title)}</strong> <span class="chip ${status === 'possible' ? 'works' : status === 'partly' ? 'partly' : 'blank'}">${STATUS[status]}</span>${idea.built && BUILT_PAGE ? ` <a class="chip build" href="${BUILT_PAGE}#${idea.built}">built: try it</a>` : ''}<br>
+      ${esc(idea.text)}<br>
+      <small>${esc(themes[idea.theme])}. Needs ${idea.needs.map((t) => `<a href="#${slug(t.replace(/^\?/, ''))}"${why.includes(t) ? ' class="n"' : ''}>${esc(display(t.replace(/^\?/, '')))}</a>`).join(', ')}${why.length ? `. In the way: ${why.map((t) => esc(display(t))).join(', ')}` : ''}</small></li>`;
+    $('ideaList').innerHTML = [1, 2, 3].map((rank) => {
+      const list = judged.filter((j) => j.idea.rank === rank);
+      return `<details class="rank"${rank === 1 ? ' open' : ''}><summary>${rank}. ${RANKS[rank]} <small>${list.length}</small></summary><ul class="findings">${list.map(item).join('')}</ul></details>`;
+    }).join('');
+  }
+  $('ideaFilters').innerHTML = [['', 'All'], ...Object.entries(STATUS)].map(([key, text], k) => `<button type="button" data-filter="${key}" aria-pressed="${k === 0}">${esc(text)}</button>`).join('');
+  $('ideaTheme').insertAdjacentHTML('beforeend', THEMES.map(([key, text]) => `<option value="${key}">${esc(text)}</option>`).join(''));
+  const hiddenIdea = (status, theme) => (!!ideaFilter && status !== ideaFilter) || (!!$('ideaTheme').value && theme !== $('ideaTheme').value);
+  function filterIdeas() {
+    for (const li of document.querySelectorAll('#ideaList li')) li.hidden = hiddenIdea(li.dataset.status, li.dataset.theme);
+    if (ideaFilter || $('ideaTheme').value) for (const d of document.querySelectorAll('#ideaList details')) d.open = true;
+  }
+  $('ideaFilters').addEventListener('click', (ev) => {
+    const b = ev.target.closest('button');
+    if (!b) return;
+    ideaFilter = b.dataset.filter;
+    for (const other of $('ideaFilters').children) other.setAttribute('aria-pressed', other === b);
+    filterIdeas();
+  });
+  $('ideaTheme').addEventListener('change', filterIdeas);
+  showIdeas(results, 'the recording');
+  // #endregion ideas
 
   // ---------------------------------------------------------------- rows
   const fmt = (m) => {
@@ -282,6 +328,9 @@
     }
     const version = navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? 'this browser';
     $('liveNote').innerHTML = `${esc(version)}: ${ELEMENTS.length - differ.length} of ${ELEMENTS.length} rows match the recording.` + (differ.length ? ` Different: ${differ.map((t) => `<a href="#${slug(t)}">${esc(display(t))}</a>`).join(', ')}.` : '');
+    // Ideas again, against this browser: its draw, ink and hit-test numbers with the recording's input checks.
+    const merged = Object.fromEntries(ELEMENTS.map((e) => [e.tag, live[e.tag].skipped || live[e.tag].crashed ? live[e.tag] : { ...results[e.tag], ...live[e.tag], picture: undefined }]));
+    showIdeas(merged, `${version}'s measurements`);
     $('copy').hidden = false;
     $('copy').onclick = () => navigator.clipboard.writeText(JSON.stringify({ browser: navigator.userAgent, results: live }, null, 1)).then(() => ($('copy').textContent = 'Copied'));
     window.__checkState = 'done';

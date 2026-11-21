@@ -324,6 +324,7 @@ if (!only.length) {
   const { GROUPS, ELEMENTS } = await import(path.join(root, 'elements/data.js'));
   const { noteFor, RULES } = await import(path.join(root, 'elements/notes.js'));
   const { verdict, LABEL } = await import(path.join(root, 'elements/verdict.js'));
+  const { IDEAS, evaluate } = await import(path.join(root, 'elements/ideas.js'));
   const cell = (t) => String(t ?? '').replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/\n/g, ' ');
   const name = (tag) => (tag.startsWith('[') || tag.startsWith('custom') ? tag : `<${tag.replace(/ \(.*\)$/, '')}>${tag.match(/ \(.*\)$/)?.[0] ?? ''}`);
   const md = [
@@ -332,7 +333,8 @@ if (!only.length) {
     `Recorded ${data.date} in ${data.browser}. ${ELEMENTS.length} entries.`, '',
     '"Found" is measured. "Not measured" is an expectation that needs a person with a real browser, mostly about native popups, which headless Chromium does not show.', '',
     '## Findings', '', ...RULES.map(([t, x]) => `- **${t}.** ${x}`), '',
-    '## Ideas that are not built yet', '', ...ELEMENTS.map((e) => [e, noteFor(e)]).filter(([, n]) => n.build).map(([e, n]) => `- **${n.build}** (\`${name(e.tag)}\`). ${n.idea}`), '',
+    '## Ideas', '', 'Ranked 1 (build next) to 3 (small, speculative or blocked). Status is from the recording: an idea is blocked when an element it needs is blank or has no box, and partly possible when one failed an input check.', '',
+    ...[1, 2, 3].flatMap((rank) => [`### Rank ${rank}`, '', ...IDEAS.filter((x) => x.rank === rank).map((x) => { const ev = evaluate(x, (tag) => verdict(results[tag], tag)); return `- **${x.title}** (${ev.status}${ev.why.length ? ': ' + ev.why.map(name).join(', ') : ''}). ${x.text} Needs ${x.needs.map((t) => '`' + name(t.replace(/^\?/, '')) + '`').join(', ')}.`; }), '']),
   ];
   for (const [key, title] of GROUPS) {
     md.push(`## ${title}`, '', '| Element | Result | Found | Not measured | Idea |', '|---|---|---|---|---|');

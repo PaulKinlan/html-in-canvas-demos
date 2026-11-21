@@ -17,25 +17,139 @@ Recorded 2026-11-21 in Headless Chrome 157.0.8103.78, Linux, software rendering.
 - **No box means nothing to draw.** Metadata elements, closed dialogs and popovers, datalist, br, wbr, source, track, map, template and audio without controls have no box. Forcing display: block on script, style, title and head draws their text.
 - **Permission elements refuse.** The geolocation element reports itself invalid ("intersection_occluded_or_distorted") inside a canvas.
 
-## Ideas that are not built yet
+## Ideas
 
-- **Picker wheel from select multiple** (`<select multiple>`). The only form of select whose list is drawn in the canvas. Draw it on a cylinder as a picker wheel: the options are real option elements, the selection is form state, and updateElementGeometry() keeps taps on the right option.
-- **Textarea as a CRT terminal** (`<textarea>`). A real textarea drawn through a barrel-distortion and scan-line shader, with the hit region re-placed under the pointer so the caret lands where you tap.
-- **Mixing desk from rotated range inputs** (`<input type=range>`). Draw range inputs rotated 90 degrees as the faders of a mixing desk. The hit region follows the transform, so no writing-mode or custom drag code is needed.
-- **Step sequencer from a grid of checkboxes** (`<input type=checkbox>`). A grid of real checkboxes drawn as lit pads. The pattern is form state, so it can be submitted, reset and read by a screen reader.
-- **In-canvas dialog with a shader backdrop** (`<dialog>`). For a dialog that belongs to the scene, use the open attribute with position: static and set inert on the rest. The canvas then owns the backdrop and can do what ::backdrop cannot: blur, desaturate or shatter the pixels of everything behind the dialog.
-- **Anchored popover call-outs on drawn elements** (`[popover]`). Anchor popovers to elements drawn on a rotating object. The canvas moves the anchors and the browser keeps upright, sharp labels attached to them, with no positioning script.
-- **Set inert on undrawn children automatically** (`[inert]`). FINDINGS.md lists one accessibility hazard: children that are in the canvas but not drawn are still focusable. Setting inert on every child the paint handler did not draw closes it.
-- **Find in page that moves the camera** (`[hidden=until-found]`). Put the text of every panel of a 3D scene in hidden=until-found sections and fly the camera to the panel on beforematch.
-- **MathML terms that move between steps of a derivation** (`<math>`). MathML tokens are real boxes with Range rectangles, so a canvas can move each term from its place in one line of a derivation to its place in the next.
-- **Video with native controls and captions on a drawn screen** (`<video>`). The video sets the repaint rate itself. A television in a 3D room needs a paint handler and no frame loop.
-- **Image map on a perspective floor plan** (`<area>`). Image maps follow the transform. Draw a floor plan or a map in perspective and each area is a link and a focus stop with no hit-testing code.
-- **Cover flow from a ul** (`<ul>`). Each li is a card in a 3D row, and Tab and screen-reader order follow the list.
-- **Radial menu from a menu element** (`<menu>`). Make each button a drawable child and draw them rotated around a centre. The hit regions rotate with them.
-- **Table cells that extrude into a bar chart** (`<table>`). Read each cell's rectangle and number, and draw a 3D bar rising out of the cell. The table stays the accessible data.
-- **Animated diff from ins and del** (`<ins>`). Glyphs of ins assemble and glyphs of del burn away, driven by the same markup a static diff uses.
-- **Editable style element drawn in the scene** (`<style> (display: block, contenteditable)`). A stylesheet edited inside the scene it styles. The editor is the style element itself, drawn on a panel next to the content.
-- **LED ticker from a marquee** (`<marquee>`). Draw a marquee through a dot-matrix shader. The marquee provides the motion, the repaint signal and the text for screen readers.
+Ranked 1 (build next) to 3 (small, speculative or blocked). Status is from the recording: an idea is blocked when an element it needs is blank or has no box, and partly possible when one failed an input check.
+
+### Rank 1
+
+- **Picker wheel from select multiple** (possible). Draw a list box on a cylinder. The options are real option elements and the selection is form state. Needs `<select multiple>`, `<option>`.
+- **Mixing desk from rotated range inputs** (possible). Range inputs drawn rotated 90 degrees as faders. The hit region follows the transform. Needs `<input type=range>`, `<label>`, `<output>`.
+- **Step sequencer from a grid of checkboxes** (possible). Real checkboxes drawn as lit pads. The pattern can be submitted, reset and read by a screen reader. Needs `<input type=checkbox>`, `<form>`, `<fieldset>`.
+- **Textarea as a CRT terminal** (possible). A real textarea drawn with scan lines and curvature, with the caret landing where you tap. Needs `<textarea>`.
+- **Rotary switch from a radio group** (possible). The checked radio sets the knob angle. Arrow keys already move between positions. Needs `<input type=radio>`, `<fieldset>`, `<label>`.
+- **Odometer for a number input** (possible). Draw the value on counter wheels that roll when the value steps. The field stays editable. Needs `<input type=number>`, `<output>`.
+- **Form on a prism, one fieldset per face** (possible). A multi-step form where Next turns the prism. Validation and submit are native. Needs `<form>`, `<fieldset>`, `<legend>`, `<input>`, `<button>`.
+- **Animated diff from ins and del** (possible). Glyphs of ins assemble and glyphs of del burn away, from the markup a static diff already uses. Needs `<ins>`, `<del>`, `<p>`.
+- **MathML terms that move between steps** (possible). Each term travels from its place in one line of a derivation to its place in the next. Needs `<math>`.
+- **Marker-pen highlight** (possible). Replace the flat background of mark with a hand-drawn stroke along its line boxes. Needs `<mark>`, `<p>`.
+- **Keycaps from kbd** (possible). Each kbd is drawn as a key that goes down while the real key is held. A shortcut cheat sheet that responds. Needs `<kbd>`.
+- **Television with native controls and captions** (possible). A video on a drawn screen. Its frames set the repaint rate, and play, scrub and captions are the browser's own. Needs `<video>`, `<video controls>`, `<track>`.
+- **Image map on a perspective floor plan** (possible). Each area is a link and a focus stop on a plan drawn in perspective. Needs `<map>`, `<area>`, `<img>`.
+- **Cassette deck from audio controls** (possible). Native audio controls on a drawn deck with spinning reels while it plays. Needs `<audio controls>`.
+- **Table cells that extrude into a bar chart** (possible). A bar rises out of each cell from its rectangle and number. The table stays the accessible data. Needs `<table>`, `<td>`, `<th>`.
+- **Cover flow from a ul** (possible). Each li is a card in a row drawn in depth. Tab and screen-reader order follow the list. Needs `<ul>`, `<li>`.
+- **Radial menu from a menu element** (possible). Buttons drawn rotated around a centre. The hit regions rotate with them. Needs `<menu>`, `<button>`.
+- **Sortable table with rows that travel** (possible). On sort, each row is drawn moving from its old position to its new one. Needs `<table>`, `<tr>`, `<th>`, `<button>`.
+- **Find in page that moves the camera** (possible). Panels of a scene hold hidden=until-found text. A find match fires beforematch and the camera goes to that panel. Needs `[hidden=until-found]`, `<section>`.
+- **Accordion that unfolds** (possible). The two pictures of a details element, closed and open, are joined by a fold-out animation. Needs `<details>`, `<summary>`.
+- **Live minimap of a page** (possible). Every article drawn a second time at a tenth of its size beside the scroll bar, updating as the page does. Needs `<article>`, `<section>`, `<h2>`.
+- **In-canvas dialog with a canvas backdrop** (possible). A dialog that stays in the scene with open and position: static, while the canvas blurs and dims everything behind it. Needs `<dialog open>`, `[inert]`, `<button>`.
+- **Anchored popover call-outs on drawn elements** (possible). Popovers anchored to elements drawn on a turning object. The browser keeps upright, sharp labels attached. Needs `[popover]`, `<button>`.
+- **LED ticker from a marquee** (possible). A marquee drawn through a dot-matrix mask. It supplies the motion, the repaint signal and the text. Needs `<marquee>`.
+- **Tab switcher of live pages** (possible). Every open page of an app as a live, clickable card in a fan. Needs `<iframe> (same origin)`.
+- **Editable style element drawn in the scene** (possible). A stylesheet edited inside the scene it styles. The editor is the style element itself. Needs `<style> (display: block, contenteditable)`.
+- **Set inert on undrawn children automatically** (possible). Children that are in the canvas but not drawn are still focusable. Mark every child the paint handler skipped as inert. Needs `[inert]`, `<button>`.
+- **Focus order shown as a path** (possible). Draw a numbered line through every focusable element in tab order, live. Needs `[tabindex]`, `<a>`, `<button>`, `<input>`.
+
+### Rank 2
+
+- **Exploded form diagram** (possible). Labels drawn as call-outs away from their fields and joined by canvas lines. A tap on a call-out focuses its field. Needs `<label>`, `<input>`, `<input type=checkbox>`.
+- **Per-keystroke ink** (possible). Each paint event after a key press spreads ink from the caret position. No key listener on the field. Needs `<input>`, `<textarea>`.
+- **Button press that dents the surface** (possible). Hover and :active change the picture, which fires paint. The canvas ripples the area around the button. Needs `<button>`.
+- **Colour input that recolours its own scene** (possible). The swatch sits inside the scene and its value tints everything drawn around it. Needs `<input type=color>`.
+- **Liquid progress bar** (possible). Read progress.value in the paint handler and draw a sloshing fill. The element stays the accessible bar. Needs `<progress>`.
+- **Dial gauge from a meter** (possible). A needle and coloured arcs from value, low, high and optimum. Needs `<meter>`.
+- **Split-flap output** (possible). Changing output.value flips each character to the new one. Needs `<output>`, `<form>`.
+- **Wall calendar around a date input** (possible). The date field sits on a drawn calendar that turns to the chosen month. Needs `<input type=date>`, `<input type=month>`.
+- **Clock hands from a time input** (possible). Hands drawn from the value. Dragging a hand writes the value back. Needs `<input type=time>`.
+- **File input on a drawn letter box** (possible). Tap the slot to choose files. Chosen images are drawn dropping into the scene. Needs `<input type=file>`, `<img>`.
+- **Search field that focuses the scene** (possible). While the field has focus, everything else in the canvas is drawn dimmed and blurred. Needs `<search>`, `<input type=search>`.
+- **Disabled panel in one step** (possible). A fieldset with disabled is drawn frosted over, and its controls stop taking input. Needs `<fieldset>`, `<input>`, `<button>`.
+- **Flip clock from a time element** (possible). Updating the text once a second fires paint once a second. No frame loop. Needs `<time>`.
+- **Ruby that appears near the pointer** (possible). Annotations are drawn only around the pointer, using the rt rectangles. A reading aid for language learners. Needs `<ruby>`, `<rt>`.
+- **Code that types itself** (possible). Reveal glyphs of a code block in order while the text stays selectable and copyable. Needs `<pre>`, `<code>`.
+- **Pull quote behind the column** (possible). Draw a blockquote a second time, large and faint, behind the article text. Needs `<blockquote>`, `<p>`.
+- **Selection that glows** (possible). The browser draws the selection into the element picture. Bloom everything of that colour. Needs `<p>`, `<span>`.
+- **Kinetic heading** (possible). Heading glyphs fly in and settle. The h1 stays in the document outline. Needs `<h1>`.
+- **Footnotes that slide out** (possible). sup links draw their note beside the line instead of jumping to the foot of the page. Needs `<sup>`, `<a>`, `<small>`.
+- **Strike-through drawn by hand** (possible). Animate a pen stroke across s and del when they are added. Needs `<s>`, `<del>`.
+- **Captions drawn apart from the video** (possible). Read track.activeCues and draw the text sharp over a video that goes through an effect. Needs `<video>`, `<track>`.
+- **Video wall** (possible). One video drawn as a grid of tiles that drift apart and close up, with one set of controls. Needs `<video controls>`.
+- **Figure with a live caption** (possible). The image goes through an effect and the figcaption stays plain text on top. Needs `<figure>`, `<figcaption>`, `<img>`.
+- **Resolution chosen by drawn size** (possible). Set the img width from its size in the scene and let srcset and sizes pick the file. Needs `<picture>`, `<source>`, `<img>`.
+- **SVG chart as a live texture** (possible). Hover styles and links on the shapes keep working while the canvas tilts the chart. Needs `<svg>`, `<a>`.
+- **Chart and legend exported as one picture** (possible). A canvas-drawn chart and its HTML legend composed in one outer canvas and saved with one call. Needs `<canvas>`, `<ul>`, `<figure>`.
+- **Animated image as the only clock** (possible). An animated image fires paint every frame. Use it to drive an effect, and remove it to stop. Needs `<img> (animated)`.
+- **Column highlight from col** (possible). A col background follows the pointer across the table, drawn as a soft light instead of a flat fill. Needs `<table>`, `<col>`, `<colgroup>`.
+- **Glossary cards from a dl** (possible). dt on the front, dd on the back, flipped in depth. Needs `<dl>`, `<dt>`, `<dd>`.
+- **Staggered list entrance** (possible). Each li is drawn at a delay from its index, with its marker in the picture. Needs `<ol>`, `<li>`.
+- **Sticky header that casts a shadow** (possible). thead drawn last over the scrolled body with a shadow whose depth follows the scroll offset. Needs `<table>`, `<thead>`, `<tbody>`.
+- **Heat map over table cells** (possible). Colour each cell from its number, with a smooth gradient drawn between neighbours. Needs `<table>`, `<td>`.
+- **Timeline from an ordered list** (possible). Items drawn along a curved path, numbered by their own markers. Needs `<ol>`, `<li>`, `<time>`.
+- **Sections on a cube** (possible). Four sections on four faces. Landmarks and headings stay in the accessibility tree. Needs `<section>`, `<h2>`, `<nav>`.
+- **Navigation on a ribbon** (possible). nav links drawn along a curve. Each is still a link that can be opened in a new tab. Needs `<nav>`, `<a>`.
+- **Slices between hr elements** (possible). The paint handler cuts the document at each hr and draws the slices at different depths. Needs `<hr>`, `<article>`.
+- **Header that folds away** (possible). The page header drawn folding up as the page scrolls, and folding back down on scroll up. Needs `<header>`, `<h1>`.
+- **Drawer cabinet from details** (possible). Summaries are drawer fronts, bodies are the open drawers. Needs `<details>`, `<summary>`.
+- **Aside as a margin note on a string** (possible). An aside drawn hanging off the paragraph it annotates, swinging when the page scrolls. Needs `<aside>`, `<p>`.
+- **Menu that stays readable on a tilted toolbar** (possible). Buttons drawn in perspective open popover menus that the page paints flat, anchored to the drawn buttons. Needs `[popover]`, `<menu>`, `<button>`.
+- **Tooltip drawn by the canvas** (possible). Read title attributes and draw tooltips in the scene, since native tooltips are not in the canvas. Needs `[title] tooltip`, `<abbr>`.
+- **Modal that leaves the scene** (possible). showModal() paints in the top layer. Draw the scene receding and darkening behind it from the canvas side. Needs `<dialog>`, `<button>`.
+- **Loading state that stops by itself** (possible). An indeterminate progress bar keeps the canvas repainting while loading. Give it a value and the repaints stop. Needs `<progress> (indeterminate)`.
+- **Caret as a heartbeat** (possible). A focused field repaints the canvas on each caret blink. Pulse the scene with it while the user is typing. Needs `<input>`.
+- **Video as a frame clock for a whole scene** (possible). Hide a looping video in the canvas and run every animation from its paint events, so everything is in sync with the film. Needs `<video>`.
+- **Widget with its own effect inside a scene** (possible). A drawable canvas inside a drawable canvas: one effect per widget, one for the scene. Needs `<canvas> (drawable, nested)`, `<button>`.
+- **Email preview on a drawn phone** (possible). A srcdoc frame of the message, on a phone body, scrollable and clickable. Needs `<iframe> (srcdoc)`.
+- **Custom element that packages an effect** (possible). One tag that draws its light-DOM children with an effect, shadow tree and all. Needs `custom element`, `<slot>`.
+- **HTML button inside an SVG diagram** (possible). foreignObject content draws and takes clicks, so a diagram node can hold a real form. Needs `<svg foreignObject>`, `<svg>`.
+- **Script that shows itself** (possible). Draw the page's own script element as a block beside what it produces. Needs `<script>`.
+- **Layout debugger overlay** (possible). Draw every child's box, margin and baseline over its picture in the same canvas. Needs `<div>`, `<p>`, `<table>`.
+- **Paint event inspector** (possible). Flash the region of whichever element fired paint, with a count per element. Needs `<input>`, `<video>`, `<marquee>`.
+- **Hit region viewer** (possible). Outline where the browser will hit test each drawn element, against where it was drawn. Needs `<button>`, `<a>`, `<input>`.
+- **Focus ring that leads the eye** (possible). The focus ring is in the element picture. Draw a trail from the last focused element to the new one. Needs `[tabindex]`, `<button>`.
+- **Landmark map** (possible). Tint each landmark region and label it with its role. Needs `<main>`, `<nav>`, `<aside>`, `<header>`, `<footer>`.
+- **Heading outline beside the page** (possible). Draw the heading tree as a live table of contents, built from h1 to h6. Needs `<h1>`, `<h2>`, `<h3>`, `<h4>`, `<h5>`, `<h6>`.
+- **Drag a card out of the scene** (possible). Native drag and drop from a drawn card to another window, with the canvas pixels as the drag image. Needs `[draggable]`.
+- **Pixel editor from checkboxes** (possible). A 16 by 16 grid of checkboxes drawn as pixels. The picture is a form value. Needs `<input type=checkbox>`, `<form>`.
+- **Sliding puzzle of a live page** (possible). A same-origin frame cut into tiles. Every tile still scrolls and clicks. Needs `<iframe> (same origin)`.
+- **Contenteditable on a curling page** (possible). Type on a page of a book and turn it. Needs `[contenteditable]`.
+
+### Rank 3
+
+- **Suggestion ring from a datalist** (possible). Read input.list.options and draw the suggestions as chips around the field, since the native list is not in the canvas. Needs `<datalist>`, `<input>`.
+- **Password field that can be shared** (possible). Only the masking dots reach the canvas, so a stream or capture of the form carries no secret. Needs `<input type=password>`.
+- **Customisable select with the picker in the scene** (partly: <select> (base-select)). Blocked today: the base-select picker is in the top layer and could not be used inside a canvas. Needs `<select> (base-select)`, `<selectedcontent>`.
+- **Hero picture from selectedcontent** (partly: <select> (base-select)). Draw the element that mirrors the chosen option a second time, large, as the page hero. Needs `<select> (base-select)`, `<selectedcontent>`.
+- **Folder tabs from legends** (possible). Each fieldset is a folder and its legend is the tab. Tapping a tab brings its folder to the front. Needs `<fieldset>`, `<legend>`.
+- **Subscripts that settle** (possible). Chemical formulas where sub and sup drop into place one after another. Needs `<sub>`, `<sup>`.
+- **Bidirectional text explained** (possible). Draw arrows over bdo and bdi runs showing visual order against logical order. Needs `<bdo>`, `<bdi>`.
+- **Abbreviations expanded in place** (possible). On tap, the title of an abbr unfolds between the letters, since the native tooltip is not in the canvas. Needs `<abbr>`, `[title] tooltip`.
+- **Quotation marks as ornaments** (possible). Draw oversized quote marks around q and cite from their rectangles. Needs `<q>`, `<cite>`.
+- **Variables that light up together** (possible). Hover one var and every var with the same name is outlined across the page. Needs `<var>`, `<code>`.
+- **Line breaks as cut lines** (possible). wbr and br have no box. Use Range rectangles of the text around them to fold a paragraph like paper. Needs `<p>`, `<br>`, `<wbr>`.
+- **Photo gallery with real alt text** (possible). Images fanned out like prints on a table. Each is still an img with alt text and "Save image as". Needs `<img>`, `<figure>`.
+- **PDF pages as a book** (blocked: <embed> (PDF)). Not measured: the PDF viewer is missing in the test browser and is expected to be blank. Needs `<embed> (PDF)`.
+- **Cross-origin image wall** (blocked: <img> (other origin, no CORS)). Blocked without CORS: the images draw blank. Needs crossorigin="anonymous" and headers. Needs `<img> (other origin, no CORS)`.
+- **Caption as a rubber stamp** (possible). The table caption drawn rotated across a corner of the table. Needs `<table>`, `<caption>`.
+- **Footer totals that count up** (possible). tfoot numbers roll to their value when the table changes. Needs `<table>`, `<tfoot>`.
+- **Machine values next to shown values** (possible). Hold a key and every data and time element shows its value or datetime attribute beside it. Needs `<data>`, `<time>`.
+- **Document title as a heading** (possible). Style the real title element as a block and draw it: one element is both the tab title and the page heading. Needs `<title>`.
+- **Address on an envelope** (possible). An address element drawn on an envelope that seals when a form is submitted. Needs `<address>`, `<form>`.
+- **Footer that is the floor** (possible). In a scene with depth, draw the footer flat on the ground plane under everything else. Needs `<footer>`.
+- **Subtitle that types under the title** (possible). An hgroup where the p is revealed glyph by glyph after the heading settles. Needs `<hgroup>`, `<h3>`.
+- **Toast stack in the scene** (possible). Non-modal dialogs with open, stacked in a corner of the canvas and drawn sliding in. Needs `<dialog open>`, `<output>`.
+- **Popover drawn into the canvas** (partly: [popover]). Blocked today: a popover is in the top layer and is never part of the element picture. Needs `[popover]`.
+- **Stock ticker with real links** (possible). A marquee of links, each one clickable while it scrolls. Needs `<marquee>`, `<a>`.
+- **Warn about invisible frames** (possible). A cross-origin frame in a canvas is blank and still takes clicks. Draw a hatched box wherever one is. Needs `<iframe> (other origin)`.
+- **Template stamped many times** (possible). Clone one template into many drawable children and draw each with its own transform. Needs `<template>`, `<div>`.
+- **Permission button in a scene** (partly: <geolocation>). Blocked: the geolocation element reports itself invalid inside a canvas. Needs `<geolocation>`.
+- **Unknown elements in a design system audit** (possible). Elements the parser does not know still draw. Outline every HTMLUnknownElement in red. Needs `<blink>`, `<applet>`.
+- **xmp as a literal code sample** (possible). xmp shows markup without escaping. Draw it next to the same markup rendered. Needs `<xmp>`.
+- **Label coverage check** (possible). Draw a line from each label to its control and flag controls with none. Needs `<label>`, `<input>`, `<select>`, `<textarea>`.
+- **Minesweeper from a table of buttons** (possible). Cells are buttons in a table. Reveals ripple outward across the grid. Needs `<table>`, `<td>`, `<button>`.
+- **Summary as a lever** (possible). Pull a drawn lever to toggle a details element. Needs `<details>`, `<summary>`.
+- **Old web page in a drawn monitor** (possible). center, font, big, tt and marquee, drawn on a period monitor. Needs `<center>`, `<font>`, `<big>`, `<tt>`, `<marquee>`.
 
 ## Forms
 
