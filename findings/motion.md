@@ -55,4 +55,45 @@ Tested in headless Chromium 157 with `document.startViewTransition()`, `element.
 
 Element-scoped view transitions shipped in Chrome 147 (developer testing from 140). References: https://developer.chrome.com/docs/css-ui/view-transitions/element-scoped-view-transitions, https://developer.mozilla.org/en-US/docs/Web/API/View_Transition_API/Using_element-scoped, https://drafts.csswg.org/css-view-transitions-2/.
 
-Not tried yet: the canvas-scoped clock driving a WebGL or WebGPU shader; a scoped transition on an ancestor with a canvas-scoped one nested inside it; Navigation API `intercept()` with a shader for single-page route changes; `view-transition-class` and nested groups with one canvas per list item; one page-wide canvas that draws every transition itself.
+Not tried yet: Navigation API `intercept()` with a shader for single-page route changes; the experiments below on WebGPU.
+
+## View transitions drawn by a canvas (`/scoped-transitions/`)
+
+Measured in headless Chromium 157 (C157) on 2026-11-21, by the page's live checks and by screenshots taken part way through each transition. Built from the five items that were listed as not tried under the View Transitions API section above.
+
+| Experiment | Result | Why |
+|---|---|---|
+| A WebGL canvas as the scope of `canvas.startViewTransition()`, with a vertex shader reading each tile's group as a clock | works | The canvas has `view-transition-name: none`. `texElementSubImage2D()` uploads the wrapper during the transition. Each tile is a 16 by 8 mesh that turns once, lifts and bends on `--vt-p`, and the fragment shader splits the colour channels along the direction of travel. CSS sets duration and easing. |
+| Start a canvas-scoped transition while a transition on an ancestor is running | works with `view-transition-scope: all` on the canvas all the time | Without it the outer transition has taken the names inside the canvas, and the inner one is rejected with "Snapshot capture failed" and the console message "Element cannot participate in multiple transitions". |
+| Canvas first, then its ancestor, or both in the same task | works without `view-transition-scope: all` | The outer transition skips the names of a scope that is already active. |
+| `view-transition-class` on canvases, matched by `::view-transition-group(.class)` in a transition scoped to their list | works | One rule times five canvases. With the old snapshot hidden and the new one not animated, each canvas shows live and distorts its own row (24 horizontal strips drawn with the nine-argument `drawElementImage()`) while the browser moves it. |
+| Draw a canvas child at the box of its `::view-transition-group()` in a document transition | works when the hit box is put back after each draw | The group has the right position and size at every frame. `updateElementGeometry()` returns the child's hit box to its destination after the draw. |
+| The same without putting the hit box back | the group does not move | A 2D draw sets the child's position. The browser retargets the group to that position each frame, so the group stays where it started (20 px of 200 in the check). |
+| One canvas draws every change of a small app from an `ElementImage` of the old state to the live new state | works | `captureElementImage()` is called in a `paint` handler before `canvas.startViewTransition()`. The picture stays drawable after the DOM changes and can be drawn in columns or bands. Three effects: columns fall and turn, bands close, a circle opens from the tap. |
+
+### Things that bit
+
+- A row drawn in strips with a different source and destination height per strip came out as dots. Source and destination strip heights must be equal.
+- A wave with a large phase range across the strips reads as a plain shear. A half sine across the row (ends fixed, middle bows) reads as a bend and keeps text legible.
+- The old boxes and the old picture must be taken before `startViewTransition()`, because no `paint` event arrives while the update callback is pending.
+- The clocks on the page repaint four canvases several times a second. Under the jank guard's 4x CPU slowdown with software rendering the page reports 7 to 12 s of long tasks while loading. It passes, and the real cost on a phone is not known.
+
+### Not verified
+
+- Frame rate on a phone, and the WebGL experiment on a real GPU. Open `/scoped-transitions/` on the device and press Shuffle with "Run everything at 3 seconds" on.
+- WebGPU. Experiment 1 uses WebGL only. A WGSL version through `shared/backend.js` would verify it.
+- Touch selection and IME inside the app of experiment 5 during a transition.
+
+### For the index
+
+- View transitions: a transition scoped to a canvas works as a set of CSS-timed clocks for 2D and WebGL drawing (`/scoped-transitions/`, C157, measured).
+- View transitions: `view-transition-scope: all` on a canvas is needed to start a canvas-scoped transition inside a running ancestor transition (`/scoped-transitions/`, C157, measured).
+- View transitions: `view-transition-class` matches canvases in a scoped transition (`/scoped-transitions/`, C157, measured).
+- Hit testing: drawing a canvas child at its transition group box retargets the group unless `updateElementGeometry()` puts the hit box back (`/scoped-transitions/`, C157, measured).
+- Snapshots: an `ElementImage` taken before a DOM change is a usable old state for a transition drawn by the canvas (`/scoped-transitions/`, C157, measured).
+
+### Open ideas
+
+- A library element, for example `<canvas-transition>`, that wraps experiment 5: any DOM change inside it is drawn by a chosen effect.
+- The same clock driving a WebGPU shader, and effects that use both the old `ElementImage` and the live state as textures.
+- Navigation API `intercept()` calling the function of experiment 5 for route changes.
