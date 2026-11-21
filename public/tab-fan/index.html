@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tab switcher: live pages in a fan</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 860px; }
+  /* #region styles */
+  #canvas { display: block; width: 100%; max-width: 560px; height: 460px; border: 1px solid var(--line); border-radius: 12px; touch-action: pan-y; cursor: grab;
+    background: radial-gradient(120% 90% at 50% 110%, #3b4252, #171a21); }
+  /* Each page is laid out at phone size, whatever size it is drawn at. */
+  #canvas iframe { width: 300px; height: 440px; border: 0; border-radius: 14px; background: #fff; }
+  /* #endregion styles */
+  .tools { display: flex; gap: 10px 16px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .tools button { min-height: 40px; font: inherit; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 2.6em; margin: 6px 0; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <h1>Tab switcher: live pages in a fan</h1>
+  <p class="lede">
+    Four pages of one small app, each in a same-origin <code>&lt;iframe&gt;</code> inside a canvas, drawn as a hand of cards. The cards are the running pages:
+    start the timer on one card and the others show the time, pick a colour in Settings and every card changes.
+    Tap inside a card to use the page. Tap a card's title bar to open it at full size, and tap the bar again to go back. Drag sideways on the bars or the background to turn the fan.
+  </p>
+  <p id="support"></p>
+
+  <!-- #region markup -->
+  <canvas id="canvas" content="drawable" layoutsubtree>
+    <iframe drawable src="app/inbox.html" title="Inbox"></iframe>
+    <iframe drawable src="app/notes.html" title="Notes"></iframe>
+    <iframe drawable src="app/timer.html" title="Timer"></iframe>
+    <iframe drawable src="app/settings.html" title="Settings"></iframe>
+  </canvas>
+  <!-- #endregion markup -->
+  <p id="status">&nbsp;</p>
+
+  <div class="tools">
+    <button type="button" id="all">Show all pages</button>
+    <button type="button" id="add">Open another page</button>
+    <button type="button" id="prev" aria-label="Turn the fan left">◀</button>
+    <button type="button" id="next" aria-label="Turn the fan right">▶</button>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>the pose of a card, the draw, the title bars</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> Four iframes with <code>drawable</code>.</li>
+      <li data-code="#pose"><b>Where a card goes.</b> An angle on a circle for the fan, the middle of the canvas when open, and a blend of the two in between.</li>
+      <li data-code="#paint"><b>On <code>paint</code>.</b> Rotate, scale and draw each iframe, then draw its title bar.</li>
+      <li data-code="#bars"><b>Input on the title bars.</b> The bars are canvas drawing, so the page hit tests them itself.</li>
+      <li data-code="/tab-fan/app/app.js"><b>How the pages talk to each other.</b> One <code>BroadcastChannel</code>.</li>
+      <li data-code="#styles"><b>Styles.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>Each iframe is laid out at 300 by 440 CSS pixels, so its page sees a phone-sized viewport at all times. On every <code>paint</code> event the canvas works out a pose for each card: a centre, an angle and a scale.
+    In the fan the centres lie on a circle whose middle is 380 pixels below the canvas, 11 degrees apart, at about 0.6 scale. <code>drawElementImage()</code> draws the iframe under that transform and puts its hit region there, so a tap on a rotated card reaches the page inside it at the right place.</p>
+  <p>A change inside any iframe raises the canvas's <code>paint</code> event, so the page runs no timer for the cards. The title in a card's bar is read from <code>iframe.contentDocument.title</code> on each paint. The Timer page puts the running time in its title.</p>
+  <p>The title bars and the close marks are drawn by the canvas and are not elements. Pointer events over them go to the canvas, and the page maps the pointer into each card's own coordinates with the inverse of the card's matrix.</p>
+  <p>Opening a card blends its pose towards the middle of the canvas at the largest scale that fits. The other cards drop below the canvas, and their hit regions are shrunk to a point so they take no input. Where two cards overlap, the one drawn last is on top in the picture and also takes the tap.</p>
+  <p>The iframes are added and removed from click handlers, never inside the <code>paint</code> event: Chromium 157 crashes if an iframe is inserted or removed there.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own small iframes in the corner of the window.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>In Chromium 157 a same-origin iframe can be drawn rotated and scaled, and a tap at the drawn position reaches the document inside it. The frame's own layout size does not change, so the page inside does not reflow when its card grows.</li>
+    <li>A change in the framed document (a timer tick, typing, a colour set through a <code>BroadcastChannel</code> message) raises the outer canvas's <code>paint</code> event.</li>
+    <li>Where two drawn iframes overlap, the one drawn last takes the tap, in either document order. With a 2D canvas the picture and the hit testing agree without extra work.</li>
+    <li><code>contentDocument.title</code> is readable during <code>paint</code>, so the bars follow title changes with no message passing.</li>
+    <li>The frames keep running while their card is dropped out of view. Nothing in the API pauses a frame that is not drawn.</li>
+    <li>This works for same-origin pages only. A cross-origin iframe is drawn as transparent pixels (measured on <a href="/iframe-tiles/">/iframe-tiles/</a>).</li>
+    <li>Not verified: text entry in a rotated card with the on-screen keyboard, scrolling inside a rotated card by touch, and how many live iframes a phone keeps drawing at 60 frames per second.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage, nextPaint } from '/shared/support.js';
+  import { mount, put, park, supported, lerp, clamp, smooth, reducedMotion, inkIn, fixtureCanvas } from '/lib/stage-2d.js';
+  banner();
+
+  const canvas = document.getElementById('canvas');
+  const status = document.getElementById('status');
+  const frames = () => [...canvas.querySelectorAll('iframe')];
+  const CW = 300, CH = 440, BAR = 34, STEP = 11 * Math.PI / 180, RADIUS = 380;
+  let turn = 1.5, turnTo = 1.5;            // which card is in the middle of the fan (a fraction while turning)
+  let open = null, opened = 0, openFrom = 0, openT0 = -1e9;   // the open iframe, and how far open it is (0..1)
+  let poses = [];                          // what the last paint drew: { frame, matrix, scale }
+
+  // #region pose
+  function poseOf(i, n, w, h, isOpen, k) {
+    const fanScale = Math.min(0.7, (w * 0.5) / CW);
+    const a = (i - turn) * STEP;
+    const lift = 1 - Math.min(1, Math.abs(i - turn));              // the middle card sits a little higher
+    const r = RADIUS + CH * fanScale / 2 + 14 * lift;
+    const fan = { x: w / 2 + Math.sin(a) * r, y: h - 36 + RADIUS - Math.cos(a) * r, angle: a, scale: fanScale };
+    const full = Math.min((w - 16) / CW, (h - BAR - 16) / CH);
+    const to = isOpen ? { x: w / 2, y: BAR + 8 + CH * full / 2, angle: 0, scale: full }
+                      : { x: fan.x, y: fan.y + h * 1.1, angle: fan.angle * 1.6, scale: fan.scale };   // the others drop away
+    return { x: lerp(fan.x, to.x, k), y: lerp(fan.y, to.y, k), angle: lerp(fan.angle, to.angle, k), scale: lerp(fan.scale, to.scale, k) };
+  }
+  // #endregion pose
+
+  // #region paint
+  const stage = mount(canvas, (ctx, w, h, now) => {
+    const list = frames();
+    const p = reducedMotion() ? 1 : clamp((now - openT0) / 480);
+    opened = lerp(openFrom, open ? 1 : 0, smooth(p));
+    const dt = turnTo - turn;
+    turn = Math.abs(dt) < 0.004 || reducedMotion() ? turnTo : turn + dt * 0.2;
+    poses = [];
+    const shownOpen = open ?? lastOpen;
+    // Where cards overlap, the one drawn last is on top and takes the tap.
+    list.forEach((frame, i) => {
+      const pose = poseOf(i, list.length, w, h, frame === shownOpen, opened);
+      if (pose.y - CH * pose.scale > h + 40) { park(canvas, frame); return; }      // dropped out of view
+      ctx.save();
+      ctx.translate(pose.x, pose.y); ctx.rotate(pose.angle); ctx.scale(pose.scale, pose.scale);
+      ctx.shadowColor = 'rgb(0 0 0 / .5)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 8;
+      ctx.beginPath(); ctx.roundRect(-CW / 2, -CH / 2, CW, CH, 14); ctx.fillStyle = '#fff'; ctx.fill();   // a card under the page, for the shadow
+      ctx.shadowColor = 'transparent';
+      put(ctx, frame, -CW / 2, -CH / 2, CW, CH);                                  // the live page. Its hit region is here.
+      // The title bar, drawn at the same size on screen whatever the card's scale.
+      const bar = BAR / pose.scale, font = 14 / pose.scale;
+      let title = frame.title;
+      try { title = frame.contentDocument?.title || title; } catch {}
+      ctx.beginPath(); ctx.roundRect(-CW / 2, -CH / 2 - bar - 2 / pose.scale, CW, bar, [10 / pose.scale, 10 / pose.scale, 0, 0]);
+      ctx.fillStyle = frame === shownOpen && opened > 0.5 ? '#ffd9a8' : '#f3efe6'; ctx.fill();
+      ctx.fillStyle = '#1d1c1a'; ctx.font = `600 ${font}px system-ui, sans-serif`; ctx.textBaseline = 'middle';
+      ctx.fillText(title, -CW / 2 + 12 / pose.scale, -CH / 2 - bar / 2 - 2 / pose.scale, CW - 60 / pose.scale);
+      ctx.textAlign = 'center'; ctx.fillText('✕', CW / 2 - 18 / pose.scale, -CH / 2 - bar / 2 - 2 / pose.scale);
+      poses.push({ frame, matrix: ctx.getTransform(), scale: pose.scale, bar });
+      ctx.restore();
+    });
+    return p < 1 || turn !== turnTo;
+  });
+  // #endregion paint
+
+  let lastOpen = null;
+  function setOpen(frame) {
+    openFrom = opened; openT0 = performance.now();
+    if (frame) lastOpen = frame;
+    open = frame;
+    const list = frames();
+    if (frame) turnTo = list.indexOf(frame);
+    status.textContent = frame ? `Open: ${frame.contentDocument?.title || frame.title}. Tap its bar to go back.` : `${list.length} pages in the fan. All of them are running.`;
+    stage.request();
+  }
+  function closePage(frame) {
+    if (frames().length <= 2) { status.textContent = 'Two pages are left. Open another before closing one.'; return; }
+    if (open === frame) { open = null; opened = 0; openFrom = 0; }
+    if (lastOpen === frame) lastOpen = null;
+    frame.remove();                                    // in a click handler, not in the paint event
+    turnTo = clamp(Math.round(turnTo), 0, frames().length - 1);
+    setOpen(open);
+  }
+
+  // #region bars
+  // Which card's title bar is under a point? Go from the top card down.
+  function barAt(clientX, clientY) {
+    const box = canvas.getBoundingClientRect();
+    const k = canvas.width / canvas.clientWidth;       // the saved matrices are in canvas pixels
+    const point = new DOMPoint((clientX - box.left - canvas.clientLeft) * k, (clientY - box.top - canvas.clientTop) * k);
+    for (const { frame, matrix, bar } of [...poses].reverse()) {
+      const local = point.matrixTransform(matrix.inverse());
+      const inBar = local.x >= -CW / 2 && local.x <= CW / 2 && local.y >= -CH / 2 - bar - 4 && local.y <= -CH / 2;
+      if (inBar) return { frame, close: local.x > CW / 2 - bar };
+    }
+    return null;
+  }
+  let press = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.target !== canvas) return;                   // a press on a card belongs to the page inside it
+    press = { id: e.pointerId, x: e.clientX, turn: turnTo, moved: false, bar: barAt(e.clientX, e.clientY) };
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!press || e.pointerId !== press.id) return;
+    const dx = e.clientX - press.x;
+    if (Math.abs(dx) > 8) press.moved = true;
+    if (press.moved && !open) { turnTo = clamp(press.turn - dx / 90, -0.4, frames().length - 0.6); stage.request(); }
+  });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!press || e.pointerId !== press.id) return;
+    const { moved, bar } = press;
+    press = null;
+    if (moved) { turnTo = clamp(Math.round(turnTo), 0, frames().length - 1); stage.request(); return; }
+    if (!bar) return;
+    if (bar.close) closePage(bar.frame);
+    else setOpen(open === bar.frame ? null : bar.frame);
+  });
+  canvas.addEventListener('pointercancel', () => { press = null; turnTo = Math.round(turnTo); stage.request(); });
+  // #endregion bars
+
+  const PAGES = ['inbox', 'notes', 'timer', 'settings'];
+  let added = 0;
+  document.getElementById('add').addEventListener('click', () => {
+    if (frames().length >= 7) { status.textContent = 'Seven pages is the limit of this demo.'; return; }
+    const name = PAGES[added++ % PAGES.length];
+    const frame = document.createElement('iframe');
+    frame.setAttribute('drawable', '');
+    frame.title = name;
+    frame.src = `app/${name}.html`;
+    frame.addEventListener('load', () => stage.request());
+    canvas.append(frame);
+    turnTo = frames().length - 1;
+    setOpen(null);
+  });
+  document.getElementById('all').addEventListener('click', () => setOpen(null));
+  const step = (d) => { if (open) setOpen(null); turnTo = clamp(Math.round(turnTo) + d, 0, frames().length - 1); stage.request(); };
+  document.getElementById('prev').addEventListener('click', () => step(-1));
+  document.getElementById('next').addEventListener('click', () => step(1));
+  for (const f of frames()) f.addEventListener('load', () => stage.request());
+  window.__tabFan = { canvas, frames, get poses() { return poses; }, setOpen };
+
+  // ---------------------------------------------------------------- live checks, on their own fixtures
+  const DOC = (bg, title) => `<!doctype html><title>${title}</title><body style='margin:0;background:${bg};font:16px system-ui'><button id='b' style='margin:20px'>press</button></body>`;
+  const tick = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+  async function fixture() {
+    const f = fixtureCanvas(testStage(), `<iframe drawable srcdoc="${DOC('#268', 'one')}" style="width:120px;height:160px;border:0"></iframe><iframe drawable srcdoc="${DOC('#862', 'two')}" style="width:120px;height:160px;border:0"></iframe>`);
+    f.frames = [...f.cv.querySelectorAll('iframe')];
+    await Promise.all(f.frames.map((fr) => new Promise((r) => (fr.contentDocument?.readyState === 'complete' && fr.contentDocument.title ? r() : fr.addEventListener('load', r, { once: true })))));
+    await nextPaint(f.cv); await tick();               // leave the paint event before touching anything
+    return f;
+  }
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+  const tests = [
+    { name: 'A same-origin iframe is drawn rotated by 20 degrees', expect: 'pass', why: 'rotate(0.35), then drawElementImage(iframe)',
+      run: async () => {
+        const f = await fixture();
+        f.ctx.save(); f.ctx.translate(160, 120); f.ctx.rotate(0.35); f.ctx.drawElementImage(f.frames[0], -60, -80, 120, 160); f.ctx.restore();
+        const ink = inkIn(f.ctx, 140, 80, 40, 80);
+        await tick();
+        return need(ink > 0.95, `${Math.round(ink * 100)}% ink in the middle of the rotated card.`);
+      } },
+    { name: 'A point inside the rotated card and outside the unrotated box hits the iframe', expect: 'pass', why: 'elementFromPoint() near the top corner that the rotation moved',
+      run: async () => {
+        const f = await fixture(), fr = f.frames[0];
+        f.ctx.save(); f.ctx.translate(160, 120); f.ctx.rotate(0.35); f.ctx.drawElementImage(fr, -60, -80, 120, 160); f.ctx.restore(); fr.toggleAttribute('data-moved');
+        // The corner (55, -75) in card units, rotated.
+        const x = 160 + 55 * Math.cos(0.35) + 75 * Math.sin(0.35), y = 120 + 55 * Math.sin(0.35) - 75 * Math.cos(0.35);
+        const c = f.cv.getBoundingClientRect();
+        const hit = document.elementFromPoint(c.left + x, c.top + y);
+        await tick();
+        return need(hit === fr && x > 220, hit === fr ? `Point ${Math.round(x)}, ${Math.round(y)} (the unrotated box ends at x = 220) hits the iframe.` : `Returned ${hit?.localName ?? 'nothing'}.`);
+      } },
+    { name: 'A change inside the iframe raises the paint event of the canvas', expect: 'pass', why: 'Set the background of the framed document. No requestPaint().',
+      run: async () => {
+        const f = await fixture();
+        await tick(120);
+        let paints = 0; f.cv.addEventListener('paint', () => paints++);
+        f.frames[0].contentDocument.body.style.background = '#0c0';
+        await tick(400);
+        return need(paints > 0, `${paints} paint event${paints === 1 ? '' : 's'}.`);
+      } },
+    { name: 'Where two drawn iframes overlap, the one drawn last is hit', expect: 'pass', why: 'Draw the second iframe then the first over it and hit test the overlap. Then draw them in the other order.',
+      run: async () => {
+        const f = await fixture(), [a, b] = f.frames;
+        const c = f.cv.getBoundingClientRect();
+        const hitAfter = (first, second) => {
+          f.ctx.reset(); f.ctx.drawElementImage(first, first === a ? 60 : 100, 40, 120, 160); f.ctx.drawElementImage(second, second === a ? 60 : 100, 40, 120, 160);
+          a.toggleAttribute('data-moved'); b.toggleAttribute('data-moved');
+          return document.elementFromPoint(c.left + 140, c.top + 100);
+        };
+        const one = hitAfter(b, a), two = hitAfter(a, b);
+        await tick();
+        const name = (el) => (el === a ? 'first' : el === b ? 'second' : 'neither');
+        return need(one === a && two === b, `Second then first drawn: the ${name(one)} is hit. First then second drawn: the ${name(two)} is hit.`);
+      } },
+    { name: "The framed page's title can be read during paint", expect: 'pass', why: 'iframe.contentDocument.title inside the paint event',
+      run: async () => {
+        const f = await fixture();
+        let title = '';
+        f.cv.addEventListener('paint', () => { title = f.frames[1].contentDocument.title; }, { once: true });
+        await nextPaint(f.cv); await tick();
+        return need(title === 'two', `Title read in paint: "${title}".`);
+      } },
+    { name: 'The fan above still has a picture', expect: 'pass', why: 'Read the visible canvas after the fixtures came and went',
+      run: async () => {
+        if (stage.plain || canvas.dataset.plain) return 'Shown as plain HTML.';
+        const ink = inkIn(stage.ctx, 0, 0, canvas.clientWidth, canvas.clientHeight);
+        return need(ink > 0.2, `${Math.round(ink * 100)}% of the canvas has ink. ${poses.length} cards drawn.`);
+      } },
+  ];
+  runTests(document.getElementById('tests'), supported ? tests : []);
+</script>
+</body>
+</html>
