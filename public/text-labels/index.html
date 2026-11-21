@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Text measured by CSS for signs, labels and particles</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; max-width: 560px; }
+  .bar label { display: inline-flex; gap: 8px; align-items: center; white-space: nowrap; min-height: 44px; }
+  .bar select { font: inherit; min-height: 40px; }
+  #scene { display: block; width: 100%; max-width: 560px; height: 500px; border-radius: 16px; background: #10131f; touch-action: pan-y; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; margin: 8px 0; max-width: 560px; }
+  .plain-scene { max-width: 560px; padding: 16px; border-radius: 16px; background: #10131f; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+
+  /* #region labels */
+  /* Every label is sized by CSS alone. The canvas draws each one at its own
+     offsetWidth and offsetHeight and never measures text.
+     text-fit: grow scales the text until the line is as wide as the box.
+     text-box trims the box to the capital height above and the baseline below,
+     so the element is as tall as the ink of its capitals. */
+  .label { position: absolute; left: 0; top: 0; margin: 0; white-space: nowrap; font: 800 8px/1.2 system-ui, sans-serif; /* small, so that text-fit always has to grow it */
+    text-fit: grow; text-box: trim-both cap alphabetic; }
+  .label.loose { text-box: normal; }
+  #sign { width: 250px; color: #ff6fae; text-transform: uppercase; animation: weight 2.4s ease-in-out infinite alternate; }
+  /* The sign's weight is a CSS animation. Each step changes the glyph widths, and text-fit fits the line again. */
+  @keyframes weight { from { font-weight: 250; } to { font-weight: 900; } }
+  @media (prefers-reduced-motion: reduce) { #sign { animation: none; } }
+  /* A spine label runs bottom to top. Its inline size, which text-fit fills, is the height of the book. */
+  .spine { writing-mode: sideways-lr; height: 132px; color: #fff; text-transform: uppercase; }
+  /* The ticker keeps its descenders: trimming to the baseline would cut them off. */
+  #ticker { text-fit: none; text-box: normal; font: 700 15px/1.4 var(--mono); color: #9df3c4; padding-right: 28px; }
+  /* #endregion labels */
+  #field { position: absolute; left: 0; top: 0; box-sizing: border-box; width: 300px; max-width: 100%; height: 52px; padding: 0 14px; margin: 0;
+    font: 500 24px system-ui, sans-serif; color: #10131f; background: #f4f1ea; border: 2px solid #ff6fae; border-radius: 12px; outline: none; }
+  /* An outline lies outside the element's box, and the picture of an element ends at its box. The focus mark is the border. */
+  #field:focus { border-color: #ffe66d; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Text measured by CSS for signs, labels and particles</h1>
+  <p class="lede">
+    Type in the field at the bottom of the picture. It is a real <code>&lt;input&gt;</code> drawn by the canvas. Each character you type
+    grows into place and a copy flies up to the sign, and each character you delete breaks into pieces. The canvas knows where each
+    character is from <code>input.createValueRange()</code>. The sign, the book spines and the ticker are elements sized by
+    <code>text-fit</code> and <code>text-box-trim</code>, drawn at the size CSS gave them.
+  </p>
+
+  <div class="bar">
+    <label>Characters
+      <select id="mode">
+        <option value="pop" selected>grow in, break apart</option>
+        <option value="wave">wave</option>
+        <option value="off">no effect</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="boxes"> Show boxes</label>
+    <label><input type="checkbox" id="trim" checked> Trim</label>
+  </div>
+
+  <!-- #region markup -->
+  <canvas id="scene" content="drawable" layoutsubtree>
+    <p class="label" id="sign" drawable>Open late</p>
+    <p class="label spine" drawable style="--book:#e0457b">Go</p>
+    <p class="label spine" drawable style="--book:#3b6cf6">Typography</p>
+    <p class="label spine" drawable style="--book:#f59f1a">Paint</p>
+    <p class="label spine" drawable style="--book:#17a673">Hit testing</p>
+    <p class="label spine" drawable style="--book:#7b4dff">CSS</p>
+    <p class="label" id="ticker" drawable>text-fit · text-box-trim · sideways-lr · createValueRange() ·</p>
+    <input id="field" drawable type="text" value="Open late" maxlength="24" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" aria-label="The text on the sign">
+  </canvas>
+  <!-- #endregion markup -->
+
+  <p id="status" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>CSS sizes the labels, OpaqueRange finds the characters</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> One canvas. The labels and the input are its children.</li>
+      <li data-code="#labels"><b>The labels, in CSS.</b> No script measures them.</li>
+      <li data-code="#draw-labels"><b>Drawing a label.</b> The element's own size is the size of the texture.</li>
+      <li data-code="/lib/char-rects.js#opaque"><b>One rectangle per character of the input.</b></li>
+      <li data-code="#typed"><b>What changed.</b> On each <code>input</code> event the old and new values are compared. Deleted characters are cut out of the last picture of the field.</li>
+      <li data-code="#characters"><b>Drawing the characters.</b> Each piece is a part of the field's own picture, drawn again somewhere else.</li>
+      <li data-code="/lib/char-rects.js#measure"><b>Without <code>createValueRange()</code>.</b> The same rectangles from <code>measureText()</code>.</li>
+      <li data-code="/lib/char-rects.js"><b>The whole module.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The picture is one 2D canvas. Every label and the input are drawn with <code>drawElementImage()</code> at their <code>offsetWidth</code> and <code>offsetHeight</code>.</li>
+    <li>The sign is 250 px wide in CSS. <code>text-fit: grow</code> scales whatever you type to that width, and <code>text-box: trim-both cap alphabetic</code> makes its box end at the top of the capitals and at the baseline. "Show boxes" outlines each element's box. Turn "Trim" off to see the box that the same text has without it.</li>
+    <li>The book spines use <code>writing-mode: sideways-lr</code>. Each is 132 px along the spine, and <code>text-fit</code> picks the font size, so a short title is drawn large and its book is thick.</li>
+    <li>After each frame in which the field changed, the field's part of the canvas is copied to a second canvas and one rectangle per character is read. A deleted character is cut from that copy as 4 px pieces. A new character is drawn again from the copy: its dark pixels become a coloured, see-through picture of the letter, which is drawn large over the field and once more on a path to the sign.</li>
+    <li>The effects draw over the field. The field itself is drawn where the canvas says it is, so a tap focuses it and the caret and selection are the browser's.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds a small canvas of its own in a corner of the window. The picture above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering. The rows above say what your browser does.</p>
+  <ul class="findings" id="findings">
+    <li><strong>Works: <code>text-fit</code> in the picture.</strong> The fitted size is what is drawn, and it follows edits and a CSS animation of <code>font-weight</code> with no script. The element's height follows the fitted size, so a short text makes a tall label. This page caps the sign's drawn height at 96 px by scaling the draw.</li>
+    <li><strong>Works: <code>text-box-trim</code> makes the box the ink.</strong> With <code>cap alphabetic</code> the first row of the element's picture has ink in it. Descenders and accents fall outside the box and are cut off by the element's picture, which is the stated behaviour of the property and matters for a texture.</li>
+    <li><strong>Works: <code>writing-mode: sideways-lr</code> with <code>text-fit</code>.</strong> The fitted axis is the vertical one.</li>
+    <li><strong>Works: <code>createValueRange()</code> rectangles of a drawn input.</strong> One call per character. The check compares them with <code>measureText()</code> and reports the difference.</li>
+    <li><strong>Limit: the pieces are pictures.</strong> A character in flight is a copy of pixels. The text that can be selected and edited is the field's. This differs from <a href="/particles/">/particles/</a>, where the hit box follows the letters.</li>
+    <li><strong>Not verified here:</strong> the on-screen keyboard on a phone (whether the field stays in view when the keyboard opens, and input from predictive text, which can replace a whole word in one event), and whether <code>createValueRange()</code> exists in Chrome 159 on Android. The status line under the picture says which method is in use.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { charRects, hasValueRange } from '/lib/char-rects.js';
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const canvas = $('scene'), field = $('field'), sign = $('sign'), ticker = $('ticker');
+  const spines = [...canvas.querySelectorAll('.spine')];
+  const labels = [...canvas.querySelectorAll('.label')];
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  const features = `text-fit: ${CSS.supports('text-fit', 'grow') ? 'yes' : 'no'} · text-box-trim: ${CSS.supports('text-box-trim', 'trim-both') ? 'yes' : 'no'} · characters from ${hasValueRange(field) ? 'createValueRange()' : 'measureText() (no createValueRange())'}`;
+  $('status').textContent = features;
+
+  $('trim').onchange = () => { for (const el of labels) el.classList.toggle('loose', !$('trim').checked); };
+  const setText = () => { sign.textContent = field.value.trim() || 'Open late'; };
+
+  if (!supported) {
+    // No API: the canvas would hide its children. Show them as plain HTML, where the CSS still applies.
+    const plain = document.createElement('div');
+    plain.className = 'plain-scene';
+    for (const el of [...labels, field]) { el.style.position = 'static'; plain.append(el); }
+    canvas.replaceWith(plain);
+    field.addEventListener('input', setText);
+    $('status').textContent = `HTML-in-canvas is not available, so the labels are plain HTML. ${features}`;
+  } else {
+    const ctx = canvas.getContext('2d');
+    const copy = document.createElement('canvas'); // the last picture of the field, in device px
+    const copyCtx = copy.getContext('2d');
+    let dpr = 1, W = 0, H = 0, dirty = true, visible = true, raf = 0;
+    let rects = [], shownValue = field.value, pendingNew = null;
+    const fieldAt = { x: 0, y: 0 };
+    const pieces = [], grows = [], flyers = [];
+    let lastTime = performance.now();
+
+    new ResizeObserver(([entry]) => {
+      const box = entry.devicePixelContentBoxSize[0];
+      if (canvas.width !== box.inlineSize) canvas.width = box.inlineSize;
+      if (canvas.height !== box.blockSize) canvas.height = box.blockSize;
+      dirty = true;
+      wake();
+    }).observe(canvas, { box: 'device-pixel-content-box' });
+    new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; if (visible) wake(); }).observe(canvas);
+    canvas.addEventListener('paint', () => { dirty = true; wake(); });
+    canvas.addEventListener('contextlost', () => { $('status').textContent = 'The canvas lost its graphics context. The picture comes back if the browser restores it.'; });
+    canvas.addEventListener('contextrestored', () => { $('status').textContent = features; dirty = true; wake(); });
+    for (const id of ['boxes', 'trim', 'mode']) $(id).addEventListener('change', () => { dirty = true; wake(); });
+    const wake = () => { if (visible) raf ||= requestAnimationFrame(frame); };
+
+    // #region typed
+    // Compare the value before and after an edit: what is left after removing the
+    // common start and the common end was deleted (from the old) or typed (in the new).
+    field.addEventListener('input', () => {
+      const before = shownValue, after = field.value;
+      let start = 0;
+      while (start < before.length && start < after.length && before[start] === after[start]) start++;
+      let end = 0;
+      while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
+      const removed = before.length - start - end, added = after.length - start - end;
+      if ($('mode').value === 'pop' && !reduced.matches) {
+        // The copy still holds the picture from before the edit, and `rects` the old positions.
+        for (let i = start; i < start + removed; i++) if (rects[i]) breakApart(rects[i]);
+        if (added > 0) pendingNew = { start, count: added };
+      }
+      shownValue = after;
+      setText();
+      dirty = true;
+      wake();
+    });
+
+    function breakApart(r) {
+      const size = 4;
+      for (let y = 0; y < r.height; y += size) {
+        for (let x = 0; x < r.width; x += size) {
+          if (pieces.length > 700) return;
+          pieces.push({
+            sx: (r.x + x) * dpr, sy: (r.y + y) * dpr, s: size * dpr, // where the piece is in the copy
+            x: fieldAt.x + r.x + x, y: fieldAt.y + r.y + y,           // where it is on the canvas
+            vx: (Math.random() - 0.5) * 160, vy: -40 - Math.random() * 190, spin: (Math.random() - 0.5) * 12, angle: 0, age: 0, life: 0.7 + Math.random() * 0.5,
+            from: copy,
+          });
+        }
+      }
+    }
+    // #endregion typed
+    // Pieces of deleted characters outlive the next copy of the field, so before the
+    // copy is replaced they are given a canvas of their own to keep cutting from.
+    function freezePieces() {
+      const mine = pieces.filter((p) => p.from === copy);
+      if (!mine.length || !copy.width) return;
+      const kept = document.createElement('canvas');
+      kept.width = copy.width;
+      kept.height = copy.height;
+      kept.getContext('2d').drawImage(copy, 0, 0);
+      for (const p of mine) p.from = kept;
+    }
+
+    // #region draw-labels
+    // Draw an element at the size CSS gave it. `fit` scales the draw down when the element is taller than a limit.
+    function drawLabel(el, x, y, { maxHeight = Infinity, glow = '' } = {}) {
+      const w = el.offsetWidth, h = el.offsetHeight;
+      if (!w || !h) return { w: 0, h: 0 };
+      const k = Math.min(1, maxHeight / h);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.scale(k, k);
+      if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = 22 * dpr; }
+      ctx.drawElementImage(el, 0, 0, w, h);
+      if (glow) ctx.drawElementImage(el, 0, 0, w, h); // twice: a stronger glow
+      if ($('boxes').checked) {
+        ctx.shadowColor = 'transparent';
+        ctx.strokeStyle = '#ffe66d';
+        ctx.lineWidth = 1 / k;
+        ctx.setLineDash([4, 3]);
+        ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+      }
+      ctx.restore();
+      return { w: w * k, h: h * k };
+    }
+    // #endregion draw-labels
+
+    function drawScene(time) {
+      const t = reduced.matches ? 0 : time / 1000;
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      const wall = ctx.createLinearGradient(0, 0, 0, H);
+      wall.addColorStop(0, '#1a1f36');
+      wall.addColorStop(1, '#0c0e17');
+      ctx.fillStyle = wall;
+      ctx.fillRect(0, 0, W, H);
+
+      // The sign hangs from two chains and swings.
+      const sw = Math.min(sign.offsetWidth, W - 60), sk = Math.min(1, 96 / (sign.offsetHeight || 1)) * (sw / (sign.offsetWidth || 1));
+      const bw = sign.offsetWidth * sk + 44, bh = sign.offsetHeight * sk + 40;
+      ctx.save();
+      ctx.translate(W / 2, 8);
+      ctx.rotate(Math.sin(t * 1.3) * 0.045);
+      ctx.strokeStyle = '#6b7190';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-bw / 2 + 24, 0); ctx.lineTo(-bw / 2 + 24, 34);
+      ctx.moveTo(bw / 2 - 24, 0); ctx.lineTo(bw / 2 - 24, 34);
+      ctx.stroke();
+      ctx.fillStyle = '#1b1024';
+      ctx.strokeStyle = '#ff6fae';
+      ctx.beginPath();
+      ctx.roundRect(-bw / 2, 34, bw, bh, 14);
+      ctx.fill();
+      ctx.stroke();
+      const flicker = reduced.matches || Math.sin(t * 31) + Math.sin(t * 7.3) > -1.6 ? 1 : 0.45;
+      ctx.globalAlpha = flicker;
+      ctx.translate(-(sign.offsetWidth * sk) / 2, 54);
+      ctx.scale(sk, sk);
+      drawLabel(sign, 0, 0, { glow: '#ff2d8a' });
+      ctx.restore();
+      signTarget.x = W / 2;
+      signTarget.y = 54 + (sign.offsetHeight * sk) / 2;
+
+      // Books on a shelf. A book is as thick as its label is wide.
+      const shelf = 372;
+      let x = Math.max(14, (W - spines.reduce((sum, el) => sum + el.offsetWidth + 22, 0)) / 2);
+      spines.forEach((el, i) => {
+        const w = el.offsetWidth + 18, h = el.offsetHeight + 28 + (i % 2) * 14;
+        ctx.save();
+        ctx.translate(x, shelf);
+        if (i === spines.length - 1) { ctx.translate(w, 0); ctx.rotate(0.1); ctx.translate(-w, 0); } // the last one leans
+        ctx.fillStyle = el.style.getPropertyValue('--book');
+        ctx.beginPath();
+        ctx.roundRect(0, -h, w, h, 4);
+        ctx.fill();
+        ctx.fillStyle = '#0003';
+        ctx.fillRect(0, -h, 3, h);
+        ctx.fillRect(0, -h + 10, w, 2);
+        ctx.fillRect(0, -12, w, 2);
+        drawLabel(el, 9, -h + 14 + (i % 2) * 14);
+        ctx.restore();
+        x += w + 4;
+      });
+      ctx.fillStyle = '#3a2f2a';
+      ctx.fillRect(0, shelf, W, 10);
+
+      // The ticker repeats along a strip. Its period is the element's width.
+      ctx.fillStyle = '#05070c';
+      ctx.fillRect(0, shelf + 10, W, 34);
+      const tw = ticker.offsetWidth;
+      if (tw) for (let tx = -((t * 46) % tw); tx < W; tx += tw) drawLabel(ticker, tx, shelf + 10 + (34 - ticker.offsetHeight) / 2);
+    }
+    const signTarget = { x: 0, y: 0 };
+
+    // #region characters
+    function drawField(time, dt) {
+      fieldAt.x = Math.round((W - field.offsetWidth) / 2);
+      fieldAt.y = H - field.offsetHeight - 18;
+      const w = field.offsetWidth, h = field.offsetHeight;
+      ctx.drawElementImage(field, fieldAt.x, fieldAt.y, w, h);
+
+      if (dirty) {
+        // Keep a copy of the field as it is now, and one rectangle per character.
+        freezePieces();
+        copy.width = Math.round(w * dpr);
+        copy.height = Math.round(h * dpr);
+        copyCtx.drawImage(canvas, Math.round(fieldAt.x * dpr), Math.round(fieldAt.y * dpr), copy.width, copy.height, 0, 0, copy.width, copy.height);
+        rects = charRects(field).rects;
+        if (pendingNew) {
+          for (let i = pendingNew.start; i < pendingNew.start + pendingNew.count; i++) {
+            if (!rects[i] || rects[i].width < 1) continue;
+            grows.push({ i, age: 0 });
+            if (flyers.length < 24) flyers.push({ r: rects[i], age: 0 });
+          }
+          pendingNew = null;
+        }
+      }
+      const cut = (r, source = copy) => [source, r.x * dpr, r.y * dpr, r.width * dpr, r.height * dpr];
+      // One character's ink without the field's background: darkness becomes alpha, in a colour of our choosing.
+      const inkOf = (r, [red, green, blue]) => {
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(r.width * dpr));
+        c.height = Math.max(1, Math.round(r.height * dpr));
+        const g = c.getContext('2d');
+        g.drawImage(...cut(r), 0, 0, c.width, c.height);
+        const image = g.getImageData(0, 0, c.width, c.height), d = image.data;
+        const paper = copyCtx.getImageData(Math.round(5 * dpr), Math.round(copy.height / 2), 1, 1).data;
+        const light = (paper[0] + paper[1] + paper[2]) / 3 || 255;
+        for (let i = 0; i < d.length; i += 4) {
+          const dark = Math.max(0, 1 - (d[i] + d[i + 1] + d[i + 2]) / 3 / light);
+          d[i] = red; d[i + 1] = green; d[i + 2] = blue; d[i + 3] = Math.round(255 * Math.min(1, dark * 1.25));
+        }
+        g.putImageData(image, 0, 0);
+        return c;
+      };
+
+      if ($('mode').value === 'wave' && !reduced.matches && rects.length) {
+        // Cover the text, then draw each character's cell again, moved up or down.
+        const first = rects[0], last = rects[rects.length - 1];
+        ctx.fillStyle = getComputedStyle(field).backgroundColor;
+        ctx.fillRect(fieldAt.x + first.x - 1, fieldAt.y + first.y, last.x + last.width - first.x + 2, first.height);
+        rects.forEach((r, i) => {
+          if (r.width < 0.5) return;
+          const lift = Math.sin(time / 180 - i * 0.6) * 7;
+          ctx.drawImage(...cut(r), fieldAt.x + r.x, fieldAt.y + r.y + lift, r.width, r.height);
+        });
+      }
+
+      // A new character: its ink drawn again over the field, larger at first.
+      for (const g of grows) {
+        g.age += dt;
+        const r = rects[g.i];
+        if (!r) continue;
+        g.ink ??= inkOf(r, [224, 69, 123]);
+        const u = Math.min(1, g.age / 0.32), k = 1 + 1.8 * (1 - u) * (1 - u);
+        ctx.save();
+        ctx.translate(fieldAt.x + r.x + r.width / 2, fieldAt.y + r.y + r.height * 0.8);
+        ctx.scale(k, k);
+        ctx.globalAlpha = 1 - u;
+        ctx.drawImage(g.ink, -r.width / 2, -r.height * 0.8, r.width, r.height);
+        ctx.restore();
+      }
+      // A copy of it travels to the sign on a curve, in the sign's colour.
+      for (const f of flyers) {
+        f.age += dt;
+        f.ink ??= inkOf(f.r, [255, 111, 174]);
+        const u = Math.min(1, f.age / 0.6), e = u * u * (3 - 2 * u);
+        const x0 = fieldAt.x + f.r.x + f.r.width / 2, y0 = fieldAt.y + f.r.y + f.r.height / 2;
+        const x = x0 + (signTarget.x - x0) * e + Math.sin(u * Math.PI) * 60, y = y0 + (signTarget.y - y0) * e;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(Math.sin(u * Math.PI) * 0.6);
+        ctx.scale(1 + u, 1 + u);
+        ctx.globalAlpha = 1 - u * u * u;
+        ctx.shadowColor = '#ff2d8a';
+        ctx.shadowBlur = 10 * dpr;
+        ctx.drawImage(f.ink, -f.r.width / 2, -f.r.height / 2, f.r.width, f.r.height);
+        ctx.restore();
+      }
+      // Pieces of deleted characters fall.
+      for (const p of pieces) {
+        p.age += dt;
+        p.vy += 620 * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.angle += p.spin * dt;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.angle);
+        ctx.globalAlpha = Math.max(0, 1 - p.age / p.life);
+        ctx.drawImage(p.from, p.sx, p.sy, p.s, p.s, -2, -2, 4, 4);
+        ctx.restore();
+      }
+      for (const list of [grows, flyers, pieces]) {
+        for (let i = list.length - 1; i >= 0; i--) if (list[i].age > (list[i].life ?? (list === grows ? 0.32 : 0.6))) list.splice(i, 1);
+      }
+    }
+    // #endregion characters
+
+    function frame(time) {
+      raf = 0;
+      const dt = Math.min(0.05, (time - lastTime) / 1000);
+      lastTime = time;
+      dpr = canvas.width / canvas.clientWidth;
+      W = canvas.clientWidth;
+      H = canvas.clientHeight;
+      try {
+        drawScene(time);
+        drawField(time, dt);
+        dirty = false;
+      } catch (err) {
+        // "No cached paint record": an element has not painted yet. Ask, and draw on the paint event.
+        if (/paint record/i.test(err.message)) canvas.requestPaint();
+        else throw err;
+      }
+      // The sign swings and the ticker moves, so the picture is redrawn every frame while it is on screen.
+      if (!reduced.matches || pieces.length || grows.length || flyers.length) wake();
+    }
+    canvas.requestPaint();
+    wake();
+  }
+
+  // ---- live checks: every one on its own small canvas ----
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  /** A 300 x 120 canvas on the test stage with `html` as its drawable child, drawn at x, y. Resolves once drawn. */
+  async function rig(html, x = 0, y = 0) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = 300; c.height = 120;
+    c.style.cssText = 'flex:none;width:300px;height:120px';
+    c.innerHTML = html;
+    const stage = testStage();
+    stage.style.pointerEvents = 'none';
+    stage.append(c);
+    const el = c.firstElementChild;
+    el.setAttribute('drawable', '');
+    const g = c.getContext('2d', { willReadFrequently: true });
+    const draw = () => new Promise((resolve) => {
+      c.addEventListener('paint', () => { g.reset(); g.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight); resolve(); }, { once: true });
+      c.requestPaint();
+    });
+    await draw();
+    return { c, g, el, draw };
+  }
+  /** The box of the pixels with alpha, in canvas px: { left, top, right, bottom } or null. */
+  function inkBox(g) {
+    const { width, height } = g.canvas, d = g.getImageData(0, 0, width, height).data;
+    let left = width, top = height, right = -1, bottom = -1;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (d[(y * width + x) * 4 + 3] > 60) { if (x < left) left = x; if (x > right) right = x; if (y < top) top = y; if (y > bottom) bottom = y; }
+    return right < 0 ? null : { left, top, right: right + 1, bottom: bottom + 1 };
+  }
+  const LABEL = 'position:absolute;left:0;top:0;margin:0;white-space:nowrap;color:#f00;font:800 12px/1.2 sans-serif;';
+
+  runTests($('results'), [
+    {
+      name: 'text-fit: grow fills the width of the box in the picture',
+      why: 'A 240 px wide element with 12 px text and text-fit: grow. The ink in the canvas must span most of the 240 px.',
+      run: async () => {
+        need();
+        if (!CSS.supports('text-fit', 'grow')) throw new Error('text-fit is not supported');
+        const { g } = await rig(`<p style="${LABEL}width:240px;text-fit:grow">HELLO</p>`);
+        const ink = inkBox(g);
+        if (!ink || ink.right - ink.left < 200) throw new Error(`the ink is ${ink ? ink.right - ink.left : 0} px wide in a 240 px box`);
+        return `12 px text drawn ${ink.right - ink.left} px wide and ${ink.bottom - ink.top} px tall in a 240 px box`;
+      },
+    },
+    {
+      name: 'text-box-trim makes the element as tall as its capitals',
+      why: 'The same fitted label with and without text-box: trim-both cap alphabetic. The gap between the top of the element and the first row of ink is measured in both.',
+      run: async () => {
+        need();
+        if (!CSS.supports('text-box-trim', 'trim-both')) throw new Error('text-box-trim is not supported');
+        const loose = await rig(`<p style="${LABEL}font-size:60px">HE</p>`);
+        const looseBox = inkBox(loose.g), looseHeight = loose.el.offsetHeight;
+        loose.c.remove();
+        const tight = await rig(`<p style="${LABEL}font-size:60px;text-box:trim-both cap alphabetic">HE</p>`);
+        const tightBox = inkBox(tight.g), tightHeight = tight.el.offsetHeight;
+        if (!looseBox || !tightBox) throw new Error('nothing was drawn');
+        const inkHeight = tightBox.bottom - tightBox.top;
+        if (!(tightBox.top <= 2 && Math.abs(tightHeight - inkHeight) <= 3)) throw new Error(`trimmed: element ${tightHeight} px tall, ink from row ${tightBox.top} to ${tightBox.bottom}`);
+        return `untrimmed: element ${looseHeight} px tall, ink starts at row ${looseBox.top}. Trimmed: element ${tightHeight} px tall, ink ${inkHeight} px tall starting at row ${tightBox.top}`;
+      },
+    },
+    {
+      name: 'writing-mode: sideways-lr with text-fit fits the vertical axis',
+      why: 'A label 110 px tall with sideways-lr and text-fit: grow. Its ink must be taller than it is wide and span most of the 110 px.',
+      run: async () => {
+        need();
+        if (!CSS.supports('writing-mode', 'sideways-lr')) throw new Error('writing-mode: sideways-lr is not supported');
+        const { g, el } = await rig(`<p style="${LABEL}height:110px;writing-mode:sideways-lr;text-fit:grow;text-box:trim-both cap alphabetic">SPINE</p>`);
+        const ink = inkBox(g);
+        if (!ink) throw new Error('nothing was drawn');
+        const w = ink.right - ink.left, h = ink.bottom - ink.top;
+        if (!(h > w && h > 90)) throw new Error(`ink ${w} × ${h} px in a label 110 px tall`);
+        return `ink ${w} × ${h} px; the element is ${el.offsetWidth} × ${el.offsetHeight} px`;
+      },
+    },
+    {
+      name: 'createValueRange() gives one rectangle per character of a drawn input, where the ink is',
+      why: 'An input holding "a b" drawn at 60, 40. The rectangles of "a" and "b" must contain ink in the canvas and the rectangle of the space must not.',
+      run: async () => {
+        need();
+        const probe = document.createElement('input');
+        if (!hasValueRange(probe)) throw new Error('input.createValueRange() does not exist in this browser. The page uses measureText() instead');
+        const { g, el } = await rig('<input value="a b" style="position:absolute;left:0;top:0;margin:0;width:120px;height:40px;padding:0 8px;border:0;font:30px sans-serif;color:#f00;background:transparent">', 60, 40);
+        const { rects } = charRects(el);
+        const inked = (r) => { const d = g.getImageData(Math.round(60 + r.x), Math.round(40 + r.y), Math.max(1, Math.round(r.width)), Math.max(1, Math.round(r.height))).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 60) n++; return n; };
+        const counts = rects.map(inked);
+        if (rects.length !== 3 || !(counts[0] > 20 && counts[2] > 20 && counts[1] === 0)) throw new Error(`${rects.length} rectangles, ink pixels inside them: ${counts.join(', ')}`);
+        const raw = el.createValueRange(0, 1).getBoundingClientRect(), box = g.canvas.getBoundingClientRect();
+        const follows = Math.abs(raw.left - box.left - 60 - rects[0].x) < 1.5;
+        return `ink pixels inside the three rectangles: ${counts.join(', ')}. The range's client rect is at ${follows ? 'the drawn position' : 'the layout position, not the drawn one'}`;
+      },
+    },
+    {
+      name: 'measureText() agrees with createValueRange()',
+      why: 'The fallback for browsers without createValueRange(). Both methods measure "Hello, world" in a proportional font and the left edges are compared.',
+      run: async () => {
+        need();
+        const { el } = await rig('<input value="Hello, world" style="position:absolute;left:0;top:0;margin:0;width:260px;height:40px;padding:0 8px;border:1px solid #000;font:22px sans-serif">');
+        if (!hasValueRange(el)) throw new Error('input.createValueRange() does not exist in this browser, so there is nothing to compare with');
+        const a = charRects(el).rects, b = charRects(el, { method: 'measureText' }).rects;
+        let worst = 0;
+        a.forEach((r, i) => { worst = Math.max(worst, Math.abs(r.x - b[i].x)); });
+        if (worst > 1.5) throw new Error(`left edges differ by up to ${worst.toFixed(2)} px`);
+        return `${a.length} characters, left edges differ by at most ${worst.toFixed(2)} px`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

@@ -94,6 +94,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/component-kit/` | One drawable custom element written with a scoped registry, manual slot assignment, Reference Target, `using`, Observable and `moveBefore()`, and again without them, with the lines each feature removes |
 | `/shape-ui/` | Buttons outlined with `corner-shape`, `border-shape` and `clip-path: shape()`, lit by a shader that reads alpha as height. The light follows the pointer or the phone's tilt (`lib/tilt-light.js`) |
 | `/tilt-card/` | A payment card, a ticket and a two-faced badge in HTML under foil, hologram and lenticular shaders. The phone's tilt (or the pointer) leans them, and hit testing follows the lean |
+| `/text-labels/` | A sign, book spines and a ticker sized by `text-fit` and `text-box-trim`, and an `<input>` in the canvas whose characters animate one by one from `createValueRange()` boxes (`lib/char-rects.js`) |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
@@ -119,6 +120,7 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/physical-ui.js`: `<physical-ui material="jelly|cloth|paper" wind pin>`. `backend="webgpu|webgl"` names a route; without it WebGPU is used when usable.
 - `public/lib/tilt-light.js`: `tiltLight(el)` writes a direction to `--fx-x` and `--fx-y` on an element, from the pointer, from `deviceorientation` after `light.useSensor()` is called in a tap, or from a slow circle when idle.
 - `public/shared/fx-route.js`: `loadFx({ targets, mount })` loads the fx library with one graphics context for the page: the shared WebGPU device, else one shared WebGL context.
+- `public/lib/char-rects.js`: `charRects(input)` returns one box per character of an `<input>` or `<textarea>`, from `createValueRange()` where it exists and from `measureText()` otherwise.
 - `public/lib/surface.js`: the shared base that slots any markup into a canvas; `SurfaceElement.adopt(el)` wraps an element in place.
 
 - `public/lib/live-surface.js`: `<live-region>` and `attachSurface(el)` turn any element into a shareable surface (frames, redaction, element map, replayed input). `serve(surface, link)` speaks the protocol.

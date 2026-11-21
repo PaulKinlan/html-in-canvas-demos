@@ -114,6 +114,8 @@ Source: `tools/chrome-apis/demos.json` and `docs/chrome-apis-plan.md` (PR #50). 
 
 Guidance given to every thread building these (2026-11-21): ship in small pull requests of two or three demos, let a demo that fails on the API fail visibly with the finding recorded, start each page on its lightest effect, create one graphics context per page where possible, keep live checks behind a tap, recover from a lost context with a message, and favour dynamic, visually strong effects. The hardware-tier demos are built with a simulated fallback (a fold control, a simulated device panel, a simulated title bar) because the cloud browser cannot verify the real thing.
 
+Built by "Build visual effect demos from plan" (2026-11-21): demo 6 as `/scroll-fx/`, demo 7 as `/shape-ui/`, demo 11 as `/tilt-card/` and demo 8 as `/text-labels/`, with `lib/tilt-light.js`, `lib/char-rects.js` and `shared/fx-route.js`. Results are in FINDINGS.md, "Effects driven by CSS" and "A card leaned by the tilt sensor, and text measured by CSS". The overscroll drawer of demo 6 was not built (no `overscroll-area` in Chromium 157).
+
 Four probe results differ between the two test browsers (Chromium 157 and 153) and are wanted from Chrome 159 on the phone: anchor positioning from outside the canvas, `interestfor`, `highlightsFromPoint()` and `OpaqueRange` rects. All four are about where the browser thinks a drawn element is.
 
 ## Open ideas by strand
@@ -298,6 +300,7 @@ Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-2
 | Other browsers | Safari and Firefox as viewers of the cross-context pages | By hand. |
 | Chrome version | Chrome 159 against the four probe results that differ between 153 and 157; Chrome 148 as the floor | `/chrome-apis/probes.html` on the phone. |
 | Native UI | Qt Widgets (2D canvas route) | Not built. |
+| Effects from CSS and sensors | Touch scrolling against the property reads on `/scroll-fx/` (the shader may trail the block); the tilt sensor, its permission step and vibration on `/shape-ui/` and `/tilt-card/`; the on-screen keyboard, IME and `createValueRange()` on Chrome 159 on `/text-labels/` | Phone. `/tilt-card/` prints the sensor's event rate after "Use the phone's tilt". `/text-labels/` prints its measuring method under the picture and has a check row for the character boxes. |
 
 ## Reports to make upstream
 
