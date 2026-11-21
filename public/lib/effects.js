@@ -32,6 +32,13 @@
 //   --fx-amount    number  u_amount (strength, default 1)
 //   --fx-x, --fx-y number  u_xy (tilt direction, -1..1)
 //
+// An effect can be declared in markup, with no script of your own. One
+// <script> per language, with a type the browser will not run:
+//
+//   <script type="text/glsl" data-effect="wobble">vec4 fx(vec2 p) { … }</script>
+//   <script type="text/wgsl" data-effect="wobble">fn fx(p: vec2f) -> vec4f { … }</script>
+//   <button fx="wobble">…</button>
+//
 // The effect attribute can also point at a shader instead of naming one:
 //
 //   effect="#my-shader"          <script type="x-shader/x-fragment" id="my-shader">
@@ -44,6 +51,8 @@ const listeners = new Set();
 
 /** Register an effect. { glsl, wgsl?, animated?, bleed?, geometry? } */
 export function defineEffect(name, def) {
+  // WGSL only: WebGL draws the element unshaded instead of failing to compile nothing.
+  if (!def.glsl && def.wgsl && effects.has('none')) def = { ...def, glsl: effects.get('none').glsl };
   const source = (def.glsl ?? '') + (def.wgsl ?? '');
   effects.set(name, { animated: /\bu_time\b|\bu\.time\b/.test(source), bleed: 0, ...def });
   for (const fn of listeners) fn(name);
@@ -66,6 +75,23 @@ export function resolveEffect(value, doc = document) {
   const raw = (value ?? '').trim();
   if (!raw) return 'none';
   if (effects.has(raw)) return raw;
+  // #region declared
+  // A name nobody registered: look for <script data-effect="name"> elements
+  // holding the source. One per language, told apart by the type attribute.
+  if (/^[\w-]+$/.test(raw)) {
+    const def = {};
+    for (const el of doc.querySelectorAll(`script[data-effect="${raw}"]`)) {
+      def[/wgsl/i.test(el.type) ? 'wgsl' : 'glsl'] = el.textContent;
+      if (el.dataset.bleed) def.bleed = Number(el.dataset.bleed) || 0;
+    }
+    if (def.glsl || def.wgsl) {
+      // WGSL only: WebGL draws the element unshaded.
+      def.glsl ??= effects.get('none').glsl;
+      defineEffect(raw, def);
+      return raw;
+    }
+  }
+  // #endregion declared
   if (raw.startsWith('#')) {
     const el = doc.getElementById(raw.slice(1));
     if (!el) return 'none';
