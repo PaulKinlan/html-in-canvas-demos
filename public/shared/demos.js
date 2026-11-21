@@ -81,6 +81,7 @@ window.DEMOS = [
 
   // --- input ---
   { group: 'input', href: '/translate-lens/', title: 'A lens that translates', blurb: 'A circle over an article shows the same text in French, Spanish, German or Japanese, in simpler words, or as one-line summaries. The canvas draws a converted copy of the article inside the circle, lined up block by block, and the original still takes clicks.', tags: ['Translator', 'Summarizer', 'Rewriter', 'drawElementImage'] },
+  { group: 'input', href: '/agent-view/', title: 'An agent operating a canvas UI', blurb: 'A form drawn through a shader offers three WebMCP tools. Each tool call turns the panel to face you, moves a marker to the field and types into the real input. The Prompt API can plan the calls from a sentence and describe a picture of the canvas.', tags: ['WebMCP', 'Prompt API', 'ariaNotify', 'fx'] },
 
   // --- audit ---
   { group: 'audit', href: '/a11y/', title: 'Accessibility audit', blurb: 'Is DOM in a canvas still DOM? Probes of focus, selection, find, zoom and forced colours, a table of how each pattern on this site holds up, the same audit run over every demo, and a short list to try with a screen reader.', tags: ['accessibility tree', 'focus', 'forced-colors'] },

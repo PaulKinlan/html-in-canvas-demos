@@ -81,6 +81,7 @@
 
       // --- input ---
       '/translate-lens/': { question: 'Can a canvas draw a translated, simplified or summarised copy of an element inside a lens, lined up with the original, and which on-device language APIs can fill the copy?', result: 'A second drawable child holds the copy. Drawing it once per block, clipped and moved to the original block, keeps the two lined up. The APIs were not usable in the test browser; recorded text stands in.', first: ['/lens/', '/board/'], api: ['drawElementImage()', 'Translator', 'LanguageDetector', 'Summarizer', 'Rewriter'] },
+      '/agent-view/': { question: 'Can a canvas show what an agent is doing to a live form (which field, which value), and can WebMCP tools and the Prompt API drive it?', result: 'A tool call sets four CSS custom properties and the input\'s value; a shader draws the marker and the lean from them. WebMCP and the Prompt API were missing or without a model in the test browser, so those paths are not verified.', first: ['/shader-css/', '/three-form/', '/support/'], api: ['navigator.modelContext', 'LanguageModel', 'ariaNotify()', 'texElementSubImage2D()', 'updateElementGeometry()'] },
 
       // --- audit ---
       '/a11y/': { question: 'Which accessibility features work for DOM drawn in a canvas, and which techniques on this site break them?', first: ['/start/'], api: ['accessibility tree', 'focus', 'forced-colors'] },

@@ -74,6 +74,8 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/audio/` | Web Audio band levels as CSS custom properties that drive a shader over a working `<audio>` card |
 | `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
 | `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
+| `/translate-lens/` | A lens that shows a translated, simplified or summarised copy of the article under it, lined up block by block (`Translator`, `Rewriter`, `Summarizer`, or recorded text when there is no model); cards swapped for summaries when zoomed out |
+| `/agent-view/` | A form drawn through a shader that offers WebMCP tools; each tool call is shown by a marker and a turn of the panel; the Prompt API plans calls from a sentence and describes a picture of the canvas |
 
 What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
@@ -97,6 +99,7 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/effects.js`: the effect registry shared by `fx` and `<canvas-slot effect>`. `defineEffect(name, { glsl, wgsl, animated, bleed, geometry })`, or two `<script data-effect="name">` elements (one `type="text/glsl"`, one `type="text/wgsl"`) with no script call; CSS properties `--fx-progress`, `--fx-amount`, `--fx-x`, `--fx-y`.
 - `public/lib/slot-effects.js`: the shader renderer `<canvas-slot effect>` loads on demand. WebGPU when usable, else WebGL; `backend="webgpu|gl|webgl|shared"` names a route.
 - `public/lib/physical-ui.js`: `<physical-ui material="jelly|cloth|paper" wind pin>`. `backend="webgpu|webgl"` names a route; without it WebGPU is used when usable.
+- `public/lib/text-twin.js`: `new TextTwin(source, copy)` keeps a converted copy of a subtree and pairs its blocks with the original's. `convert(provider)` with `translator()`, `rewriter()`, `summarizer()` or `recorded(table, column)`; `ownBlocks = true` makes each block of the copy drawable by itself. `builtInAI()` reports what each built-in AI interface says about availability.
 - `public/lib/surface.js`: the shared base that slots any markup into a canvas; `SurfaceElement.adopt(el)` wraps an element in place.
 
 - `public/lib/live-surface.js`: `<live-region>` and `attachSurface(el)` turn any element into a shareable surface (frames, redaction, element map, replayed input). `serve(surface, link)` speaks the protocol.

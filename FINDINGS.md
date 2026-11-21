@@ -42,6 +42,7 @@ The main results. Each is backed by the tables in the sections below.
 - [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
 - [Native UI toolkits (/native-ui/)](#native-ui-toolkits-native-ui)
+- [Language models, voice and input (/translate-lens/, /agent-view/)](#language-models-voice-and-input-translate-lens-agent-view)
 
 ## Slots
 
@@ -777,3 +778,26 @@ Tested in headless Chromium 157 at 1× and at a 2.625 device scale with touch. e
 | Raw GL in Qt Quick's frame | warnings | Five `texParameter: no texture bound` warnings per item at start-up. Textures draw correctly. |
 
 Not verified: a real phone, IME composition, where native pickers open for a rotated field, screen readers, Qt Widgets (2D canvas, `putImageData`).
+
+## Language models, voice and input (`/translate-lens/`, `/agent-view/`)
+
+Measured in headless Chromium 157 on 2026-11-21. The built-in AI interfaces had no model there, so the rows that need one are marked.
+
+| What | Result | Detail |
+|---|---|---|
+| A converted copy of an element drawn inside a clip (a lens) | works | Two drawable children, one 2D context. The original is drawn at its layout position and keeps hit testing; the copy is `inert`. |
+| The copy in its own layout, German against English, 340 px column | drifts | Block tops are off by 0, 0, 24, 48, 48 px. |
+| The whole copy drawn once per block, clipped and moved to the original block | works | 0 px of drift. One draw of the copy per block under the lens. |
+| A `drawable` descendant passed to `drawElementImage()` by itself | works | One small draw per block. The element takes clicks where it was drawn. |
+| The same descendant in its drawable ancestor's picture | left out | The ancestor is drawn with a hole where the descendant is. A list item drawn by itself has no bullet. |
+| `getBoundingClientRect()` on a canvas child that is drawn moved or scaled | reports the drawn box | Use `offsetTop` and `offsetLeft` to measure layout. |
+| A card swapped for its summary when its text would be under 9 px | works | The undrawn element keeps its last hit area, so it is made `inert`. |
+| `Translator.availability()` | never settles | Headless Chromium 157. The page gives up after 3 s. |
+| `Summarizer`, `LanguageModel` availability | "downloadable" | No download is possible in the container. `Rewriter` is missing, `LanguageDetector` is "unavailable". |
+| `LanguageModel.prompt()` with a `responseConstraint`, no model | resolves with prose | The answer starts "On-device" and is not JSON. Not verified with a model. |
+| `navigator.modelContext` (WebMCP) | missing | Registration is written for `registerTool()` and `provideContext()` and has not been run. |
+| A tool call shown by a shader through four CSS custom properties | works | The lean and the marker position are registered properties with CSS transitions. The tool resolves after the animation. |
+| Hit testing on the form while it leans in perspective | works | Four controls found at their drawn centres, within 0.4 px of the effect's matrix. |
+| A form control named `length` | cannot be reached by name | `form.elements.length` is the number of controls. |
+
+Not verified: every path that calls a model (`Translator`, `Rewriter`, `Summarizer`, the Prompt API planner and image prompt), WebMCP with a real agent, WebGPU on screen, and touch dragging of the lens on a real phone.
