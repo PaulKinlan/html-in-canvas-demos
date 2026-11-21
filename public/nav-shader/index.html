@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page navigations drawn by a shader that starts at the clicked link</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .nav-stage { position: relative; max-width: 440px; margin: 14px auto 0; border-radius: 16px; background: #0c0f18; padding: 10px; }
+  #site { display: block; height: 440px; }
+  /* #region styles */
+  .view { box-sizing: border-box; height: 440px; overflow: hidden; padding: 16px; border-radius: 12px; background: linear-gradient(170deg, color-mix(in srgb, var(--tint, #2b3350) 30%, #fff), #fff 60%); color: #1b1a18; font: 16px/1.45 system-ui, sans-serif; }
+  /* #endregion styles */
+  .view h2 { margin: 0 0 10px; font-size: 22px; letter-spacing: 0; }
+  .view p { margin: 0 0 10px; }
+  .view nav { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .view nav a, .view .card { text-decoration: none; }
+  .view nav a { padding: 8px 12px; border-radius: 999px; background: #1b1a18; color: #fff; font: 600 14px system-ui; }
+  .view .hero { height: 120px; margin-bottom: 12px; border-radius: 12px; display: grid; place-items: center; font: 700 44px/1 Georgia, serif; color: #fff; background: linear-gradient(135deg, var(--tint), color-mix(in srgb, var(--tint) 45%, #000)); }
+  .view .cards { display: grid; gap: 10px; }
+  .view .card { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 12px; background: #fff; border: 1px solid #d9d4c8; color: #1b1a18; font-weight: 600; }
+  .view .card i { flex: none; width: 54px; height: 54px; border-radius: 10px; background: linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 45%, #000)); }
+  .view .card small { display: block; font-weight: 400; color: #5d584f; }
+  .view form { display: flex; gap: 8px; margin-top: 12px; align-items: center; font-size: 14px; }
+  .view :is(input[type=text], select) { font: 16px system-ui; padding: 6px 8px; border-radius: 8px; border: 1px solid #bdb6a8; background: #fff; color: #1b1a18; max-width: 100%; }
+  .view label { display: block; margin-bottom: 10px; font-size: 14px; font-weight: 600; }
+  .view input[type=checkbox] { width: 20px; height: 20px; vertical-align: -4px; }
+  .view button { font: 600 15px system-ui; padding: 8px 14px; border-radius: 9px; border: 0; background: #1f4fd8; color: #fff; }
+  .view .tick { color: #5d584f; font-size: 14px; }
+  .controls { margin: 12px 0 0; gap: 8px 14px; }
+  .controls label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+  .controls select { font: inherit; }
+  #state { min-height: 3em; margin: 10px 0 0; }
+  .api { display: inline-block; margin: 0 6px 2px 0; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); font: 12px var(--mono); }
+  .api.yes { border-color: var(--ok); color: var(--ok); }
+  #log { height: 9.5em; overflow: auto; margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font: 12.5px/1.5 var(--mono); list-style: none; }
+  #log li { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .stage-note { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: #2a1512; color: #ffd9d2; font-size: 14px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Page navigations drawn by a shader that starts at the clicked link</h1>
+  <p class="lede">
+    A four-page site inside one canvas. Tap a card or a link: the address changes, and a shader spreads the new page from the element you
+    tapped. Back and Forward do the same. Both pages are live DOM while the shader runs.
+  </p>
+
+  <div class="nav-stage" id="stage">
+    <!-- #region markup -->
+    <live-transition id="site" bleed="24" duration="900">
+      <section class="view" data-view="home" style="--tint:#2b3350">
+        <h2>Harbour notes</h2>
+        <div class="cards">
+          <a class="card" href="/nav-shader/?view=tides" style="--c:#1d5fa8"><i></i><span>Tides<small>When the water is high</small></span></a>
+          <a class="card" href="/nav-shader/?view=knots" style="--c:#8a4b12"><i></i><span>Knots<small>A loop that does not slip</small></span></a>
+          <a class="card" href="/nav-shader/?view=lights" style="--c:#6a2f8f"><i></i><span>Lights<small>Telling two lighthouses apart</small></span></a>
+        </div>
+        <!-- A GET form is a navigation too. Its submit button is the source element. -->
+        <form method="get" action="/nav-shader/">
+          <select name="view" aria-label="Page"><option value="tides">Tides</option><option value="knots">Knots</option><option value="lights" selected>Lights</option></select>
+          <button type="submit">Go</button>
+        </form>
+        <p class="tick">This view has been open for <output data-open>0</output> s.</p>
+      </section>
+    </live-transition>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="row controls">
+    <label>Shader
+      <select id="effect">
+        <option value="ink">ink (written for this page)</option>
+        <option value="ripple">ripple</option>
+        <option value="burn">burn</option>
+        <option value="shatter">shatter</option>
+        <option value="swirl">swirl</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="slow"> Slow (4 s), to use both pages part way through</label>
+  </div>
+  <div id="route"></div>
+  <p class="note" id="state" role="status"></p>
+  <ol id="log" aria-label="Navigation log"></ol>
+
+  <details class="show-code">
+    <summary>Show the code <small>the Navigation API driving a transition shader</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The first view, inside <code>&lt;live-transition&gt;</code>.</b> Ordinary links and a GET form. The other views are files in <a href="/nav-shader/views/tides.html">/nav-shader/views/</a>.</li>
+      <li data-code="/nav-shader/site.js#navigate"><b>Intercept every navigation.</b> <code>precommitHandler</code> fetches the new view while the old URL is still in the address bar. After the commit, the shader runs. <code>sourceElement</code> is the link or button that was used.</li>
+      <li data-code="/nav-shader/site.js#load"><b>A view becomes a new child of the element.</b> Each child is a state with its own texture.</li>
+      <li data-code="/nav-shader/site.js#shader"><b>The shader.</b> <code>origin</code> is the centre of the clicked element. GLSL and WGSL.</li>
+      <li data-code="/nav-shader/site.js#fallback"><b>Without the Navigation API.</b> A click listener and <code>history.pushState()</code>.</li>
+      <li data-code="/lib/live-transition.js#upload"><b>Inside the element: each state is uploaded as a texture when it repaints.</b></li>
+      <li data-code="/nav-shader/site.js"><b>The whole file.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    <a href="/transitions/"><code>&lt;live-transition&gt;</code></a> draws its children in one canvas and blends two of them with a fragment
+    shader, with WebGPU when it works and WebGL otherwise. This page adds the navigation. One <code>navigate</code> listener intercepts links, the
+    GET form, Back and Forward. Its <code>precommitHandler</code> fetches the new view's HTML and appends it as a child, which defers the URL
+    change until the view is ready. Its post-commit handler calls <code>show()</code> with the centre of <code>event.sourceElement</code> as the
+    origin, and the navigation is finished when the shader has finished.
+  </p>
+  <p>
+    Views are kept after they are first loaded, so text typed into one is there on the way back. Reloading at
+    <code>?view=knots</code> starts on that view.
+  </p>
+
+  <h2>Live checks</h2>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li><b>Measured, headless Chromium 157, 21 November 2026.</b> <code>precommitHandler</code>, <code>controller.addHandler()</code> and <code>NavigateEvent.sourceElement</code> are all present. The first two were listed for Chrome 141 and 146.</li>
+    <li><b>The new view can be a live child of the canvas before the address changes.</b> The precommit handler fetched and appended the view in 84 ms and the query string was still the old one when it resolved. The post-commit handler then started the shader.</li>
+    <li><b><code>sourceElement</code> gives the shader its origin.</b> For a link it is the <code>&lt;a&gt;</code>, for the GET form it is the submit button. <code>getBoundingClientRect()</code> on it, minus the element's own rect, was within 2 px of the card centre. Back and Forward have no source element, so they start from the centre.</li>
+    <li><b>Both views run while the shader blends them.</b> At 41% of a 4 s transition the old view's clock had counted on and a text field in the new view took a value. A tap part way through goes to whichever view the shader shows at that point (the <code>pick</code> function of the effect).</li>
+    <li><b>Back and Forward are intercepted the same way.</b> A traversal was drawn by the shader. A view is kept as a child after its first load, so its precommit step took 0 ms and its form state was still there.</li>
+    <li><b>A snapshot outlives its element.</b> An <code>ElementImage</code> taken with <code>captureElementImage()</code> still drew after the element was removed. This page does not need it, because the old view stays in the DOM, but a site that discards the old view could keep its picture this way.</li>
+    <li><b>The hidden copy that runs the navigating checks shares this tab's history.</b> <code>history.length</code> went from 2 to 4 while the checks ran. After the copy was removed, one Back from a view returned to the first view, so the copy's entries were not visited. When the same checks ran during a visitor's own navigation, the copy's <code>history.back()</code> undid the visitor's navigation, which is why the checks on this page wait for a tap.</li>
+    <li><b>Not verified.</b> WebGPU on screen (no adapter here: the WGSL of the ink shader has not been compared with the GLSL), the phone's Back gesture and its preview animation, a cross-document navigation, and what a screen reader says when the view changes. The WebGPU check above compares the two pictures on a device that has an adapter.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import '/lib/live-transition.js';
+  import { pictureDifference } from '/lib/gpu-util.js';
+  import { banner, runTests, supported, isBench, testStage, stillDrawn, inkFraction } from '/shared/support.js';
+  import { routeSwitch } from '/shared/route-switch.js';
+  import { mountSite, support, VIEWS } from '/nav-shader/site.js';
+
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const site = $('site');
+  const lines = [];
+
+  const router = mountSite(site, {
+    effect: () => $('effect').value,
+    duration: () => ($('slow').checked ? 4000 : 900),
+    onlog(text) {
+      lines.push(text);
+      const li = document.createElement('li');
+      li.textContent = text;
+      $('log').append(li);
+      $('log').scrollTop = $('log').scrollHeight;
+    },
+  });
+  await router.start();
+
+  const chip = (ok, text) => `<span class="api ${ok ? 'yes' : ''}">${text}</span>`;
+  $('state').innerHTML =
+    chip(support.navigation, `Navigation API: ${support.navigation ? 'present' : 'missing'}`) +
+    chip(support.precommit, `precommitHandler: ${support.precommit ? 'present' : 'missing'}`) +
+    chip(support.addHandler, `controller.addHandler(): ${support.addHandler ? 'present' : 'missing'}`) +
+    chip(support.sourceElement, `sourceElement: ${support.sourceElement ? 'present' : 'missing'}`) + '<br>' +
+    (support.navigation ? (support.precommit ? 'The new view is fetched before the URL changes.' : 'No precommit handler: the URL changes first and the view is fetched after.') : 'No Navigation API: links are caught with a click listener and history.pushState(). The GET form reloads the page.') +
+    (support.sourceElement || !support.navigation ? '' : ' Without sourceElement the shader starts from the centre.');
+
+  routeSwitch($('route'), { targets: () => [site], attr: 'backend', values: { webgpu: 'webgpu', webgl: 'webgl' }, active: (el) => el.backend, note: (el) => el.gpuNote });
+  site.addEventListener('livefallback', () => {
+    const p = document.createElement('p');
+    p.className = 'stage-note';
+    p.textContent = `The canvas stopped drawing (${site.fallbackReason || 'its graphics context was lost'}). The views are shown as plain HTML and the links still navigate.`;
+    $('stage').append(p);
+  });
+
+  // -------------------------------------------------------------------------
+  // Live checks. The ones that navigate run in a hidden copy of this page
+  // (apart: true), which has its own history, so the page being read stays put.
+
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const must = (cond, msg) => { if (!cond) throw new Error(msg); };
+  const waitFor = async (fn, ms = 6000) => { for (let t = 0; t < ms; t += 50) { if (fn()) return true; await sleep(50); } return false; };
+  const shot = (el) => new Promise((resolve) => {
+    el.addEventListener('liveframe', () => resolve(el.readback()), { once: true });
+    el.canvas.requestPaint();
+  });
+
+  runTests($('results'), [
+    {
+      name: 'The Navigation API has deferred commit and the source element',
+      why: 'navigation, NavigationPrecommitController and NavigateEvent.sourceElement must exist.',
+      run: async () => {
+        const line = `navigation ${support.navigation ? 'present' : 'missing'}, precommit ${support.precommit ? 'present' : 'missing'}, addHandler ${support.addHandler ? 'present' : 'missing'}, sourceElement ${support.sourceElement ? 'present' : 'missing'}`;
+        must(support.navigation && support.precommit && support.sourceElement, line);
+        return line;
+      },
+    },
+    {
+      name: 'A click on a card loads the view before the URL changes, then draws from the card',
+      why: 'In a hidden copy of this page the "Knots" card is clicked. The log must show the view loaded while the query was unchanged, the URL must then be ?view=knots, and the transition origin must be the centre of the card.',
+      apart: true,
+      timeout: 15000,
+      run: async () => {
+        need();
+        must(support.navigation, 'no Navigation API');
+        await site.whenStarted?.();
+        const card = site.querySelector('a[href$="view=knots"]');
+        const a = card.getBoundingClientRect(), b = site.getBoundingClientRect();
+        const want = { x: a.left + a.width / 2 - b.left, y: a.top + a.height / 2 - b.top };
+        const before = router.state.runs;
+        card.click();
+        must(await waitFor(() => router.state.runs > before), `the transition did not finish. Log: ${lines.join(' / ')}`);
+        const pre = lines.find((l) => l.includes('precommit:'));
+        must(new URLSearchParams(location.search).get('view') === 'knots', `the URL is ${location.search}`);
+        must(pre && /still \?bench|still \(none\)|still \?/.test(pre) && !pre.includes('view=knots'), `no precommit line with the old query. Log: ${lines.join(' / ')}`);
+        const o = router.state.last.origin;
+        must(o && Math.hypot(o.x - want.x, o.y - want.y) < 2, `origin ${o ? `${o.x.toFixed(0)},${o.y.toFixed(0)}` : 'missing'}, card centre ${want.x.toFixed(0)},${want.y.toFixed(0)}`);
+        must(site.states[site.current].dataset.view === 'knots', 'the knots view is not the current state');
+        return `${pre.replace(/^[\d.]+ s\s+/, '')}; URL now ${location.search}; origin ${o.x.toFixed(0)},${o.y.toFixed(0)} is the card centre`;
+      },
+    },
+    {
+      name: 'Both views take input part way through a transition, and Back draws too',
+      why: 'In the hidden copy a 4 s transition to "Tides" is started from the first card. While it runs, text is typed into the new view and the old view\'s clock must still count. Then history.back() must return to the first view through the shader.',
+      apart: true,
+      timeout: 25000,
+      run: async () => {
+        need();
+        must(support.navigation, 'no Navigation API');
+        const start = site.states[site.current];
+        $('slow').checked = true;
+        const before = router.state.runs;
+        const tick0 = start.querySelector('[data-open]').value;
+        (start.querySelector('a[href$="view=tides"]') ?? start.querySelector('a[href="/nav-shader/"]')).click();
+        must(await waitFor(() => site.transitioning, 4000), 'no transition started');
+        await sleep(1600);
+        must(site.transitioning, 'the transition ended early');
+        const mid = site.progress;
+        const to = [...router.views.values()].find((v) => v !== start && !v.closest('[hidden]') && site.states.indexOf(v) >= 0 && v.dataset.view !== start.dataset.view && v.offsetHeight > 0);
+        const field = to?.querySelector('input[type=text]');
+        if (field) { field.value = 'Whitby'; field.dispatchEvent(new Event('input', { bubbles: true })); }
+        const tick1 = start.querySelector('[data-open]').value;
+        must(await waitFor(() => router.state.runs > before, 8000), 'the transition did not finish');
+        $('slow').checked = false;
+        const there = location.search;
+        history.back();
+        must(await waitFor(() => router.state.runs > before + 1, 8000), `Back did not run a transition. Log: ${lines.slice(-4).join(' / ')}`);
+        must(site.states[site.current] === start, 'Back did not return to the first view');
+        const traverse = lines.filter((l) => l.includes('navigate: traverse')).length;
+        return `at ${Math.round(mid * 100)}% the old view's clock had gone from ${tick0} to ${tick1} s${field ? ' and the new view\'s field took "Whitby"' : ''}; Back went from ${there || '(no query)'} to ${location.search || '(no query)'} with ${traverse} traverse navigation drawn`;
+      },
+    },
+    {
+      name: 'An ElementImage of a view can be drawn after the view is removed',
+      why: 'The plan asked whether the old view could be kept as a snapshot. A fixture canvas captures a child with captureElementImage(), removes the child, and draws the snapshot on the next paint.',
+      run: async () => {
+        need();
+        const c = document.createElement('canvas');
+        c.setAttribute('content', 'drawable');
+        c.setAttribute('layoutsubtree', '');
+        c.width = 120; c.height = 60;
+        c.style.cssText = 'flex:none;width:120px;height:60px';
+        c.innerHTML = '<div drawable style="width:120px;height:60px;background:#c0143c;color:#fff">old view</div>';
+        testStage().append(c);
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        must(typeof c.captureElementImage === 'function', 'canvas.captureElementImage() is missing');
+        const el = c.firstElementChild;
+        let image = null, error = '';
+        await new Promise((r) => { c.addEventListener('paint', () => { try { image = c.captureElementImage(el); } catch (err) { error = err.message; } r(); }, { once: true }); c.requestPaint(); });
+        must(image, `captureElementImage() threw: ${error}`);
+        el.remove();
+        await sleep(100);
+        let drew = '';
+        try { ctx.clearRect(0, 0, 120, 60); ctx.drawElementImage(image, 0, 0, 120, 60); } catch (err) { drew = err.message; }
+        const px = [...ctx.getImageData(10, 50, 1, 1).data];
+        must(!drew, `drawElementImage(snapshot) threw after the element was removed: ${drew}`);
+        must(px[0] > 150 && px[2] < 120, `the snapshot drew rgba(${px}) where the view's red was expected`);
+        return `the snapshot still draws after remove(): rgba(${px}) at a point of the old view`;
+      },
+    },
+    {
+      name: 'The ink shader on WebGPU: the same picture as WebGL',
+      why: 'Two small copies of the element, backend="webgl" and backend="webgpu", held at 40% of the ink transition with the same origin. The WebGPU one is read back from a texture. Needs a WebGPU adapter.',
+      timeout: 20000,
+      run: async () => {
+        need();
+        const make = (backend, extra) => {
+          const el = document.createElement('live-transition');
+          el.setAttribute('backend', backend); el.setAttribute('bleed', '8'); if (extra) el.setAttribute(extra, '');
+          el.style.cssText = 'flex:none;width:150px';
+          el.innerHTML = '<div style="height:70px;background:#ffcc00;color:#000">One <button tabindex="-1">Go</button></div><div style="height:70px;background:#00ccff;color:#000">Second state</div>';
+          testStage().append(el);
+          return el;
+        };
+        const gl = make('webgl'), gpu = make('webgpu', 'offscreen');
+        await Promise.all([gl.whenStarted(), gpu.whenStarted()]);
+        must(gpu.backend === 'webgpu', `WebGPU is not in use: ${gpu.gpuNote || 'it did not start'}`);
+        await sleep(300);
+        const o = { effect: 'ink', force: true, origin: { x: 40, y: 30 } };
+        await Promise.all([gl.begin(1, o), gpu.begin(1, o)]);
+        gl.progress = 0.4; gpu.progress = 0.4;
+        await sleep(150);
+        const d = pictureDifference(await shot(gl), await gpu.readback());
+        must(d.ink > 0.05, 'WebGPU drew nothing');
+        must(d.mean < 1.5, `mean difference ${d.mean.toFixed(2)} of 255, largest ${d.max}`);
+        return `mean difference per channel ${d.mean.toFixed(2)} of 255`;
+      },
+    },
+    {
+      name: 'The ink shader shows the new view near the origin and the old view far from it',
+      why: 'A small copy on WebGL, yellow to cyan, held at 35% with the origin in the top left corner.',
+      timeout: 15000,
+      run: async () => {
+        need();
+        const el = document.createElement('live-transition');
+        el.setAttribute('backend', 'webgl'); el.setAttribute('bleed', '0');
+        el.style.cssText = 'flex:none;width:200px';
+        el.innerHTML = '<div style="height:100px;background:#ffcc00"></div><div style="height:100px;background:#00ccff"></div>';
+        testStage().append(el);
+        await el.whenStarted();
+        await sleep(200);
+        await el.begin(1, { effect: 'ink', force: true, origin: { x: 10, y: 10 } });
+        el.progress = 0.35;
+        await sleep(150);
+        const img = await shot(el);
+        const at = (fx, fy) => { const i = (Math.floor(fy * img.height) * img.width + Math.floor(fx * img.width)) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+        const near = at(0.08, 0.15), far = at(0.92, 0.85);
+        must(near[2] > 200 && near[0] < 80, `near the origin the pixel is rgb(${near}), expected the new view's cyan`);
+        must(far[0] > 200 && far[2] < 80, `far from the origin the pixel is rgb(${far}), expected the old view's yellow`);
+        return `near the origin rgb(${near}) (new view), far from it rgb(${far}) (old view)`;
+      },
+    },
+    stillDrawn(() => [{
+      name: 'the site',
+      ink: async () => (supported && !site.fallbackReason ? inkFraction(await shot(site)) : null),
+      note: 'not in a canvas',
+    }]),
+  ]);
+</script>
+</body>
+</html>
