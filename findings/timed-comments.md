@@ -24,7 +24,7 @@ Measured in Chromium 157 headless (C157) with software video decoding, 2026-11-2
 
 - The frame match with a hardware decoder on Android. The third live check reports it on the device.
 - Tapping a moving comment with a finger, and the cost of 30 or more comments on a phone. The line under the player shows how many are drawn in each paint.
-- The per-frame `getImageData()` in the third check runs on a 320×180 2D fixture with `willReadFrequently` for 1.5 s. It is not used by the visible player.
+- The third check reads one row of a 320×180 fixture per frame for 1.5 s. It reads a `drawImage()` copy on an `OffscreenCanvas`, not the drawable canvas, and no drawable canvas on the page is made with `willReadFrequently` (that option loses every 2D context on an Android phone). It is not used by the visible player.
 
 ## For the index
 

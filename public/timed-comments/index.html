@@ -212,7 +212,7 @@
    * `state()` returns { mode, time, open }: the drawing mode, the media time and the cue of the open comment, if any.
    */
   function compose(canvas, video, controls, layer, state, stats = {}) {
-    const ctx = canvas.getContext('2d', stats.read ? { willReadFrequently: true } : undefined);
+    const ctx = canvas.getContext('2d');
     canvas.addEventListener('paint', () => {
       const k = canvas.width / canvas.clientWidth;
       const W = canvas.clientWidth, vh = video.offsetHeight;
@@ -220,7 +220,7 @@
       ctx.reset();
       ctx.scale(k, k);
       ctx.drawElementImage(video, 0, 0, W, vh);
-      stats.onframe?.(ctx, time);
+      stats.onframe?.(canvas, time);
       if (controls) ctx.drawElementImage(controls, 0, vh, W, controls.offsetHeight);
       ctx.beginPath();
       ctx.rect(0, 0, W, vh);
@@ -415,8 +415,12 @@
   // ---- live checks: every one on its own fixture ----
   const made = [];
   /** The frame number in the clip's corner: 16 stripes across the right half of the frame, lowest bit first. */
-  function frameNumber(ctx, x0, y, stripe) {
-    const d = ctx.getImageData(Math.round(x0), Math.round(y), Math.round(stripe * 16), 1).data;
+  // The drawable canvas is never read: a drawImage() copy of one row is read instead. A drawable 2D canvas made with willReadFrequently loses every 2D context on an Android phone.
+  const stripeCopy = new OffscreenCanvas(160, 1).getContext('2d', { willReadFrequently: true });
+  function frameNumber(canvas, x0, y, stripe) {
+    const w = Math.round(stripe * 16);
+    stripeCopy.drawImage(canvas, Math.round(x0), Math.round(y), w, 1, 0, 0, w, 1);
+    const d = stripeCopy.getImageData(0, 0, w, 1).data;
     let n = 0;
     for (let i = 0; i < 16; i++) if (d[Math.round(i * stripe + stripe / 2) * 4] > 128) n |= 1 << i;
     return n;
@@ -435,7 +439,7 @@
     made.push(v);
     const stats = { read, frames: [] };
     // Runs inside the paint handler, straight after the video is drawn: which frame is in the picture, and which time were the comments placed for?
-    if (read) stats.onframe = (ctx, time) => stats.frames.push([frameNumber(ctx, c.width / 2, 4 * (c.width / 320), (c.width / 320) * 10), time]);
+    if (read) stats.onframe = (canvas, time) => stats.frames.push([frameNumber(canvas, c.width / 2, 4 * (c.width / 320), (c.width / 320) * 10), time]);
     const p = commentPlayer(c, v, null, { mode: () => mode, stats });
     v.src = await blobUrl(CLIP);
     await until(() => v.readyState >= 2, 8000, v.error ? `the video did not load: ${v.error.message}` : 'the video did not load');
