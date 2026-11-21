@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canvas window</title>
+<link rel="manifest" href="/window-chrome/app.webmanifest">
+<link rel="icon" href="/window-chrome/icon.svg">
+<meta name="theme-color" content="#1d2330">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1d2330; font: 14px/1.4 system-ui, sans-serif; }
+  #win { display: block; width: 100vw; height: 100vh; }
+  #lost { position: fixed; inset: auto 8px 8px 8px; background: #b3261e; color: #fff; padding: 8px 12px; border-radius: 8px; }
+  #lost:empty { display: none; }
+
+  /* #region css */
+  /* The title bar is an element. Where it is drawn, a drag moves the window. */
+  #bar {
+    position: absolute; left: 0; top: 0; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 8px;
+    color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; touch-action: none;
+    app-region: drag; -webkit-app-region: drag; window-drag: drag;
+  }
+  /* Controls inside it must take clicks, so they are taken out of the drag region. */
+  #bar :is(button, input) { app-region: no-drag; -webkit-app-region: no-drag; window-drag: no-drag; }
+  /* #endregion css */
+  #title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #bar .dot { width: 12px; height: 12px; border-radius: 50%; background: #ffb38a; flex: none; }
+  #bar button { all: unset; box-sizing: border-box; flex: none; min-width: 30px; height: 26px; padding: 0 8px; border-radius: 6px; text-align: center; background: rgb(255 255 255 / .16); cursor: pointer; app-region: no-drag; -webkit-app-region: no-drag; }
+  #bar button[aria-pressed=true] { background: #fff; color: #1d2330; }
+  #bar button:hover { background: rgb(255 255 255 / .34); }
+  #bar button[aria-pressed=true]:hover { background: #fff; }
+  #bar input { all: unset; box-sizing: border-box; flex: 1 1 60px; min-width: 40px; height: 26px; padding: 0 8px; border-radius: 6px; background: rgb(0 0 0 / .28); font-weight: 400; app-region: no-drag; -webkit-app-region: no-drag; }
+  #bar .grow { flex: 1 1 0; }
+  #body { position: absolute; left: 0; top: 0; box-sizing: border-box; padding: 10px 14px; background: #f6f4ef; color: #1d1c1a; overflow: hidden; }
+  #body textarea[hidden] { display: none; }
+  #body textarea { display: block; width: 100%; height: 74px; box-sizing: border-box; font: inherit; padding: 8px; border: 1px solid #cfc9be; border-radius: 8px; resize: none; background: #fff; color: inherit; }
+  #body h2 { font-size: 14px; margin: 10px 0 2px; }
+  #body p { margin: 2px 0; font-size: 13px; }
+  #space { height: 62px; }
+  #body button { font: inherit; font-size: 13px; min-height: 34px; padding: 2px 10px; border-radius: 6px; border: 1px solid #b9b3a7; background: #fff; color: inherit; margin: 2px 4px 2px 0; }
+  #results, #facts { font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #probe {
+    position: absolute; left: 14px; top: 0; box-sizing: border-box; width: 132px; height: 46px; display: grid; place-content: center; text-align: center;
+    background: #e8590c; color: #fff; font: 600 12px/1.2 system-ui, sans-serif; border-radius: 8px; touch-action: none;
+    app-region: drag; -webkit-app-region: drag; window-drag: drag;
+  }
+</style>
+</head>
+<body>
+<!-- #region markup -->
+<canvas id="win" content="drawable" layoutsubtree>
+  <header id="bar" drawable>
+    <span class="dot"></span><span id="title">Notes</span>
+    <button type="button" id="tabA" aria-pressed="true">Today</button>
+    <button type="button" id="tabB" aria-pressed="false">Ideas</button>
+    <input id="rename" placeholder="Window title" aria-label="Window title" enterkeyhint="done">
+  </header>
+  <main id="body" drawable>
+    <textarea id="noteA" aria-label="Today">Typed in a canvas. The title bar above is an element of the same canvas.</textarea>
+    <textarea id="noteB" aria-label="Ideas" hidden>A second note.</textarea>
+    <h2>Does a drag region follow the picture or the layout box?</h2>
+    <p>The orange block is drawn 150 px to the right of its layout box, which is the dashed outline.</p>
+    <div id="space"></div>
+    <button type="button" data-test="1">Test 1: I will drag the orange block</button>
+    <button type="button" data-test="2">Test 2: I will drag the dashed outline</button>
+    <div id="results">No test run yet.</div>
+    <h2>This window</h2>
+    <button type="button" id="min">minimize()</button>
+    <button type="button" id="max">maximize() or restore()</button>
+    <button type="button" id="close">close()</button>
+    <div id="facts"></div>
+  </main>
+  <div id="probe" drawable>drag region<br>drawn here</div>
+</canvas>
+<!-- #endregion markup -->
+<div id="lost" role="status"></div>
+
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('win'), bar = $('bar'), body = $('body'), probe = $('probe');
+  const supported = 'drawElementImage' in CanvasRenderingContext2D.prototype;
+  const SHIFT = 150; // how far the probe is drawn from its layout box
+
+  // #region host
+  // What the window tells the page. /window-chrome/ replaces this object with a
+  // simulated window when the app runs in a frame there (?sim).
+  const real = {
+    overlay: () => !!navigator.windowControlsOverlay?.visible,
+    /** The part of the title bar the page may use, in CSS px. */
+    titlebar: () => (real.overlay() ? navigator.windowControlsOverlay.getTitlebarAreaRect() : { x: 0, y: 0, width: innerWidth, height: 40 }),
+    position: () => ({ x: screenX, y: screenY }),
+    active: () => document.hasFocus(),
+    /** minimize, maximize, restore: the Additional Windowing Controls. close is window.close(). */
+    async call(name) {
+      if (typeof window[name] !== 'function') return `window.${name}() does not exist here`;
+      try { await window[name](); return `window.${name}() was called`; } catch (err) { return `window.${name}() threw: ${err.message}`; }
+    },
+    mode: () => ['window-controls-overlay', 'borderless', 'unframed', 'standalone', 'minimal-ui', 'fullscreen', 'browser'].find((m) => matchMedia(`(display-mode: ${m})`).matches) ?? 'unknown',
+  };
+  const host = (new URLSearchParams(location.search).has('sim') && parent !== window && parent.windowSimFor?.(window)) || real;
+  // #endregion host
+
+  // ---- The notes: plain DOM code ----------------------------------------------
+  const show = (a) => { $('noteA').hidden = !a; $('noteB').hidden = a; $('tabA').setAttribute('aria-pressed', a); $('tabB').setAttribute('aria-pressed', !a); };
+  $('tabA').onclick = () => show(true);
+  $('tabB').onclick = () => show(false);
+  $('rename').oninput = () => { const t = $('rename').value.trim(); $('title').textContent = t || 'Notes'; document.title = t ? `${t} - Canvas window` : 'Canvas window'; };
+  let maximized = false;
+  const say = (text) => { $('results').textContent = text; };
+  $('min').onclick = async () => say(await host.call('minimize'));
+  $('max').onclick = async () => { say(await host.call(maximized ? 'restore' : 'maximize')); maximized = !maximized; };
+  $('close').onclick = async () => say(await host.call('close'));
+
+  // ---- The drag test -----------------------------------------------------------
+  // A drag on a drag region sends the page no pointer events. The page can still
+  // see the result: the window's position on the screen changes.
+  const outcome = {};
+  let armed = 0;
+  for (const button of body.querySelectorAll('[data-test]')) {
+    button.onclick = () => {
+      const n = +button.dataset.test, from = host.position(), started = performance.now(), mine = (armed = n * 1000 + Math.random());
+      say(`Test ${n} is watching the window position for 10 seconds. Drag ${n === 1 ? 'the orange block' : 'the dashed outline'} now.`);
+      const watch = () => {
+        if (armed !== mine) return;
+        const now = host.position(), moved = Math.hypot(now.x - from.x, now.y - from.y);
+        if (moved > 3) outcome[n] = 'the window moved';
+        else if (performance.now() - started > 10000) outcome[n] = 'the window did not move';
+        else return requestAnimationFrame(watch);
+        armed = 0;
+        report();
+      };
+      requestAnimationFrame(watch);
+    };
+  }
+  function report() {
+    const lines = [1, 2].map((n) => `Test ${n} (${n === 1 ? 'drawn position' : 'layout box'}): ${outcome[n] ?? 'not run'}`);
+    if (outcome[1] && outcome[2]) {
+      const drawn = outcome[1].includes('moved') && !outcome[1].includes('not'), box = outcome[2].includes('moved') && !outcome[2].includes('not');
+      lines.push(drawn && !box ? 'Result: the drag region is where the element is drawn.'
+        : box && !drawn ? 'Result: the drag region is the layout box, not the picture.'
+        : drawn && box ? 'Result: both places move the window.' : 'Result: neither place moves the window. Drag regions only work in an installed app window.');
+    }
+    say(lines.join('\n'));
+    window.__outcome = outcome;
+  }
+
+  function facts() {
+    const tb = host.titlebar(), css = (d) => (CSS.supports(d) ? 'yes' : 'no');
+    $('facts').textContent = [
+      `display-mode: ${host.mode ? host.mode() : real.mode()}${host === real ? '' : ' (simulated window)'}`,
+      `window controls overlay visible: ${host.overlay()}`,
+      `title bar area: x ${Math.round(tb.x)}, y ${Math.round(tb.y)}, ${Math.round(tb.width)} x ${Math.round(tb.height)}`,
+      `CSS app-region: ${css('app-region: drag')}, window-drag: ${css('window-drag: drag')}`,
+      `window.minimize ${typeof window.minimize}, maximize ${typeof window.maximize}, restore ${typeof window.restore}, setResizable ${typeof window.setResizable}`,
+      `window.setShape ${typeof window.setShape}, navigator.install ${typeof navigator.install}`,
+    ].join('\n');
+  }
+
+  let pointer = null;
+  let probeAt = { x: 14, y: 0 };
+  // #region layout
+  function layout() {
+    const tb = host.titlebar();
+    const top = tb.y + tb.height;
+    // The bar gets the size of the title bar area. The body gets the rest of the window.
+    Object.assign(bar.style, { width: `${tb.width}px`, height: `${tb.height}px` });
+    Object.assign(body.style, { width: `${innerWidth}px`, height: `${Math.max(0, innerHeight - top)}px` });
+    probeAt = { x: 14, y: top + $('space').offsetTop + 8 };
+    Object.assign(probe.style, { left: `${probeAt.x}px`, top: `${probeAt.y}px` });
+    facts();
+    canvas.requestPaint?.();
+  }
+  // #endregion layout
+
+  if (supported) {
+    const ctx = canvas.getContext('2d');
+    new ResizeObserver(([entry]) => {
+      const size = entry.devicePixelContentBoxSize?.[0];
+      const w = size ? size.inlineSize : Math.round(innerWidth * devicePixelRatio), h = size ? size.blockSize : Math.round(innerHeight * devicePixelRatio);
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      layout();
+    }).observe(canvas, { box: 'device-pixel-content-box' });
+
+    // #region draw
+    canvas.addEventListener('paint', () => {
+      const tb = host.titlebar(), top = tb.y + tb.height, W = canvas.clientWidth, H = canvas.clientHeight;
+      const dpr = canvas.width / W;
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      // The whole top strip is the page's to paint, also under the window buttons of the system.
+      const paint = ctx.createLinearGradient(0, 0, W, 0);
+      paint.addColorStop(0, '#d2491f'); paint.addColorStop(0.55, '#7b2d8e'); paint.addColorStop(1, '#1d4f8f');
+      ctx.fillStyle = paint;
+      ctx.fillRect(0, 0, W, top);
+      if (pointer && pointer.y < top) {
+        const glow = ctx.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 90);
+        glow.addColorStop(0, 'rgb(255 255 255 / .45)'); glow.addColorStop(1, 'rgb(255 255 255 / 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, W, top);
+      }
+      // A window that is not active gets a grey title bar. The canvas does that to the picture of the bar.
+      if (!host.active()) { ctx.globalCompositeOperation = 'saturation'; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, W, top); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 0.6; }
+      ctx.drawElementImage(bar, tb.x, tb.y, tb.width, tb.height);
+      ctx.globalAlpha = 1;
+      ctx.drawElementImage(body, 0, top, W, H - top);
+      // The probe: an outline where its layout box is, and its picture 150 px to the right.
+      ctx.setLineDash([5, 4]); ctx.strokeStyle = '#e8590c'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(probeAt.x + 1, probeAt.y + 1, probe.offsetWidth - 2, probe.offsetHeight - 2);
+      ctx.fillStyle = '#9a3c08'; ctx.font = '11px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('layout box', probeAt.x + probe.offsetWidth / 2, probeAt.y + probe.offsetHeight / 2);
+      ctx.drawElementImage(probe, probeAt.x + SHIFT, probeAt.y, probe.offsetWidth, probe.offsetHeight);
+    });
+    // #endregion draw
+    canvas.addEventListener('contextlost', () => { $('lost').textContent = 'This canvas lost its 2D context, so the window is blank. Reload to draw it again.'; });
+    canvas.addEventListener('contextrestored', () => { $('lost').textContent = ''; canvas.requestPaint(); });
+    addEventListener('pointermove', (e) => { const was = pointer; pointer = { x: e.clientX, y: e.clientY }; if (pointer.y < 80 || (was && was.y < 80)) canvas.requestPaint(); }, { passive: true });
+    document.addEventListener('pointerleave', () => { pointer = null; canvas.requestPaint(); });
+  } else {
+    // Without the API the canvas shows nothing of its children. Show them as plain HTML.
+    canvas.replaceWith(bar, body);
+    Object.assign(bar.style, { position: 'static', background: '#d2491f', height: '40px' });
+    Object.assign(body.style, { position: 'static' });
+    probe.remove();
+    say('HTML-in-canvas is not available, so the bar and the body are plain HTML and nothing is drawn by a canvas.');
+  }
+
+  // #region changes
+  navigator.windowControlsOverlay?.addEventListener('geometrychange', layout);
+  for (const type of ['resize', 'focus', 'blur', 'hostchange']) addEventListener(type, layout);
+  // #endregion changes
+  layout();
+  window.app = { host, layout, probeAt: () => ({ ...probeAt, shift: SHIFT }) }; // for the simulated window and tests
+</script>
+</body>
+</html>

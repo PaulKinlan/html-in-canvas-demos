@@ -126,6 +126,7 @@ export const CHECKS_WAIT_FOR_TAP = [
   '/physical/',
   '/fold/',
   '/hardware-out/',
+  '/window-chrome/',
   '/video/',
   '/overlay/',
   '/audio/',

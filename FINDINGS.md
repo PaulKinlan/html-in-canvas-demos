@@ -241,6 +241,10 @@ One row per main result. "Section" is the section of this file with the detail.
 | A real headset, Android AR, `XRQuadLayer`. | not verified | | `/xr/` | 3D and spatial |
 | egui and Qt Quick compiled to WebAssembly can use DOM elements as widgets with a bridge of about 200 lines each. | measured | C157 | `/native-ui/` | Native UI toolkits |
 | The browser does not know what a toolkit draws over an element, and Tab does not cross from a DOM field to a toolkit widget. | measured | C157 | `/native-ui/` | Native UI toolkits |
+| A folded surface drawn as two tilted planes keeps hit testing through a perspective matrix per half. `devicePosture` and `viewport.segments` place the panes. | measured, emulated posture | C157 | `/fold/` | Devices |
+| Canvas children convert to Stream Deck HID reports, ESC/POS raster and RGB565 frames, and simulated devices are drawn from the bytes. | measured, no device | C157 | `/hardware-out/` | Devices |
+| A title bar element drawn by a canvas works in a simulated window, and the computed `app-region` is found at the drawn position. | measured, simulated window | C157 | `/window-chrome/` | Devices |
+| A real foldable, a real Stream Deck, printer or LED matrix, and an installed app window. | not verified | | `/fold/`, `/hardware-out/`, `/window-chrome/` | Devices |
 
 ### Phones and lost contexts
 
@@ -376,7 +380,7 @@ The main results. Each is backed by the tables in the sections below.
 - [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
 - [Native UI toolkits (/native-ui/)](#native-ui-toolkits-native-ui)
-- [Devices: fold, peripherals, app window (/fold/, /hardware-out/)](#devices-fold-peripherals-app-window-fold-hardware-out)
+- [Devices: fold, peripherals, app window (/fold/, /hardware-out/, /window-chrome/)](#devices-fold-peripherals-app-window-fold-hardware-out-window-chrome)
 
 ## Slots
 
@@ -1225,8 +1229,26 @@ Measured in headless Chromium 157 (Linux, software renderer) on 2026-11-21. The 
 
 How `<selection-fx>` uses this: one `::selection` rule hides the browser's highlight inside the element, `selectionchange` triggers a measurement of one Range per text node, and the rectangles go to a 2D effect directly or to a shader as a mask texture (red: selected, green: selected in the last 1.2 s, blue: selected and blurred by 10 px). The element's geometry stays at its layout position, so the caret and hit testing do not follow what an effect draws.
 
-<<<<<<< HEAD
-## Devices: fold, peripherals, app window (`/fold/`, `/hardware-out/`)
+## Newer DOM features in a drawable custom element (`/component-kit/`)
+
+Tested in headless Chromium 157 at 1x, 1.5x and a phone profile. `<kit-slot>` and `<kit-field>` in `public/component-kit/kit.js` are written with each feature and with the code it replaces; the page runs both.
+
+| Feature | Result | Detail |
+| --- | --- | --- |
+| Scoped `CustomElementRegistry` on the shadow root that holds the element | works | The element draws its slotted children and `elementFromPoint()` on that root returns them at the drawn position. A scoped registry does not change how the canvas finds slotted children. Two classes share one tag name on one page. |
+| `slotAssignment: 'manual'` with `slot.assign(child)` | works | The assigned child is drawn. An unassigned child has no box, cannot take focus and needs no `slot` attribute. A child added later is not drawn until script assigns it. |
+| Reference Target (`shadowRoot.referenceTarget`) for an input that is a canvas child | works | A `<label for>` in the page focuses the input and labels it. `label.control` is the host. The target must be inside the shadow root, so it cannot name a slotted light-DOM child. |
+| `using` with `ElementImage` | needs a wrapper | `ElementImage` has `close()` and no `[Symbol.dispose]`. `DisposableStack.adopt(image, (i) => i.close())` or a wrapper object closes it at the end of the block, at an early return and on a throw. Drawing a closed image throws `InvalidStateError`. |
+| `using` as a feature check | needs its own module | It is syntax, so the code that uses it is in `using.js` and loaded with `import()` after a parse test. |
+| `canvas.when('paint')` (Observable) | works | Same events as `addEventListener('paint')`. `map()`, `take()` and an AbortSignal work. |
+| `moveBefore()` into a host that slots the node into a canvas | works | Focus stays and an iframe inside does not reload. `replaceWith()` plus `append()` reloads the iframe once. `surface.js` (fx, dom-lens, physical-ui) and `dom-portal.js` now wrap with `moveBefore()` where it exists. |
+| `:has-slotted` | not in Chromium 157 | Not tested. |
+
+Lines in the element, old code against new: registry 11 to 5, slots 15 to 6, label 15 to 1, closing snapshots 22 to 21, paint handlers 13 to 6. `moveBefore()` adds lines because the old path stays as the fallback. The page counts these from the running source.
+
+Not confirmed on a phone: which of the six features Chrome 159 on Android reports, and whether the three small canvases on the page keep their contexts there.
+
+## Devices: fold, peripherals, app window (`/fold/`, `/hardware-out/`, `/window-chrome/`)
 
 From the hardware tier of the Chrome APIs plan. Each page has an on-page control that stands in for the device. Tested in headless Chromium 157 with a mouse, emulated touch and DevTools device emulation. No real foldable was used.
 
@@ -1236,6 +1258,7 @@ From the hardware tier of the Chrome APIs plan. Each page has an on-page control
 |---|---|---|
 | Place two canvas children from `devicePosture.type` and `viewport.segments` | works | Each pane is resized with CSS to its segment and drawn there. A posture change relays the panes and the canvas draws the slide between the two places. |
 | Draw a picture of a folded device on a flat screen with a 2D context | works | Each half is cut into 8 px strips beside the fold. A strip is one clipped `drawElementImage()` with its own scale. About 60 draws per frame for two panes. |
+| Keep the controls still while the angle changes | works after a change | The first version drew both halves at half the fold angle and fitted the scale to each angle, so every control moved and changed size during a slider drag. Reported from a phone (2026-11-21). Now the half with the controls has one fixed tilt, only the other half turns, and one scale is chosen for all angles from 60° to 180°. |
 | Hit testing on a half drawn at 90° to 100° | works | One half is a plane, so `updateElementGeometry()` gets a matrix with a perspective row. `elementFromPoint()` at the drawn centre of a button returns it, and the box centre is within 1.2 px. Taps, typing, a slider drag and checkboxes work there. |
 | One element across both halves | works for one pointer | Two planes, one hit box. The box follows the pointer. A cold tap on the other half still clicks the right target, because a `pointerdown` listener moves the box before the click is aimed. The `pointerdown` itself goes to the old place. |
 | Cut one element at a hinge and continue after it | works | The element is laid out shorter by the hinge width and drawn twice with a clip. CSS has no way to remove rows from the middle of an element. |
@@ -1260,23 +1283,17 @@ Three canvases hold a shop till written as plain HTML: fifteen buttons, a receip
 | A CSS `@keyframes` ticker drawn into 64 x 32 pixels | works | `paint` fires about 60 times a second with no script, also while the canvas is scrolled out of view. Frames are RGB565, 4,100 bytes. |
 
 Not verified: any device. WebHID and Web Serial exist in the test browser, Web Bluetooth does not. The Stream Deck report layout comes from open-source drivers. The LED matrix frame format is this page's own and needs firmware written for it.
-=======
-## Newer DOM features in a drawable custom element (`/component-kit/`)
 
-Tested in headless Chromium 157 at 1x, 1.5x and a phone profile. `<kit-slot>` and `<kit-field>` in `public/component-kit/kit.js` are written with each feature and with the code it replaces; the page runs both.
+### `/window-chrome/`, `app.html`, `app.webmanifest`
 
-| Feature | Result | Detail |
-| --- | --- | --- |
-| Scoped `CustomElementRegistry` on the shadow root that holds the element | works | The element draws its slotted children and `elementFromPoint()` on that root returns them at the drawn position. A scoped registry does not change how the canvas finds slotted children. Two classes share one tag name on one page. |
-| `slotAssignment: 'manual'` with `slot.assign(child)` | works | The assigned child is drawn. An unassigned child has no box, cannot take focus and needs no `slot` attribute. A child added later is not drawn until script assigns it. |
-| Reference Target (`shadowRoot.referenceTarget`) for an input that is a canvas child | works | A `<label for>` in the page focuses the input and labels it. `label.control` is the host. The target must be inside the shadow root, so it cannot name a slotted light-DOM child. |
-| `using` with `ElementImage` | needs a wrapper | `ElementImage` has `close()` and no `[Symbol.dispose]`. `DisposableStack.adopt(image, (i) => i.close())` or a wrapper object closes it at the end of the block, at an early return and on a throw. Drawing a closed image throws `InvalidStateError`. |
-| `using` as a feature check | needs its own module | It is syntax, so the code that uses it is in `using.js` and loaded with `import()` after a parse test. |
-| `canvas.when('paint')` (Observable) | works | Same events as `addEventListener('paint')`. `map()`, `take()` and an AbortSignal work. |
-| `moveBefore()` into a host that slots the node into a canvas | works | Focus stays and an iframe inside does not reload. `replaceWith()` plus `append()` reloads the iframe once. `surface.js` (fx, dom-lens, physical-ui) and `dom-portal.js` now wrap with `moveBefore()` where it exists. |
-| `:has-slotted` | not in Chromium 157 | Not tested. |
+An installable app whose window is one canvas. The title bar is a `<header>` child of the canvas with `app-region: drag`. The page runs the app in a frame with a simulated window around it. Tested in headless Chromium 157 with a mouse and emulated touch, 2026-11-21. No installed app window was used.
 
-Lines in the element, old code against new: registry 11 to 5, slots 15 to 6, label 15 to 1, closing snapshots 22 to 21, paint handlers 13 to 6. `moveBefore()` adds lines because the old path stays as the fallback. The page counts these from the running source.
+| Experiment | Result | Why |
+|---|---|---|
+| A title bar element drawn by the canvas, with tabs and a text field in it | works in the simulated window | The bar is sized to the title bar rectangle and drawn there. A tab takes a click and the field takes typing at the drawn position, by mouse and by emulated touch. |
+| Canvas drawing around the bar | works | The gradient behind the bar, a glow under the pointer and the grey of an inactive window are drawn by the canvas around the picture of the element. |
+| Read `app-region` at a drawn position | works | `elementFromPoint()` at the picture of an element drawn 150 px from its layout box returns the element, and its computed `app-region` is `drag`. At the layout box it returns what is drawn there. A simulated window built on those two calls drags from the picture. |
+| `window-drag` | not in Chromium 153 or 157 | `CSS.supports('window-drag: drag')` is false. `app-region: drag` is supported. |
+| `window.minimize()`, `maximize()`, `restore()`, `setResizable()`, `setShape()`, `navigator.install()` | undefined in a tab | The app's buttons report what exists where it runs. |
 
-Not confirmed on a phone: which of the six features Chrome 159 on Android reports, and whether the three small canvases on the page keep their contexts there.
->>>>>>> origin/main
+Not verified: everything about a real window. Whether the window controls overlay hands the canvas the strip beside the system buttons as expected, whether a real drag region is at the picture of the element or at its layout box (the app's "Test 1" and "Test 2" measure it from `screenX` and `screenY` once installed), whether `updateElementGeometry()` changes that, and the windowing calls in an installed window. Window Shape needs an allowlisted Isolated Web App on ChromeOS and was not tried.
