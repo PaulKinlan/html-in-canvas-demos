@@ -231,6 +231,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 19. Media state in CSS for canvas-drawn players
 
+- **Built:** [/player-parts/](https://html-in-canvas.page/player-parts/)
 - **Shows:** Custom video controls drawn by the canvas that restyle from :playing, :paused, :buffering and :muted with no event listeners. A visualiser delayed by the measured output latency. Rows for lazy-loaded video and the not-rendered iframe policy.
 - **Build:** Additions to the video and audio pages.
 - **Uncertain:** Media pseudo-classes ship in Chrome 158; the test browser is 157.
