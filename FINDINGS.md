@@ -174,6 +174,11 @@ One row per main result. "Section" is the section of this file with the detail.
 | Sharing across documents is a pixel stream (ImageBitmap, VideoFrame, `captureStream()`, WebRTC, JPEG) plus input sent back. Semantics stay in the source document. | measured | C157 | `/cross-tab/`, `/tear-off/`, `/remote/` | Tabs and origins; Cross-context |
 | A cross-origin frame can draw our `ElementImage` into our transferred OffscreenCanvas, and our clicks land on our real element under its rendering. | measured | C157 | `/cross-origin/` | Tabs and origins |
 | A lent canvas is a clickjacking surface: hit testing follows the host's last draw. | measured | C157 | `/embed/` | Cross-context |
+| A cross-origin or sandboxed iframe is drawn as transparent pixels by `drawElementImage()` and `texElementSubImage2D()`, with no error, and still takes clicks where it was drawn. | measured | C157 | `/iframe-tiles/` | Iframes as tiles |
+| `frame-sizing: content-height` parses and does not size an iframe. `window.requestResize()` throws `NotAllowedError`. | measured | C157, C153 | `/iframe-tiles/` | Iframes as tiles |
+| `allow="focus-without-user-activation 'none'"` stops a tile taking focus in C153 and not in C157. | measured | C153, C157 | `/iframe-tiles/` | Iframes as tiles |
+| At 40 kbit/s WebRTC shrinks a 960×540 element to 320×180. `degradationPreference: 'maintain-framerate-and-resolution'` keeps it at 960×540. | measured | C157 | `/transports-2/` | Transport lab 2 |
+| A frame sent with `Document-Isolation-Policy` gets `SharedArrayBuffer` while the page around it stays non-isolated. | measured | C157 | `/transports-2/` | Transport lab 2 |
 | VideoFrame and `ReadableStream<VideoFrame>` do not cross to a cross-origin document. MediaStreamTrack is not transferable in this build. | measured | C157 | `/transports/` | Transport lab |
 | The real element can be moved into a popup or a Document Picture-in-Picture window and keeps its listeners, timers and values. | measured | C157 | `/tear-off/`, `/pip/` | Cross-context |
 | WebRTC video plus a data channel for input works between two browser contexts on one machine. | measured | C157 | `/remote/` | Cross-context |
@@ -377,6 +382,8 @@ The main results. Each is backed by the tables in the sections below.
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
 - [Native UI toolkits (/native-ui/)](#native-ui-toolkits-native-ui)
 - [Recent platform features on drawn elements (/chrome-apis/)](#recent-platform-features-on-drawn-elements-chrome-apis)
+- [Transport lab 2: newer transport APIs (plan demo 18)](#transport-lab-2-newer-transport-apis-plan-demo-18)
+- [Iframes as tiles (plan demo 22)](#iframes-as-tiles-plan-demo-22)
 
 ## Slots
 
