@@ -111,7 +111,7 @@
   <h2>1. A WebGL shader timed by a transition scoped to the canvas</h2>
   <p>
     "Shuffle" calls <code>canvas.startViewTransition()</code> and reorders six HTML tiles.
-    The browser animates a hidden group for each tile. A vertex shader reads each group's progress and turns the tile once about its vertical axis, lifts it toward the viewer and bends it. The fragment shader splits the colour channels along the direction of travel.
+    The browser animates a hidden group for each tile. The canvas reads each group's progress, turns the tile once about its vertical axis and lifts it toward the viewer. The fragment shader ripples the tile and splits its colour channels along the direction of travel.
   </p>
   <!-- #region markup-gl -->
   <canvas id="glcv" class="stage vt-canvas" content="drawable" layoutsubtree aria-label="Six tiles drawn by WebGL">
@@ -133,7 +133,8 @@
       <li data-code="#markup-gl"><b>The markup.</b> One <code>drawable</code> wrapper holds the grid. Each tile has a <code>view-transition-name</code>.</li>
       <li data-code="#css-clock"><b>The clock.</b> The canvas is the scope and has <code>view-transition-name: none</code>, so it keeps drawing.</li>
       <li data-code="/scoped-transitions/canvas-vt.js#clock"><b>Read the clock.</b></li>
-      <li data-code="#shader-gl"><b>The shaders.</b> <code>uP</code> is the tile's progress. The texture is the wrapper, uploaded with <code>texElementSubImage2D()</code>.</li>
+      <li data-code="#shader-gl"><b>The fragment shader and the matrix.</b> <code>uP</code> is the tile's progress. The matrix turns the tile and applies perspective.</li>
+      <li data-code="/lib/element-gl.js#upload"><b>The texture.</b> The page has one WebGL context, held by <code>lib/element-gl.js</code>. The wrapper is uploaded with <code>texElementSubImage2D()</code>.</li>
       <li data-code="#draw-gl"><b>Draw each tile.</b> The old box was measured before the change, the new box is the layout now.</li>
       <li data-code="#go-gl"><b>Start the transition.</b></li>
     </ol>
@@ -300,7 +301,6 @@
   <p class="note">These run when this section is on screen, on the fixtures in the box below. Two of them start a transition on the whole document for under half a second. Nothing visible changes in it.</p>
   <div id="rigbox">
     <div class="cap">test rig</div>
-    <canvas id="rgl" class="vt-canvas" content="drawable" layoutsubtree width="300" height="60"><div class="rk" drawable><i style="view-transition-name: rig-a"></i></div></canvas>
     <div id="rnest"><canvas id="r2d" class="vt-canvas" content="drawable" layoutsubtree width="300" height="60"><div class="rk" id="r2dk" drawable><i id="r2di" style="view-transition-name: rig-b"></i></div></canvas></div>
     <div id="rrows">
       <canvas content="drawable" layoutsubtree width="300" height="20" style="view-transition-name: rr-1"><div class="rk" drawable style="height:20px"></div></canvas>
@@ -312,7 +312,7 @@
 
   <h2>Findings</h2>
   <ul class="findings">
-    <li><strong>The canvas-scoped clock drives a WebGL shader.</strong> A WebGL canvas can be the scope of a transition like a 2D one. The shader gets one number for each tile, and CSS still sets the duration and easing.</li>
+    <li><strong>The canvas-scoped clock drives a WebGL shader.</strong> A WebGL canvas can be the scope of a transition like a 2D one. The shader gets one number for each tile, and CSS still sets the duration and easing. The page holds one WebGL context, through <code>lib/element-gl.js</code>.</li>
     <li><strong>Nesting works when the canvas has <code>view-transition-scope: all</code> all the time.</strong> Without it, a transition on an ancestor that is already running has taken the names inside the canvas, and a transition started on the canvas then is rejected with "Snapshot capture failed". Started in the other order, or in the same task, both run without it.</li>
     <li><strong><code>view-transition-class</code> matches canvases</strong> in a scoped transition, so one rule times a list of canvases. Each canvas stays live in its new snapshot and can distort its own content while the browser moves it.</li>
     <li><strong>The group box of a canvas child can be drawn at, in a document transition.</strong> The canvas has to put the child's hit box back at its destination after each draw. If it does not, the group is retargeted to the place of the last draw every frame and stops moving.</li>
@@ -324,7 +324,7 @@
 <script type="module">
   import { banner, supported, runTests } from '/shared/support.js';
   import { onScreen } from '/shared/on-screen.js';
-  import { scoped, clock, boxesOf, run, fit, report } from '/scoped-transitions/canvas-vt.js';
+  import { scoped, clock, boxesOf, run, fit, report, watch2d } from '/scoped-transitions/canvas-vt.js';
   banner();
 
   const $ = (id) => document.getElementById(id);
@@ -335,7 +335,13 @@
   const shuffleInto = (wrapper, items) => { for (const k of [...items].sort(() => Math.random() - 0.5)) wrapper.append(k); };
 
   const t0 = performance.now();
-  setInterval(() => { for (const c of document.querySelectorAll('[data-clock]')) c.textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' s'; }, 200);
+  // A clock inside a canvas makes that canvas paint again, so only the clocks that are in the viewport tick.
+  setInterval(() => {
+    for (const c of document.querySelectorAll('[data-clock]')) {
+      const r = (c.closest('canvas') ?? c).getBoundingClientRect();
+      if (r.bottom > 0 && r.top < innerHeight) c.textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' s';
+    }
+  }, 200);
   for (const b of document.querySelectorAll('[data-count]')) { let n = 0; b.addEventListener('click', () => { b.textContent = `Pressed ${++n}`; }); }
   $('slow').onchange = () => document.documentElement.style.setProperty('--ms', $('slow').checked ? '3000ms' : '900ms');
 
@@ -350,102 +356,99 @@
     if (note) note.textContent = 'Shown as ordinary HTML: ' + (supported ? 'this canvas could not be drawn.' : 'this browser has no HTML-in-canvas API.');
     return box;
   };
+  // A 2D canvas whose context was lost and did not come back: show its content as ordinary HTML and say so.
+  const lost2d = (canvas, ctx, said, after) => watch2d(canvas, ctx, () => {
+    const box = unwrap(canvas);
+    after?.(box);
+    said.textContent = 'This canvas lost its 2D context and the browser did not restore it, so its content is shown as ordinary HTML. Reload the page to draw it in a canvas again. ' + (window.__gfx?.summary() ?? '');
+  });
 
   // ------------------------------------------------------------ 1. WebGL shader on the canvas-scoped clock
   // #region shader-gl
-  const VS = `#version 300 es
-  in vec2 a;                 // 0..1 across one tile
-  uniform vec2 uView, uTex;  // canvas and wrapper size in CSS px
-  uniform vec4 uFrom, uTo;   // x, y, w, h in CSS px
-  uniform float uP;          // this tile's progress, from its view-transition group
-  out vec2 vUV; out float vShade; out vec2 vOff;
-  void main() {
-    vec2 travel = (uTo.xy + uTo.zw * 0.5) - (uFrom.xy + uFrom.zw * 0.5);
-    float moved = step(1.0, length(travel));
-    float lift = sin(3.14159265 * uP) * moved;
-    float turn = 6.2831853 * uP * moved;
-    vec4 box = mix(uFrom, uTo, uP);
-    vec2 local = (a - 0.5) * box.zw;
-    float z = local.x * sin(turn) - lift * 150.0 + sin(a.y * 6.2831853 + uP * 14.0) * 14.0 * lift;
-    vec2 centre = box.xy + box.zw * 0.5 - vec2(0.0, lift * 24.0);
-    vec2 world = centre + vec2(local.x * cos(turn), local.y);
-    float s = 700.0 / (700.0 + z);
-    vec2 screen = uView * 0.5 + (world - uView * 0.5) * s;
-    gl_Position = vec4(screen.x / uView.x * 2.0 - 1.0, 1.0 - screen.y / uView.y * 2.0, 0.0, 1.0);
-    vUV = (uTo.xy + a * uTo.zw) / uTex;
-    vShade = 0.5 + 0.5 * abs(cos(turn));
-    vOff = (length(travel) > 0.0 ? normalize(travel) : vec2(0.0)) * 7.0 * lift / uTex;
-  }`;
+  // lib/element-gl.js owns the page's one WebGL context and draws a quad for each call. This is its fragment shader.
   const FS = `#version 300 es
   precision highp float;
-  in vec2 vUV; in float vShade; in vec2 vOff;
-  uniform sampler2D uTile;
-  out vec4 o;
+  in vec2 vUv;
+  uniform sampler2D uTex;
+  uniform vec4 uRect;     // this tile's rectangle in the wrapper's picture, in 0..1
+  uniform vec2 uDir;      // direction of travel
+  uniform float uP;       // this tile's progress, from its view-transition group
+  uniform float uLift;    // 0 at rest, 1 half way
+  uniform float uShade;
+  out vec4 outColor;
   void main() {
-    vec4 mid = texture(uTile, vUV);
-    o = vec4(texture(uTile, vUV + vOff).r, mid.g, texture(uTile, vUV - vOff).b, mid.a);
-    o.rgb *= vShade;
+    vec2 uv = vUv;
+    uv.x += sin(vUv.y * 6.2831853 + uP * 14.0) * 0.07 * uLift;          // the tile ripples while it is in the air
+    if (uv.x < 0.0 || uv.x > 1.0) discard;
+    vec2 lo = uRect.xy, hi = uRect.xy + uRect.zw;
+    vec2 t = lo + uv * uRect.zw, off = uDir * 0.06 * uLift * uRect.zw;  // red and blue are sampled ahead and behind
+    vec4 mid = texture(uTex, t);
+    outColor = vec4(texture(uTex, clamp(t + off, lo, hi)).r, mid.g, texture(uTex, clamp(t - off, lo, hi)).b, mid.a);
+    outColor.rgb *= uShade;
   }`;
+  // The matrix for one tile: the unit square, turned by `turn` about its vertical axis, moved toward the viewer by `lift`
+  // CSS px and projected with perspective. Column-major, straight to clip space.
+  function tileMatrix(cv, box, turn, lift) {
+    const cw = cv.clientWidth, ch = cv.clientHeight, D = 700, c = Math.cos(turn), sn = Math.sin(turn);
+    const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+    return new Float32Array([
+      (2 * box.w * c) / cw, 0, 0, (box.w * sn) / D,
+      0, (-2 * box.h) / ch, 0, 0,
+      0, 0, 1, 0,
+      (2 * (cx - 0.5 * box.w * c)) / cw - 1, 1 - (2 * (cy - 0.5 * box.h)) / ch, 0, 1 - (0.5 * box.w * sn + lift) / D,
+    ]);
+  }
   // #endregion shader-gl
 
-  function setupGL() {
+  async function setupGL() {
     const cv = $('glcv'), wrapper = $('gtiles'), items = [...wrapper.children];
-    const state = { active: null, from: null };
-    const gl = cv.getContext('webgl2', { premultipliedAlpha: true, antialias: true });
-    if (!gl || !('texElementSubImage2D' in gl)) { unwrap(cv, $('said1')); return { cv, wrapper, items, state, plain: true }; }
-    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
-    const prog = gl.createProgram();
-    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog);
-    gl.useProgram(prog);
-    const U = Object.fromEntries(['uView', 'uTex', 'uFrom', 'uTo', 'uP', 'uTile'].map((n) => [n, gl.getUniformLocation(prog, n)]));
-    // A 16 by 8 grid of triangles for each tile, so that it can bend.
-    const NX = 16, NY = 8, verts = [];
-    for (let y = 0; y < NY; y++) for (let x = 0; x < NX; x++) {
-      const x0 = x / NX, x1 = (x + 1) / NX, y0 = y / NY, y1 = (y + 1) / NY;
-      verts.push(x0, y0, x1, y0, x0, y1, x1, y0, x1, y1, x0, y1);
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, 'a');
-    gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    const tex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
-    let tw = 0, th = 0;
+    const state = { active: null, from: null, uploads: 0 };
+    const { ElementGL, supported: glOK } = await import('/lib/element-gl.js');
+    if (!glOK) { unwrap(cv, $('said1')); return { cv, wrapper, items, state, plain: true }; }
+    // The canvas stays in the page when its context is lost. The library asks for the context back and repaints.
+    const stage = new ElementGL(cv, {
+      fragment: FS,
+      attributes: { antialias: true },
+      onLost: () => { $('said1').textContent = 'The WebGL context was lost. The tiles come back when the browser returns it.'; },
+      onRestored: () => { $('said1').textContent = 'The WebGL context is back.'; },
+    });
 
     // #region draw-gl
     cv.addEventListener('paint', () => {
-      // The wrapper is the texture. Its size must be the element's default size in device pixels.
-      const size = cv.getElementImageDefaultSize(wrapper);
-      const w = Math.max(1, Math.ceil(size.width)), h = Math.max(1, Math.ceil(size.height));
-      if (w !== tw || h !== th) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); tw = w; th = h; }
-      gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, wrapper);
-
-      gl.viewport(0, 0, cv.width, cv.height);
-      gl.clearColor(0.063, 0.141, 0.169, 1); gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.uniform2f(U.uView, cv.clientWidth, cv.clientHeight);
-      gl.uniform2f(U.uTex, wrapper.offsetWidth, wrapper.offsetHeight);
-      const now = boxesOf(items);
-      const tiles = items.map((el) => ({ to: now.get(el), from: (state.active && state.from?.get(el)) || now.get(el), p: state.active ? clock(cv, nameOf(el)) : 1 }));
-      tiles.sort((x, y) => Math.sin(Math.PI * x.p) - Math.sin(Math.PI * y.p));   // the highest tile is drawn last
+      if (stage.lost) return;
+      stage.upload(wrapper);                      // texElementSubImage2D: the wrapper is the texture
+      state.uploads++;
+      if (!stage.begin([0.063, 0.141, 0.169, 1])) return;
+      const W = wrapper.offsetWidth, H = wrapper.offsetHeight, now = boxesOf(items);
+      const tiles = items.map((el) => {
+        const to = now.get(el), from = (state.active && state.from?.get(el)) || to;
+        const p = state.active ? clock(cv, nameOf(el)) : 1;
+        const dx = to.x - from.x, dy = to.y - from.y, far = Math.hypot(dx, dy);
+        return { to, from, p, dx, dy, far, lift: far > 1 ? Math.sin(Math.PI * clamp(p)) : 0 };
+      });
+      tiles.sort((x, y) => x.lift - y.lift);      // the highest tile is drawn last
       for (const t of tiles) {
-        gl.uniform4f(U.uFrom, t.from.x, t.from.y, t.from.w, t.from.h);
-        gl.uniform4f(U.uTo, t.to.x, t.to.y, t.to.w, t.to.h);
-        gl.uniform1f(U.uP, t.p);
-        gl.drawArrays(gl.TRIANGLES, 0, verts.length / 2);
+        const box = { x: t.from.x + t.dx * t.p, y: t.from.y + t.dy * t.p - t.lift * 24, w: t.to.w, h: t.to.h };
+        const turn = t.far > 1 ? Math.PI * 2 * t.p : 0;
+        stage.quad(wrapper, tileMatrix(cv, box, turn, t.lift * 150), (gl, u) => {
+          gl.uniform4f(u('uRect'), t.to.x / W, t.to.y / H, t.to.w / W, t.to.h / H);
+          gl.uniform2f(u('uDir'), t.far > 1 ? t.dx / t.far : 0, t.far > 1 ? t.dy / t.far : 0);
+          gl.uniform1f(u('uP'), t.p);
+          gl.uniform1f(u('uLift'), t.lift);
+          gl.uniform1f(u('uShade'), 0.5 + 0.5 * Math.abs(Math.cos(turn)));
+        });
       }
       // A WebGL draw does not place the element. Its hit box stays where the tiles rest.
       cv.updateElementGeometry(wrapper, { canvasTransform: new DOMMatrix() });
     });
     // #endregion draw-gl
-    cv.addEventListener('webglcontextlost', (e) => { e.preventDefault(); unwrap(cv, $('said1')); });
-    fit(cv);
-    return { cv, wrapper, items, state };
+    new ResizeObserver(() => cv.requestPaint()).observe(cv);
+    cv.requestPaint();
+    return { cv, wrapper, items, state, stage };
   }
 
   let glDemo = null;
-  if (supported) { try { glDemo = setupGL(); } catch (err) { unwrap($('glcv'), $('said1')); $('said1').textContent += ' ' + err.message; } }
+  if (supported) { try { glDemo = await setupGL(); } catch (err) { unwrap($('glcv'), $('said1')); $('said1').textContent += ' ' + err.message; } }
   else unwrap($('glcv'), $('said1'));
 
   // #region go-gl
@@ -485,6 +488,7 @@
       cv.updateElementGeometry(wrapper, { canvasTransform: new DOMMatrix() });
     });
     fit(cv);
+    lost2d(cv, ctx, $('said2'));
     return { cv, wrapper, items, state, shuffle: () => { state.from = boxesOf(items); return run(cv, () => shuffleInto(wrapper, items), state); } };
   }
   // #endregion draw-2d
@@ -495,7 +499,7 @@
   $('n-scope').onchange = () => $('ncv').classList.toggle('no-scope', !$('n-scope').checked);
   // #region go-nest
   const outcome = async (vt, label) => {
-    if (!vt) return `${label}: no scoped transitions here`;
+    if (!vt) return `${label}: changed without a transition (no element.startViewTransition, or the canvas is shown as ordinary HTML)`;
     try { await vt.ready; await vt.finished; return `${label}: ran`; } catch (err) { return `${label}: rejected (${err.message.replace(/^Transition was aborted because of invalid state\. /, '')})`; }
   };
   const startOuter = () => (scoped ? nest.startViewTransition(() => nest.classList.toggle('wide')) : (nest.classList.toggle('wide'), null));
@@ -544,6 +548,7 @@
       });
       // #endregion draw-rows
       fit(cv);
+      lost2d(cv, ctx, $('said3'), (box) => { box.style.viewTransitionName = cv.style.viewTransitionName; box.style.padding = '8px 0'; });
     }
   } else {
     for (const cv of rowCanvases) { const d = unwrap(cv); d.style.viewTransitionName = cv.style.viewTransitionName; d.style.padding = '8px 0'; }
@@ -615,6 +620,7 @@
     });
     // #endregion draw-group
     fit(cv);
+    lost2d(cv, ctx, $('said4'));
     $('gmove').onclick = () => {
       const change = () => { gState.at = gState.at === 'a' ? 'b' : 'a'; $('twin').classList.toggle('b'); cv.requestPaint(); };
       if (!document.startViewTransition) { change(); return; }
@@ -705,10 +711,11 @@
     });
     // #endregion draw-app
     fit(app);
+    lost2d(app, ctx, $('said5'));
   } else unwrap(app, $('said5'));
 
   // ------------------------------------------------------------ live checks
-  const rgl = $('rgl'), r2d = $('r2d'), r2dk = $('r2dk'), r2di = $('r2di'), rnest = $('rnest'), rrows = $('rrows'), rdoc = $('rdoc'), rpuck = $('rpuck');
+  const r2d = $('r2d'), r2dk = $('r2dk'), r2di = $('r2di'), rnest = $('rnest'), rrows = $('rrows'), rdoc = $('rdoc'), rpuck = $('rpuck');
   const rig = { x: 20, follow: false, reset: true, old: null, want: null, drawOld: false, pixel: null };
   if (supported) {
     const c2 = r2d.getContext('2d', { willReadFrequently: true });
@@ -755,38 +762,19 @@
 
   const tests = [
     {
-      name: 'A WebGL canvas is the scope of a transition, uploads its HTML child and reads a group as a clock',
-      why: 'Experiment 1.',
+      name: 'A WebGL canvas is the scope of a transition and one of its groups can be read as a clock',
+      why: 'Experiment 1. The page holds one WebGL context, so this check starts a transition with an empty update on that canvas. Nothing in it moves.',
       async run() {
-        const gl = rgl.getContext('webgl2', { premultipliedAlpha: true });
-        must(gl && 'texElementSubImage2D' in gl, 'no WebGL2 with texElementSubImage2D here');
-        const kid = rgl.firstElementChild;
-        let uploaded = null;
-        const onPaint = () => {
-          try {
-            const size = rgl.getElementImageDefaultSize(kid);
-            gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, Math.ceil(size.width), Math.ceil(size.height), 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-            gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, kid);
-            const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, gl.getParameter(gl.TEXTURE_BINDING_2D), 0);
-            const px = new Uint8Array(4); gl.readPixels(Math.round(40 * size.width / 300), Math.round(20 * size.height / 60), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
-            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-            uploaded = [...px];
-          } catch (err) { uploaded = err.message; }
-        };
-        rgl.addEventListener('paint', onPaint);
-        try {
-          return await during(rgl, () => {}, async (vt) => {
-            must(vt.transitionRoot === rgl, 'transitionRoot is not the canvas');
-            const seen = [];
-            for (let i = 0; i < 8; i++) { rgl.requestPaint(); await frames(1); seen.push(clock(rgl, 'rig-a')); }
-            must(Array.isArray(uploaded), `upload failed during the transition: ${uploaded}`);
-            must(uploaded[0] > 200 && uploaded[1] > 150 && uploaded[2] < 60, `texture pixel on the child's yellow box is ${uploaded}`);
-            must(seen.at(-1) > seen[0] && seen.at(-1) > 0, `--vt-p did not advance: ${seen.map((p) => p.toFixed(2)).join(' ')}`);
-            return `texture pixel ${uploaded.slice(0, 3)}, --vt-p ${seen.map((p) => p.toFixed(2)).join(' ')}`;
-          });
-        } finally { rgl.removeEventListener('paint', onPaint); }
+        must(glDemo && !glDemo.plain, 'experiment 1 is not drawing with WebGL here');
+        must(!glDemo.stage.lost, 'the WebGL context is lost');
+        must(glDemo.state.uploads > 0, 'texElementSubImage2D() has not uploaded the tiles yet');
+        return await during(glDemo.cv, () => {}, async (vt) => {
+          must(vt.transitionRoot === glDemo.cv, 'transitionRoot is not the canvas');
+          const seen = [];
+          for (let i = 0; i < 8; i++) { await frames(1); seen.push(clock(glDemo.cv, 'g-1')); }
+          must(seen.at(-1) > seen[0] && seen.at(-1) > 0, `--vt-p did not advance: ${seen.map((p) => p.toFixed(2)).join(' ')}`);
+          return `${glDemo.state.uploads} uploads so far, --vt-p ${seen.map((p) => p.toFixed(2)).join(' ')}`;
+        });
       },
     },
     {

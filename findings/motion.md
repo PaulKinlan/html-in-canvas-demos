@@ -70,16 +70,23 @@ Measured in headless Chromium 157 (C157) on 2026-11-21, by the page's live check
 | Draw a canvas child at the box of its `::view-transition-group()` in a document transition | works when the hit box is put back after each draw | The group has the right position and size at every frame. `updateElementGeometry()` returns the child's hit box to its destination after the draw. |
 | The same without putting the hit box back | the group does not move | A 2D draw sets the child's position. The browser retargets the group to that position each frame, so the group stays where it started (20 px of 200 in the check). |
 | One canvas draws every change of a small app from an `ElementImage` of the old state to the live new state | works | `captureElementImage()` is called in a `paint` handler before `canvas.startViewTransition()`. The picture stays drawable after the DOM changes and can be drawn in columns or bands. Three effects: columns fall and turn, bands close, a circle opens from the tap. |
+| All thirteen contexts lost at once (the browser's GPU process killed from outside, at rest and 250 ms into a nested transition) | recovers | Every 2D canvas fires `contextlost` and then `contextrestored` within 2.5 s, `/shared/context-guard.js` asks for a paint, and `lib/element-gl.js` restores the WebGL canvas. The transition that was running reports that it ran. No note and no plain HTML fallback appeared. |
+| A 2D canvas whose context does not come back (faked: `isContextLost()` forced to true, then a `contextlost` event) | shown as plain HTML after 2.5 s | `watch2d()` in `canvas-vt.js` calls the page, which takes the content out of the canvas and writes the context-guard summary in the status line. The buttons then make their changes without a transition. |
 
 ### Things that bit
 
 - A row drawn in strips with a different source and destination height per strip came out as dots. Source and destination strip heights must be equal.
 - A wave with a large phase range across the strips reads as a plain shear. A half sine across the row (ends fixed, middle bows) reads as a bend and keeps text legible.
 - The old boxes and the old picture must be taken before `startViewTransition()`, because no `paint` event arrives while the update callback is pending.
-- The clocks on the page repaint four canvases several times a second. Under the jank guard's 4x CPU slowdown with software rendering the page reports 7 to 12 s of long tasks while loading. It passes, and the real cost on a phone is not known.
+- A clock inside a canvas repaints that canvas each time it ticks. The clocks now tick only when their canvas is in the viewport. With the jank guard's 4x CPU slowdown and software rendering the page reports 0.3 s of long tasks while loading (it was 7 to 12 s when every clock ticked).
+- The page uses one WebGL context, through `lib/element-gl.js`. It has no `readPixels` call and no second context for the checks.
+- 2D backing stores stop at 2 device pixels per CSS pixel (`MAX_SCALE` in `canvas-vt.js`). At a ratio of 2.625 the eight visible 2D canvases held 1.7 times the pixels.
+- On an Android phone (Chrome 159, 2026-11-21, reported by the project owner) the 2D canvas of experiment 2 showed white with Chrome's broken-picture icon, which Chrome draws in a 2D canvas whose context is lost. Not reproduced here: killing the GPU process in headless Chromium 157 loses every context and all of them come back.
 
 ### Not verified
 
+- Why the 2D canvas of experiment 2 lost its context on the phone, and whether the changes above stop it. If it happens again the status line under the experiment, or the note over the canvas, holds a line that starts "Contexts made:". That line says which contexts were lost and when.
+- Whether a 2D drawable canvas on Android fires `contextlost` and `contextrestored` at all. If it does not, neither the guard nor `watch2d()` can act.
 - Frame rate on a phone, and the WebGL experiment on a real GPU. Open `/scoped-transitions/` on the device and press Shuffle with "Run everything at 3 seconds" on.
 - WebGPU. Experiment 1 uses WebGL only. A WGSL version through `shared/backend.js` would verify it.
 - Touch selection and IME inside the app of experiment 5 during a transition.
