@@ -1,6 +1,7 @@
 // Shared top menu. Add to any page with one tag, straight after <body>:
 //   <script src="/shared/nav.js"></script>
-// The list of demos lives in /shared/demos.js.
+// The list of demos is /shared/pages.js, which `npm run build` writes from the
+// page.json file beside each page.
 //
 // Plain script (not a module) with its own styles, so it works on every page
 // and in every browser regardless of what else the page loads or whether the
@@ -170,9 +171,12 @@ html.page-loading body>:not(#site-nav){opacity:0}\
   if (window.DEMOS) { start(); learnBox(); }
   else {
     var s = document.createElement('script');
-    s.src = base + 'demos.js';
+    s.src = base + 'pages.js';
     s.onload = function () { start(); learnBox(); };
-    s.onerror = function () { start(); learnBox(); }; // still show the bar with a Home link
+    s.onerror = function () { // still show the bar with a Home link
+      console.error('/shared/pages.js is missing. It is generated: run `npm run build`.');
+      start(); learnBox();
+    };
     document.head.appendChild(s);
   }
 })();

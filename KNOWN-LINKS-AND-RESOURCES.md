@@ -42,7 +42,7 @@ Related files: [FINDINGS.md](FINDINGS.md), [PLAN.md](PLAN.md), [ARCHITECTURE.md]
 | Native frameworks survey | https://github.com/PaulKinlan/html-in-canvas-demos/blob/main/docs/native-frameworks.md |
 | `<slot-view>` protocol | `public/slot-view/PROTOCOL.md` in this repository |
 
-Every page is at `https://html-in-canvas.page/<name>/`. The list of pages is in `public/shared/demos.js` and in the table in [ARCHITECTURE.md](ARCHITECTURE.md).
+Every page is at `https://html-in-canvas.page/<name>/`. `npm run pages` prints the list of pages. It is built from the `page.json` file in each page's folder.
 
 ## The HTML-in-canvas API
 
@@ -110,7 +110,7 @@ Element-scoped view transitions shipped in Chrome 147, with developer testing fr
 |---|---|
 | Features by milestone, the source of the Chrome APIs plan (PR #50). The JSON response starts with `)]}'`, which must be removed before parsing. | `https://chromestatus.com/api/v0/features?milestone=N` for N = 130 to 160 |
 | One feature | `https://chromestatus.com/feature/<id>` |
-| The plan built from it | https://html-in-canvas.page/chrome-apis/ and `docs/chrome-apis-plan.md` (both arrive with PR #50) |
+| The plan built from it | https://html-in-canvas.page/chrome-apis/ and, as one document, https://html-in-canvas.page/chrome-apis/plan.md (`public/chrome-apis/plan.md` after `npm run build`) |
 | The probes | https://html-in-canvas.page/chrome-apis/probes.html (PR #50) |
 
 The plan document links the Chrome Platform Status entry of each of the 678 features it lists. On the fetch date, 2026-11-21, Chrome 159 was stable and 160 was beta.
