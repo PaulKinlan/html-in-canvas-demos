@@ -1,0 +1,728 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>A worker as the video compositor</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .tools { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .tools label { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .tools select, .tools button { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; }
+  .tools button[disabled] { opacity: .5; }
+  .monitor { max-width: 640px; position: relative; }
+  #programme { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #111; touch-action: manipulation; }
+  #blank[hidden] { display: none; }
+  #blank { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; background: #222; border-radius: 10px; }
+  /* #region css */
+  /* The scene is 640 by 360 layout pixels, the size of the canvas buffer, and clear where there is no overlay. */
+  #scene { position: relative; width: 640px; height: 360px; overflow: hidden; color: #fff; font: 20px/1.25 system-ui, sans-serif; }
+  #scene .onair { position: absolute; left: 14px; top: 12px; display: flex; gap: 8px; align-items: center; padding: 5px 12px; border-radius: 6px; background: rgb(200 16 46 / .92); font: 700 16px system-ui; letter-spacing: .06em; }
+  #scene .onair i { width: 10px; height: 10px; border-radius: 50%; background: #fff; animation: wc-pulse 1s ease-in-out infinite alternate; }
+  #scene .third { position: absolute; left: 14px; bottom: 58px; width: 330px; margin: 0; padding: 8px 12px 10px; border-radius: 10px; background: rgb(11 61 145 / .78); }
+  #scene .third input { display: block; width: 100%; min-height: 44px; padding: 2px 8px; border: 1px solid rgb(255 255 255 / .5); border-radius: 6px; background: rgb(0 0 0 / .25); color: #fff; font: 700 24px system-ui; }
+  #scene .third span { display: block; margin-top: 4px; font-size: 15px; }
+  #scene .react { position: absolute; right: 14px; bottom: 58px; display: grid; gap: 8px; width: 168px; padding: 8px; border-radius: 10px; background: rgb(0 0 0 / .55); }
+  #scene .react button { min-height: 68px; padding: 4px 10px; border: 0; border-radius: 8px; background: #2e7d32; color: #fff; font: 700 20px system-ui; }
+  #scene .react button[aria-pressed="true"] { background: #f9a825; color: #000; }
+  #scene .raised { position: absolute; right: 14px; top: 12px; padding: 8px 14px; border-radius: 99px; background: #f9a825; color: #000; font: 700 18px system-ui; transform: scale(0); transition: transform .3s cubic-bezier(.2, 1.6, .4, 1); }
+  #scene.hand .raised { transform: none; }
+  #scene .ticker { position: absolute; left: 0; right: 0; bottom: 0; height: 40px; background: rgb(0 0 0 / .8); overflow: hidden; white-space: nowrap; font: 18px/40px system-ui; }
+  #scene .ticker span { display: inline-block; padding-left: 640px; animation: wc-ticker 16s linear infinite; }
+  #scene .plus { position: absolute; right: 70px; bottom: 150px; font: 800 34px system-ui; color: #9cff9c; text-shadow: 0 2px 6px #000; animation: wc-rise 1.2s ease-out forwards; pointer-events: none; }
+  @keyframes wc-pulse { to { opacity: .2; } }
+  @keyframes wc-ticker { to { transform: translateX(-100%); } }
+  @keyframes wc-rise { to { transform: translate(var(--dx, 0), -190px) scale(1.6); opacity: 0; } }
+  /* #endregion css */
+  @keyframes wc-move { from { transform: translateX(0); } to { transform: translateX(100px); } }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); height: 9em; overflow: auto; margin: 8px 0; white-space: pre-line; }
+  .outs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; max-width: 640px; }
+  .outs figure { margin: 0; }
+  .outs video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; }
+  .outs figcaption { font-size: 13px; color: var(--muted); margin: 6px 0; min-height: 3em; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A worker as the video compositor</h1>
+  <p class="lede">
+    A worker reads video frames, draws a snapshot of the HTML below over each one, and writes the result to a video track.
+    The first picture is the worker's canvas. Type in the caption field and press the buttons in it. Then block the main thread: the picture and the track keep running.
+  </p>
+
+  <div class="monitor">
+    <!-- #region markup -->
+    <canvas id="programme" content="drawable" layoutsubtree width="640" height="360" aria-label="Video with HTML overlays, composed in a worker">
+      <div id="scene" drawable>
+        <div class="onair" data-panel="6"><i></i>ON AIR</div>
+        <div class="raised">Hand raised</div>
+        <form class="third" data-panel="10">
+          <input id="who" value="Ada Lovelace" maxlength="22" autocomplete="off" aria-label="Name in the caption">
+          <span>Guest. This field takes typing.</span>
+        </form>
+        <div class="react" data-panel="10">
+          <button type="button" id="clap">Clap <output id="claps">0</output></button>
+          <button type="button" id="hand" aria-pressed="false">Raise hand</button>
+        </div>
+        <div class="ticker"><span>The ticker is a CSS animation. Each paint sends one snapshot of this HTML to the worker. The worker draws it over every video frame and writes the frame to a track.</span></div>
+      </div>
+    </canvas>
+    <!-- #endregion markup -->
+    <p id="blank" hidden></p>
+  </div>
+
+  <div class="tools">
+    <label>Video from <select id="source"><option value="decode">Clip, decoded in the worker</option><option value="clip">Clip, from video.captureStream()</option><option value="camera">Camera</option><option value="pattern">Pattern made in the worker</option></select></label>
+    <label>Look <select id="look"><option value="plain">Plain</option><option value="frosted">Frosted panels</option><option value="mosaic">Mosaic outside the panels</option><option value="trails">Trails</option><option value="cutout">HTML as a mask</option></select></label>
+    <label>Frame to RGB <select id="convert"><option value="auto">Auto</option><option value="copy">copyTo() and convert in script</option><option value="bitmap">createImageBitmap()</option><option value="draw">drawImage(VideoFrame)</option></select></label>
+  </div>
+  <div class="tools">
+    <button type="button" id="block">Block the main thread for 2 s</button>
+    <button type="button" id="send">Send the track over WebRTC</button>
+    <button type="button" id="record">Record the track for 5 s</button>
+  </div>
+  <p id="status" role="status">Starting.</p>
+  <div class="outs">
+    <figure><video id="out" muted playsinline></video><figcaption id="outNote">The track the worker writes, in a <code>&lt;video&gt;</code>.</figcaption></figure>
+    <figure id="farBox" hidden><video id="far" muted playsinline controls></video><figcaption id="farNote"></figcaption></figure>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>frames in, DOM snapshots in, a track out</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> One <code>drawable</code> element holds the overlays. It is clear where there is no overlay.</li>
+      <li data-code="#main"><b>The page hands over the canvas and sends a snapshot on every paint.</b> <code>transferControlToOffscreen()</code>, then <code>captureElementImage()</code> in the <code>paint</code> handler.</li>
+      <li data-code="#source"><b>Video frames to the worker.</b> The track is transferred where the browser allows it. Otherwise the <code>ReadableStream</code> of a <code>MediaStreamTrackProcessor</code> is transferred.</li>
+      <li data-code="#sink"><b>A track out of the worker.</b> <code>VideoTrackGenerator</code> in the worker where it exists. Otherwise the <code>WritableStream</code> of a <code>MediaStreamTrackGenerator</code> is transferred.</li>
+      <li data-code="/worker-compositor/compositor.js#read"><b>The worker's read loop.</b></li>
+      <li data-code="/worker-compositor/compositor.js#decode"><b>A file decoded in the worker.</b> A WebM reader and <code>VideoDecoder</code>.</li>
+      <li data-code="/worker-compositor/compositor.js#convert"><b>YUV to RGB without the main thread.</b> <code>copyTo()</code> and a loop.</li>
+      <li data-code="/worker-compositor/compositor.js#compose"><b>One output frame.</b> The video frame, <code>drawElementImage()</code> of the snapshot, <code>new VideoFrame(canvas)</code>, one write.</li>
+      <li data-code="/worker-compositor/compositor.js#looks"><b>The looks.</b> 2D canvas calls on the frame and on the boxes of the panels.</li>
+      <li data-code="/worker-compositor/compositor.js"><b>The whole worker.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>An <code>ElementImage</code> can be drawn only into the canvas it was captured from. So the worker does not make its own canvas. The page calls <code>transferControlToOffscreen()</code> on the drawable canvas and the worker draws into that. The canvas on the page shows what the worker draws.</li>
+    <li>The page listens for <code>paint</code>. Each time, it calls <code>canvas.captureElementImage(scene)</code> and transfers the snapshot to the worker. The worker keeps the newest one and closes the one before.</li>
+    <li>Video frames reach the worker as <code>VideoFrame</code> objects. The first source reads the WebM clip in the worker and decodes it there with <code>VideoDecoder</code>. The camera and the second clip source use a <code>MediaStreamTrackProcessor</code> on a track from <code>getUserMedia()</code> or <code>video.captureStream()</code>.</li>
+    <li>A 2D context draws RGB and the frames are YUV. "Frame to RGB" picks how the worker converts them: <code>copyTo()</code> of the planes and a loop in script, <code>createImageBitmap()</code>, or <code>drawImage()</code> of the frame itself. Auto uses <code>copyTo()</code> for I420 and NV12 frames and <code>createImageBitmap()</code> for the rest.</li>
+    <li>For each frame the worker draws the frame, draws the snapshot, wraps the canvas in a <code>VideoFrame</code> with the input frame's timestamp and writes it to the track.</li>
+    <li>The worker's <code>drawElementImage()</code> also sets where the element is for hit testing on the main thread. The field and the buttons in the picture take input where they are drawn.</li>
+    <li>While the main thread is blocked no <code>paint</code> runs, so the worker draws the last snapshot it has. The video frames keep changing.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small canvas and worker in a corner of the window. The picture above is not touched. Four checks block the main thread for 0.8 s each.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157, headless, with software rendering and software video decoding. The rows above say what your browser does.</p>
+  <ul class="findings" id="findings">
+    <li><strong>Works: a worker composes video frames and DOM into a track.</strong> The frames come from a transferred <code>ReadableStream</code>, the DOM from transferred <code>ElementImage</code> snapshots, and the output goes to a transferred <code>WritableStream</code>. No call to <code>captureStream()</code> on the canvas is needed.</li>
+    <li><strong>Not in Chromium 157: the two calls the specification gives a worker.</strong> <code>MediaStreamTrackProcessor</code> and <code>VideoTrackGenerator</code> are not defined in a worker, and a <code>MediaStreamTrack</code> cannot be transferred (<code>DataCloneError</code>). The window has <code>MediaStreamTrackProcessor</code> and the older <code>MediaStreamTrackGenerator</code>, and their streams can be transferred. The page tries the standard route first and reports which one it used.</li>
+    <li><strong>Limit: the snapshot must be drawn into its source canvas.</strong> Drawing it into an <code>OffscreenCanvas</code> made in the worker throws. The output frame is therefore the size of the canvas on the page, and that canvas shows the composition whether or not it is wanted there.</li>
+    <li><strong>Works: the main thread can stop.</strong> With the clip decoded in the worker, the worker read and wrote 23 frames during a 0.8 s block and the track delivered 22. The HTML in them is the last snapshot. Input to the overlays waits until the block ends.</li>
+    <li><strong>Fails during a block: <code>drawImage(VideoFrame)</code>, <code>createImageBitmap(VideoFrame)</code> and <code>texImage2D(VideoFrame)</code> of an I420 frame in a worker.</strong> Each one waited until the main thread was free, so the worker composed one frame or none. <code>copyTo()</code> in the frame's own format did not wait. The worker therefore reads the planes and converts them to RGB in a loop, which took about 4 ms for 640 by 360 here. Frames the worker made from a canvas (BGRA) convert with <code>createImageBitmap()</code> during a block. This was measured with software rendering. A device with a GPU may not have the wait.</li>
+    <li><strong>Fails during a block: <code>video.captureStream()</code> as the source.</strong> It delivered no frame while the main thread was blocked. A camera track delivered 20 frames a second through the same block (Chromium's fake camera).</li>
+    <li><strong>Fails during a block: <code>captureStream()</code> of the canvas on the page as the way out.</strong> It still works after <code>transferControlToOffscreen()</code>, and delivered 10 frames in a second, but none while the main thread was blocked. The track written by the worker did not stop.</li>
+    <li><strong>Works: WebGL 2 in the worker.</strong> <code>texElementSubImage2D()</code> takes the transferred snapshot and <code>texImage2D()</code> takes a <code>VideoFrame</code> on the transferred canvas, so the looks could be shaders. The page uses the 2D context, which is the lighter route.</li>
+    <li><strong>Works: hit testing.</strong> The canvas buffer is 640 px wide and the canvas is shown narrower. The worker passes the buffer size to <code>drawElementImage()</code>, and the buttons are hit where they are drawn.</li>
+    <li><strong>Not verified here:</strong> a real camera, hardware-decoded frames (which can arrive as NV12 or with no format, not I420), which conversions wait for the main thread on a device with a GPU, the frame rate on a phone, and whether Chrome 159 has the worker calls. The live checks answer these on your device.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { loopback } from '/lib/video-export.js';
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const clock = () => performance.timeOrigin + performance.now();
+  const CLIP = '/media/clip.webm';
+  const canvas = $('programme'), scene = $('scene');
+  const say = (text) => ($('status').textContent = text);
+
+  // #region main
+  /**
+   * Give `canvas` to a new compositor worker and send it a snapshot of `scene` on every paint.
+   * Returns { worker, call, ready, caps }. `call(type, fields, transfer)` resolves with the worker's answer.
+   */
+  function compositor(canvas, scene, { readBack = false, onnote = () => {} } = {}) {
+    const worker = new Worker('/worker-compositor/compositor.js');
+    const waiting = new Map();
+    let seq = 0;
+    worker.onmessage = ({ data }) => {
+      if (!data.id) return onnote(data);
+      const w = waiting.get(data.id);
+      waiting.delete(data.id);
+      if (data.ok) w.resolve(data); else w.reject(new Error(data.error));
+    };
+    worker.onerror = (e) => onnote({ type: 'error', error: e.message });
+    const call = (type, fields = {}, transfer = []) => new Promise((resolve, reject) => {
+      waiting.set(++seq, { resolve, reject });
+      worker.postMessage({ type, id: seq, ...fields }, transfer);
+    });
+
+    // The worker gets the canvas itself. A snapshot draws only into the canvas it was captured from.
+    const offscreen = canvas.transferControlToOffscreen();
+    const self = { worker, call, caps: null, paints: 0 };
+    self.ready = call('init', { canvas: offscreen, readBack }, [offscreen]).then((caps) => (self.caps = caps));
+
+    const panels = () => [...scene.querySelectorAll('[data-panel]')].map((el) => ({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight, r: +el.dataset.panel }));
+    canvas.addEventListener('paint', () => {
+      self.paints++;
+      let image;
+      try { image = canvas.captureElementImage(scene); } catch { return; } // not painted yet: another paint follows
+      worker.postMessage({ type: 'scene', image, panels: panels() }, [image]);
+    });
+    canvas.requestPaint();
+    return self;
+  }
+  // #endregion main
+
+  // #region source
+  /** Send the frames of `track` to the worker. Resolves with the name of the route that worked. */
+  async function feed(comp, track) {
+    await comp.ready;
+    if (comp.caps.MediaStreamTrackProcessor) {
+      // The route in the specification: transfer the track, and the worker makes the processor.
+      try { await comp.call('source', { track }, [track]); return 'MediaStreamTrack transferred to the worker'; } catch {}
+    }
+    if (!('MediaStreamTrackProcessor' in window)) throw new Error('this browser has no MediaStreamTrackProcessor');
+    // Chromium 157: the processor is made here and its stream is transferred. Frames still skip the main thread.
+    const { readable } = new MediaStreamTrackProcessor({ track });
+    await comp.call('source', { readable }, [readable]);
+    return 'ReadableStream of a main-thread MediaStreamTrackProcessor, transferred';
+  }
+  // #endregion source
+
+  // #region sink
+  /** Get a video track that carries what the worker composes. Resolves with { track, route }. */
+  async function openSink(comp, canvas) {
+    await comp.ready;
+    if (comp.caps.VideoTrackGenerator) {
+      // The route in the specification: the worker makes the track and transfers it here.
+      try { const { track } = await comp.call('sink', { generator: true }); return { track, route: 'VideoTrackGenerator in the worker' }; } catch {}
+    }
+    if ('MediaStreamTrackGenerator' in window) {
+      // Chromium 157: the track is made here and the worker writes to its stream.
+      const track = new MediaStreamTrackGenerator({ kind: 'video' });
+      await comp.call('sink', { writable: track.writable }, [track.writable]);
+      return { track, route: 'WritableStream of a main-thread MediaStreamTrackGenerator, transferred' };
+    }
+    // Last: the canvas on the page still has captureStream() after its control was transferred.
+    return { track: canvas.captureStream(30).getVideoTracks()[0], route: 'captureStream() of the canvas on the page' };
+  }
+  // #endregion sink
+
+  /** The video track of a playing <video>. */
+  async function trackOf(video) {
+    await video.play();
+    const stream = video.captureStream();
+    for (let i = 0; i < 40 && !stream.getVideoTracks().length; i++) await sleep(50);
+    const track = stream.getVideoTracks()[0];
+    if (!track) throw new Error('video.captureStream() gave no video track');
+    return track;
+  }
+
+  // ---- the visible demo ----
+  let clipUrl = CLIP;
+  const clipReady = fetch(CLIP).then((r) => r.blob()).then((b) => (clipUrl = URL.createObjectURL(b))).catch(() => CLIP);
+  let demo = null, clip = null, camera = null, sourceRoute = '', sinkRoute = '', outTrack = null, onScreen = true, note = '';
+
+  function fail(text) {
+    $('blank').hidden = false;
+    $('blank').textContent = text;
+    for (const el of document.querySelectorAll('.tools button, .tools select')) el.disabled = true;
+  }
+
+  function stopSource() {
+    for (const t of camera?.getTracks() ?? []) t.stop();
+    camera = null;
+    if (clip) { clip.pause(); clip.removeAttribute('src'); clip.load(); clip = null; }
+  }
+
+  async function useSource(kind) {
+    stopSource();
+    try {
+      if (kind === 'pattern') {
+        await demo.call('source', { synthetic: true });
+        sourceRoute = 'frames made in the worker';
+      } else if (kind === 'decode') {
+        if (!demo.caps.VideoDecoder) throw new Error('the worker has no VideoDecoder');
+        const r = await demo.call('source', { url: new URL(CLIP, location.href).href });
+        sourceRoute = `${r.frames} frames of ${r.codec} read from the file and decoded by VideoDecoder in the worker`;
+      } else if (kind === 'camera') {
+        camera = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360, facingMode: 'user' }, audio: false });
+        sourceRoute = await feed(demo, camera.getVideoTracks()[0].clone());
+      } else {
+        await clipReady;
+        clip = Object.assign(document.createElement('video'), { muted: true, playsInline: true, loop: true, preload: 'auto', src: clipUrl });
+        sourceRoute = await feed(demo, await trackOf(clip));
+        if (!onScreen) clip.pause();
+      }
+      note = '';
+    } catch (err) {
+      note = `Could not use the ${kind}: ${err.message}. Showing the worker's own pattern.`;
+      $('source').value = 'pattern';
+      await demo.call('source', { synthetic: true });
+      sourceRoute = 'frames made in the worker';
+    }
+  }
+
+  async function start() {
+    demo = compositor(canvas, scene, { onnote: (m) => { if (m.type === 'lost') fail('The worker lost its canvas context. Reload the page to start again.'); if (m.type === 'error') note = `Worker error: ${m.error}`; } });
+    await demo.ready;
+    if (!demo.caps.drawElementImage) return fail('The worker has no drawElementImage(), so it cannot draw the HTML snapshot.');
+    const sink = await openSink(demo, canvas);
+    outTrack = sink.track; sinkRoute = sink.route;
+    $('out').srcObject = new MediaStream([outTrack]);
+    $('out').play().catch(() => {});
+    await useSource('decode');
+    let last = null;
+    setInterval(async () => {
+      if (!onScreen || blocking) return;
+      const s = await demo.call('stats');
+      const fps = last ? `${s.read - last.read} read, ${s.written - last.written} written in the last second` : '';
+      last = s;
+      say(`In: ${sourceRoute}.\nOut: ${sinkRoute}.\nFrames: ${fps}. ${s.skipped} skipped. ${s.drawMs} ms to compose one (${s.format}, ${CONVERT[s.convert] ?? 'no frame yet'}).\nSnapshots received by the worker: ${s.scenes}.` + (blockNote ? `\n${blockNote}` : '') + (note ? `\n${note}` : '') + (s.error ? `\nLast worker error: ${s.error}` : ''));
+    }, 1000);
+    new IntersectionObserver(([e]) => {
+      onScreen = e.isIntersecting;
+      demo.worker.postMessage({ type: 'pause', paused: !onScreen });
+      if (clip) onScreen ? clip.play().catch(() => {}) : clip.pause();
+    }).observe(canvas);
+  }
+
+  if (!supported) fail('This picture is drawn with HTML-in-canvas, which this browser does not have.');
+  else if (!('transferControlToOffscreen' in canvas) || !('captureElementImage' in canvas)) fail('This browser cannot transfer a drawable canvas or capture an ElementImage.');
+  else start().catch((err) => fail(`The compositor did not start: ${err.message}`));
+
+  // The scene's own controls. They are ordinary DOM listeners.
+  let claps = 0;
+  $('clap').onclick = () => {
+    $('claps').value = ++claps;
+    const plus = Object.assign(document.createElement('div'), { className: 'plus', textContent: '+1' });
+    plus.style.setProperty('--dx', `${Math.round(Math.random() * 80 - 40)}px`);
+    plus.onanimationend = () => plus.remove();
+    scene.append(plus);
+  };
+  $('hand').onclick = () => {
+    const on = scene.classList.toggle('hand');
+    $('hand').setAttribute('aria-pressed', on);
+    $('hand').textContent = on ? 'Lower hand' : 'Raise hand';
+  };
+  scene.querySelector('form').onsubmit = (e) => e.preventDefault();
+
+  $('source').onchange = () => demo && useSource($('source').value);
+  $('look').onchange = () => demo?.worker.postMessage({ type: 'look', look: $('look').value });
+  $('convert').onchange = () => demo?.worker.postMessage({ type: 'convert', convert: $('convert').value });
+  const CONVERT = { copy: 'copyTo() and a conversion in script', bitmap: 'createImageBitmap()', draw: 'drawImage(VideoFrame)' };
+
+  // #region block
+  let blocking = false, blockNote = '';
+  $('block').onclick = async () => {
+    blocking = true;
+    const paintsBefore = demo.paints, from = clock();
+    const until = performance.now() + 2000;
+    while (performance.now() < until) { /* nothing on the main thread can run */ }
+    const to = clock();
+    const w = await demo.call('window', { from, to });
+    blockNote = `Main thread blocked for ${Math.round(to - from)} ms. In that time the worker read ${w.read} frames and wrote ${w.written}. The page ran ${demo.paints - paintsBefore} paint handlers.` +
+      (w.written < 3 ? ' With this source or this conversion the frames waited for the main thread. The clip decoded in the worker with copyTo() does not wait in Chromium 157.' : '');
+    blocking = false;
+  };
+  // #endregion block
+
+  let sending = null;
+  $('send').onclick = async () => {
+    if (sending) return sending.stop();
+    try {
+      const link = await loopback(new MediaStream([outTrack.clone()]));
+      $('farBox').hidden = false;
+      $('far').srcObject = link.stream;
+      $('far').play().catch(() => {});
+      $('send').textContent = 'Stop sending';
+      const timer = setInterval(async () => {
+        const s = await link.stats();
+        if (s) $('farNote').textContent = `Received over WebRTC: ${s.width}×${s.height}, ${s.fps} frames a second, ${s.kbps} kbit/s.`;
+      }, 1000);
+      sending = { stop: () => { clearInterval(timer); link.close(); sending = null; $('send').textContent = 'Send the track over WebRTC'; $('farNote').textContent = 'Stopped sending.'; } };
+    } catch (err) {
+      $('farBox').hidden = false;
+      $('farNote').textContent = `Could not send: ${err.message}`;
+    }
+  };
+
+  $('record').onclick = async () => {
+    $('record').disabled = true;
+    try {
+      sending?.stop();
+      const type = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find((t) => MediaRecorder.isTypeSupported(t));
+      const track = outTrack.clone();
+      const recorder = new MediaRecorder(new MediaStream([track]), { mimeType: type, videoBitsPerSecond: 2_500_000 });
+      const chunks = [];
+      recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+      const stopped = new Promise((resolve, reject) => { recorder.onstop = resolve; recorder.onerror = (e) => reject(e.error ?? new Error('MediaRecorder failed')); });
+      recorder.start(250);
+      $('farBox').hidden = false;
+      $('farNote').textContent = 'Recording 5 seconds of the track.';
+      await sleep(5000);
+      recorder.stop();
+      await stopped;
+      track.stop();
+      const blob = new Blob(chunks, { type: type.split(';')[0] });
+      $('far').srcObject = null;
+      $('far').src = URL.createObjectURL(blob);
+      $('far').play().catch(() => {});
+      const a = Object.assign(document.createElement('a'), { href: $('far').src, download: 'worker-compositor.webm', textContent: 'Download the file' });
+      $('farNote').replaceChildren(`Recorded ${(blob.size / 1024).toFixed(0)} kB of ${type}. `, a, '.');
+    } catch (err) {
+      $('farBox').hidden = false;
+      $('farNote').textContent = `Recording failed: ${err.message}`;
+    }
+    $('record').disabled = false;
+  };
+
+  // ---- live checks: every one on its own canvas and its own worker ----
+  const made = { workers: [], tracks: [], videos: [] };
+  // The fixture box lies over the bottom left of the window while checks run. It lets taps through, except for the moment a check asks what is at a point.
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const hitAt = (x, y) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return document.elementFromPoint(x, y); } finally { s.style.pointerEvents = 'none'; } };
+  const keepTrack = (t) => { made.tracks.push(t); return t; };
+
+  /** A 320 by 180 drawable canvas with a magenta box, a box moved by a CSS animation and a button. */
+  function fixtureCanvas(shown = 320) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = 320; c.height = 180;
+    c.style.cssText = `width:${shown}px;height:${(shown * 180) / 320}px;flex:none`;
+    c.innerHTML = `<div drawable style="position:relative;width:320px;height:180px;overflow:hidden">
+      <div data-panel="0" style="position:absolute;left:8px;top:140px;width:60px;height:30px;background:#ff00ff"></div>
+      <div style="position:absolute;left:100px;top:60px;width:20px;height:20px;background:#00ffff;animation:wc-move 1s linear infinite"></div>
+      <button type="button" style="position:absolute;left:240px;top:120px;width:70px;height:50px">Vote</button>
+    </div>`;
+    quietStage().append(c);
+    return c;
+  }
+  /** A fixture canvas with a compositor worker that has received at least one snapshot. */
+  async function fixture({ shown = 320 } = {}) {
+    const c = fixtureCanvas(shown);
+    const comp = compositor(c, c.firstElementChild, { readBack: true });
+    made.workers.push(comp.worker);
+    await comp.ready;
+    for (let i = 0; i < 60 && !(await comp.call('stats')).scenes; i++) { c.requestPaint(); await sleep(50); }
+    if (!(await comp.call('stats')).scenes) throw new Error('no ElementImage reached the worker: the paint event did not fire or captureElementImage() threw');
+    return { c, comp, button: c.querySelector('button') };
+  }
+  async function clipVideo() {
+    await clipReady;
+    const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, loop: true, preload: 'auto', src: clipUrl });
+    made.videos.push(v);
+    return v;
+  }
+  /** Wait until the worker has read `n` more frames. */
+  async function frames(comp, n = 3, ms = 6000) {
+    const start = (await comp.call('stats')).read, t0 = performance.now();
+    for (;;) {
+      const s = await comp.call('stats');
+      if (s.read - start >= n) return s;
+      if (performance.now() - t0 > ms) throw new Error(`the worker read ${s.read - start} frames in ${ms} ms${s.error ? `; ${s.error}` : ''}`);
+      await sleep(50);
+    }
+  }
+  /** A <video> on the main thread showing `track`, and a function that reads one pixel of its current frame. */
+  async function watch(track) {
+    const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, srcObject: new MediaStream([track]) });
+    made.videos.push(v);
+    v.play().catch(() => {});
+    for (let i = 0; i < 100 && !v.videoWidth; i++) await sleep(50);
+    if (!v.videoWidth) throw new Error('no frame arrived on the track');
+    const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    ctx.canvas.width = v.videoWidth; ctx.canvas.height = v.videoHeight;
+    return { v, at: (x, y) => { ctx.drawImage(v, 0, 0); return [...ctx.getImageData(x, y, 1, 1).data]; } };
+  }
+  /** Have the worker count the frames a track delivers. */
+  function countFrames(comp, track) {
+    const { readable } = new MediaStreamTrackProcessor({ track: keepTrack(track.clone()) });
+    comp.worker.postMessage({ type: 'count', readable }, [readable]);
+  }
+  const block = (ms) => { const from = clock(), until = performance.now() + ms; while (performance.now() < until); return { from, to: clock() }; };
+  const isMagenta = (d) => d[0] > 180 && d[1] < 90 && d[2] > 180;
+  const isBlue = (d) => d[2] > 120 && d[0] < 90 && d[1] < 130;
+  const rgb = (d) => `rgb(${d[0]} ${d[1]} ${d[2]})`;
+
+  function release() {
+    for (const w of made.workers.splice(0)) w.terminate();
+    for (const t of made.tracks.splice(0)) { try { t.stop(); } catch {} }
+    for (const v of made.videos.splice(0)) { try { v.pause(); v.srcObject = null; v.removeAttribute('src'); v.load(); } catch {} }
+  }
+  const each = (tests) => tests.map((t) => ({ timeout: 20000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { release(); } } }));
+
+  const CLIP_URL = new URL(CLIP, location.href).href;
+  /** A check that blocks the main thread for 0.8 s and counts what the worker read, wrote and what the track delivered. */
+  const blockCheck = ({ source, ...rest }) => ({
+    ...rest,
+    run: async () => {
+      const f = await fixture();
+      const sink = await openSink(f.comp, f.c);
+      keepTrack(sink.track);
+      await source(f);
+      countFrames(f.comp, sink.track);
+      const s = await frames(f.comp, 5);
+      const paints = f.comp.paints;
+      const { from, to } = block(800);
+      const w = await f.comp.call('window', { from, to });
+      const text = `in ${Math.round(to - from)} ms the worker read ${w.read} frames (${s.format}), wrote ${w.written}, and the track delivered ${w.counted}; the page ran ${f.comp.paints - paints} paint handlers`;
+      if (w.written < 3) throw new Error(text);
+      return text;
+    },
+  });
+
+  runTests($('results'), each([
+    {
+      name: 'A worker draws a transferred ElementImage over a VideoFrame',
+      why: 'The worker makes blue frames itself. The snapshot holds a magenta box. Two pixels are read back in the worker.',
+      run: async () => {
+        const f = await fixture();
+        await f.comp.call('source', { synthetic: true });
+        await frames(f.comp);
+        const { pixels: [video, box] } = await f.comp.call('sample', { points: [[160, 100], [30, 155]] });
+        if (!isMagenta(box)) throw new Error(`the box pixel is ${rgb(box)}, not magenta`);
+        if (!isBlue(video)) throw new Error(`the video pixel is ${rgb(video)}, not blue`);
+        return `video pixel ${rgb(video)}, HTML pixel ${rgb(box)}, ${(await f.comp.call('stats')).drawMs} ms to compose a 320×180 frame`;
+      },
+    },
+    {
+      name: 'The worker writes the composed canvas to a video track',
+      why: 'new VideoFrame(canvas) in the worker, written to a track. A <video> on the page plays the track and two pixels are read from it.',
+      run: async () => {
+        const f = await fixture();
+        const sink = await openSink(f.comp, f.c);
+        keepTrack(sink.track);
+        await f.comp.call('source', { synthetic: true });
+        const far = await watch(sink.track);
+        await sleep(200);
+        const video = far.at(160, 100), box = far.at(30, 155);
+        if (!isMagenta(box)) throw new Error(`the track has video but the HTML box is missing: ${rgb(box)}`);
+        if (!isBlue(video)) throw new Error(`the video pixel in the track is ${rgb(video)}`);
+        return `${far.v.videoWidth}×${far.v.videoHeight} by ${sink.route}`;
+      },
+    },
+    {
+      name: 'Output frames keep the timestamps of the input frames',
+      why: 'The frames the track delivers are read by a second MediaStreamTrackProcessor and their timestamps are compared with the input.',
+      run: async () => {
+        const f = await fixture();
+        const sink = await openSink(f.comp, f.c);
+        keepTrack(sink.track);
+        countFrames(f.comp, sink.track);
+        await f.comp.call('source', { synthetic: true });
+        await frames(f.comp, 12);
+        await sleep(200);
+        const s = await f.comp.call('stamps');
+        const inSet = new Set(s.in);
+        const same = s.counted.filter((t) => inSet.has(t)).length;
+        if (!s.counted.length) throw new Error('the track delivered no frames to the second processor');
+        if (same < s.counted.length) throw new Error(`${s.counted.length - same} of ${s.counted.length} delivered frames have a timestamp that no input frame had (for example ${s.counted.find((t) => !inSet.has(t))})`);
+        return `${same} of ${s.counted.length} delivered frames carry an input timestamp`;
+      },
+    },
+    {
+      name: 'Standard route in: a MediaStreamTrack transferred to the worker',
+      expect: 'fail',
+      why: 'The specification puts MediaStreamTrackProcessor in the worker and makes the track transferable.',
+      run: async () => {
+        const f = await fixture();
+        const track = keepTrack(document.createElement('canvas').captureStream(5).getVideoTracks()[0]);
+        if (!f.comp.caps.MediaStreamTrackProcessor) {
+          let transfer = 'the track was accepted by postMessage()';
+          try { f.comp.worker.postMessage({ type: 'none', track }, [track]); } catch (err) { transfer = `postMessage(track) throws ${err.name}`; }
+          throw new Error(`MediaStreamTrackProcessor is not defined in the worker (it is ${'MediaStreamTrackProcessor' in window ? 'defined' : 'not defined'} in the window); ${transfer}`);
+        }
+        await f.comp.call('source', { track }, [track]);
+        return 'the worker made a MediaStreamTrackProcessor from the transferred track';
+      },
+    },
+    {
+      name: 'Standard route out: VideoTrackGenerator in the worker',
+      expect: 'fail',
+      why: 'The specification has the worker make the track and transfer it to the page.',
+      run: async () => {
+        const f = await fixture();
+        if (!f.comp.caps.VideoTrackGenerator) throw new Error(`VideoTrackGenerator is not defined in the worker; the window has ${'VideoTrackGenerator' in window ? 'VideoTrackGenerator' : 'MediaStreamTrackGenerator' in window ? 'MediaStreamTrackGenerator only' : 'neither generator'}`);
+        const { track } = await f.comp.call('sink', { generator: true });
+        keepTrack(track);
+        return `the worker transferred a ${track.kind} track, readyState ${track.readyState}`;
+      },
+    },
+    {
+      name: 'Frames of a playing <video> reach the worker without passing through the main thread',
+      why: 'video.captureStream(), MediaStreamTrackProcessor on the page, its ReadableStream transferred. The worker reads the frame number from the stripes in the clip.',
+      run: async () => {
+        const f = await fixture();
+        const v = await clipVideo();
+        const route = await feed(f.comp, keepTrack(await trackOf(v)));
+        await frames(f.comp, 5);
+        const { frameNumber, pixels: [box] } = await f.comp.call('sample', { points: [[30, 155]] });
+        const now = Math.round(v.currentTime * 30);
+        if (!isMagenta(box)) throw new Error('the HTML box is not over the video frame');
+        if (Math.abs(frameNumber - now) > 6) throw new Error(`the worker's canvas holds frame ${frameNumber}; the video is at frame ${now}`);
+        return `the worker's canvas holds frame ${frameNumber}, the video reports frame ${now}; route: ${route}`;
+      },
+    },
+    {
+      name: 'Single VideoFrames posted from the main thread',
+      why: 'The route for a browser with no MediaStreamTrackProcessor: new VideoFrame(video), transferred with postMessage().',
+      run: async () => {
+        const f = await fixture();
+        const v = await clipVideo();
+        await v.play();
+        await new Promise((r) => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(r) : setTimeout(r, 300)));
+        const frame = new VideoFrame(v);
+        const now = Math.round(v.currentTime * 30);
+        f.comp.worker.postMessage({ type: 'frame', frame }, [frame]);
+        const { frameNumber, pixels: [box] } = await f.comp.call('sample', { points: [[30, 155]] });
+        if (!isMagenta(box)) throw new Error('the HTML box is not over the posted frame');
+        if (Math.abs(frameNumber - now) > 3) throw new Error(`the worker drew frame ${frameNumber}; the video was at frame ${now}`);
+        return `the worker drew frame ${frameNumber} with the HTML box over it`;
+      },
+    },
+    {
+      name: 'A WebM file is read and decoded in the worker',
+      why: 'fetch(), a small WebM reader and VideoDecoder, all in the worker. The frame number is read from the stripes in the clip.',
+      run: async () => {
+        const f = await fixture();
+        if (!f.comp.caps.VideoDecoder) throw new Error('VideoDecoder is not defined in the worker');
+        const r = await f.comp.call('source', { url: CLIP_URL });
+        const s = await frames(f.comp, 8);
+        const { frameNumber, pixels: [box] } = await f.comp.call('sample', { points: [[30, 155]] });
+        if (!isMagenta(box)) throw new Error('the HTML box is not over the decoded frame');
+        if (frameNumber < 1 || frameNumber > s.read + 2) throw new Error(`the canvas holds frame ${frameNumber} after ${s.read} frames were decoded`);
+        return `${r.frames} frames of ${r.codec} found; after ${s.read} decoded frames the canvas holds frame ${frameNumber}; frames arrive as ${s.format}`;
+      },
+    },
+    blockCheck({
+      name: 'The worker keeps composing while the main thread is blocked for 0.8 s',
+      why: 'The clip is decoded in the worker and converted with copyTo(). The frames the output track delivers during the block are counted in the worker.',
+      source: (f) => f.comp.call('source', { url: CLIP_URL, convert: 'copy' }),
+    }),
+    blockCheck({
+      name: 'Blocked main thread, frames from video.captureStream()',
+      expect: 'fail',
+      why: 'The same, with the clip played by a <video> on the page and its track read by a MediaStreamTrackProcessor.',
+      source: async (f) => { f.comp.worker.postMessage({ type: 'convert', convert: 'copy' }); await feed(f.comp, keepTrack(await trackOf(await clipVideo()))); },
+    }),
+    blockCheck({
+      name: 'Blocked main thread, frames drawn with drawImage(VideoFrame)',
+      expect: 'fail',
+      why: 'The clip is decoded in the worker. Each YUV frame is passed to drawImage() as it is.',
+      source: (f) => f.comp.call('source', { url: CLIP_URL, convert: 'draw' }),
+    }),
+    blockCheck({
+      name: 'Blocked main thread, frames converted with createImageBitmap(VideoFrame)',
+      expect: 'fail',
+      why: 'The clip is decoded in the worker. Each YUV frame becomes an ImageBitmap first.',
+      source: (f) => f.comp.call('source', { url: CLIP_URL, convert: 'bitmap' }),
+    }),
+    {
+      name: 'captureStream() of the canvas on the page as the way out',
+      why: 'The canvas was transferred, and the worker draws frames it makes itself. The frames captureStream() delivers are counted for 1 s, with the main thread blocked for 0.6 s of it.',
+      run: async () => {
+        const f = await fixture();
+        const track = keepTrack(f.c.captureStream(30).getVideoTracks()[0]);
+        countFrames(f.comp, track);
+        await f.comp.call('source', { synthetic: true });
+        const from = clock();
+        await sleep(400);
+        const blocked = block(600);
+        const all = await f.comp.call('window', { from, to: clock() });
+        const during = await f.comp.call('window', blocked);
+        if (!all.counted) throw new Error('captureStream() of a canvas whose control was transferred delivered no frames');
+        return `${all.counted} frames in ${Math.round(clock() - from)} ms; ${during.counted} of them while the main thread was blocked for ${Math.round(blocked.to - blocked.from)} ms (the worker drew ${during.read})`;
+      },
+    },
+    {
+      name: 'A button drawn by the worker is hit where it is drawn',
+      why: 'The buffer is 320 px wide and the canvas is shown 160 px wide. The worker passes the buffer size to drawElementImage().',
+      run: async () => {
+        const f = await fixture({ shown: 160 });
+        await f.comp.call('source', { synthetic: true });
+        await frames(f.comp);
+        await sleep(150);
+        const box = f.c.getBoundingClientRect();
+        const hit = hitAt(box.left + 275 / 2, box.top + 145 / 2);
+        const r = f.button.getBoundingClientRect();
+        if (hit !== f.button) throw new Error(`elementFromPoint() at the drawn button returned ${hit ? `<${hit.localName}>` : 'nothing'}; the button's box is ${r.width.toFixed(0)}×${r.height.toFixed(0)}`);
+        return `the button's box is ${r.width.toFixed(0)}×${r.height.toFixed(0)} px, half its layout size, and elementFromPoint() finds it`;
+      },
+    },
+    {
+      name: 'The snapshot drawn into a canvas the worker made',
+      expect: 'fail',
+      why: 'new OffscreenCanvas() in the worker, then drawElementImage() of the transferred snapshot.',
+      run: async () => {
+        const f = await fixture();
+        await f.comp.call('foreign');
+        return 'the snapshot was drawn into a second canvas';
+      },
+    },
+    {
+      name: 'A CSS animation in the scene sends one snapshot per paint',
+      why: 'Counts paint events and snapshots received by the worker for 1 s, and times captureElementImage() plus the transfer.',
+      run: async () => {
+        const f = await fixture();
+        const before = (await f.comp.call('stats')).scenes, paints = f.comp.paints;
+        await sleep(1000);
+        const got = (await f.comp.call('stats')).scenes - before, fired = f.comp.paints - paints;
+        const el = f.c.firstElementChild;
+        let ms = 0, n = 0;
+        await new Promise((resolve) => {
+          const on = () => {
+            const t0 = performance.now();
+            try { const image = f.c.captureElementImage(el); f.comp.worker.postMessage({ type: 'scene', image }, [image]); ms += performance.now() - t0; n++; } catch {}
+            if (n >= 10) { f.c.removeEventListener('paint', on); resolve(); }
+          };
+          f.c.addEventListener('paint', on);
+          setTimeout(resolve, 3000);
+        });
+        if (fired < 5) throw new Error(`${fired} paint events in 1 s: the animation did not raise paint`);
+        if (got < fired - 3) throw new Error(`${fired} paints but ${got} snapshots reached the worker`);
+        return `${fired} paint events and ${got} snapshots in 1 s; captureElementImage() and postMessage() take ${(ms / Math.max(n, 1)).toFixed(3)} ms`;
+      },
+    },
+    {
+      name: 'WebGL 2 in the worker: the snapshot and a VideoFrame as two textures in one shader',
+      why: 'texElementSubImage2D(ElementImage) and texImage2D(VideoFrame) on the transferred canvas, read back with readPixels().',
+      run: async () => {
+        const c = fixtureCanvas();
+        const el = c.firstElementChild;
+        const worker = new Worker('/worker-compositor/compositor.js');
+        made.workers.push(worker);
+        const image = await new Promise((resolve, reject) => {
+          const on = () => { try { resolve(c.captureElementImage(el)); c.removeEventListener('paint', on); } catch {} };
+          c.addEventListener('paint', on);
+          c.requestPaint();
+          setTimeout(() => reject(new Error('no paint event with a snapshot in 3 s')), 3000);
+        });
+        const offscreen = c.transferControlToOffscreen();
+        const answer = await new Promise((resolve) => { worker.onmessage = (e) => resolve(e.data); worker.postMessage({ type: 'gl', id: 1, canvas: offscreen, image, points: [[160, 100], [30, 155]] }, [offscreen, image]); });
+        if (!answer.ok) throw new Error(answer.error);
+        const [video, box] = answer.pixels;
+        if (!isMagenta(box)) throw new Error(`the snapshot texture has ${rgb(box)} where the box is`);
+        if (!isBlue(video)) throw new Error(`the VideoFrame texture has ${rgb(video)}`);
+        return `shader output: video pixel ${rgb(video)}, HTML pixel ${rgb(box)}`;
+      },
+    },
+  ]));
+</script>
+</body>
+</html>
