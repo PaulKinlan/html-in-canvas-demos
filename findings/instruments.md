@@ -20,14 +20,16 @@ Five ideas from the element catalogue (group 1 of the backlog in PLAN.md). Measu
 
 ## Lost canvases on the phone
 
-Reported from Chrome 159 on Android on 2026-11-21, on the preview of the first version: the rotary canvas as a white box with the broken-picture icon, then a white screen, then an empty canvas, repeatedly. The page has no WebGL or WebGPU context. The cause is not known. Headless Chromium 157 with software rendering does not lose a context, so nothing below is verified.
+Reported from Chrome 159 on Android on 2026-11-21, on the preview of the first version: the rotary canvas as a white box with the broken-picture icon, then a white screen, then an empty canvas, repeatedly. The page has no WebGL or WebGPU context. Headless Chromium 157 with software rendering does not lose a context.
+
+Cause, reported on 2026-11-21 at 19:30 UTC by the thread that tested on the phone (pull request #84, `public/crashes/cases.js`): a drawable 2D canvas created with `willReadFrequently: true`, once drawn into and read, loses every 2D context on the page about every half second. The first version's live checks made such canvases on load. The second commit of this page had already removed them. The other rows of the table below were suspects only.
 
 What the first version did that the pages reported as working on the phone do not, all removed:
 
 | Removed | Why it was a suspect |
 |---|---|
 | Live checks that ran on load | Eight fixture canvases made and removed in the first seconds, beside the demo. The guidance for new pages is to keep checks behind a tap. The page now has `<meta name="checks" content="tap">`. |
-| Fixture canvases made with `willReadFrequently: true` | That asks for a canvas kept in main memory, and `drawElementImage()` then has to bring an element picture back from the GPU. Checks now read from a small `drawImage()` copy. |
+| Fixture canvases made with `willReadFrequently: true` (the cause, see above) | That asks for a canvas kept in main memory, and `drawElementImage()` then has to bring an element picture back from the GPU. Checks now read from a small `drawImage()` copy. |
 | `drawElementImage()` with `globalAlpha = 0` of an element with no content (the drag handles) | An empty picture, drawn every frame. The handles are now a faint ring, drawn normally. |
 | An input whose picture is completely transparent (the odometer) | The same. It has a faint bottom border now. |
 | `shadowBlur` on canvas fills | Not used by the other 2D pages. Replaced with plain fills. |
