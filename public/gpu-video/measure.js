@@ -198,6 +198,7 @@ async function measureGL(stage, clipUrl, frames, say) {
   f.canvas.width = 640; f.canvas.height = 360;
   stage.append(f.canvas);
   try {
+    // gfx-allow: webgl-context one measurement fixture, made on a tap and removed when the measurement ends
     const gl = f.canvas.getContext('webgl2', { alpha: false, antialias: false });
     const composer = glComposer(gl);
     await f.video.play();

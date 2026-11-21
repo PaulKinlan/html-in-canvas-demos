@@ -318,6 +318,7 @@ function probe() {
 
 /** texElementSubImage2D(ElementImage) and texImage2D(VideoFrame) in one WebGL 2 shader, on a canvas of its own. */
 function glCompose(glCanvas, image) {
+  // gfx-allow: webgl-context one live check, in a worker, on a fixture canvas that is removed when the check ends. The visible demo draws with 2D
   const gl = glCanvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: true });
   if (!gl) throw new Error('no WebGL 2 context in the worker');
   if (!gl.texElementSubImage2D) throw new Error('the worker WebGL 2 context has no texElementSubImage2D()');
