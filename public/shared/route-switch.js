@@ -13,8 +13,8 @@
 // line under the switch says what is drawing right now and, when that is not
 // WebGPU, why. `?route=webgl` in the address sets the switch on load.
 
-const NAMES = { webgpu: 'WebGPU', webgl: 'WebGL', direct: 'WebGL', shared: 'WebGL (shared context)', gl: 'WebGL', '2d': '2D canvas', worker: 'a worker', starting: 'starting', plain: 'plain DOM' };
-const LABELS = { '': 'Best available', webgpu: 'WebGPU', webgl: 'WebGL', '2d': '2D canvas only' };
+const NAMES = { webgpu: 'WebGPU', 'webgpu-compat': 'WebGPU compatibility mode', webgl: 'WebGL', direct: 'WebGL', shared: 'WebGL (shared context)', gl: 'WebGL', '2d': '2D canvas', worker: 'a worker', starting: 'starting', plain: 'plain DOM' };
+const LABELS = { '': 'Best available', webgpu: 'WebGPU', 'webgpu-compat': 'WebGPU compatibility mode', webgl: 'WebGL', '2d': '2D canvas only' };
 
 export function routeSwitch(mount, { targets, attr = 'backend', values = { webgpu: 'webgpu', webgl: 'webgl' }, active = (el) => el.backend, note = (el) => el.gpuNote, apply, param = 'route' } = {}) {
   if (!mount) return null;

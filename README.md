@@ -65,6 +65,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/embed/` | Cross-origin cards the host distorts and restyles without DOM access |
 | `/support/` | Share one region of a page with a support agent or a vision model |
 | `/three-form/` | A live form on a laptop screen, a billboard and a curved wall in three.js (WebGL or `?renderer=webgpu`), via `lib/html3d.js` |
+| `/webgpu-features/` | Texture swizzle, immediates, float blending, `primitive_index` and dual-source blending on element textures, each with a fallback, plus a compatibility mode tier |
 | `/board/` | An infinite zoomable board whose tiles are live notes and iframes |
 | `/xr/` | WebXR panels made of HTML, with controller rays, an on-panel keyboard and a built-in headset emulator (`?emulate=1`) |
 | `/slot-view/` | `<slot-view src name>`: a live piece of another site with no iframe box, consent on the providing side, input forwarded ([protocol](public/slot-view/PROTOCOL.md)) |

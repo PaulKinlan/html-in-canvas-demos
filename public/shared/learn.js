@@ -75,6 +75,7 @@
 
       // --- 3d ---
       '/three-form/': { question: 'Can an HTML form be a three.js texture and keep typing, Tab and text selection on a 3D surface?', first: ['/shader-css/', '/portal/'], api: ['texElementSubImage2D()', 'drawElementImageToTexture()', 'updateElementGeometry()'] },
+      '/webgpu-features/': { question: 'Which newer WebGPU features are useful on a texture made from an element, and what is drawn on a device without them?', first: ['/shader-css/'], api: ['drawElementImageToTexture()', 'createView({ swizzle })', 'setImmediates()', 'dual_source_blending', 'primitive_index'] },
       '/board/': { question: 'Can a zoomable board of live documents be built with 2D <code>drawElementImage()</code> only, with text rasterised again at each zoom level?', first: ['/start/'], api: ['drawElementImage()', 'updateElementGeometry()', '<iframe>'] },
       '/xr/': { question: 'Can HTML panels be used in WebXR, where there is no mouse? Controller rays are converted to pointer events on the elements.', first: ['/three-form/'], api: ['WebXR', 'texElementSubImage2D()', 'PointerEvent'] },
       '/native-ui/': { question: 'Can a native UI toolkit compiled to WebAssembly (egui, Qt Quick) use real DOM inputs as widgets inside its own WebGL canvas?', result: 'Yes for both, with a bridge of about 200 lines and no change to the toolkit. Tab order and occlusion are left to the bridge.', first: ['/three-form/'], api: ['texElementSubImage2D()', 'updateElementGeometry()', 'WebAssembly'] },

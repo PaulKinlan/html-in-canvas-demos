@@ -247,6 +247,26 @@ Every demo that put an element through a WebGL shader now has a WebGPU route as 
 
 Not verified here, because the cloud browser cannot show a WebGPU canvas: every on-screen WebGPU path, its speed against WebGL, and three's `WebGPURenderer`. Each page has two checks for a real device: "the same picture as WebGL" (off-screen, pixel by pixel) and "on screen" (reads the shown canvas). On the cloud browser the first passes with the software adapter and the second fails with the reason.
 
+
+### Newer WebGPU features on element textures (`/webgpu-features/`)
+
+One page draws a form and a block of text, both uploaded with `drawElementImageToTexture()`, with one newer feature per tile. `shared/backend.js` now asks the adapter for each of `texture-component-swizzle`, `float32-blendable`, `dual-source-blending` and `primitive-index` that it lists, so `device.features.has(name)` is the test on any page. Measured on the software adapter in Chromium 157, by reading an off-screen target back:
+
+| Feature | Use | Without it | Result |
+| --- | --- | --- | --- |
+| Compatibility mode (`requestAdapter({ featureLevel: 'compatibility' })`) | `webgpu({ compat: true })` gives a compatibility device where there is no core adapter; `pickBackend()` accepts `'webgpu-compat'` in its order | WebGL | The compatibility device (4096 pixel textures, 4 colour attachments) builds every shader on the page and its picture matches the core device within 2 of 255 |
+| `texture-component-swizzle` | `createView({ swizzle: 'aaa1', usage: TEXTURE_BINDING })` hands an element's alpha to a shader that reads `.r` | The shader is compiled again to read `.a` | Same picture, largest difference 0 of 255 |
+| Immediates (`var<immediate>`, `setImmediates()`) | 48 bytes for each draw with no buffer and no bind group; `maxImmediateSize` is 64 | One uniform buffer, a 256-byte slot for each draw, dynamic offset | Same picture, largest difference 0 of 255 |
+| `float32-blendable` | An `rgba32float` trail target that is faded and added to each frame | `rgba16float`, then `rgba8unorm` | Float targets read 251 of 255 after 8 additions and 0 after 200 fades; `rgba8unorm` reads 201 and keeps a mark of 14 |
+| `primitive-index` | `@builtin(primitive_index)` tints each triangle in the fragment shader | `vertex_index / 3` as a flat varying | Not measured: the software adapter does not have the feature |
+| `dual-source-blending` | Text with a separate coverage for red, green and blue (`@blend_src(1)`, `src1` blend factors) | The coverages averaged, plain alpha | Not measured: the software adapter does not have the feature |
+
+- The WebGL 2 route draws the same frame as the WebGPU route with every feature off: mean difference 0.09 of 255 in the shards tile and 0.00 in the other four.
+- `primitive_index` is a fragment input only. Moving triangles apart is vertex work, so it does not replace per-vertex data; for separate triangles a flat varying gives the fragment shader the same number.
+- Flat varyings must be `@interpolate(flat, either)` to compile on a compatibility device.
+- Subpixel text needs a canvas with one pixel for each screen pixel (`devicePixelContentBoxSize`) and assumes red, green, blue stripes. Most phone screens are not laid out that way.
+- Needs a real GPU: the two unmeasured rows, WebGPU on screen for this page, and whether a phone's compatibility adapter is a separate one.
+
 ## Transitions and motion (`/transitions/`, `/time-scrubber/`, `/particles/`)
 
 | Experiment | Result | Why |
