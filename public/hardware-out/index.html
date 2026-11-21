@@ -341,9 +341,9 @@
 
   if (supported) {
     const S = deck.size;
-    // willReadFrequently: these canvases are read back for every change, so they are kept in ordinary memory.
-    // A readback from a GPU canvas on a timer lost canvases on the test phone.
-    const ctx = deckSrc.getContext('2d', { willReadFrequently: true });
+    // Not willReadFrequently: drawElementImage() into such a canvas lost every canvas on the test phone.
+    // Pixels are read from a copy (turn, below), never from this canvas.
+    const ctx = deckSrc.getContext('2d');
     const place = (k) => [(k % deck.columns) * S, Math.floor(k / deck.columns) * S];
     const changed = new Set(keys.keys()); // keys to look at: all of them at the start
     let sending = false;
@@ -360,6 +360,7 @@
     // #region deck-send
     const sent = new Array(deck.keys).fill(null); // a hash of the pixels last sent for each key
     const turn = new OffscreenCanvas(S, S), turnCtx = turn.getContext('2d', { willReadFrequently: true });
+    const lookAt = new OffscreenCanvas(S, S), lookCtx = lookAt.getContext('2d', { willReadFrequently: true });
     const hash = (data) => { let h = 2166136261; for (let i = 0; i < data.length; i += 4) h = Math.imul(h ^ data[i] ^ (data[i + 1] << 8) ^ (data[i + 2] << 16), 16777619); return h; };
 
     async function sendChangedKeys() {
@@ -371,7 +372,10 @@
         for (const k of look) {
           const [x, y] = place(k);
           // An element can be listed as changed and look the same, so compare the pixels with the last ones sent.
-          const h = hash(ctx.getImageData(x, y, S, S).data);
+          // Read from a copy in ordinary memory, never from the drawable canvas.
+          lookCtx.clearRect(0, 0, S, S);
+          lookCtx.drawImage(deckSrc, x, y, S, S, 0, 0, S, S);
+          const h = hash(lookCtx.getImageData(0, 0, S, S).data);
           if (h === sent[k]) { deckStats.same++; continue; }
           sent[k] = h;
           // The device shows key images turned by 180 degrees, so they are stored turned.
@@ -523,7 +527,10 @@
   let panel = null;
   $('matrixConnect').onclick = async () => { panel = await openSerial(+$('matrixBaud').value, $('matrixStatus')); };
   if (supported) {
-    const ctx = matrixSrc.getContext('2d', { willReadFrequently: true }); // read back every frame: kept in ordinary memory
+    // Not willReadFrequently: drawElementImage() into such a canvas lost every canvas on the test phone.
+    // Each frame is copied with drawImage() into a plain canvas in ordinary memory, and read from there.
+    const ctx = matrixSrc.getContext('2d');
+    const copy = new OffscreenCanvas(64, 32), copyCtx = copy.getContext('2d', { willReadFrequently: true });
     const sim = matrixSim.getContext('2d');
     const small = new OffscreenCanvas(64, 32), smallCtx = small.getContext('2d');
     // A mask with one round hole per LED, drawn over the enlarged frame.
@@ -546,7 +553,9 @@
       const now = performance.now();
       if (now - last < 33) return; // at most 30 frames a second
       last = now;
-      const bytes = matrix.frame(ctx.getImageData(0, 0, 64, 32));
+      copyCtx.clearRect(0, 0, 64, 32);
+      copyCtx.drawImage(matrixSrc, 0, 0);
+      const bytes = matrix.frame(copyCtx.getImageData(0, 0, 64, 32));
       simPanel(bytes); // the simulated panel reads the same bytes
       if (panel && panel.desiredSize > 0) panel.write(bytes); // a real one, unless the port is still busy
       if (++frames % 15 === 1) $('matrixBytes').textContent = `Frame ${frames}: ${bytes.length.toLocaleString()} bytes. Starts: ${hex(bytes, 10)}.`;

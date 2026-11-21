@@ -128,5 +128,6 @@ export function fixtureCanvas(parent, html, width = 320, height = 240) {
   cv.style.cssText = `width:${width}px;height:${height}px;flex:none;display:block`;
   cv.innerHTML = html;
   parent.append(cv);
-  return { cv, ctx: cv.getContext('2d', { willReadFrequently: true }) };
+  // Not willReadFrequently: drawElementImage() into such a canvas lost every canvas on the test phone.
+  return { cv, ctx: cv.getContext('2d') };
 }

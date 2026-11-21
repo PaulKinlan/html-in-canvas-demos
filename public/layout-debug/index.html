@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Layout debugger overlay</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; max-width: 560px; }
+  .bar label { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; }
+  .bar input[type="range"] { width: 150px; }
+  .key { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; }
+  #scene { display: block; position: relative; width: 100%; max-width: 560px; height: 560px; border-radius: 16px; background: #10131f; touch-action: pan-y; overflow-anchor: none; }
+  #status { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; margin: 8px 0; max-width: 560px; white-space: pre-line; }
+  .plain-scene { max-width: 560px; padding: 12px; border-radius: 16px; background: #10131f; }
+  .plain-scene #doc { position: static; }
+
+  /* #region scene-css */
+  /* The scene is ordinary CSS: block margins, a table, a flex row, inline text in two sizes. */
+  #doc { position: absolute; left: 0; top: 0; box-sizing: border-box; width: 330px; margin: 0; padding: 14px 16px; border: 2px solid #c9c2b4; border-radius: 12px;
+    background: #f6f4ef; color: #1d1c1a; font: 15px/1.5 Georgia, serif; }
+  #doc h3 { margin: 0 0 6px; font: 700 20px/1.2 system-ui, sans-serif; }
+  #doc p { margin: 10px 0; }
+  #doc .big { font: 700 30px/1 system-ui, sans-serif; padding: 0 3px; }
+  #doc a { color: #b5330c; }
+  #doc table { border-collapse: separate; border-spacing: 4px; margin: 12px 0; width: 100%; font: 13px/1.3 system-ui, sans-serif; }
+  #doc th, #doc td { padding: 5px 8px; border: 1px solid #c9c2b4; text-align: left; vertical-align: baseline; }
+  #doc td.tall { font-size: 19px; }
+  #doc .row { display: flex; gap: 10px; align-items: baseline; margin: 12px 0 14px; padding: 6px; background: #ebe6da; border-radius: 8px; }
+  #doc button { font: 14px system-ui, sans-serif; padding: 7px 12px; border: 1px solid #a19c93; border-radius: 8px; background: #fff; color: #1d1c1a; }
+  #doc .chip { margin-left: auto; font: 11px system-ui, sans-serif; padding: 2px 8px; border-radius: 99px; background: #1d1c1a; color: #fff; }
+  #doc ul { margin: 0 0 0 4px; padding-left: 22px; }
+  #doc li { margin: 4px 0; }
+  #doc [contenteditable] { padding: 8px; border: 1px dashed #a19c93; border-radius: 8px; margin-bottom: 0; }
+  /* #endregion scene-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Layout debugger overlay</h1>
+  <p class="lede">
+    The canvas draws an article, and over it the boxes that layout gave each element: margin in orange, padding in green, the baseline
+    of each line of text in pink. Tap a part of the article to see that element alone, with its size. Drag "Width" to make the article
+    lay out again. "Turn the picture" draws the article at an angle, and the overlay turns with it.
+  </p>
+
+  <!-- #region markup -->
+  <canvas id="scene" content="drawable" layoutsubtree>
+    <article id="doc" drawable>
+      <h3>Harbour times</h3>
+      <p>The gate <a href="#" id="link">opens</a> at <span class="big">6</span> and the ferry leaves on the hour.</p>
+      <table>
+        <tr><th>Day</th><th>High</th><th>Low</th></tr>
+        <tr><td>Mon</td><td class="tall">05:40</td><td>11:52</td></tr>
+        <tr><td>Tue</td><td>06:31</td><td class="tall">12:44</td></tr>
+      </table>
+      <div class="row"><button type="button">Earlier</button><button type="button">Later</button><span class="chip">2 days</span></div>
+      <ul><li>Margins of the list items collapse.</li><li>The row above is a flex box with a gap.</li></ul>
+      <p contenteditable id="edit" aria-label="Editable text">Type here. The boxes are measured again after each change.</p>
+    </article>
+  </canvas>
+  <!-- #endregion markup -->
+
+  <div class="bar">
+    <label><input type="checkbox" id="margin" checked> <span class="key" style="background:#f6a03c"></span> Margin</label>
+    <label><input type="checkbox" id="padding" checked> <span class="key" style="background:#78c86e"></span> Padding</label>
+    <label><input type="checkbox" id="content"> <span class="key" style="background:#468cff"></span> Content box</label>
+    <label><input type="checkbox" id="baseline" checked> <span class="key" style="background:#e5177b"></span> Baselines</label>
+  </div>
+  <div class="bar">
+    <label>Width <input type="range" id="width" min="220" max="330" value="330" step="1"></label>
+    <label><input type="checkbox" id="turn"> Turn the picture</label>
+    <button type="button" id="clear">Show every element</button>
+  </div>
+
+  <p id="status" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>measure at 0, 0 with no ink, then draw the element and its boxes</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> One drawable child. Nothing is added to it for the overlay.</li>
+      <li data-code="/lib/devtools/layout-boxes.js#identity"><b>A measuring draw.</b> The element is drawn at 0, 0 with <code>globalAlpha = 0</code> so that client rectangles are layout positions.</li>
+      <li data-code="/lib/devtools/layout-boxes.js#measure"><b>The boxes and the baselines.</b></li>
+      <li data-code="#frame"><b>One frame.</b> Measure, draw the article with its transform, draw the overlay with the same transform.</li>
+      <li data-code="/lib/devtools/layout-boxes.js#draw-boxes"><b>Drawing the boxes.</b></li>
+      <li data-code="#pick"><b>Picking an element.</b> A tap reaches the element itself, because hit testing follows the draw.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>Each frame has three steps. The article is drawn at 0, 0 with no transform and <code>globalAlpha = 0</code>. Nothing appears, and for that moment <code>getBoundingClientRect()</code> of every descendant is its layout position plus the canvas position. The page reads all of them. Then the article is drawn where it belongs, which also puts hit testing there.</li>
+    <li>Margin, border and padding widths come from <code>getComputedStyle()</code>. The margin is drawn as the ring between the border box and the border box grown by the margins.</li>
+    <li>A baseline is found without adding anything to the document. A <code>Range</code> over a text node returns one rectangle per line. The rectangle is the inline box, as tall as the font's ascent plus descent. The ascent comes from <code>measureText().fontBoundingBoxAscent</code> for the same font.</li>
+    <li>The overlay is drawn in the article's own coordinates under the same canvas transform as the article, so a rotation or scale needs no extra arithmetic.</li>
+    <li>A tap is a <code>click</code> on the element under the finger. No coordinates are converted: the browser hit tests the drawn article.</li>
+    <li>The canvas redraws on the <code>paint</code> event, so typing in the last paragraph or dragging "Width" measures everything again.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds a small canvas of its own in a corner of the window. The picture above is not touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157, headless, on 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: a measuring draw with no ink.</strong> A draw with <code>globalAlpha = 0</code> places the element, so layout rectangles can be read at 0, 0 and the element drawn elsewhere in the same frame. Hit testing ends at the last draw.</li>
+    <li><strong>Limit: no call returns layout rectangles of a turned element.</strong> After a draw turned by 0.3 rad, <code>getBoundingClientRect()</code> and <code>Range.getClientRects()</code> return bounding boxes in the canvas. <code>offsetLeft</code> and <code>offsetTop</code> give layout positions of elements as whole numbers, and nothing gives them for a line of text. <code>getBoxQuads()</code> is not in Chromium.</li>
+    <li><strong>Works: baselines from the font's ascent.</strong> They match a zero-size inline-block probe to within 0.5 px for the three fonts checked. A line box that mixes sizes shares one baseline, which the pink line shows under "6" and its neighbours.</li>
+    <li><strong>Seen in the overlay: collapsed margins overlap.</strong> Two paragraphs with a 20 px margin each are 20 px apart, and the two orange rings lie on top of each other. Computed style reports the margin an element asked for, not the space it got.</li>
+    <li><strong>Seen in the overlay: a flex gap and <code>border-spacing</code> are not margins.</strong> The space between the two buttons and between table cells has no colour.</li>
+    <li><strong>Not covered:</strong> baselines of form controls and images, CSS transforms on descendants, grid line names and flex free space.</li>
+    <li><strong>Not verified here:</strong> a phone. The overlay should be checked at a device pixel ratio of 2.625, where layout positions are fractions of a pixel, and with a system font size that is not the default.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { atIdentity, measureBoxes, measureBaselines, drawBoxes, drawBoxLabel, describeBox } from '/lib/devtools/layout-boxes.js';
+  import { fitCanvas, cssScale } from '/lib/devtools/stage.js';
+  import { rig, pixelBox } from '/lib/devtools/check-rig.js';
+  import { banner, runTests, supported } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('scene'), doc = $('doc'), status = $('status');
+  let selected = null;
+
+  if (!supported) {
+    const plain = document.createElement('div');
+    plain.className = 'plain-scene';
+    plain.append(doc);
+    canvas.replaceWith(plain);
+    status.textContent = 'HTML-in-canvas is not available, so the article is plain HTML and no overlay is drawn.';
+    $('width').oninput = () => { doc.style.width = $('width').value + 'px'; };
+  } else {
+    const ctx = canvas.getContext('2d');
+    let raf = 0, lost = false;
+    const wake = () => { if (!lost) raf ||= requestAnimationFrame(frame); };
+
+    fitCanvas(canvas, () => {
+      // The article is at most as wide as the canvas allows.
+      const most = Math.max(220, Math.min(420, canvas.clientWidth - 24));
+      $('width').max = most;
+      if (+$('width').value > most || !$('width').dataset.touched) $('width').value = most;
+      doc.style.width = $('width').value + 'px';
+      wake();
+    });
+    canvas.addEventListener('paint', wake);
+    canvas.addEventListener('contextlost', () => { lost = true; status.textContent = 'The canvas lost its graphics context. The picture comes back if the browser restores it.'; });
+    canvas.addEventListener('contextrestored', () => { lost = false; wake(); });
+    for (const id of ['margin', 'padding', 'content', 'baseline', 'turn']) $(id).addEventListener('change', wake);
+    $('width').addEventListener('input', () => { $('width').dataset.touched = '1'; doc.style.width = $('width').value + 'px'; wake(); });
+    $('clear').onclick = () => { selected = null; wake(); };
+
+    // #region pick
+    // The click arrives at the element that was drawn under the finger.
+    canvas.addEventListener('click', (e) => {
+      if (e.target.closest('a')) e.preventDefault();
+      selected = doc.contains(e.target) && e.target !== doc ? e.target : null;
+      wake();
+    });
+    // #endregion pick
+
+    // #region frame
+    function frame() {
+      raf = 0;
+      const k = cssScale(canvas), W = canvas.clientWidth;
+      const w = doc.offsetWidth, h = doc.offsetHeight;
+      try {
+        ctx.reset();
+        // 1. Measure. The article is at 0, 0 for the length of this call and leaves no ink.
+        const { boxes, baselines } = atIdentity(ctx, doc, (origin) => ({ boxes: measureBoxes(doc, origin), baselines: measureBaselines(doc, origin) }));
+        // 2. Draw the article with its transform. This is the draw that hit testing uses.
+        ctx.scale(k, k);
+        ctx.translate(W / 2, 14);
+        if ($('turn').checked) { ctx.translate(0, 26); ctx.rotate(-0.07); ctx.scale(0.9, 0.9); }
+        ctx.translate(-w / 2, 0);
+        ctx.drawElementImage(doc, 0, 0, w, h);
+        // 3. Draw the boxes in the article's own coordinates, under the same transform.
+        drawBoxes(ctx, boxes, baselines, {
+          margin: $('margin').checked, padding: $('padding').checked, content: $('content').checked, baseline: $('baseline').checked, selected,
+        });
+        const picked = selected && boxes.find((b) => b.el === selected);
+        if (picked) {
+          const corner = ctx.getTransform().transformPoint(new DOMPoint(picked.x, picked.y)); // buffer px
+          ctx.setTransform(k, 0, 0, k, 0, 0);
+          drawBoxLabel(ctx, picked, { x: corner.x / k, y: corner.y / k }, W);
+        }
+        report(boxes, baselines, picked);
+      } catch (err) {
+        // "No cached paint record": the article has not painted yet. Ask, and draw on the paint event.
+        if (/paint record/i.test(err.message)) canvas.requestPaint();
+        else throw err;
+      }
+    }
+    // #endregion frame
+
+    function report(boxes, baselines, picked) {
+      let text = `${boxes.length} elements and ${baselines.length} line fragments measured. The article is ${doc.offsetWidth} × ${doc.offsetHeight} px.`;
+      if (picked) {
+        const d = describeBox(picked);
+        text += `\nSelected: ${d.tag}, ${d.size} px, display ${d.display}.\nmargin ${d.margin} · border ${d.border} · padding ${d.padding}`;
+      } else text += '\nTap a part of the article to select it.';
+      if (status.textContent !== text) status.textContent = text;
+      window.__layoutDebug = { boxes: boxes.length, baselines: baselines.length, selected: picked ? describeBox(picked) : null };
+    }
+
+    canvas.requestPaint();
+    wake();
+  }
+
+  // ---- live checks: every one on its own small canvas ----
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const ABS = 'position:absolute;left:0;top:0;margin:0;';
+  const near = (a, b, by = 1) => Math.abs(a - b) <= by;
+
+  runTests($('results'), [
+    {
+      name: 'A measured box is where the pixels of the element are',
+      why: 'A red 60 by 40 block with a 20 px margin inside a root that is drawn at 30, 20. The measured box, moved by 30, 20, must cover the red pixels.',
+      run: async () => {
+        need();
+        const { g, paint, kids } = rig(`<div style="${ABS}width:200px;height:100px"><div id="red" style="width:60px;height:40px;margin:20px;background:#f00"></div></div>`);
+        let boxes;
+        await paint(() => {
+          boxes = atIdentity(g, kids[0], (origin) => measureBoxes(kids[0], origin));
+          g.drawElementImage(kids[0], 30, 20, 200, 100);
+        });
+        const b = boxes.find((x) => x.el.id === 'red'), ink = pixelBox(g, (r, gr, bl, a) => a > 200 && r > 200 && gr < 60);
+        if (!ink) throw new Error('no red pixels were drawn');
+        if (!near(b.x + 30, ink.left) || !near(b.y + 20, ink.top) || !near(b.width, ink.right - ink.left) || !near(b.height, ink.bottom - ink.top)) throw new Error(`box ${b.x + 30}, ${b.y + 20}, ${b.width} × ${b.height}; pixels ${ink.left}, ${ink.top}, ${ink.right - ink.left} × ${ink.bottom - ink.top}`);
+        return `box at ${b.x + 30}, ${b.y + 20}, ${b.width} × ${b.height} px, margin ${b.margin.top}. The red pixels are at ${ink.left}, ${ink.top}, ${ink.right - ink.left} × ${ink.bottom - ink.top}`;
+      },
+    },
+    {
+      name: 'The measuring draw leaves no pixels',
+      why: 'atIdentity() draws a solid red block with globalAlpha 0 and nothing else is drawn. The canvas must stay empty, and the block must report its position at 0, 0.',
+      run: async () => {
+        need();
+        const { g, paint, kids } = rig(`<div style="${ABS}width:120px;height:60px;background:#f00"></div>`);
+        let at;
+        await paint(() => { at = atIdentity(g, kids[0], (origin) => { const r = kids[0].getBoundingClientRect(); return [r.left - origin.left, r.top - origin.top]; }); });
+        const ink = pixelBox(g, (r, gr, b, a) => a > 0);
+        if (ink) throw new Error(`pixels were drawn at ${ink.left}, ${ink.top}`);
+        return `no pixels. Position read during the call: ${at.join(', ')}`;
+      },
+    },
+    {
+      name: 'After a turned draw, client rectangles are bounding boxes; the measuring draw gives the layout box',
+      why: 'A 40 by 20 block at 50, 30 inside a root drawn turned by 0.3 rad. getBoundingClientRect() after that draw is compared with the box measured at 0, 0 and with offsetLeft and offsetTop.',
+      run: async () => {
+        need();
+        const { g, paint, kids } = rig(`<div style="${ABS}width:200px;height:100px"><div id="b" style="position:absolute;left:50px;top:30px;width:40px;height:20px;background:#00f"></div></div>`);
+        const child = kids[0].firstElementChild;
+        let boxes;
+        await paint(() => {
+          boxes = atIdentity(g, kids[0], (origin) => measureBoxes(kids[0], origin));
+          g.translate(60, 20); g.rotate(0.3);
+          g.drawElementImage(kids[0], 0, 0, 200, 100);
+        });
+        const after = child.getBoundingClientRect(), b = boxes.find((x) => x.el === child);
+        if (!near(b.x, 50, 0.5) || !near(b.y, 30, 0.5) || !near(b.width, 40, 0.5) || !near(b.height, 20, 0.5)) throw new Error(`measured ${b.x}, ${b.y}, ${b.width} × ${b.height}`);
+        if (near(after.width, 40, 0.5) && near(after.height, 20, 0.5)) throw new Error('getBoundingClientRect() returned the layout size after a turned draw, which this page does not expect');
+        return `measured ${b.x}, ${b.y}, ${b.width} × ${b.height}. After the turned draw getBoundingClientRect() is ${after.width.toFixed(1)} × ${after.height.toFixed(1)}. offsetLeft ${child.offsetLeft}, offsetTop ${child.offsetTop}`;
+      },
+    },
+    {
+      name: 'Hit testing ends at the real draw, not at the measuring draw',
+      why: 'A 60 by 40 button is measured at 0, 0 and then drawn at 200, 120. elementFromPoint() must find it at 230, 140 and not at 30, 20.',
+      run: async () => {
+        need();
+        const { c, g, paint, kids, box } = rig(`<button id="hit" style="${ABS}width:60px;height:40px">b</button>`, { hits: true });
+        await paint(() => { atIdentity(g, kids[0], () => 0); g.drawElementImage(kids[0], 200, 120, 60, 40); });
+        const o = box();
+        const there = document.elementFromPoint(o.left + 230, o.top + 140), origin = document.elementFromPoint(o.left + 30, o.top + 20);
+        if (there !== kids[0] || origin === kids[0]) throw new Error(`at 230, 140: ${there?.localName ?? 'nothing'}. At 30, 20: ${origin?.localName ?? 'nothing'}`);
+        return `at 230, 140: the button. At 30, 20: the ${origin === c ? 'canvas' : origin?.localName}`;
+      },
+    },
+    {
+      name: 'The baseline from the font ascent matches a probe',
+      why: 'Three lines in three fonts (20 px serif with line-height 2, 40 px sans-serif, 14 px monospace). Each ends with a zero-size inline-block, whose bottom edge is on the baseline. The measured baseline must be within 0.6 px of it.',
+      run: async () => {
+        need();
+        const probe = '<i style="display:inline-block;width:0;height:0"></i>';
+        const { paint, kids } = rig(`<div style="${ABS}width:300px"><p style="margin:6px;font:20px/2 serif">Hxg${probe}</p><p style="margin:0;font:40px sans-serif">Hxg${probe}</p><p style="margin:0;font:14px monospace">Hxg${probe}</p></div>`);
+        let lines, real;
+        await paint((g) => {
+          [lines, real] = atIdentity(g, kids[0], (origin) => [measureBaselines(kids[0], origin), [...kids[0].querySelectorAll('i')].map((i) => i.getBoundingClientRect().bottom - origin.top)]);
+          g.drawElementImage(kids[0], 0, 0, 300, kids[0].offsetHeight);
+        });
+        const off = lines.map((l, i) => Math.abs(l.y - real[i]));
+        if (lines.length !== 3 || off.some((d) => d > 0.6)) throw new Error(`measured ${lines.map((l) => l.y.toFixed(2)).join(', ')}; probes ${real.map((y) => y.toFixed(2)).join(', ')}`);
+        return `measured ${lines.map((l) => l.y.toFixed(1)).join(', ')}; probes ${real.map((y) => y.toFixed(1)).join(', ')}. Largest difference ${Math.max(...off).toFixed(2)} px`;
+      },
+    },
+    {
+      name: 'Collapsed margins: computed style reports 20 px each, the gap is 20 px',
+      why: 'Two paragraphs with margin 20px 0. The distance between their border boxes is compared with the sum of the two margins the overlay draws.',
+      run: async () => {
+        need();
+        const { paint, kids } = rig(`<div style="${ABS}width:200px;font:14px sans-serif"><p id="p1" style="margin:20px 0">one</p><p id="p2" style="margin:20px 0">two</p></div>`);
+        let boxes;
+        await paint((g) => { boxes = atIdentity(g, kids[0], (origin) => measureBoxes(kids[0], origin)); g.drawElementImage(kids[0], 0, 0, 200, kids[0].offsetHeight); });
+        const a = boxes.find((b) => b.el.id === 'p1'), b = boxes.find((x) => x.el.id === 'p2');
+        const gap = b.y - (a.y + a.height);
+        if (!near(gap, 20, 0.5)) throw new Error(`the gap is ${gap} px`);
+        return `gap ${gap} px. Margins drawn: ${a.margin.bottom} px below the first and ${b.margin.top} px above the second, which overlap`;
+      },
+    },
+    {
+      name: 'A text change raises a paint event and the new layout is measured',
+      why: 'The text of a 120 px wide paragraph is replaced with a longer one. No requestPaint() is called. The next paint event must measure a taller box.',
+      run: async () => {
+        need();
+        const { c, g, paint, kids } = rig(`<p style="${ABS}width:120px;font:14px sans-serif">short</p>`);
+        const measure = () => atIdentity(g, kids[0], (origin) => measureBaselines(kids[0], origin).length);
+        let before;
+        await paint(() => { before = measure(); g.drawElementImage(kids[0], 0, 0, 120, kids[0].offsetHeight); });
+        const next = new Promise((resolve) => c.addEventListener('paint', () => { g.reset(); const n = measure(); g.drawElementImage(kids[0], 0, 0, 120, kids[0].offsetHeight); resolve(n); }, { once: true }));
+        kids[0].textContent = 'a much longer text that wraps onto several lines in the box';
+        const after = await next;
+        if (!(after > before)) throw new Error(`${before} line before, ${after} after`);
+        return `${before} line before the change, ${after} lines in the paint event after it`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

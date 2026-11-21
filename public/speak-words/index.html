@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Word-by-word highlighting from SpeechSynthesis boundary events</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .bar { display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; font-size: 14px; margin: 10px 0; }
+  .bar label { display: inline-flex; gap: 4px 8px; align-items: center; flex-wrap: wrap; max-width: 100%; }
+  .bar select, .bar button { font: inherit; min-height: 40px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; max-width: 100%; }
+  .bar select { max-width: min(100%, 16em); }
+  .bar input[type=range] { width: 110px; }
+  #speak { min-width: 96px; font-weight: 600; background: var(--accent); border-color: var(--accent); color: #fff; }
+  .stage { max-width: 640px; position: relative; padding: 0; overflow: hidden; }
+  /* The height is set by the script to the height of the article, once on load and again when the width changes. */
+  #page { display: block; width: 100%; height: 420px; background: #fffaf0; touch-action: manipulation; cursor: pointer; }
+  #blank[hidden] { display: none; }
+  #blank { margin: 0 0 8px; padding: 10px 14px; border-radius: 8px; font-size: 14px; background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  #say { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; margin: 8px 0; white-space: pre-line; }
+
+  /* #region css */
+  /* The paragraph is always dark text on a light page, in both colour schemes, so the effects have one set of colours. */
+  #text { width: 100%; padding: 40px 20px 28px; color: #1d1c1a; font: 22px/1.75 Georgia, 'Times New Roman', serif; }
+  #text p { margin: 0; }
+  /* The "::highlight() only" effect: two CSS Custom Highlights, drawn by the browser as part of the element's picture. */
+  ::highlight(spoken-past) { color: #1d1c1a; }
+  ::highlight(spoken-word) { background: #ffd166; color: #1d1c1a; }
+  [data-effect=highlight] #text { color: #9b958a; }
+  /* #endregion css */
+  .plain #text { background: #fffaf0; color: #9b958a; border-radius: 10px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Word-by-word highlighting from <code>SpeechSynthesis</code> boundary events</h1>
+  <p class="lede">
+    Press Speak and the browser reads the paragraph aloud. Each <code>boundary</code> event names the word being started, and the canvas draws an
+    effect on that word. Tap any word to start from it. If the voice sends no boundary events, the words are stepped by a timer and the line under
+    the buttons says so.
+  </p>
+
+  <div class="stage">
+    <p id="blank" hidden></p>
+    <!-- #region markup -->
+    <canvas id="page" content="drawable" layoutsubtree data-effect="spotlight" aria-label="A paragraph that is read aloud">
+      <article id="text" drawable>
+        <p>The browser is reading this paragraph aloud. Each time it starts a word, the speech engine fires a boundary event that carries the position of that word in the text. The page turns the position into a range and asks for its rectangle, and the canvas draws the effect there. Tap any word to start from it.</p>
+      </article>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+  <div class="bar">
+    <button type="button" id="speak">Speak</button>
+    <label>Effect
+      <select id="effect">
+        <option value="spotlight">spotlight that glides between words</option>
+        <option value="lens">magnified copy of the word</option>
+        <option value="sweep">sweep across the word</option>
+        <option value="highlight">::highlight() only, no canvas drawing</option>
+      </select>
+    </label>
+  </div>
+  <div class="bar">
+    <label>Voice <select id="voice"><option value="">browser default</option></select></label>
+    <label>Rate <input type="range" id="rate" min="0.6" max="1.8" step="0.1" value="1"> <output id="rateOut">1.0</output></label>
+  </div>
+  <p id="say" role="status">Nothing has been spoken yet.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>boundary event, range, rectangle, effect</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> One <code>drawable</code> article in a canvas.</li>
+      <li data-code="/speak-words/speaker.js#speaker"><b>Speak and listen for <code>boundary</code>.</b> <code>charIndex</code> is the position of the word in the utterance text. <code>charLength</code> is missing from some engines.</li>
+      <li data-code="#rects"><b>Position to rectangle.</b> A <code>Range</code> over the word and <code>getClientRects()</code>, made relative to the article.</li>
+      <li data-code="#paint"><b>Draw.</b> The paragraph dimmed, the spoken part at full ink through a clip, then the effect on the current word.</li>
+      <li data-code="#lens"><b>The magnified copy.</b> The nine-argument <code>drawElementImage()</code> takes the word's rectangle as its source. A last draw with an empty clip puts the hit-test region back on the paragraph.</li>
+      <li data-code="#tap"><b>Tap a word.</b> <code>caretPositionFromPoint()</code> gives the text offset under the finger.</li>
+      <li data-code="#css"><b>The CSS.</b> Including the two <code>::highlight()</code> rules of the fourth effect.</li>
+      <li data-code="/speak-words/speaker.js"><b>The whole speech file.</b> With the timer used when no boundary events arrive.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li><code>speechSynthesis.speak()</code> takes a <code>SpeechSynthesisUtterance</code>. While it speaks, the utterance fires <code>boundary</code> events with <code>charIndex</code>, and in newer engines <code>charLength</code> and the name <code>word</code> or <code>sentence</code>.</li>
+    <li>The page makes a <code>Range</code> from <code>charIndex</code> to the end of the word and reads <code>getClientRects()</code>. The rectangles are relative to the article, so the canvas can use them whatever size it draws the article at.</li>
+    <li>The canvas draws the article three times: once at 32% opacity, once clipped to the rectangles of the words already spoken, and once for the current word with the chosen effect. The spotlight's rectangle moves a fraction of the way to the new word on every frame.</li>
+    <li>The lens draws only the word's rectangle, 1.7 times larger. A draw call also moves the element's hit-test region, so after it the paragraph could not be tapped where it appears. The handler ends with one more full-size draw inside an empty clip, which draws nothing and restores the region.</li>
+    <li>The fourth effect draws nothing extra. Two CSS Custom Highlights are set on the same ranges and the browser paints them into the element's picture.</li>
+    <li>A tap calls <code>document.caretPositionFromPoint()</code>. The offset it returns is moved back to the start of the word, and a new utterance is spoken from there. Its <code>charIndex</code> values are then offsets from that point.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small canvas in a corner of the window. The paragraph above is not touched. The last check speaks three words at zero volume.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 headless, 2026-11-21, which has no voices. The rows above and the line under the buttons say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: a boundary event to a drawn word.</strong> With boundary events dispatched by hand, the range, its rectangle and the three canvas effects land on the right word.</li>
+    <li><strong>Works: <code>charLength</code> can be absent.</strong> The word's end is then found in the text from <code>charIndex</code>.</li>
+    <li><strong>Found: a partial draw moves the whole hit-test region.</strong> After the nine-argument draw of one word, <code>elementFromPoint()</code> at another word answered with the canvas, not the article. A final full-size draw inside an empty clip puts it back and adds no pixels.</li>
+    <li><strong>Works: <code>caretPositionFromPoint()</code> inside a drawn element.</strong> It returns the text node and the offset of the word under the point.</li>
+    <li><strong>Works: Custom Highlights are in the picture.</strong> A change to a <code>Highlight</code> is drawn after <code>requestPaint()</code>.</li>
+    <li><strong>Not run here: real speech.</strong> The test browser has no voices and <code>speak()</code> ends with the error <code>synthesis-failed</code>. The page then steps the words by a timer, which is the same path a voice without boundary events takes.</li>
+    <li><strong>Not verified:</strong> whether the voices of Chrome 159 on Android fire <code>boundary</code> events, whether they carry <code>charLength</code>, and how far the events lead or trail the sound. Press Speak and read the line under the buttons: it shows the count of events and the time to the <code>start</code> event. The last live check does the same with three words.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { speaker, wordAt, estimateWords } from '/speak-words/speaker.js';
+  import { fit, quietStage, hitAt, sleep } from '/lib/timed-stage.js';
+  import { banner, runTests, supported, nextPaint } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('page'), article = $('text');
+
+  // One pair of Custom Highlights for the page, used by the "::highlight() only" effect.
+  const pastMark = globalThis.Highlight ? new Highlight() : null, wordMark = globalThis.Highlight ? new Highlight() : null;
+  if (pastMark) { CSS.highlights.set('spoken-past', pastMark); CSS.highlights.set('spoken-word', wordMark); }
+
+  /**
+   * Draw `article` in `canvas` with an effect on one word.
+   * Returns { setWord({ index, length } | null, seconds), state }.
+   * `effect()` returns "spotlight", "lens", "sweep" or "highlight".
+   */
+  function reader(canvas, article, { effect = () => 'spotlight', restoreHits = true, marks = null } = {}) {
+    const ctx = canvas.getContext('2d');
+    const node = article.querySelector('p').firstChild; // the paragraph is one text node
+    const state = { word: null, target: null, shown: null, spoken: [], since: 0, lasts: 0.3, paints: 0 };
+
+    // #region rects
+    /** The rectangles of the text from `start` to `end`, in CSS pixels from the article's top left corner. */
+    function rectsOf(start, end) {
+      const range = new Range();
+      range.setStart(node, start);
+      range.setEnd(node, Math.min(end, node.length));
+      // Inside a canvas, client rectangles are where the element was last drawn. Dividing by the
+      // drawn scale gives layout pixels again.
+      const box = article.getBoundingClientRect();
+      const k = box.width / article.offsetWidth || 1;
+      const list = [...range.getClientRects()].map((r) => ({ x: (r.left - box.left) / k, y: (r.top - box.top) / k, w: r.width / k, h: r.height / k }));
+      return { range, list };
+    }
+    // #endregion rects
+
+    function setWord(word, lasts = 0.3) {
+      state.word = word;
+      state.since = performance.now();
+      state.lasts = lasts;
+      if (!word) {
+        state.target = state.shown = null;
+        state.spoken = [];
+        if (marks) { marks.past.clear(); marks.word.clear(); }
+      } else {
+        const now = rectsOf(word.index, word.index + word.length);
+        const before = rectsOf(0, word.index);
+        state.target = now.list[0] ?? null;
+        state.spoken = before.list;
+        // A word on another line is not glided to: the rectangle starts there.
+        if (!state.shown || !state.target || Math.abs(state.shown.y - state.target.y) > 4) state.shown = state.target && { ...state.target };
+        if (marks) { marks.past.clear(); marks.word.clear(); marks.past.add(before.range); marks.word.add(now.range); }
+      }
+      canvas.requestPaint?.();
+    }
+
+    /** Move the shown rectangle a step towards the current word. Returns true while it is still moving or sweeping. */
+    function step() {
+      const a = state.shown, b = state.target;
+      if (!a || !b) return false;
+      let moving = false;
+      for (const key of ['x', 'y', 'w', 'h']) {
+        const d = b[key] - a[key];
+        if (Math.abs(d) > 0.3) { a[key] += d * 0.35; moving = true; } else a[key] = b[key];
+      }
+      return moving || (performance.now() - state.since) / 1000 < state.lasts;
+    }
+
+    const round = (r, grow) => { ctx.beginPath(); ctx.roundRect(r.x - grow, r.y + 3, r.w + grow * 2, r.h - 6, 7); };
+
+    // #region paint
+    canvas.addEventListener('paint', () => {
+      state.paints++;
+      const k = canvas.width / canvas.clientWidth;
+      const w = article.offsetWidth, h = article.offsetHeight;
+      const fx = effect(), cur = state.shown;
+      const whole = () => ctx.drawElementImage(article, 0, 0, w, h);
+      ctx.reset();
+      ctx.scale(k, k);
+      if (fx === 'highlight' || !state.word) { whole(); return; }
+
+      // The words not spoken yet, faint.
+      ctx.globalAlpha = 0.32;
+      whole();
+      ctx.globalAlpha = 1;
+      // The words already spoken, at full ink: the same picture through a clip of their rectangles.
+      if (state.spoken.length) {
+        ctx.save();
+        ctx.beginPath();
+        for (const r of state.spoken) ctx.rect(r.x, r.y, r.w, r.h);
+        ctx.clip();
+        whole();
+        ctx.restore();
+      }
+      if (!cur) return;
+
+      if (fx === 'spotlight') {
+        ctx.save();
+        ctx.fillStyle = '#ffd166';
+        ctx.shadowColor = '#ffab00';
+        ctx.shadowBlur = 22;
+        round(cur, 6);
+        ctx.fill();
+        ctx.restore();
+        ctx.save();
+        round(cur, 6);
+        ctx.clip();
+        whole();
+        ctx.restore();
+      } else if (fx === 'sweep') {
+        // A band that crosses the word during the time the word is expected to take.
+        const part = Math.min(1, (performance.now() - state.since) / 1000 / state.lasts);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(cur.x, cur.y, cur.w * part, cur.h);
+        ctx.clip();
+        ctx.fillStyle = '#ff8a4d';
+        ctx.fillRect(cur.x, cur.y + 3, cur.w, cur.h - 6);
+        whole();
+        ctx.restore();
+      } else if (fx === 'lens') {
+        // #region lens
+        const pad = 6, zoom = 1.7;
+        const sw = cur.w + pad * 2, sh = cur.h;
+        ctx.save();
+        ctx.translate(Math.min(Math.max(cur.x + cur.w / 2, (sw * zoom) / 2 + 4), w - (sw * zoom) / 2 - 4), cur.y + cur.h / 2 - 10);
+        ctx.scale(zoom, zoom);
+        ctx.fillStyle = '#ffd166';
+        ctx.shadowColor = '#0006';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetY = 3;
+        ctx.beginPath();
+        ctx.roundRect(-sw / 2, -sh / 2 + 3, sw, sh - 6, 6);
+        ctx.fill();
+        ctx.shadowColor = 'transparent';
+        ctx.clip();
+        // Source rectangle (the word, in the article's own pixels), then destination rectangle.
+        ctx.drawElementImage(article, cur.x - pad, cur.y, sw, sh, -sw / 2, -sh / 2, sw, sh);
+        ctx.restore();
+        // That call mapped the element's hit-test region to the magnified copy. Draw the whole
+        // element once more inside an empty clip: no pixels change and taps reach the paragraph again.
+        if (restoreHits) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, 0, 0);
+          ctx.clip();
+          whole();
+          ctx.restore();
+        }
+        // #endregion lens
+      }
+    });
+    // #endregion paint
+
+    let raf = 0;
+    const loop = () => { raf = 0; if (step()) { canvas.requestPaint?.(); raf = requestAnimationFrame(loop); } else canvas.requestPaint?.(); };
+    return { state, rectsOf, node, setWord(word, lasts) { setWord(word, lasts); if (!raf) raf = requestAnimationFrame(loop); } };
+  }
+
+  // ---- the page ----
+  const effect = () => $('effect').value;
+  const view = reader(canvas, article, { effect, marks: pastMark && { past: pastMark, word: wordMark } });
+  const text = () => view.node.data;
+  let lastStats = null, words = 0;
+
+  const voice = speaker({
+    onword: ({ index, length, source }) => {
+      words++;
+      // How long the word is expected to last, for the sweep: the gap to the next word in the estimate.
+      const guess = estimateWords(text().slice(index), Number($('rate').value));
+      view.setWord({ index, length }, Math.max(0.12, guess[1]?.at ?? 0.4));
+      report(source);
+    },
+    onstate: (state, detail, stats) => {
+      lastStats = stats;
+      $('speak').textContent = voice.speaking ? 'Stop' : 'Speak';
+      if (state === 'end' || state === 'stopped') view.setWord(null);
+      report(stats?.source, state, detail);
+    },
+  });
+
+  function report(source, state = 'speaking', detail = '') {
+    const s = lastStats ?? voice.stats;
+    if (!s) return;
+    const lines = [
+      source === 'estimate' ? `words stepped by a timer${s.error ? ` (speech error: ${s.error})` : ' (no boundary event 0.7 s after the start)'}` : 'words from boundary events',
+      `start event ${s.startAfter === null ? 'not received' : `after ${s.startAfter.toFixed(0)} ms`}, ${s.boundaries} word boundary event${s.boundaries === 1 ? '' : 's'} (${s.withLength} with charLength), ${s.sentences} sentence event${s.sentences === 1 ? '' : 's'}`,
+      state === 'end' ? `finished after ${s.total.toFixed(1)} s, ${words} words drawn` : state === 'stopped' ? 'stopped' : `${words} words drawn`,
+    ];
+    $('say').textContent = lines.join('\n');
+  }
+
+  function start(from = 0) {
+    words = 0;
+    lastStats = null;
+    const chosen = speechSynthesis?.getVoices().find((v) => v.voiceURI === $('voice').value) ?? null;
+    voice.speak(text(), { from, voice: chosen, rate: Number($('rate').value) });
+    $('speak').textContent = 'Stop';
+    report('boundary');
+  }
+  $('speak').onclick = () => (voice.speaking ? voice.stop() : start(0));
+  $('rate').oninput = () => { $('rateOut').value = Number($('rate').value).toFixed(1); };
+  $('effect').onchange = () => { canvas.dataset.effect = effect(); canvas.requestPaint?.(); };
+
+  // #region tap
+  /** The text offset under a point, when the point is on the paragraph's text. */
+  function offsetAt(x, y, node) {
+    const at = document.caretPositionFromPoint ? document.caretPositionFromPoint(x, y) : null;
+    if (at) return at.offsetNode === node ? at.offset : -1;
+    const range = document.caretRangeFromPoint?.(x, y);
+    return range && range.startContainer === node ? range.startOffset : -1;
+  }
+  article.addEventListener('click', (e) => {
+    const offset = offsetAt(e.clientX, e.clientY, view.node);
+    if (offset < 0) return;
+    // Start a new utterance at the word that was tapped.
+    start(wordAt(text(), offset).index);
+  });
+  // #endregion tap
+
+  function fillVoices() {
+    const list = speechSynthesis.getVoices();
+    const keep = $('voice').value;
+    $('voice').replaceChildren(new Option('browser default', ''), ...list.map((v) => new Option(`${v.name} (${v.lang}${v.localService ? '' : ', network'})`, v.voiceURI)));
+    $('voice').value = keep;
+  }
+  if ('speechSynthesis' in globalThis) {
+    fillVoices();
+    speechSynthesis.addEventListener('voiceschanged', fillVoices);
+    // A page that is left while speaking would keep talking.
+    addEventListener('pagehide', () => speechSynthesis.cancel());
+  }
+
+  if (supported) {
+    // The canvas is as tall as the article. The article's height depends only on the canvas's width.
+    const size = () => { const h = `${article.offsetHeight}px`; if (canvas.style.height !== h) canvas.style.height = h; };
+    size();
+    new ResizeObserver(size).observe(article);
+    fit(canvas);
+    canvas.addEventListener('contextlost', () => showPlain('The canvas lost its drawing context. The paragraph is shown as plain HTML with the ::highlight() effect.'));
+  } else {
+    showPlain('This browser does not have HTML-in-canvas. The paragraph is shown as plain HTML and the spoken word is marked with ::highlight().');
+  }
+  function showPlain(why) {
+    // The two Custom Highlights work on plain HTML too.
+    const box = document.createElement('div');
+    box.className = 'plain';
+    box.append(article);
+    canvas.replaceWith(box);
+    $('blank').hidden = false;
+    $('blank').textContent = why;
+    $('effect').value = 'highlight';
+    $('effect').disabled = true;
+  }
+
+  // ---- live checks: every one on its own fixture ----
+  const SAMPLE = 'One two three four five six seven eight nine ten eleven twelve.';
+  function fixture({ fx = 'spotlight', restoreHits = true, marks = false } = {}) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = 'width:320px;height:150px;flex:none;background:#fffaf0';
+    c.width = 320; c.height = 150;
+    c.innerHTML = `<article drawable style="width:100%;padding:30px 12px 12px;color:#1d1c1a;font:20px/1.8 Georgia,serif"><p style="margin:0">${SAMPLE}</p></article>`;
+    quietStage().append(c);
+    const el = c.querySelector('article');
+    const past = marks ? new Highlight() : null, word = marks ? new Highlight() : null;
+    if (marks) { CSS.highlights.set('spoken-past', past); CSS.highlights.set('spoken-word', word); }
+    const view = reader(c, el, { effect: () => fx, restoreHits, marks: marks ? { past, word } : null });
+    return { c, el, view, done() { if (marks) { CSS.highlights.set('spoken-past', pastMark); CSS.highlights.set('spoken-word', wordMark); } } };
+  }
+  /** Count pixels in a rectangle (CSS pixels of the fixture) that pass `test`. Reads a copy. */
+  function count(f, r, test) {
+    const x = Math.max(0, Math.round(r.x)), y = Math.max(0, Math.round(r.y)), w = Math.max(1, Math.round(r.w)), h = Math.max(1, Math.round(r.h));
+    const copy = new OffscreenCanvas(w, h).getContext('2d', { willReadFrequently: true });
+    copy.drawImage(f.c, x, y, w, h, 0, 0, w, h);
+    const d = copy.getImageData(0, 0, w, h).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (test(d[i], d[i + 1], d[i + 2], d[i + 3])) n++;
+    return n;
+  }
+  const yellow = (r, g, b, a) => a > 200 && r > 230 && g > 180 && g < 235 && b > 60 && b < 150;
+  const wordOf = (n) => { const m = [...SAMPLE.matchAll(/\S+/g)][n]; return { index: m.index, length: m[0].length }; };
+  async function settle(f) { await nextPaint(f.c); await sleep(260); await nextPaint(f.c); }
+  const each = (tests) => tests.map((t) => ({ timeout: 15000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); return t.run(); } }));
+
+  runTests($('results'), each([
+    {
+      name: 'A boundary event becomes a word, with or without charLength',
+      why: 'Two SpeechSynthesisEvent objects are dispatched on an utterance that is not spoken: charIndex 8 with charLength 5, then charIndex 14 with no length.',
+      run: async () => {
+        const got = [];
+        const s = speaker({ silent: true, onword: (w) => got.push(w) });
+        const u = s.speak(SAMPLE);
+        u.dispatchEvent(new SpeechSynthesisEvent('boundary', { utterance: u, name: 'word', charIndex: 8, charLength: 5 }));
+        u.dispatchEvent(new SpeechSynthesisEvent('boundary', { utterance: u, name: 'word', charIndex: 14 }));
+        u.dispatchEvent(new SpeechSynthesisEvent('boundary', { utterance: u, name: 'sentence', charIndex: 0 }));
+        s.stop();
+        const texts = got.map((w) => SAMPLE.slice(w.index, w.index + w.length));
+        if (texts.join('|') !== 'three|four') throw new Error(`the words were "${texts.join('", "')}"`);
+        return `words "${texts.join('" and "')}"; ${s.stats.withLength} of ${s.stats.boundaries} events carried charLength; the sentence event was counted apart (${s.stats.sentences})`;
+      },
+    },
+    {
+      name: 'The spotlight is drawn on the word of the event',
+      why: 'Word 5 ("five") is set. Yellow pixels are counted in its rectangle and in the rectangle of word 2.',
+      run: async () => {
+        const f = fixture();
+        await nextPaint(f.c);
+        f.view.setWord(wordOf(4));
+        await settle(f);
+        const here = f.view.rectsOf(wordOf(4).index, wordOf(4).index + 4).list[0], there = f.view.rectsOf(wordOf(1).index, wordOf(1).index + 3).list[0];
+        const on = count(f, here, yellow), off = count(f, there, yellow);
+        if (on < 80 || off > 5) throw new Error(`${on} yellow pixels on "five", ${off} on "two"`);
+        return `${on} yellow pixels on "five" (${here.w.toFixed(0)}×${here.h.toFixed(0)} px at ${here.x.toFixed(0)}, ${here.y.toFixed(0)}), ${off} on "two"`;
+      },
+    },
+    {
+      name: 'Spoken words are at full ink and later words are faint',
+      why: 'With word 5 current, the darkest pixel is read in "two" (spoken) and in "nine" (not spoken yet).',
+      run: async () => {
+        const f = fixture();
+        await nextPaint(f.c);
+        f.view.setWord(wordOf(4));
+        await settle(f);
+        const dark = (n) => { const w = wordOf(n), r = f.view.rectsOf(w.index, w.index + w.length).list[0]; let min = 255; const copy = new OffscreenCanvas(Math.round(r.w), Math.round(r.h)).getContext('2d'); copy.fillStyle = '#fffaf0'; copy.fillRect(0, 0, 999, 999); copy.drawImage(f.c, Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h), 0, 0, Math.round(r.w), Math.round(r.h)); const d = copy.getImageData(0, 0, Math.round(r.w), Math.round(r.h)).data; for (let i = 0; i < d.length; i += 4) min = Math.min(min, d[i]); return min; };
+        const spoken = dark(1), later = dark(8);
+        if (spoken > 80 || later < 120) throw new Error(`darkest red value: ${spoken} in "two", ${later} in "nine"`);
+        return `darkest red value ${spoken} in "two" (spoken) and ${later} in "nine" (to come)`;
+      },
+    },
+    {
+      name: 'The lens draws a larger copy and the paragraph still takes taps',
+      why: 'Word 5 is magnified with the nine-argument drawElementImage(). elementFromPoint() is asked at word 10, first with the restoring draw and then without it.',
+      run: async () => {
+        const answer = async (restoreHits) => {
+          const f = fixture({ fx: 'lens', restoreHits });
+          await nextPaint(f.c);
+          const w = wordOf(9);
+          const plain = f.view.rectsOf(w.index, w.index + w.length).list[0]; // measured before any lens draw
+          f.view.setWord(wordOf(4));
+          await settle(f);
+          const cur = f.view.state.shown;
+          const big = count(f, { x: cur.x - cur.w * 0.5, y: cur.y - 18, w: cur.w * 2, h: cur.h + 10 }, yellow);
+          const box = f.c.getBoundingClientRect();
+          const hit = hitAt(box.left + plain.x + plain.w / 2, box.top + plain.y + plain.h / 2);
+          const out = { big, plainArea: cur.w * cur.h, hit: hit && f.el.contains(hit) ? 'the article' : hit ? `<${hit.localName}>` : 'nothing' };
+          f.c.remove();
+          return out;
+        };
+        const kept = await answer(true), lost = await answer(false);
+        if (kept.big < kept.plainArea) throw new Error(`the magnified copy has ${kept.big} yellow pixels; the word itself covers ${kept.plainArea.toFixed(0)}`);
+        if (kept.hit !== 'the article') throw new Error(`with the restoring draw, the point at "ten" answered ${kept.hit}`);
+        return `the copy covers ${kept.big} px (the word covers ${kept.plainArea.toFixed(0)}); at "ten": ${kept.hit} with the restoring draw, ${lost.hit} without it`;
+      },
+    },
+    {
+      name: 'caretPositionFromPoint() finds the word under a point in the drawn paragraph',
+      why: 'Asked at the centre of word 7 ("seven") while word 3 is under the spotlight.',
+      run: async () => {
+        const f = fixture();
+        await nextPaint(f.c);
+        f.view.setWord(wordOf(2));
+        await settle(f);
+        const w = wordOf(6), r = f.view.rectsOf(w.index, w.index + w.length).list[0], box = f.c.getBoundingClientRect();
+        const stage = quietStage();
+        stage.style.pointerEvents = 'auto';
+        let offset;
+        try { offset = offsetAt(box.left + r.x + r.w / 2, box.top + r.y + r.h / 2, f.view.node); } finally { stage.style.pointerEvents = 'none'; }
+        if (offset < 0) throw new Error('the point is not on the paragraph\'s text node');
+        const found = wordAt(SAMPLE, offset);
+        const word = SAMPLE.slice(found.index, found.index + found.length);
+        if (word !== 'seven') throw new Error(`offset ${offset} is in "${word}"`);
+        return `offset ${offset}, inside "${word}", by ${document.caretPositionFromPoint ? 'caretPositionFromPoint()' : 'caretRangeFromPoint()'}`;
+      },
+    },
+    {
+      name: 'A Custom Highlight on the word is drawn in the element\'s picture',
+      why: 'The "::highlight() only" effect: one drawElementImage() call and ::highlight(spoken-word) with a yellow background.',
+      run: async () => {
+        if (!globalThis.Highlight) throw new Error('no CSS Custom Highlight API');
+        const f = fixture({ fx: 'highlight', marks: true });
+        try {
+          await nextPaint(f.c);
+          f.view.setWord(wordOf(4));
+          await settle(f);
+          const here = f.view.rectsOf(wordOf(4).index, wordOf(4).index + 4).list[0], there = f.view.rectsOf(wordOf(1).index, wordOf(1).index + 3).list[0];
+          const on = count(f, here, yellow), off = count(f, there, yellow);
+          if (on < 80 || off > 5) throw new Error(`${on} yellow pixels on "five", ${off} on "two"`);
+          return `${on} highlight pixels on "five", ${off} on "two", ${f.view.state.paints} paints`;
+        } finally {
+          f.done();
+        }
+      },
+    },
+    {
+      name: 'The timer steps through the words in order when no boundary events come',
+      why: 'An utterance that is not spoken gets a start event and nothing else. After 0.7 s the words are stepped by the estimate, starting with the word expected at that time.',
+      run: async () => {
+        const got = [];
+        const s = speaker({ silent: true, onword: (w) => got.push(w) });
+        const u = s.speak('alpha beta gamma delta.');
+        u.dispatchEvent(new SpeechSynthesisEvent('start', { utterance: u }));
+        await sleep(1500);
+        const texts = got.map((w) => 'alpha beta gamma delta.'.slice(w.index, w.index + w.length));
+        s.stop();
+        if (got.some((w) => w.source !== 'estimate') || texts.join(' ') !== 'alpha beta gamma delta.'.split(' ').slice(-texts.length).join(' ') || texts.length < 1) throw new Error(`stepped: ${texts.join(', ') || 'nothing'}`);
+        return `no boundary event for 0.7 s, then stepped by the timer: ${texts.join(', ')} (the words before 0.7 s are skipped)`;
+      },
+    },
+    {
+      name: 'This device speaks and fires boundary events',
+      why: 'speechSynthesis.speak() with "one two three" at zero volume. Reports the voices, the time to the start event and the boundary events.',
+      run: async () => {
+        if (!('speechSynthesis' in globalThis)) throw new Error('speechSynthesis is missing');
+        const voices = speechSynthesis.getVoices().length;
+        const got = [];
+        let end = null;
+        const s = speaker({ onword: (w) => got.push(w), onstate: (state, detail) => { if (state === 'end' || state === 'error') end ??= { state, detail }; } });
+        s.speak('one two three', { volume: 0, rate: 1.5 });
+        for (let i = 0; i < 100 && !end; i++) await sleep(60);
+        const st = s.stats;
+        s.stop();
+        if (!end) throw new Error(`${voices} voices; no end or error event in 6 s; start ${st.startAfter === null ? 'not received' : `after ${st.startAfter.toFixed(0)} ms`}, ${st.boundaries} boundary events`);
+        if (end.state === 'error') throw new Error(`${voices} voices; speak() failed with "${end.detail}"`);
+        if (!st.boundaries) throw new Error(`${voices} voices; spoken (start after ${st.startAfter?.toFixed(0)} ms) with no boundary events, so the timer is used on this device`);
+        return `${voices} voices; start after ${st.startAfter.toFixed(0)} ms; ${st.boundaries} word boundary events, ${st.withLength} with charLength, ${st.sentences} sentence events`;
+      },
+    },
+  ]));
+</script>
+</body>
+</html>
