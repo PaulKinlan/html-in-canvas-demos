@@ -271,6 +271,22 @@ await test('willReadFrequently is removed from a drawable canvas, kept on a plai
   return JSON.stringify(out);
 });
 
+await test('getImageData() on a drawable canvas is read from a copy, with the same pixels; a plain canvas and data-gfx-raw are read directly', '/', async (page) => {
+  const out = await page.evaluate(() => {
+    const make = (drawable, raw) => { const c = document.createElement('canvas'); c.width = 40; c.height = 30; if (drawable) { c.setAttribute('content', 'drawable'); c.setAttribute('layoutsubtree', ''); } if (raw) c.setAttribute('data-gfx-raw', ''); document.getElementById('stage').append(c); const x = c.getContext('2d'); x.fillStyle = '#ff8000'; x.fillRect(5, 5, 20, 10); x.fillStyle = 'rgba(0,0,255,0.5)'; x.fillRect(10, 8, 30, 22); return x; };
+    const before = window.__gfx.copyReads || 0;
+    const a = make(true, false), b = make(false, false), r = make(true, true);
+    const same = (p, q) => p.width === q.width && p.height === q.height && p.data.every((v, i) => Math.abs(v - q.data[i]) <= 1);
+    const rects = [[0, 0, 40, 30], [6, 6, 1, 1], [-5, -5, 20, 20], [30, 20, 20, 20], [20, 15, -10, -10]];
+    const equal = rects.map((q) => same(a.getImageData(...q), b.getImageData(...q)));
+    const afterDrawable = (window.__gfx.copyReads || 0) - before;
+    r.getImageData(0, 0, 1, 1);
+    return { equal, afterDrawable, afterAll: (window.__gfx.copyReads || 0) - before };
+  });
+  must(out.equal.every(Boolean) && out.afterDrawable === 5 && out.afterAll === 5, JSON.stringify(out));
+  return JSON.stringify(out);
+});
+
 await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 3000))]);
 server.close();
 for (const r of results) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name}\n       ${r.detail}`);

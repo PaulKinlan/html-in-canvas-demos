@@ -118,12 +118,21 @@ export const TRIALS = [
       return a + ' on the outer canvas';
     } },
   { id: 'gpu-read', name: 'getImageData() from an accelerated drawable canvas, twelve times',
-    what: 'A drawable canvas made without willReadFrequently, in a paint loop. One pixel is read every 300 ms, which copies the canvas back from the GPU each time.',
+    what: 'A drawable canvas made without willReadFrequently, in a paint loop. One pixel is read every 300 ms, straight from the canvas (the canvas is marked so that the guard does not send the read through a copy). Chrome 159 on Android 10, 2026-11-21: every 2D canvas on the page was lost a few milliseconds after the second read, and after every second read from then on.',
     run: async (box, seen) => {
-      const d = drawable(box, seen); let reads = 0, stop = false;
+      const d = drawable(box, seen, { raw: true }); let reads = 0, stop = false;
       const reading = (async () => { while (!stop) { await sleep(300); d.ctx.getImageData(20, 20, 1, 1); reads++; } })();
       const out = await loop(d, plain, 3600); stop = true; await reading;
       return `${out}, ${reads} readbacks`;
+    } },
+  { id: 'gpu-read-guarded', name: 'The same twelve getImageData() calls, sent through a copy by the guard',
+    what: 'The same loop and the same calls as the trial above, without the mark. /shared/context-guard.js answers getImageData() on a drawable canvas from a drawImage() copy in a plain canvas, so the drawable canvas is never read. This row says whether that fix holds on this device.',
+    run: async (box, seen) => {
+      const d = drawable(box, seen); let reads = 0, stop = false, lit = 0;
+      const before = window.__gfx?.copyReads ?? 0;
+      const reading = (async () => { while (!stop) { await sleep(300); lit += d.ctx.getImageData(Math.round(24 * d.dpr), Math.round(24 * d.dpr), 1, 1).data[3] ? 1 : 0; reads++; } })();
+      const out = await loop(d, plain, 3600); stop = true; await reading;
+      return `${out}, ${reads} readbacks, ${lit} had a drawn pixel, ${(window.__gfx?.copyReads ?? 0) - before} answered from a copy`;
     } },
   { id: 'copy-read', name: 'Pixels read from a drawImage() copy, twelve times',
     what: 'The drawable canvas is never read. Every 300 ms it is copied with drawImage() into a plain canvas made with willReadFrequently, and one pixel is read from the copy. This is the route the graphics rules give for pixels that are needed often.',

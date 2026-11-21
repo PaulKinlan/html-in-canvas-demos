@@ -66,11 +66,14 @@ export function piece(ctx, source, sx, sy, sw, sh, dx, dy, dw = sw, dh = sh) {
 
 // The last draw of an element decides where its hit region and its client rects are. After drawing
 // pieces, call home() so that clicks, selection and getClientRects() match the layout position again.
-// It sets the geometry without drawing anything.
+// A draw with a source rectangle leaves the hit region the size of the piece, and updateElementGeometry()
+// moves that region without giving it its full size back (measured in Chromium 157). So home() draws the
+// whole element inside an empty clip: nothing reaches the canvas and the hit region is the whole box again.
 export function home(ctx, el, x = 0, y = 0) {
-  const canvas = ctx.canvas, dpr = canvas.width / canvas.clientWidth || 1;
-  const at = new DOMMatrix().scale(1 / dpr).multiply(ctx.getTransform()).translate(x, y);
-  try { canvas.updateElementGeometry(el, { canvasTransform: at }); } catch {}
+  ctx.save();
+  ctx.beginPath(); ctx.rect(0, 0, 0, 0); ctx.clip();
+  try { ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight); } catch { missed = true; }
+  ctx.restore();
 }
 // #endregion draw
 

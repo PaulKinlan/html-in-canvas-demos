@@ -306,6 +306,22 @@
         fx.el.style.animation = 'none';
         return need(n >= 3, `${n} paint events in 700 ms. The counter steps 10 times a second.`);
       } },
+    { name: 'After a piece is drawn, the whole element can be tapped again', expect: 'pass', why: 'A fixture draws one digit box with a source rectangle and then calls home(), which draws the element inside an empty clip. elementFromPoint() is asked at 24 points of the element.',
+      run: async () => {
+        const fx = await fixtureCanvas(testStage(), TIME, 220, 90), b = charBoxes(fx.el.firstElementChild)[0];
+        fx.canvas.addEventListener('paint', () => { fx.start(); piece(fx.ctx, fx.el, b.x, b.y, b.w, b.h, 0, 0); home(fx.ctx, fx.el, 0, 0); });
+        await fx.paint(); await sleep(120); await fx.paint(); await sleep(120);
+        const r = fx.canvas.getBoundingClientRect(), w = fx.el.offsetWidth, h = fx.el.offsetHeight;
+        let hits = 0, asked = 0;
+        for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) {
+          const x = r.x + (i + 0.5) * w / 6, y = r.y + (j + 0.5) * h / 4;
+          if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) continue;
+          asked++;
+          if (fx.el.contains(document.elementFromPoint(x, y))) hits++;
+        }
+        const drawn = fx.count(b.w + 20, 0, 160, 40);
+        return need(asked > 0 && hits === asked && drawn === 0, `${hits} of ${asked} points hit the time element. Pixels drawn by home(): ${drawn}.`);
+      } },
     { name: 'The clock on this page is running without a frame loop', expect: 'pass', why: 'Reads the counters of the clock above. It does not touch it.',
       run: async () => {
         need(engine, 'The clock is shown as plain HTML here.');

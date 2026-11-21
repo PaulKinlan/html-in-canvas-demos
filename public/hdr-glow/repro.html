@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reduced case: values above 1.0 in a float16 2D canvas and in a WebGPU canvas</title>
+<!--
+  A reduced case for a browser bug report. It uses no HTML-in-canvas and no script from this site.
+
+  Each canvas holds the same picture: the left half is 1.0 (standard white), the right half has
+  bars that alternate between 1.0 and 4.0. On a screen that shows values above 1.0, the bars can
+  be seen. Where the canvas is clamped to 1.0 for display, the whole canvas is one flat white.
+
+  Expected on an HDR screen: bars in both canvases.
+  Reported on Chrome 159, Android, screen matching (dynamic-range: high), 2026-11-21, through /hdr-glow/:
+  no brighter values in the 2D canvas, with tone mapping standard and with extended
+  (chrome://flags "Experimental Web Platform features").
+-->
+<style>
+  body { margin: 16px; background: #111; color: #ddd; font: 15px/1.4 system-ui, sans-serif; }
+  canvas { display: block; width: 100%; max-width: 480px; height: 70px; margin: 6px 0 2px; }
+  pre { margin: 0 0 18px; font: 12.5px/1.4 ui-monospace, monospace; color: #9aa; white-space: pre-wrap; }
+  .white { max-width: 480px; height: 30px; background: #fff; margin: 6px 0 18px; }
+</style>
+</head>
+<body>
+<h1 style="font-size:18px">Values above 1.0 in a canvas: 2D float16 and WebGPU</h1>
+<p>Left half: 1.0. Right half: bars of 1.0 and 4.0. If a canvas is one flat white, its values above 1.0 are not shown.</p>
+
+<b>1. 2D canvas, <code>colorType: 'float16'</code>, <code>colorSpace: 'display-p3'</code>, tone mapping as accepted</b>
+<canvas id="a" width="480" height="70"></canvas><pre id="a-out"></pre>
+
+<b>2. The same 2D canvas with <code>dynamic-range-limit: no-limit</code></b>
+<canvas id="b" width="480" height="70" style="dynamic-range-limit: no-limit"></canvas><pre id="b-out"></pre>
+
+<b>3. WebGPU canvas, <code>rgba16float</code>, <code>toneMapping: { mode: 'extended' }</code></b>
+<canvas id="c" width="480" height="70"></canvas><pre id="c-out"></pre>
+
+<b>4. A CSS white box, for comparison</b>
+<div class="white"></div>
+<pre id="screen"></pre>
+
+<script type="module">
+  const BAR = 24, GAIN = 4;
+  const high = matchMedia('(dynamic-range: high)').matches;
+  document.getElementById('screen').textContent = `(dynamic-range: high) ${high}, (color-gamut: p3) ${matchMedia('(color-gamut: p3)').matches}, devicePixelRatio ${devicePixelRatio}\n${navigator.userAgent}`;
+
+  // 1 and 2: a 2D canvas with 16-bit float pixels.
+  for (const id of ['a', 'b']) {
+    const canvas = document.getElementById(id), out = document.getElementById(`${id}-out`);
+    const options = { colorType: 'float16', colorSpace: 'display-p3' };
+    let ctx;
+    try { ctx = canvas.getContext('2d', { ...options, toneMapping: { mode: 'extended' } }); }
+    catch { ctx = canvas.getContext('2d', options); }
+    const got = ctx.getContextAttributes?.() ?? {};
+    ctx.fillStyle = 'color(display-p3 1 1 1)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = `color(display-p3 ${GAIN} ${GAIN} ${GAIN})`;
+    for (let x = canvas.width / 2; x < canvas.width; x += BAR * 2) ctx.fillRect(x, 0, BAR, canvas.height);
+    out.textContent = `colorType ${got.colorType ?? 'not reported'}, colorSpace ${got.colorSpace ?? 'not reported'}, toneMapping ${got.toneMapping?.mode ?? 'not reported'}`;
+  }
+
+  // 3: a WebGPU canvas with the same picture from a fragment shader.
+  const out = document.getElementById('c-out');
+  try {
+    const adapter = await navigator.gpu?.requestAdapter();
+    if (!adapter) throw new Error('no WebGPU adapter');
+    // gfx-allow: own-device a reduced case for a bug report that uses no script from this site
+    const device = await adapter.requestDevice();
+    const canvas = document.getElementById('c'), context = canvas.getContext('webgpu');
+    context.configure({ device, format: 'rgba16float', colorSpace: 'display-p3', toneMapping: { mode: 'extended' }, alphaMode: 'opaque' });
+    const module = device.createShaderModule({ code: `
+      @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+        return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+      }
+      @fragment fn fs(@builtin(position) at: vec4f) -> @location(0) vec4f {
+        let x = at.x - ${canvas.width / 2}.0;
+        let bar = x >= 0.0 && (i32(floor(x / ${BAR}.0)) % 2) == 0;
+        return vec4f(vec3f(select(1.0, ${GAIN}.0, bar)), 1.0);
+      }` });
+    const pipeline = device.createRenderPipeline({ layout: 'auto', vertex: { module, entryPoint: 'vs' }, fragment: { module, entryPoint: 'fs', targets: [{ format: 'rgba16float' }] } });
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({ colorAttachments: [{ view: context.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store', clearValue: [1, 1, 1, 1] }] });
+    pass.setPipeline(pipeline); pass.draw(3); pass.end();
+    device.queue.submit([encoder.finish()]);
+    const kept = context.getConfiguration?.() ?? {};
+    out.textContent = `format ${kept.format ?? 'not reported'}, colorSpace ${kept.colorSpace ?? 'not reported'}, toneMapping ${kept.toneMapping?.mode ?? 'not reported'}`;
+  } catch (e) { out.textContent = `WebGPU canvas not drawn: ${e.message}`; }
+</script>
+</body>
+</html>

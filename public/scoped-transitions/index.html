@@ -554,14 +554,23 @@
     for (const cv of rowCanvases) { const d = unwrap(cv); d.style.viewTransitionName = cv.style.viewTransitionName; d.style.padding = '8px 0'; }
   }
   // #region go-rows
-  function sortRows(order) {
+  // moveBefore() reorders the canvases without taking them out of the document. append() removes each canvas
+  // and inserts it again, which throws away what the browser had painted for it and for its drawable child.
+  const reorder = (parent, next) => { for (const el of next) parent.moveBefore ? parent.moveBefore(el, null) : parent.append(el); };
+  let sorting = 0;
+  async function sortRows(order) {
+    // A press while a transition is running: end that one, and start the next in a later frame, so that the
+    // browser never removes one set of groups and captures the next in the same frame.
+    const mine = ++sorting, running = rowState.active;
+    if (running) { running.skipTransition(); await running.finished.catch(() => {}); await frames(2); }
+    if (mine !== sorting) return;
     const list = [...rows.children];
     const key = (el) => el.querySelector('.row').dataset;
     const next = order === 'reverse' ? list.toReversed()
       : list.toSorted((x, y) => (order === 'name' ? key(x).name.localeCompare(key(y).name) : key(y).score - key(x).score));
     const before = new Map(list.map((el) => [el, el.offsetTop]));
     const vt = run(rows, () => {
-      rows.append(...next);
+      reorder(rows, next);
       for (const el of next) rowState.travel.set(el, el.offsetTop - before.get(el));   // how far each row will move
       rowState.start = performance.now();
     }, rowState, supported ? rowCanvases : []);
