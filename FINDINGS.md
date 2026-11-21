@@ -15,6 +15,8 @@ The main results. Each is backed by the tables in the sections below.
 - Accessibility largely survives, with one sharp edge: whatever is in the canvas but not drawn is still focusable. An opt-in such as "undrawn means inert" would remove the main hazard.
 - Any element can be exported with one call today, and a whole ordinary page can be wrapped in a canvas for a single frame without the user seeing it.
 - A native "draw this element by reference" hook for canvas (an id reference rather than DOM containment) would remove the need for the shadow root. An ElementImage that could be drawn into a second canvas would make cross-document reprojection first class; today it is deliberately bound to one canvas.
+- A customisable select can hand its options to a canvas inside its own picker and keep the value, the keyboard and hit testing. A select inside a canvas cannot have its picker drawn by that canvas, because the picker is in the top layer.
+- Datalist, date, time and colour popups have no element, so a canvas cannot draw them. The `<datalist>` element and its options can be drawn, and a picker made of real buttons in a popover canvas can replace the others on the same input.
 - For 3D, the texture half of the API is ready and the method names are the only obstacle in three.js today. The input half rests entirely on `updateElementGeometry()`: it accepts a perspective matrix, which covers every flat surface, and anything curved or occluded needs the app to re-place the element under the pointer.
 - In XR there is no pointer for the browser to hit test, so input is synthetic and loses everything a trusted event does for free. A way to hand the browser a ray hit (element plus point) and have it dispatch a trusted event would remove most of `RayPointer`.
 - Native UI toolkits compiled to WebAssembly can use real DOM elements as widgets today. egui and Qt Quick each took a bridge of about 200 lines and no toolkit changes. The browser does not know what the toolkit draws over an element, and focus order is not shared. Research on ten frameworks is in `docs/native-frameworks.md`.
@@ -32,6 +34,8 @@ The main results. Each is backed by the tables in the sections below.
 - [Accessibility (/a11y/)](#accessibility-a11y)
 - [Capture (/capture/, public/lib/element-capture.js)](#capture-capture-publiclibelement-capturejs)
 - [Performance (/perf/)](#performance-perf)
+- [Customisable select (/select/, lib/select-picker.js)](#customisable-select-select-libselect-pickerjs)
+- [Datalist and other inputs (/datalist/, /inputs/)](#datalist-and-other-inputs-datalist-inputs)
 - [3D and spatial (/three-form/, /board/, /xr/)](#3d-and-spatial-three-form-board-xr)
 - [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
@@ -269,9 +273,36 @@ Not verified here, because the cloud browser cannot show a WebGPU canvas: every 
 | 1,000 glyph draws in 2D, each at its own angle | fails | About 1.5 s: each angle re-rasterises text. WebGL instanced quads from one texture cost well under 1 ms of script per frame for 400 glyphs. |
 | `updateElementGeometry` after 2D draws in the same `paint` handler | works | It overrides the hit box the draws left behind, so pieces can be drawn anywhere while the element stays put. |
 | Animated transparent WebGL canvas with drawable children on Android (Chrome 159, real phone) | reported broken | The glyph canvas became a solid white block once letters moved. Not reproducible in headless software rendering, cause unconfirmed. `<glyph-field>` now defaults to a 2D canvas with an ImageBitmap atlas (draw block, `createImageBitmap`, clear, `drawImage` per glyph, all in one `paint` handler), keeps WebGL as `engine="webgl"`, and shows plain HTML if its context is lost. |
-| Click a glyph in mid-air | fails | One element, one hit box. One drawable span per letter gets a hit box each, at the cost of an element per character. |
+| Click a glyph in mid-air | works for one pointer | One element, one hit box, so the box follows the pointer: the block is placed with `updateElementGeometry` so the home of the letter under the pointer sits under it. Mouse clicks and taps on a flying link letter reach the link. Two pointers at once still cannot both be right; one drawable span per letter gets a hit box each, at the cost of an element per character. |
+| Ask what is at a point again after `updateElementGeometry` moved a box there | stale | Chromium 157 keeps its last hit-test answer for a point, and this call does not clear it, so `elementFromPoint` and a click at the same point still see the old layout. One pixel away is correct, and any DOM change (toggling an attribute) clears it. `<glyph-field>` and `<live-transition>` toggle `data-moved` when the box moves. Live check on `/particles/`. Worth reporting upstream. |
+| CSS zoom on the motion elements | works | The canvases are sized by `devicePixelRatio × currentCSSZoom` and re-measured through a `device-pixel-content-box` ResizeObserver, and pointer positions are divided by the zoom. `canvasTransform` stays in unzoomed layout px whatever the backing store size (probed at 1× and 2× backing, zoom 1 and 1.5). |
 
 Not tested here: whether Chrome's find-in-page highlight is painted into an element's picture (needs a person at a real browser), and frame rates on a real GPU (these numbers are from software rendering).
+
+### View Transitions API (`/view-transitions/`)
+
+Tested in headless Chromium 157 with `document.startViewTransition()`, `element.startViewTransition()` and `@view-transition { navigation: auto }`.
+
+| Question | Result | Detail |
+| --- | --- | --- |
+| A `<canvas layoutsubtree>` with a `view-transition-name` in a document transition | works | The old snapshot is the canvas bitmap, HTML children included. The new snapshot is live: the canvas keeps getting `paint` events and a clock inside it keeps counting while the group moves and resizes. |
+| `view-transition-name` on a child of the canvas | group only, no picture | `::view-transition-group(name)` exists and animates between the boxes that `drawElementImage()` (or `updateElementGeometry()`) gave the child. Both snapshots are empty. To move one element on its own, give it its own canvas and name the canvas. |
+| A shader in place of the cross-fade | works | `::view-transition-old(name) { display: none }` and `::view-transition-new(name) { animation: none }` leave the live canvas showing. The view transition moves the box and `<live-transition>` draws the change. `begin()` must finish before `startViewTransition()`: no `paint` event arrives while the update callback is pending. |
+| Read `::view-transition-old()` into a canvas or texture | not possible | `ViewTransition` has no call that returns pixels. A shader transition keeps its own copy of the old state. |
+| `element.startViewTransition()` on an ancestor of the canvas | works | Same result as on the document. The rest of the page stays interactive. |
+| `element.startViewTransition()` on the canvas itself | canvas is blank during the transition | A scope takes part in its own transition as `view-transition-name: root`. The pseudo-elements that would show its snapshot are inside the canvas, which renders none of its contents. |
+| The same, with `view-transition-name: none` on the canvas | works, shows nothing by itself | The canvas keeps drawing and getting `paint` events. Named descendants get groups that are never shown. `vt.transitionRoot` is the canvas. |
+| Read those hidden groups as a clock and draw the move in the canvas | works | Replace the group keyframes with one that animates a registered custom property (`--vt-p`) from 0 to 1 and read it with `getComputedStyle(canvas, '::view-transition-group(name)')`. CSS keeps control of duration, easing and per-item delay. The canvas draws each item with the nine-argument `drawElementImage()` and can add an arc, a turn and a shadow. The page stays interactive and other scoped transitions run at the same time. |
+| Position of a group inside a canvas-scoped transition | wrong | Width and height are right. The transform is 0,0 for every group, so positions have to be measured with `offsetLeft` and `offsetTop` before and after the change. In a document transition the group of a canvas child has the right position. |
+| Flow layout of direct canvas children | no | Each `drawable` child is laid out alone at the canvas origin. Put a grid or flex container in as one `drawable` child and name its children. |
+| `element.startViewTransition()` on a `drawable` child of `<canvas content="drawable">` | renderer crash | Crashes with or without `layoutsubtree`, with or without a draw, and with `view-transition-name: none` on the child. A child without the `drawable` attribute does not crash. A canvas without `content="drawable"` rejects with "Unsupported layout or style". Reproduction: `/view-transitions/crash.html`. |
+| Cross-document transition with a named canvas on both pages | works | The canvas cross-fades and morphs like an image. `pagereveal` can fire before a module script runs, so listen for it in a classic script. |
+| A shader between two documents | works with pixels | An `ElementImage` cannot follow a navigation. The old page stores a WebP of its canvas in `sessionStorage` before navigating. The new page inserts it as the first state of a `<live-transition>` and burns to the real content. The old snapshot stays visible underneath until the canvas has drawn. When the two boxes have different shapes the stored picture is stretched. |
+
+Element-scoped view transitions shipped in Chrome 147 (developer testing from 140). References: https://developer.chrome.com/docs/css-ui/view-transitions/element-scoped-view-transitions, https://developer.mozilla.org/en-US/docs/Web/API/View_Transition_API/Using_element-scoped, https://drafts.csswg.org/css-view-transitions-2/.
+
+Not tried yet: the canvas-scoped clock driving a WebGL or WebGPU shader; a scoped transition on an ancestor with a canvas-scoped one nested inside it; Navigation API `intercept()` with a shader for single-page route changes; `view-transition-class` and nested groups with one canvas per list item; one page-wide canvas that draws every transition itself.
+
 ## Cross-context: tear-off, remote, embed, support
 
 Verified in headless Chromium 157 on 2026-11-20, with two local Workers as two origins. Pages: `/tear-off/`, `/remote/`, `/embed/`, `/support/`. Not yet run in a real browser, on a real phone, or in Safari and Firefox (the viewer pages are written not to need the API).
@@ -457,6 +488,70 @@ The page ramps 10 to 1,600 moving elements per renderer and reports where the fr
 - In software rendering the 2D canvas carried more moving cards (200 at 60 fps) than the same cards as individually composited DOM layers (100).
 - A worker holding `ElementImage` snapshots costs the main thread nothing per frame when content is static. With the main thread blocked 40 ms per frame, a main-thread canvas drops to 23 fps and the worker stays at 60 fps (content updates at the main thread's rate, motion stays smooth).
 - The worker has no advantage when every element changes every frame: each one needs a fresh snapshot captured on the main thread.
+
+## Customisable select (`/select/`, `lib/select-picker.js`)
+
+Measured in headless Chromium 157 with software rendering on 2026-11-21, driven by Playwright with a mouse, a keyboard and emulated touch. Not yet tried on a phone.
+
+A select with `appearance: base-select` has a picker made of HTML in the top layer. Two combinations were tested: a canvas inside the select, and a select inside a canvas.
+
+| Experiment | Result | Why |
+|---|---|---|
+| `<select><canvas content="drawable"><option drawable>` | works | The select collects options from all its descendants. `select.options`, the value, the form entry, arrow keys, typeahead, Enter and Escape are unchanged. |
+| The picker canvas draws each option under its own 2D transform | works | `drawElementImage()` moves the option's hit box. Click, hover and `:checked` are the browser's. |
+| Options as WebGL textures with a perspective matrix | works | `texElementSubImage2D()`, then `updateElementGeometry()` with the same matrix the shader uses. |
+| Options as WebGPU textures | works off screen | `drawElementImageToTexture()` into a texture, read back. Not shown on a canvas here: the software adapter loses its device when it presents. |
+| Two options overlap | the one drawn last gets the click | The last `drawElementImage()` or `updateElementGeometry()` wins. `z-index` on the options has no effect. |
+| An option the canvas does not draw | keeps its last hit box | The library moves it far outside the canvas. It stays reachable by arrow key. |
+| `toggle` or `beforetoggle` on the select when the picker opens | no event | The canvas's first `paint` event is the earliest signal. Before it the options have no paint record. |
+| Close the picker from script | works, with a workaround | There is `showPicker()` and no `hidePicker()`. `blur()`, a synthetic Escape, `option.click()`, `disabled`, `inert` and `display: none` restored in the same task all leave it open. Showing an empty `popover="auto"` element closes it: the picker is in the popover stack. |
+| Close the picker by setting `appearance: auto` for one style recalculation | closes it, then breaks the select | Chromium logs a console warning. If the mouse is over the picker at that moment, the select's computed `appearance` stays `auto` afterwards, whatever the stylesheet and inline style say, and it is the browser's own select until reload. |
+| Open several pickers from one tap | fails | `showPicker()` needs user activation and uses it up. One tap opens one picker. Synthetic clicks and key events do not open one. |
+| Mouse press on an option, drag, release over another option | chooses the second | The select chooses on mouseup. The library captures the pointer on the canvas once a drag passes 7 px. |
+| `touch-action: none` on the picker canvas and on the options | does not stop the page panning | In touch emulation a vertical drag in the picker scrolled the page and cancelled the pointer. Cancelling `touchmove` stops it. |
+| An animation when the picker closes | fails | The options stop painting in the frame the picker closes, so the canvas has nothing to draw. |
+| A canvas inside an option draws its own drawable child | works while open | With the picker closed: "No cached paint record". A plain canvas in an option that is given pixels with `drawImage()` can be drawn at any time. |
+| `<selectedcontent>` with a canvas in the chosen option | clones the element only | The clone has no pixels and no `paint` handler, and it is replaced on every change. Its cloned children are drawable in it. |
+| `position-area: center` on `::picker(select)` | works | The radial picker opens centred on the button. |
+| A select as a drawable child of a canvas, drawn rotated | works | The button is hit tested where it is drawn. |
+| The picker of that select in the canvas's picture | fails | The picker is top-layer content. The browser paints it upright, anchored to the bounding box of the drawn button. |
+| The outer canvas draws an option of the open picker | fails | "No cached paint record for element." |
+| A canvas-drawn picker inside a select that is itself drawn by a canvas | works | Two nested drawable canvases. The inner one is in the top layer while the picker is open. |
+| A canvas in the select's `<button>` with `<selectedcontent drawable>` inside it | works | The browser still fills `<selectedcontent>` on every change, and the canvas draws it. `rollSelected()` keeps the old value's pixels and rolls the new value in. |
+| `display` set on `::picker(select)` without `:open` | renders the closed picker | A rule such as `::picker(select) { display: flex }` overrides the rule that hides the closed picker. Write it as `select:open::picker(select)`. |
+
+What would help:
+
+- `hidePicker()`, and `toggle` events on the select, as popovers have.
+- A way for a picker's content to keep painting for a moment after the select closes, so a canvas can draw a closing animation or move the chosen option into the button.
+- `<selectedcontent>` cloning a canvas with its bitmap, or an event when it replaces its clone.
+- `touch-action` taking effect for elements drawn by a canvas in the top layer. This needs checking on a real phone before it is reported.
+
+## Datalist and other inputs (`/datalist/`, `/inputs/`)
+
+Measured in headless Chromium 157 with Playwright, mouse and emulated touch at 412 px. The shared part is `public/lib/placed-popover.js`: a `popover="manual"` element positioned with CSS anchor positioning that holds a drawable canvas.
+
+The built-in popups of `<input list>`, `type="date"`, `type="time"` and `type="color"` are not elements. They have no pseudo-element, `appearance: base-select` does nothing for them, and nothing can be put inside an `<input>`. A canvas can draw the control and can replace the popup, but cannot draw the built-in popup.
+
+| Test | Result | Detail |
+| --- | --- | --- |
+| `<canvas><datalist style="display:block"><option drawable>`, `drawElementImage(option)` | works | The option is a grandchild of the canvas. Without `drawable` on the option the call throws "Descendants passed to DrawElementImage must have the 'drawable' attribute". |
+| Hit testing, `:hover` and click on a datalist option drawn that way | works | `elementFromPoint()` returns the `<option>`. |
+| An element inside a datalist option, such as `<option>Leeds <small>LDS</small></option>` | not rendered | It parses and stays in the DOM, but the option renders its label as plain text. The child has no box and `checkVisibility()` is false. Computed `display` of the option stays `block`. `::before` and `::after` on the option do render. |
+| CSS Custom Highlight API range in an option's text node | paints nothing | The text shown is in the browser's internal tree, not the option's text node. |
+| Keep the built-in datalist keyboard handling and replace only the popup | not possible | Removing `list` is the only way to stop the popup, and it removes the keyboard handling too. |
+| Range input with a datalist, drawn in a canvas | works | The tick marks are part of the input's picture. Option labels are never shown by the browser. `RangeLabels` draws the options themselves under the ticks. |
+| date, time, datetime-local, month, week, number, color, range, file, checkbox, radio, progress, meter drawn rotated by one `drawElementImage()` | works | Date segments take focus and typing where they are drawn. A click on the rotated range track sets the value at that point. |
+| Built-in colour chooser of a rotated input | outside the canvas | It opens upright next to the bounding box of the drawn swatch. |
+| Built-in date and time pickers, and the datalist popup, of a rotated input | not observed | The test browser has no window and never shows them. |
+| A picker made of `<button>` children of a popover canvas (clock, calendar, swatches) | works | Focus, `:focus-visible`, `aria-pressed`, hover and click follow the drawing. Buttons that are not drawn are moved away with `updateElementGeometry()`. |
+| Stopping the Android date and time dialogs by making the input `readonly` while the replacement is open | not verified | Needs a phone. |
+
+What would help:
+
+- A picker pseudo-element for `<input list>`, `type="date"`, `type="time"` and `type="color"`, as `::picker(select)` is for select, so a canvas could go inside the real picker.
+- Options in a datalist rendering their children, as options in a customisable select do.
+- A way to stop a built-in picker opening without removing the feature that provides it (`list`) or making the input read-only.
 
 ## 3D and spatial (`/three-form/`, `/board/`, `/xr/`)
 

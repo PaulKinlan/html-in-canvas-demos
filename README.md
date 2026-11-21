@@ -50,10 +50,14 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
 | `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
 | `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
+| `/select/` | `<select picker="wheel">`: a customisable select whose options are drawn by a canvas inside the picker (wheel, fisheye list, radial, 3D carousel, hand of cards, colour grid, helix); a canvas in the button; a canvas inside each option; a select drawn in a canvas |
+| `/datalist/` | `<input list picker="list">`: datalist suggestions drawn one option at a time by a canvas in a popover; datalist options as tick labels of a range input |
+| `/inputs/` | `<input type="time" picker="clock">`, `type="date" picker="calendar"`, `type="color" picker="swatches"`: pickers made of buttons in a canvas; every built-in form control drawn rotated in a canvas |
 | `/a11y/` | Accessibility audit: API probes, a pattern-by-pattern table (tree, focus order, find, selection, zoom), the same audit run over every demo, and a by-hand checklist |
 | `/capture/` | Any element or a whole page to PNG (up to print quality), video (MediaRecorder or frame-exact WebCodecs) or print with one call |
 | `/perf/` | Performance wall: how many live elements before frames drop; DOM vs 2D canvas vs worker |
 | `/transitions/` | `<live-transition>`: shatter, fold, burn, morph or your own fragment shader between two states that both stay live and clickable |
+| `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
 | `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
 | `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
@@ -77,7 +81,7 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/a11y-audit.js`: `auditDocument(doc)` runs the accessibility checks from `/a11y/` on any same-origin document. Demos registered in `shared/demos.js` are audited automatically; `/a11y/?url=/path/` adds another page. `auditPattern(doc)` measures one pattern fixture; add a pattern in `public/a11y/patterns.js` and `pattern.html`.
 - `public/lib/live-transition.js`: `<live-transition>`. Children are states; `show(i, { effect, origin })`, or `begin(i)` then set `progress` to hold part way. Effects are functions in `LiveTransition.effects`. Or write your own blend: `LiveTransition.shaders.name = { glsl, pick? }`, where `glsl` is a `vec4 transition(vec2 uv)` in the gl-transitions convention (`getFromColor`, `getToColor`, `progress`, `ratio`), then `show(i, { effect: 'name' })`. Both states stay live inside the shader; `pick(x, y, p)` says which state the pointer reaches at a point. `backend="webgpu|webgl"` names a route (WebGPU when usable otherwise); a shader with a `wgsl` string beside `glsl` runs on both.
 - `public/lib/dom-rewind.js`: `<dom-rewind seconds trails>`. `place(el, { x, y, rotate })`, `seek(secondsAgo)`, `replay()`, `restore()`, `oncapture` / `onrestore` for app state. `for await (const { time, bitmap } of rw.frames({ seconds, fps }))` hands the recorded history back as ImageBitmaps for a video encoder. If the canvas context is lost, `<live-transition>` and `<dom-rewind>` show their children as plain HTML until it returns (`fallbackReason`, `showPlain(reason)`, `showCanvas()`, events `livefallback` / `rewindfallback`), as `<glyph-field>` already did.
-- `public/lib/glyph-field.js`: `<glyph-field pointer="repel" engine="2d|webgl|webgpu|auto">`. `explode()`, `rain()`, `vortex()`, `scatter()`, `assemble()`, `highlight(text)`.
+- `public/lib/glyph-field.js`: `<glyph-field pointer="repel" engine="2d|webgl|webgpu|auto">`. `explode()`, `rain()`, `vortex()`, `scatter()`, `assemble()`, `highlight(text)`. While letters are in flight the hit box follows the pointer, so a flying letter of a link can be hovered, clicked or tapped (`particleAt(x, y)` says which letter is under a point).
 - `public/lib/dom-portal.js`: `<dom-portal for="id" scale="0.5">` mirrors any element; `<dom-portal-source layer="top">` for sources inside clipping ancestors.
 - `public/lib/dom-lens.js`: `<dom-lens mode="magnify|glass|fisheye|…" zoom radius>` around any markup. The lenses are fragment shaders: GLSL in `public/lib/lens-gl.js` (`LENSES`) and WGSL in `public/lib/lens-gpu.js` (`WGSL`); add an entry to both to add a lens. WebGPU is used when it works, then WebGL, then 2D.
 - `public/shared/backend.js`: `pickBackend()` and `webgpu()` choose between WebGPU, WebGL and 2D for a page, and share one WebGPU device. WebGPU is only chosen with a real adapter that passes a self-test.
@@ -96,6 +100,10 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/live-card.js`: `<live-card src effect>` embeds a cross-origin card through a WebGL shader.
 - `public/lib/slot-view.js` and `public/lib/slot-provider.js`: the cross-site `<slot-view src name>` element and `provideSlots()` for the site being embedded.
 - `public/lib/element-pip.js`: `pipElement(el, { mode })` and `surfaceFor(el)`.
+- `public/lib/select-picker.js`: `<select picker="wheel|fisheye|radial|carousel|fan|grid|helix">`. Moves the options into a drawable canvas inside the select; the select keeps the value, keyboard and form entry. `new SelectPicker(select, { layout, backend, canvas })`, `choose(i)`, `close()`, `refresh()`; add a layout with `layouts.name = { size, place }`. The carousel and helix use WebGPU, WebGL 2, then 2D. `rollSelected(select)` draws `<selectedcontent>` with a canvas in the button.
+- `public/lib/placed-popover.js`: `new PlacedPopover({ anchor, items, size, place })`. A popover next to an element, holding a canvas that draws each item where `place(i)` says and eases it there when the answer changes. `under(ctx)` draws below the items. The base of the two libraries below.
+- `public/lib/datalist-picker.js`: `<input list picker="list|chips">`. Moves the `<datalist>` into a popover canvas and draws its options as the suggestions. `RangeLabels(input)` draws a range input's datalist options as tick labels.
+- `public/lib/input-pickers.js`: `<input type="time" picker="clock">`, `<input type="date" picker="calendar">`, `<input type="color" picker="swatches" list>`. Each picker is real buttons in a popover canvas.
 
 ## Worker
 

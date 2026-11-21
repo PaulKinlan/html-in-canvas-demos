@@ -200,7 +200,8 @@
     if (!handle || !desk.isLive) return;
     const el = handle.closest('.card2, .puck');
     const p = desk.placement(el);
-    drag = { el, dx: e.clientX - p.x, dy: e.clientY - p.y, lastX: e.clientX, vx: 0, vy: 0, lastY: e.clientY };
+    const z = desk.currentCSSZoom || 1;   // pointer positions are in zoomed px, card positions are not
+    drag = { el, z, dx: e.clientX / z - p.x, dy: e.clientY / z - p.y, lastX: e.clientX, vx: 0, vy: 0, lastY: e.clientY };
     handle.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
@@ -208,7 +209,7 @@
     if (!drag) return;
     drag.vx = e.clientX - drag.lastX; drag.vy = e.clientY - drag.lastY;
     drag.lastX = e.clientX; drag.lastY = e.clientY;
-    desk.place(drag.el, { x: e.clientX - drag.dx, y: e.clientY - drag.dy, rotate: drag.el === puck ? undefined : Math.max(-0.12, Math.min(0.12, drag.vx * 0.01)) });
+    desk.place(drag.el, { x: e.clientX / drag.z - drag.dx, y: e.clientY / drag.z - drag.dy, rotate: drag.el === puck ? undefined : Math.max(-0.12, Math.min(0.12, drag.vx * 0.01)) });
   });
   const drop = () => {
     if (!drag) return;
@@ -399,6 +400,25 @@
         must(Math.abs(b.x - r.x - 40) < 1.5, 'place() did not move the plain card');
         must(!rig.fallbackReason && near(px, YELLOW), `canvas did not draw again: ${px}`);
         return 'card at 10,10 as HTML, clickable, moves with place(); canvas draws again after showCanvas()';
+      },
+    },
+    {
+      name: 'Zoom the rig to 150% and its canvas is redrawn with a pixel for every screen pixel',
+      why: 'CSS zoom stands in for browser zoom and large-text settings. A canvas that keeps its old bitmap is stretched and the text in it goes soft.',
+      async run() {
+        rig.live();
+        const box = document.getElementById('rigbox'), c = rig.canvas;
+        const ratio = () => c.width / (c.getBoundingClientRect().width * devicePixelRatio);
+        const w0 = c.width;
+        box.style.zoom = '1.5';
+        await sleep(250); await frames(4);
+        const w1 = c.width, r1 = ratio();
+        box.style.zoom = '';
+        await sleep(250); await frames(4);
+        const w2 = c.width;
+        must(r1 > 0.95, `at 150% the canvas has ${w1} backing px for ${Math.round(w1 / r1)} screen px`);
+        must(Math.abs(w2 - w0) <= 2, `canvas did not return to its size: ${w0} then ${w2}`);
+        return `${w0}px wide at 100%, ${w1}px at 150%, ${w2}px back at 100%`;
       },
     },
     {

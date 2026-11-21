@@ -86,6 +86,9 @@ import { webgpu } from '../shared/backend.js';
 const REPLACED = 'img, svg, video, canvas, input, button, select, textarea, hr, [data-particle]';
 const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
 
+/** CSS zoom in effect on an element (1 when there is none). Pointer positions are in zoomed px; layout is not. */
+const zoomOf = (el) => el.currentCSSZoom || 1;
+
 export class GlyphField extends HTMLElement {
   static supported = SUPPORTED;
 
@@ -151,6 +154,7 @@ export class GlyphField extends HTMLElement {
     this.#ro = new ResizeObserver(() => this.#resize());
     this.#ro.observe(this.#wrap);
     this.#ro.observe(this);
+    try { this.#ro.observe(this.#canvas, { box: 'device-pixel-content-box' }); } catch { /* older browsers: zoom is picked up on the next resize */ }
     // Take the text's height now: waiting for the observer leaves one frame where the element is 0px tall and the page below it jumps.
     this.#resize();
     this.#mo = new MutationObserver(() => { this.#stale = true; this.#marks = []; });
@@ -159,17 +163,89 @@ export class GlyphField extends HTMLElement {
     document.addEventListener('selectionchange', this.#onSelection);
     addEventListener('webgpulost', this.#onGPULost);
     this.addEventListener('pointermove', (e) => {
-      const r = this.getBoundingClientRect();
-      this.#pointer = { x: e.clientX - r.x, y: e.clientY - r.y, down: e.buttons !== 0 };
+      const r = this.getBoundingClientRect(), z = zoomOf(this);
+      this.#pointer = { x: (e.clientX - r.x) / z, y: (e.clientY - r.y) / z, down: e.buttons !== 0 };
       if (this.getAttribute('pointer') === 'repel' && !this.#pointer.down) this.#wake();
     });
     this.addEventListener('pointerleave', () => { this.#pointer = null; });
+    // Letters fly outside the element's own box, so the pointer is watched on the window to find the one under it.
+    addEventListener('pointermove', this.#onRoute, { passive: true });
+    addEventListener('pointerdown', this.#onRoute, { passive: true, capture: true });
+    addEventListener('click', this.#onRouteClick, { capture: true });
+    addEventListener('pointerup', this.#onRouteEnd, { passive: true });
+    addEventListener('pointercancel', this.#onRouteEnd, { passive: true });
   }
 
   disconnectedCallback() {
     document.removeEventListener('selectionchange', this.#onSelection);
     removeEventListener('webgpulost', this.#onGPULost);
+    removeEventListener('pointermove', this.#onRoute);
+    removeEventListener('pointerdown', this.#onRoute, { capture: true });
+    removeEventListener('click', this.#onRouteClick, { capture: true });
+    removeEventListener('pointerup', this.#onRouteEnd);
+    removeEventListener('pointercancel', this.#onRouteEnd);
   }
+
+  // #region route
+  // One element has one hit box, and in flight its letters are all over the canvas. So the box goes where
+  // the pointer needs it: find the flying letter under the pointer, and place the whole block so that this
+  // letter's home lands exactly under the pointer. Hover, the caret, selection and clicks then reach whatever
+  // that letter belongs to (a link, an editable paragraph), wherever it has been drawn.
+  #routed = null;          // the particle the hit box is currently placed for, or null (box at home)
+  #routePoint = null;
+
+  /** The topmost flying particle under a point (CSS px from the element's top left) as plain data, or null. */
+  particleAt(x, y, pad = 0) {
+    const p = this.#pick(x, y, pad);
+    return p ? { text: p.text, x: p.hx, y: p.hy, w: p.w, h: p.h, dx: p.x, dy: p.y, rotate: p.r } : null;
+  }
+
+  #pick(x, y, pad = 0) {
+    if (!this.#running) return null;
+    for (let i = this.#parts.length - 1; i >= 0; i--) {
+      const p = this.#parts[i];
+      if (Math.abs(p.x) + Math.abs(p.y) + Math.abs(p.r) < 0.01) continue;      // at home: the ordinary box already covers it
+      const cx = p.hx + p.x + p.w / 2, cy = p.hy + p.y + p.h / 2;
+      const c = Math.cos(-p.r), n = Math.sin(-p.r), s = p.s || 1;
+      const lx = ((x - cx) * c - (y - cy) * n) / s, ly = ((x - cx) * n + (y - cy) * c) / s;
+      if (Math.abs(lx) <= p.w / 2 + pad && Math.abs(ly) <= p.h / 2 + pad) return p;
+    }
+    return null;
+  }
+
+  #onRoute = (e) => {
+    if (this.#plain || !this.#canvas) return;
+    if (e.type === 'pointermove' && e.buttons) return;      // a drag (selecting text) keeps the box where it started
+    const r = this.getBoundingClientRect(), z = zoomOf(this);
+    this.#routePoint = { x: (e.clientX - r.x) / z, y: (e.clientY - r.y) / z, pad: e.pointerType === 'touch' ? 6 : 1 };
+    this.#route();
+  };
+
+  // A finger that has lifted is not pointing at anything any more. (The click that follows a tap re-aims itself.)
+  #onRouteEnd = (e) => { if (e.pointerType !== 'mouse') { this.#routePoint = null; this.#route(); } };
+
+  #route() {
+    const pt = this.#routePoint;
+    const p = pt && this.#running ? this.#pick(pt.x, pt.y, pt.pad) : null;
+    this.#routed = p;
+    this.#home();
+    return p;
+  }
+
+  // A tap gives no pointermove first, so its click was aimed with the box still at home. Send it again.
+  #onRouteClick = (e) => {
+    if (!e.isTrusted || this.#plain || !this.#running) return;
+    const r = this.getBoundingClientRect(), z = zoomOf(this);
+    this.#routePoint = { x: (e.clientX - r.x) / z, y: (e.clientY - r.y) / z, pad: e.pointerType === 'touch' ? 6 : 1 };
+    if (!this.#route()) return;
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const inner = target?.shadowRoot ? target.shadowRoot.elementFromPoint(e.clientX, e.clientY) : target;
+    const hit = inner && this.contains(inner) ? inner : target;
+    if (!hit || !this.contains(hit) || hit === e.target || hit === this) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    hit.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, composed: true, view: window, clientX: e.clientX, clientY: e.clientY }));
+  };
+  // #endregion route
 
   #onGPULost = () => { if (this.#engine === 'webgpu') this.#leaveGPU(webgpu.reason || 'the WebGPU device was lost'); };
 
@@ -377,7 +453,8 @@ export class GlyphField extends HTMLElement {
   }
 
   #resize() {
-    const dpr = devicePixelRatio || 1;
+    // Backing pixels per layout pixel: the screen's ratio times any CSS zoom, so zoomed text stays sharp.
+    const dpr = (devicePixelRatio || 1) * zoomOf(this);
     if (this.#plain) return;
     const h = this.#wrap.offsetHeight;
     this.#sizer.style.height = `${h}px`;
@@ -392,8 +469,23 @@ export class GlyphField extends HTMLElement {
   // #region home
   #home() {
     if (this.#plain) return;
-    this.#canvas.updateElementGeometry(this.#wrap, { canvasTransform: new DOMMatrix().translate(this.#bleed, this.#bleed) });
+    const b = this.#bleed, p = this.#running ? this.#routed : null;
+    const m = new DOMMatrix();
+    if (p && Math.abs(p.x) + Math.abs(p.y) + Math.abs(p.r) >= 0.01) {
+      // Carry the block with this letter: its home point maps to where it is drawn, turn and scale included.
+      const hx = p.hx + p.w / 2, hy = p.hy + p.h / 2;
+      m.translateSelf(b + hx + p.x, b + hy + p.y).rotateSelf(0, 0, p.r * 180 / Math.PI).scaleSelf(p.s || 1).translateSelf(-hx, -hy);
+    } else {
+      this.#routed = null;
+      m.translateSelf(b, b);
+    }
+    this.#canvas.updateElementGeometry(this.#wrap, { canvasTransform: m });
+    // The browser remembers what it found at a point, and moving the box this way does not make it forget
+    // (seen in Chromium 157). Any change to the DOM does, so make a tiny one whenever the box moves.
+    const key = `${m.a.toFixed(3)},${m.b.toFixed(3)},${m.e.toFixed(1)},${m.f.toFixed(1)}`;
+    if (key !== this.#homeKey) { this.#homeKey = key; this.#wrap.toggleAttribute('data-moved'); }
   }
+  #homeKey = '';
   // #endregion home
 
   // #region map
@@ -402,6 +494,7 @@ export class GlyphField extends HTMLElement {
     if (!this.#stale || !this.#wrap) return;
     this.#stale = false;
     // Rects are measured relative to the wrapper, so it has to be at its home position.
+    if (this.#routed) { this.#routed = null; this.#home(); }
     const origin = this.#wrap.getBoundingClientRect();
     const sx = origin.width / (this.#wrap.offsetWidth || 1) || 1;
     const old = this.#parts;
@@ -612,7 +705,7 @@ export class GlyphField extends HTMLElement {
       return;
     }
     // Say where the text lives: 2D draws leave the hit box on the last piece drawn, WebGL draws never move it.
-    this.#home();
+    this.#route();   // the letter under the pointer has moved; so must the box
     this.dispatchEvent(new CustomEvent('glyphframe', { detail: { particles: this.#parts.length, moving: this.#running, ms: performance.now() - now, engine: this.#engine } }));
   }
 
