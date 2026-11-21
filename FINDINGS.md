@@ -15,6 +15,7 @@ The main results. Each is backed by the tables in the sections below.
 - Accessibility largely survives, with one sharp edge: whatever is in the canvas but not drawn is still focusable. An opt-in such as "undrawn means inert" would remove the main hazard.
 - Any element can be exported with one call today, and a whole ordinary page can be wrapped in a canvas for a single frame without the user seeing it.
 - A native "draw this element by reference" hook for canvas (an id reference rather than DOM containment) would remove the need for the shadow root. An ElementImage that could be drawn into a second canvas would make cross-document reprojection first class; today it is deliberately bound to one canvas.
+- Every HTML element with a box draws and hit tests in a canvas (180 entries measured on `/elements/`). The exceptions are the top layer (modal dialogs, popovers, the base-select picker), other origins (blank, though a cross-origin iframe still takes clicks) and permission elements (they report themselves invalid).
 - For 3D, the texture half of the API is ready and the method names are the only obstacle in three.js today. The input half rests entirely on `updateElementGeometry()`: it accepts a perspective matrix, which covers every flat surface, and anything curved or occluded needs the app to re-place the element under the pointer.
 - In XR there is no pointer for the browser to hit test, so input is synthetic and loses everything a trusted event does for free. A way to hand the browser a ray hit (element plus point) and have it dispatch a trusted event would remove most of `RayPointer`.
 
@@ -32,6 +33,7 @@ The main results. Each is backed by the tables in the sections below.
 - [Capture (/capture/, public/lib/element-capture.js)](#capture-capture-publiclibelement-capturejs)
 - [Performance (/perf/)](#performance-perf)
 - [3D and spatial (/three-form/, /board/, /xr/)](#3d-and-spatial-three-form-board-xr)
+- [Every HTML element (/elements/)](#every-html-element-elements)
 - [Pages that hold still (npm run check:jank, tools/jank/)](#pages-that-hold-still-npm-run-checkjank-toolsjank)
 - [Remote across real networks: the custom domain, STUN and TURN](#remote-across-real-networks-the-custom-domain-stun-and-turn)
 
@@ -554,3 +556,29 @@ Reported from a phone on 2026-11-20: on `html-in-canvas.page` the room WebSocket
 
 Not verified: any connection between two real networks. The cloud test browser has no outbound UDP at all (STUN fails with 701), so only host candidates on one machine were exercised here. Two new live checks on `/remote/` report STUN and TURN from whatever device opens the page.
 
+## Every HTML element (`/elements/`)
+
+180 entries (each element in the HTML standard, each input type, a few attributes, some obsolete elements) put in a drawable canvas and measured in headless Chromium 157: drawn or not, share of the box with ink, what `elementsFromPoint()` returns at the drawn position, paint events with nothing touching the element, a screenshot compared with the same markup as plain DOM, and checks with real mouse and keyboard input. `ELEMENTS.md` has one row per element; `npm run record:elements` rewrites it and `public/elements/recorded.json`. 150 work, 4 work partly, 3 are blank, 22 have no box, 1 could not be measured (PDF).
+
+| Experiment | Result | Why |
+|---|---|---|
+| Any element that lays out a box: draw it, hit test it, click it | works | All sectioning, grouping, text-level, table and form elements, including `select multiple`, `details`, `iframe` (same origin), `svg`, `math`, `video` with native controls, a nested drawable canvas and custom elements with shadow trees. |
+| Inline element or table part as the drawable child itself | draws as a block | The computed `display` of the drawable child is `block`. A `td` or `tr` drawn alone loses the table layout. |
+| Content that overflows the drawn element (`dialog.show()` with the default `position: absolute`, overflowing `nobr` text, inline padding) | clipped | The picture is the element's box. |
+| `dialog.showModal()`, `[popover]`, the picker of `select` with `appearance: base-select` | not in the canvas | They are in the top layer and the page paints them. `drawElementImage(dialog)` throws "No cached paint record". |
+| CSS anchor positioning from a popover to an anchor drawn in a canvas | works | The popover sits against the drawn position of the anchor, and moves when the anchor is drawn 40 px away. |
+| Base-select picker inside a canvas: click an option, or ArrowDown then Enter | fails | `elementFromPoint()` at the option returns the canvas, and the keys leave the value unchanged (they work on the same select outside a canvas). The picker was painted under the drawn select in some runs and not in others. |
+| Cross-origin `iframe`, cross-origin `img` without CORS, `object` with a `data:` document | blank | Excluded by read-back-allowed rendering. |
+| Click the place where a blank cross-origin `iframe` is drawn | reaches the frame | The frame's button reported the click by `postMessage`. The frame is invisible and live. |
+| `geolocation` (permission element) | draws, refuses clicks | `isValid` is false with `invalidReason` "intersection_occluded_or_distorted". Outside a canvas it is true. |
+| `video`, animated `img`, `marquee`, indeterminate `progress`, a focused `input` | fire `paint` on their own | Each new frame or caret blink changes the element's picture. No `requestAnimationFrame` loop is needed while one of them is drawn. |
+| Captions from `track` | drawn with the video | The active cue is part of the video's picture. |
+| `area` in an image map | works | A click on the mapped part of the drawn image follows the link. |
+| `[inert]` | works | A click on a drawn inert subtree goes to what is behind it. This is a fix for "undrawn children are still focusable". |
+| `[draggable]`, text selection by dragging, `textarea` resize handle, `input type=range` thumb, `input type=file` chooser | work | All at the drawn position. |
+| `script`, `style`, `title`, `head` with `display: block` | draw their text | A `style` element with `contenteditable` can be edited in the canvas and its rules apply as you type. |
+| Elements with no box (`datalist`, `template`, `slot`, `br`, `wbr`, `source`, `track`, `map`, `audio` without controls, metadata) | nothing to draw | `drawElementImage()` throws "No cached paint record for element". |
+
+Not measured, because headless Chromium does not show native popup windows: where the list of a plain `select`, the date, time and colour pickers, `datalist` suggestions and `title` tooltips appear when the element is drawn transformed. The PDF viewer is also missing there. `hidden=until-found` needs find-in-page driven by a person.
+
+Two things the measurements had to work around. The page's stylesheet restyles test markup, so fixtures live in a shadow root. And a click on a new canvas at the spot where the pointer already rested did not focus the element under it until the pointer moved.
