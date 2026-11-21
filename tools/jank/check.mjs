@@ -59,6 +59,8 @@ const LIMITS = {
   resizeFlashes: 0,    // the same while the viewport height changes
   resizeClears: 6,     // backing-store writes to one visible canvas while the viewport height changes twice (a loop writes far more)
   resizeShift: 0.02,   // layout shift while the viewport height changes
+  glContexts: 8,       // most WebGL contexts alive at once; Chrome on Android keeps 8 per tab and takes the oldest away
+  lostCanvases: 0,     // visible canvases that lost their context and were not recovered (the guard's note was shown)
 };
 const allow = JSON.parse(await readFile(path.join(here, 'allow.json'), 'utf8').catch(() => '{}'));
 
@@ -308,6 +310,8 @@ function summarise(r) {
     resizeClears: Math.max(0, ...visibleResizes.map((c) => c.phases.viewport || 0)),
     resizeShift: +sum(j.shifts.filter((x) => x.phase === 'viewport'), (x) => x.value).toFixed(3),
     resizeFlashes: flashes(fvp),
+    glContexts: j.gfx?.peak ?? 0,
+    lostCanvases: j.gfx?.noted ?? 0,
     longTasks: j.longTasks.length,
     longTaskMs: sum(j.longTasks, (x) => x.ms),
     layouts: r.trace?.layouts ?? r.metrics.layouts,
@@ -328,6 +332,7 @@ function summarise(r) {
     blankAtEnd: lastLoad ? lastLoad.blank.map((c) => c.id) : [],
     resized: visibleResizes.filter((c) => c.writes > 2).map((c) => `${c.canvas} in ${c.host}: ${c.writes} writes (${c.same} unchanged) by ${Object.keys(c.by).slice(0, 2).join(', ')}`),
     forcedBy: r.trace?.forcedBy ?? {},
+    contexts: j.gfx?.summary ?? '',
   };
   const ok = allow[r.href] ?? {};
   r.problems = [];
@@ -361,7 +366,7 @@ await Promise.all(Array.from({ length: Math.min(opt.jobs, pages.length) }, async
     results[i] = r;
     const m = r.summary;
     const flag = r.problems.length ? 'FAIL' : 'ok  ';
-    console.log(`${flag} ${pages[i].padEnd(22)} ${m ? `cls ${m.cls} scroll ${m.scrollPx}px focus ${m.focusMoves} overlay ${m.overlaySamples} blank ${m.blankFrames}/${m.blankAtEnd} changes ${m.bigChanges} flashes ${m.flashes}+${m.resizeFlashes} resize ${m.resizeClears}/${m.resizeShift} forced ${m.forcedLayouts} long ${m.longTaskMs}ms  [${Math.round(m.loadMs / 1000)}s, checks ${m.checks}]` : ''}`);
+    console.log(`${flag} ${pages[i].padEnd(22)} ${m ? `cls ${m.cls} scroll ${m.scrollPx}px focus ${m.focusMoves} overlay ${m.overlaySamples} blank ${m.blankFrames}/${m.blankAtEnd} changes ${m.bigChanges} flashes ${m.flashes}+${m.resizeFlashes} resize ${m.resizeClears}/${m.resizeShift} gl ${m.glContexts}/${m.lostCanvases} forced ${m.forcedLayouts} long ${m.longTaskMs}ms  [${Math.round(m.loadMs / 1000)}s, checks ${m.checks}]` : ''}`);
     for (const p of r.problems) console.log(`       - ${p}`);
     for (const p of r.allowed ?? []) console.log(`       (allowed) ${p}`);
   }

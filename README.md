@@ -159,6 +159,29 @@ For a new demo page:
 - Only assign `canvas.width` and `canvas.height` when the size really changed. Assigning clears the canvas.
 - A page whose checks cannot meet this yet goes in `CHECKS_WAIT_FOR_TAP` in `public/shared/support.js`; its checks then wait for a button. Known exceptions with their reasons are in `tools/jank/allow.json`.
 
+## A canvas must not stay lost
+
+A browser can take a canvas's context away: the GPU process restarts, memory is short, a WebGPU device is lost, or the page holds too many WebGL contexts. Chrome on Android keeps 8 WebGL contexts alive per tab, frames included (16 on desktop). Making a ninth takes the oldest away, which is usually the demo at the top of the page.
+
+`public/shared/context-guard.js` handles this on every page. `nav.js` loads it before any page script, so a page does nothing to get it. It:
+
+- counts every context a page makes (`window.__gfx.summary()` prints the counts and every loss);
+- when one more WebGL context would reach the limit, takes the context of canvases that were removed from the page earlier (finished check fixtures), so the browser does not take one from a canvas on screen;
+- calls `requestPaint()` on a 2D canvas when its context is restored;
+- puts a note with a Reload button and the context counts over any visible canvas that is still lost 1.5 seconds after the loss. If the page shows its own `role="alert"` message over the canvas, the guard adds nothing.
+
+`public/shared/backend.js` remembers a lost WebGPU device for ten minutes in `sessionStorage`. In that time `webgpu()` answers null and pages use WebGL, because a device that was lost once on a phone is usually lost again on the next page. `?webgpu=retry` forgets the loss.
+
+For a new page or library:
+
+- Keep at most 8 WebGL contexts alive, counting the visible demo and one check fixture. `npm run check:jank` fails a page above that (`glContexts`) and a page that shows the guard's note (`lostCanvases`).
+- Do not make a WebGL context to test for support. Use `webgl2()` from `shared/backend.js`, which asks once and gives the context back.
+- A canvas made for a check is removed from the page when the check ends. The guard frees its context if the limit is near. Do not call `WEBGL_lose_context.loseContext()` yourself to free a context: threads have seen it crash the renderer in Chromium 157 on a drawable canvas still in the page, on one removed in the same task, and on one with an iframe child.
+- Handle the loss in the library when a better answer than the note exists: listen for `webglcontextlost` (WebGL), `contextlost` (2D) and the window event `webgpulost` (WebGPU, sent by `shared/backend.js`), then move the content to a new canvas or show it as plain HTML. `SurfaceElement` in `lib/surface.js` shows plain HTML for both canvas events when its subclass does nothing.
+- To see what a page does on a loss, call `getExtension('WEBGL_lose_context').loseContext()` on a canvas in the console, or make 16 more WebGL contexts.
+
+The measurements behind these rules, and what still needs a real phone, are in [docs/lost-contexts.md](docs/lost-contexts.md).
+
 ## Show the code
 
 Every demo has a "Show the code" listing under it: numbered steps, each with the code that does it, a Copy button and a link to the lines on GitHub. The listings are cut from the files the page is running when someone opens one, so they cannot drift. `public/shared/show-code.js` does it (loaded by `nav.js`, styles in `shared/style.css`).

@@ -3,6 +3,8 @@
 // nobody asked for, focus moving, visible canvases being resized (which clears
 // them) and big overlays. Everything lands in window.__jank.
 (() => {
+  // Count WebGL contexts the way Chrome on Android does (/shared/context-guard.js reads this).
+  window.__gfxLimit = 8;
   if (window.top !== window || window.__jank) return;
   const t0 = performance.now();
   const now = () => Math.round(performance.now() - t0);
@@ -135,6 +137,9 @@
       phases: c.phases, by: c.by, first: c.first, last: c.last, connected: c.el.isConnected, visible: J.inViewport(c.el),
     }));
     J.revealedAt = revealedAt === null ? null : Math.round(revealedAt);
+    // Canvas contexts, counted by /shared/context-guard.js.
+    const g = window.__gfx;
+    J.gfx = g ? { peak: g.peak, noted: g.noted, released: g.released, made: g.made.length, summary: g.summary() } : null;
     const { collect, inViewport, sample, ...data } = J;
     return data;
   };
