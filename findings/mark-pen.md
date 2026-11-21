@@ -27,7 +27,7 @@ Paul reported a crashed canvas on Chrome 159 for Android on 2026-11-21 (page not
 
 - Live checks wait for a tap (`<meta name="checks" content="tap">`).
 - Check fixtures no longer ask for `willReadFrequently` on a drawable canvas. Pixels are read from a `drawImage()` copy.
-- `home()` sets the hit region with `updateElementGeometry()` and no longer draws the element at alpha 0.
+- `home()` first set the hit region with `updateElementGeometry()` in place of a draw at alpha 0. That left the region the size of the last piece (2 of 36 points hit, Chromium 157 headless, 2026-11-21; found by `/text-notes/`). It now draws the whole element inside an empty clip: 36 of 36 points hit, no pixels drawn. A draw that cannot be seen did not lose a canvas on the phone (`findings/canvas-loss.md`, trial `alpha0`).
 - No `shadowBlur` anywhere in the five pages.
 - `/flip-clock/` and `/split-flap/` close each `ElementImage` snapshot before taking the next.
 - On the first trusted `contextlost` event, `mount()` stops drawing and shows the content as plain HTML with a note.
