@@ -32,6 +32,7 @@ Each demo keeps the real element and draws it with a 2D canvas. Tested in headle
 | Experiment | Result | Detail |
 | --- | --- | --- |
 | `drawable` on `<option>` in `<select multiple>`, `<li>` in `<ul>` and `<menu>`, `<th>` and `<td>` in a table | works | Each one is drawn on its own and has its own hit region. The parent is not drawn and keeps its job: the select owns the selection, the table lays out the cells. |
+| `drawElementImage(el, x, y)` with no size, under `ctx.scale(devicePixelRatio)` | too large on a phone | With no size the picture is drawn at the element's size in device pixels, so the scale is applied twice: 3 times too large at a pixel ratio of 3, and the hit region with it. Correct at a ratio of 1, which is why the first tests passed. Pass the size in CSS pixels: `drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight)`. Playwright's `deviceScaleFactor` does not show this, `--force-device-scale-factor` does. |
 | A draw with `globalAlpha = 0`, or clipped away completely | moves the hit region | Used to say where input goes after the element was drawn in distorted pieces (CRT bulge, raised room). |
 | `<input type="range">` drawn rotated 90 degrees, mouse drag | works | Up raises the value. |
 | The same, touch drag | fails | A tap on the track is mapped through the rotation, a drag is not followed. A slider drawn at 17 degrees drags by touch. Chrome appears to test the drag's direction in screen space for a horizontal slider. The page sets the value from the pointer. Also needs `touch-action: none`. |

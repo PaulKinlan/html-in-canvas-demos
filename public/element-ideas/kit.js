@@ -30,8 +30,10 @@ export function mount(canvas, paint) {
 }
 
 // drawElementImage() draws the element and puts its hit region where it was drawn.
+// The size is passed in CSS pixels. Without a size the picture is drawn at the element's size in device
+// pixels, which under the ctx.scale(dpr) above comes out dpr times too large on a high-density screen.
 export function put(ctx, el, x = 0, y = 0) {
-  try { ctx.drawElementImage(el, x, y); return true; } catch { missed = true; return false; }
+  try { ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight); return true; } catch { missed = true; return false; }
 }
 
 // Place the hit region without drawing: an invisible draw still moves it.
