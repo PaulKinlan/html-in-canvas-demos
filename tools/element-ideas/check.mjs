@@ -27,8 +27,12 @@ const server = createServer(async (req, res) => {
   } catch { res.writeHead(404); res.end('not found'); }
 }).listen(8003);
 
-const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 412, height: 800 } });
+// A phone's pixel ratio, set on the browser itself. Playwright's deviceScaleFactor does not change the
+// size of a canvas's device-pixel box, so it does not show a draw that is scaled wrongly.
+const browser = await chromium.launch({ args: ['--force-device-scale-factor=2.625', '--window-size=412,800'] });
+const context = await browser.newContext({ viewport: null });
+const page = await context.newPage();
+await (await context.newCDPSession(page)).send('Emulation.setDeviceMetricsOverride', { width: 412, height: 800, deviceScaleFactor: 0, mobile: false });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
@@ -95,7 +99,7 @@ const TESTS = {
     const a = await js(() => [findView.scrollLeft, findView.scrollTop, findOut.textContent, String(getSelection())]);
     await js(() => { findForm.elements.word.value = 'tide table'; }); await click('#findForm button'); await wait(1500);
     const b = await js(() => [findView.scrollLeft, findView.scrollTop, findOut.textContent]);
-    return [a[0] === 300 && a[1] === 0 && b[0] === 0 && b[1] === 0, `"lighthouse": view scrolled to ${a[0]},${a[1]} (${a[2]}), selection "${a[3]}"; "tide table": ${b[0]},${b[1]} (${b[2]})`];
+    return [Math.abs(a[0] - 300) < 1 && a[1] < 1 && b[0] < 1 && b[1] < 1, `"lighthouse": view scrolled to ${a[0]},${a[1]} (${a[2]}), selection "${a[3]}"; "tide table": ${b[0]},${b[1]} (${b[2]})`];
   },
   async math() {
     const before = await js(() => { const r = document.querySelector('#mathCanvas .step:nth-child(2) [data-k=b]').getBoundingClientRect(); return r.width; });
@@ -159,13 +163,22 @@ const TESTS = {
   },
 };
 
+// Elements that each demo draws at their own size with no rotation: the drawn box must match the layout box.
+const SIZES = { sequencer: '#seqForm', crt: '#crtText', dialog: '#dialogPage', callouts: 'button.spot', inert: '.panel:not([inert])', find: '#findView', math: '#mathCanvas .step', radial: '#radialToggle', diff: '#diffText', style: '#styleSheet' };
+
 const only = process.argv.slice(2);
 let failed = 0;
 for (const [id, test] of Object.entries(TESTS)) {
   if (only.length && !only.includes(id)) continue;
   await show(id);
   let ok = false, text = '';
+  let size = '';
+  if (SIZES[id]) {
+    const m = await js((s) => { const el = document.querySelector(s), r = el.getBoundingClientRect(); return [r.width, el.offsetWidth, devicePixelRatio]; }, SIZES[id]);
+    size = Math.abs(m[0] - m[1]) < 1.5 ? '' : `drawn ${m[0].toFixed(0)} px wide, laid out ${m[1]} px, at pixel ratio ${m[2]}; `;
+  }
   try { [ok, text] = await test(); } catch (err) { text = 'threw: ' + err.message.split('\n')[0]; }
+  if (size) { ok = false; text = size + text; }
   if (!ok) failed++;
   console.log(`${ok ? 'pass' : 'FAIL'}  ${id.padEnd(10)} ${text}`);
 }

@@ -67,6 +67,17 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A CSS height transition on `::details-content` raises a `paint` event for each frame. | measured | C157 | `/accordion/` | Accordion from `<details>` |
 | `content="drawable"` on a canvas with a `bitmaprenderer` context gives `paint` events and geometry, with no way to draw the element. | measured | C157 | `/flutter-dom/` | A DOM form inside a Flutter web app |
 | A `<tr drawable>` in a table that is a canvas child keeps table layout and can be drawn on its own at any position. A `<td drawable>` with no background is drawn as text on transparent pixels. | measured | C157 | `/sort-table/`, `/heat-map/` | Sortable table; Heat map over table cells |
+| A state change raises `paint` only if it changes a pixel of a drawable element: `value` set from script, `stepUp()`, `output.value`, `:active`, `:focus` with a visible outline, `input.files`, `fieldset.disabled`. A change to `aria-label`, `aria-level` or a custom property alone raises none. | measured | C157 | `/form-state/`, `/form-scenes/`, `/instruments/`, `/a11y-views/`, `/landmark-map/` | Form effects driven by the paint event; Form controls in a drawn setting |
+| An animated registered custom property raises `paint` every frame once a painted colour is computed from it. Generated content from an animated CSS counter does too. A canvas animation can run with no frame loop. | measured | C157 | `/flip-clock/` | Flip clock from a time element |
+| A transform or opacity animation on the drawable element itself raises no `paint`. The same animation on a descendant raises one per frame. | measured | C157 | `/paint-inspector/` | Paint event inspector |
+| `paint` rates per second at 60 Hz: a background animation or `<marquee>` 60, a 30 fps video 30, an indeterminate `<progress>` 8, a caret 2. Each can be the only clock of an effect. | measured, software rendering | C157 | `/paint-inspector/`, `/paint-clocks/` | Paint event inspector; Paint clocks |
+| Drawing an element at a different place than in the last paint raises a second `paint` one frame later with that element in `changedElements`. | measured | C157 | `/paint-clocks/` | Paint clocks |
+| A `drawable` element raises `paint` when it is not drawn. `opacity: 0` from the start prevents the events. `opacity: 0` set later does not. | measured | C157 | `/paint-clocks/` | Paint clocks |
+| An element is named in `changedElements` once for its first picture. A listener added after that sees an empty list from `requestPaint()`. | measured | C157 | `/paint-inspector/` | Paint event inspector |
+| A drawable canvas can be a `drawable` child of a drawable canvas. A draw in the inner one raises `paint` on the outer one. A scroll inside a drawn same-origin iframe raises `paint` with the iframe in `changedElements`. | measured | C157 | `/nested-frames/` | Frames and nested canvases |
+| A `drawable` scroll container scrolls natively inside a canvas by touch and wheel and raises `paint` on every scroll step. A `position: sticky` drawable canvas inside a native scroller is scrolled on its drawn content and raises none. | measured | C157 | `/list-table/`, `/structure-depth/` | Lists and tables, second batch; Page structure drawn in depth |
+| `left`, `top` and percentage insets do not position a child of a canvas. Each child is laid out at 0, 0. `max-width: 100%` on a child resolves against the canvas's CSS width. | measured | C157 | `/gpu-video/`, `/text-notes/`, `/share-card/` | A video as a WebGPU external texture under HTML cards; Annotated article; Text selection |
+| `drawable` children can be moved between two canvases with `append()`. | measured | C157 | `/presenter/` | A video presenter over a slide made of DOM |
 
 ### drawElementImage() in a 2D context
 
@@ -86,6 +97,14 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A float16 Display P3 2D canvas keeps CSS `color()` values above 1.0 through `drawElementImage()`. A CSS `filter` or `mix-blend-mode` on the element, `ctx.filter`, `lighter`, a shadow on the draw and `drawImage()` of a float canvas clamp to 1.0. | measured | C157 | `/hdr-glow/` | HDR interface |
 | An element moved in the DOM can be drawn in the same task, with its old picture. | measured | C157 | `/sort-table/` | Sortable table |
 | A nested drawable content element of a closed `<details>` throws "No cached paint record". Its open picture is available only as a snapshot taken while it was open. | measured | C157 | `/accordion/` | Accordion from `<details>` |
+| `drawElementImage()` has a nine-argument form with a source rectangle in CSS pixels of the element. It works for elements and for `ElementImage` snapshots. One element can be drawn more than 100 times in a frame in slices under different transforms. | measured | C157 | `/input-ideas/`, `/keycaps/`, `/split-flap/` | Five more input pickers; Keycaps drawn from kbd; Split-flap output element |
+| `ctx.filter` (`blur()` and `url()` to an SVG filter), `globalCompositeOperation` (`source-in`, `source-out`, `source-atop`, `multiply`, `difference`), `clip('evenodd')`, a canvas shadow and a reflection all apply to `drawElementImage()`. The element's own `mix-blend-mode` is applied against the canvas. | measured | C157 | `/text-notes/`, `/video-text/`, `/redact/`, `/timed-comments/`, `/play/`, `/list-table/` | Annotated article; Video as a material for editable text; Text selection |
+| `ctx.filter = 'url(#id)'` resolves the id in the tree of the canvas, so a canvas in a shadow root finds filters in that shadow root. | measured | C157 | `/nested-frames/` | Frames and nested canvases |
+| An element's picture is rastered at the drawn size. An element drawn at four times its layout size is drawn again, not stretched. | measured | C157 | `/media-tiles/`, `/share-card/` | Video, image and chart tiles; Text selection |
+| A draw made outside the `paint` event works, including at `globalAlpha = 0`, and can be copied with `drawImage()` in the same task. `captureElementImage()` works outside a paint handler. | measured | C157 | `/play/`, `/structure-depth/`, `/split-flap/` | Four games made of live elements; Page structure drawn in depth; Split-flap output element |
+| 288 letters per frame drawn from a snapshot with `drawImage()` took 49.6 ms. From the live element through a clip, once per letter, it took 442.3 ms. | measured, software rendering | C157 | `/selection-glyphs/` | Text selection |
+| A `<col>` has a box and no picture, and `drawElementImage(col)` throws. A `<figure>` that is not drawable can hold a `drawable` `<img>` and `<figcaption>`. A `<label for>` and its field can be drawn as separate elements, and label activation is unchanged. | measured | C157 | `/list-table/`, `/media-tiles/`, `/form-scenes/` | Lists and tables, second batch; Video, image and chart tiles; Form controls in a drawn setting |
+| `drawImage()` into a second canvas, `toDataURL()` and `toBlob()` work after `drawElementImage()` of same-origin content. Read the copy, not the drawable canvas (see "Phones and lost contexts"). | measured | C157 | `/input-ideas/`, `/select-ideas/`, `/share-card/` | Five more input pickers; Five more select pickers; Text selection |
 
 ### Hit testing and updateElementGeometry()
 
@@ -122,6 +141,20 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | Where two elements drawn by a 2D canvas overlap, the one drawn last is hit, in either document order. | measured | C157 | `/tab-fan/` | Tab switcher of live pages |
 | The browser does not scroll a scroll container in a canvas for wheel or touch unless the container itself is drawable and has a hit region. A `wheel` listener on such a container is treated as passive. | measured | C157 | `/minimap/` | Live minimap |
 | Drawing a canvas child at its view transition group box retargets the group, so it does not move, unless `updateElementGeometry()` puts the hit box back after each draw. | measured | C157 | `/scoped-transitions/` | Transitions and motion, View transitions drawn by a canvas |
+| Where two elements drawn by a 2D canvas overlap, the one drawn last is hit, in either document order. A drawable child has a hit region only in a frame that draws it. | measured | C157 | `/hit-regions/`, `/cassette/`, `/play/`, `/text-notes/` | Hit region viewer; Annotated article |
+| A clip on the context does not clip the hit region of a 2D draw. A draw inside an empty clip, or at `globalAlpha = 0`, moves the hit region and adds no pixels. | measured | C157 | `/hit-regions/`, `/form-state/`, `/input-ideas/` | Hit region viewer; Form effects driven by the paint event |
+| A draw with a source rectangle gives the element a hit region at the piece, with the size of the piece. `updateElementGeometry()` moves it and keeps that size. A whole draw in an empty clip restores it. | measured | C157 | `/text-notes/`, `/speak-words/`, `/list-table/` | Annotated article; Words highlighted as they are spoken |
+| An element drawn at half size is hit only inside the half-size box, so drawing a control smaller makes its touch target smaller. | measured | C157 | `/a11y-views/` | Focus trail, target sizes, label lines and heading outline |
+| After a rotated or sheared draw, `getBoundingClientRect()`, `getClientRects()` and `Range.getClientRects()` of the element and its descendants are bounding boxes at the drawn position and scale. `getBoxQuads()` is not available. The element is hit inside its drawn parallelogram. | measured | C157 | `/layout-debug/`, `/focus-path/`, `/mark-pen/`, `/form-scenes/`, `/top-layer/` | Layout debugger overlay; Marker-pen highlight on mark; Form controls in a drawn setting |
+| `caretPositionFromPoint()` answers for a drawn element at its drawn position, in 2D and on WebGL after `updateElementGeometry()`. | measured | C157 | `/speak-words/`, `/text-notes/`, `/video-text/`, `/selection-heat/` | Words highlighted as they are spoken; Video as a material for editable text |
+| Any `Range` has rectangles at the drawn position whether or not it is selected. One `Range` per character gives per-letter boxes. | measured | C157 | `/selection-peers/`, `/selection-glyphs/` | Text selection |
+| `touch-action` on a drawable element applies at the place it was drawn, so a canvas with `pan-y` can hold elements with `none`. | measured with CDP and emulated touch | C157 | `/instruments/`, `/play/` | Form controls drawn as instruments; Four games made of live elements |
+| The remembered hit-test answer (bug 6) applies to plain 2D draws too, holds the last two points asked, and is not used by `elementsFromPoint()`. | measured | C157 | `/hit-regions/` | Hit region viewer |
+| Moving a hit region in a capture-phase `pointerdown` listener lets one element shown in several pieces take a tap in the piece under the pointer. Moving it in the `paint` event that follows `pointerdown` is too late for a touch tap. | measured | C157 | `/structure-depth/` | Page structure drawn in depth |
+| Drawing an `ElementImage` moves the live element's hit region to the picture. A draw of the element at `globalAlpha` 0 moves it back. | measured | C157 | `/form-scenes/` | Form controls in a drawn setting |
+| `canvasTransform` starts at the canvas origin in CSS pixels. An identity matrix puts the hit box at the origin. | measured | C157 | `/gpu-video/` | A video as a WebGPU external texture under HTML cards |
+| A touch press does not set `:active` on a button drawn in a canvas. A mouse press does. | measured, emulated touch; not verified on A159 | C157 | `/form-state/` | Form effects driven by the paint event |
+| A `draggable` element drawn by a canvas starts a native drag with a mouse, and the canvas and drawn elements take `dragover` and `drop`. A drawn `<input type="file">` opens the file chooser on a tap and takes a drop. | measured | C157 | `/play/`, `/form-scenes/` | Four games made of live elements; Form controls in a drawn setting |
 
 ### ElementImage, workers and OffscreenCanvas
 
@@ -138,6 +171,9 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | An `ElementImage` cannot follow a navigation. | measured | C157 | `/view-transitions/` | View Transitions API |
 | An `ElementImage` is refused by every canvas other than the one it was captured from, including an `OffscreenCanvas` ("The source was captured from a different canvas"). `createImageBitmap()` accepts neither an `ElementImage` nor an element. | measured | C157 | `/flutter-dom/` | A DOM form inside a Flutter web app |
 | An `ElementImage` taken before a DOM change, or before its element moved, still draws afterwards and serves as the old state of a transition drawn by the canvas. | measured | C157 | `/scoped-transitions/`, `/sort-table/` | Transitions and motion; Sortable table |
+| A worker composes `VideoFrame`s and transferred `ElementImage` snapshots on the page's transferred canvas and writes a video track through a transferred `MediaStreamTrackGenerator` stream. `MediaStreamTrackProcessor` and `VideoTrackGenerator` are not defined in a worker. | measured | C157 | `/worker-compositor/` | A worker as the video compositor |
+| With the main thread blocked, a worker keeps composing only if it decodes the file itself with `VideoDecoder` and converts frames with `copyTo()`. `drawImage(VideoFrame)`, `createImageBitmap(VideoFrame)` and `texImage2D(VideoFrame)` of I420 frames stop. | measured, software rendering | C157 | `/worker-compositor/` | A worker as the video compositor |
+| An `ElementImage` keeps the element's old rendering after its value or text changes, across frames. | measured | C157 | `/form-scenes/`, `/split-flap/`, `/flip-clock/` | Form controls in a drawn setting; Split-flap output element |
 
 ### WebGL: texElementSubImage2D()
 
@@ -157,6 +193,10 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `texElementSubImage2D()` refuses float textures. Element copies on WebGL and WebGPU do not carry values above 1.0. | measured | C157 | `/hdr-glow/` | HDR interface |
 | A foreign engine's texture can be found without engine internals by wrapping `gl.createTexture` for the length of the engine call that creates it. | measured | C157 | `/godot-dom/` | A DOM form in a Godot 4 web export |
 | Dear ImGui's OpenGL backend needs straight alpha for an element texture. egui and Qt Quick need premultiplied alpha. | measured | C157 | `/imgui-dom/`, `/native-ui/` | Dear ImGui with DOM elements |
+| Element textures store straight alpha for translucent content on WebGL and WebGPU. This disagrees with the earlier "Pixels are premultiplied" row under WebGPU. Neither result has been re-run against the other. | measured | C157 | `/gpu-video/` | A video as a WebGPU external texture under HTML cards |
+| `texElementSubImage2D()` does not apply the element's own `mix-blend-mode`. `mix-blend-mode` inside the element is kept in its picture. | measured | C157 | `/video-text/` | Video as a material for editable text |
+| Text styled white on clear gives a coverage mask as `min(r, g, b)`. The selection highlight, caret and focus ring are in the same texture as coloured pixels. | measured | C157 | `/video-text/` | Video as a material for editable text |
+| `captureStream()` of a WebGL canvas that draws in `paint` needs `preserveDrawingBuffer: true`, or the frames are black. | measured, software GL | C157 | `/presenter/` | A video presenter over a slide made of DOM |
 
 ### WebGPU: drawElementImageToTexture()
 
@@ -174,6 +214,10 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A swizzled view, immediates and a float blend target all work on a texture filled by `drawElementImageToTexture()`. | measured | C157 | `/webgpu-features/` | Newer WebGPU features on element textures |
 | A compatibility mode device builds and draws every shader of `/webgpu-features/`. | measured, software adapter | C157 | `/webgpu-features/` | Newer WebGPU features on element textures |
 | `dual-source-blending` and `primitive-index` shaders. | not verified | | `/webgpu-features/` | Newer WebGPU features on element textures |
+| `primitive_index` and dual-source blending work on an element texture, and `/webgpu-features/` draws with WebGPU on screen: 10 of 10 live checks pass on the phone. A compatibility mode device there draws the same picture within 2 of 255. | reported | A159 | `/webgpu-features/` | Newer WebGPU features on element textures |
+| One pass samples a video texture and element textures from `drawElementImageToTexture()`. An element that contains a playing video uploads with the frame `requestVideoFrameCallback()` reported. | measured, software adapter | C157 | `/gpu-video/` | A video as a WebGPU external texture under HTML cards |
+| `importExternalTexture()` and `copyExternalImageToTexture(video)` fail on the software adapter. `createImageBitmap(video)` or a 2D canvas in between works. | measured, software adapter | C157 | `/gpu-video/`, `/video-text/` | A video as a WebGPU external texture under HTML cards |
+| On the phone a plain float16 Display P3 2D canvas, a drawable one filled by `drawElementImage()`, and a WebGPU `rgba16float` canvas with tone mapping `extended` each show 4.0 brighter than 1.0. | reported | A159 | `/hdr-glow/repro.html` | HDR interface |
 
 ### What is in an element's picture
 
@@ -205,6 +249,14 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A custom highlight and a script-set `:focus-visible` outline are in the texture. | measured | C157 | `/voice/`, `/focus-nav/` | Language models, voice and input; Controller, keyboard and haptic navigation |
 | Registered custom properties, including values from `attr()`, `if()`, `sibling-index()`, `random()`, `progress()`, `@function`, transitions and view timelines, can be read each frame and set as shader uniforms. | measured | C157 | `/css-uniforms/` | Shader uniforms from CSS |
 | A displayed, editable `<style>` element inside a drawn element is drawn and stays live. | measured | C157 | `/css-uniforms/` | Shader uniforms from CSS |
+| An outline is in an element's picture only where it falls inside the border box of the drawable element. A focus ring on a descendant is drawn and cut at that box. | measured | C157 | `/a11y-views/`, `/instruments/`, `/input-ideas/` | Focus trail, target sizes, label lines and heading outline |
+| The selection highlight in its `::selection` colour and `::highlight()` colours are in the picture. A `<mark>` with `background: none` paints nothing of its own. | measured | C157 | `/text-notes/`, `/typed-code/`, `/mark-pen/` | Annotated article; Code that types itself; Marker-pen highlight on mark |
+| An `outside` list marker is not in the picture of its `<li>`. An `inside` marker is. The picture of the `<ol>` has both. | measured | C157 | `/list-table/` | Lists and tables, second batch |
+| The picture of a drawable nested in another drawable holds only the part inside the window. A direct child of the canvas, including an inner canvas, is recorded whole. | measured | C157 | `/keycaps/`, `/split-flap/`, `/nested-frames/` | Keycaps drawn from kbd; Frames and nested canvases |
+| A drawable element in a shadow tree that contains a `<slot>` holds the picture of the slotted children. The slot itself and a `foreignObject` cannot be the drawable element. | measured | C157 | `/nested-frames/` | Frames and nested canvases |
+| An open popover is not in the picture of the element that contains it. A `<dialog open>` with `position: static` is drawn as a `drawable` child and its buttons work. While a dialog is modal the canvas scene is inert. | measured | C157 | `/top-layer/` | A tooltip, a modal and toasts beside the top layer |
+| Drawing a bar over text in the canvas hides nothing from the DOM: `textContent`, `Range.toString()` and copy still return it. | measured | C157 | `/redact/` | Text selection |
+| The browser's validation message points at the drawn position of a field. An `inert` drawable fieldset is drawn, submitted and validated. | measured; the message was seen in a screenshot | C157 | `/instruments/` | Form controls drawn as instruments |
 
 ### Slots and shadow DOM
 
@@ -238,6 +290,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `frame-sizing: content-height` parses and does not size an iframe. `window.requestResize()` throws `NotAllowedError`. | measured | C157, C153 | `/iframe-tiles/` | Iframes as tiles |
 | Element Capture, a frozen tab, and WebTransport against a real server. | not verified | | `/transports-2/` | Transport lab 2: newer transport APIs |
 | A same-origin iframe drawn rotated and scaled takes taps and typing at the drawn position, and changes in its document raise the canvas's `paint` event. | measured | C157 | `/tab-fan/` | Tab switcher of live pages |
+| One same-origin iframe drawn as nine clipped tiles takes clicks, the wheel and touch scroll on each tile when its hit region is moved under the pointer. Input reaches a control through two nested canvas draws and through a drawn iframe. | measured | C157 | `/play/`, `/nested-frames/` | Four games made of live elements; Frames and nested canvases |
+| A selection sent as two offsets into `textContent` over a `BroadcastChannel` is rebuilt and drawn in another document. | measured | C157 | `/selection-peers/` | Text selection |
 
 ### Accessibility, focus and selection
 
@@ -253,6 +307,10 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `focusgroup="toolbar wrap"` moves focus in DOM order through buttons drawn by a shader. With `reading-flow: grid-rows`, arrows and Tab follow the drawn order. | measured, real key events from a test script | C157 | `/focus-nav/` | Controller, keyboard and haptic navigation |
 | Canvas children without `layoutsubtree` (fallback content) are in the accessibility tree and focusable and have no boxes. A text input among them cannot be typed in. | measured | C157 | `/toolkit-aria/` | An accessibility tree for a Dear ImGui app |
 | Any screen reader on the toolkit accessibility tree. | not verified | | `/toolkit-aria/` | An accessibility tree for a Dear ImGui app |
+| Links drawn with `globalAlpha = 0` are Tab stops with a hit box at the drawn position and no pixels. A canvas child that is not drawn is a Tab stop until it is `inert`. | measured with the real Tab key | C157 | `/a11y-views/`, `/focus-path/` | Focus trail, target sizes, label lines and heading outline; Focus order drawn as a path |
+| A Tab order worked out from the DOM matched the real Tab key for canvas children in six arrangements. | measured | C157 | `/focus-path/` | Focus order drawn as a path |
+| Landmark roles of canvas children follow the whole document: a `<header>` drawn in a canvas inside a `<main>` is not a banner. `computedRole` and `computedName` are not available without a flag. | measured through the DevTools protocol | C157 | `/landmark-map/` | Landmark map |
+| Sections that are parked and not drawn stay in the accessibility tree as named regions, and Tab reaches them. | measured | C157 | `/structure-depth/` | Page structure drawn in depth |
 
 ### Form controls and pickers
 
@@ -264,6 +322,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | The select fires no `toggle` event, has no `hidePicker()`, and `showPicker()` uses up user activation. | measured | C157 | `/select/` | Customisable select |
 | The built-in popups of `<input list>`, date, time and colour have no element. A canvas cannot draw them. | measured | C157 | `/datalist/`, `/inputs/` | Datalist and other inputs |
 | Where native popups open for a control that is drawn transformed. | not verified | | `/inputs/`, `/elements/` | Datalist and other inputs; PR #48 |
+| An option drawn twice in one frame is hit where it was drawn last. Options stop painting when the picker closes, so a copy of the picker canvas is the only picture left. A datalist option can be drawn inside the picture of its input. | measured | C157 | `/select-ideas/`, `/input-ideas/` | Five more select pickers; Five more input pickers |
+| `disabled` on a drawn fieldset behaves as outside a canvas. A press on a disabled control still reaches the canvas as `pointerdown`. | measured | C157 | `/form-scenes/` | Form controls in a drawn setting |
 
 ### Video and sound
 
@@ -275,6 +335,13 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `video.shadowRoot` is `null`. No part of the native controls can be drawn by itself. | measured | C157 | `/player-parts/` | Video and sound |
 | Videos errored and the page jumped when checks started on load on the phone. | reported | A159 | the media pages | Video and sound |
 | Hardware-decoded video, Widevine, HDR, audible output. | not verified | | `/video/` | Video and sound, Not verified |
+| A text track in `hidden` mode keeps `activeCues` current and draws nothing, so captions can be a separate drawn element. `getCueAsHTML()` exposes cue time stamps. Comments as `VTTCue`s in a `metadata` track give the set of elements to draw at any time. | measured | C157 | `/captions/`, `/timed-comments/` | Captions drawn apart from the video; Timed comments that cross the video |
+| A video outside the canvas raises no `paint`. As a child of the drawn element it raises one per shown frame, even with `opacity: 0`. Several source-rectangle draws of a playing video in one paint handler show one frame. | measured | C157 | `/video-text/`, `/presenter/`, `/media-tiles/` | Video as a material for editable text; Video, image and chart tiles |
+| VP9 alpha is kept by a `<video>` child, by `drawImage(video)` and by `texImage2D(video)`. A presenter drawn from a video outside the canvas takes no hits, so links and controls work under it. | measured | C157 | `/presenter/` | A video presenter over a slide made of DOM |
+| A `getDisplayMedia()` stream in a canvas child `<video>` is drawn and does not taint the canvas. A tab capture restricted to the canvas that draws it is a closed loop. | measured | C153 real tab capture, C157 fake monitor | `/telestrator/` | Screen capture with HTML annotation tools |
+| The native control panel of `<audio>` accepts a CSS grid, so its parts can be rearranged without script. A source rectangle of the play button copies the browser's own glyph, which follows the element's state. | measured | C157 | `/cassette/` | Cassette deck from audio controls |
+| `recognition.start(track)` accepts the audio track of `video.captureStream()`. A caption element in the canvas is part of `canvas.captureStream()`. | measured (start only) | C157 | `/live-captions/` | Live captions with a second language |
+| Speech synthesis has no voices in the test browser (`synthesis-failed`), and no speech was recognised. | not verified |  | `/speak-words/`, `/live-captions/` | Words highlighted as they are spoken |
 
 ### View transitions
 
@@ -300,6 +367,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | Whether a capture flickers on a real screen. | not verified | | `/capture/` | Capture |
 | Element Timing reports a canvas child even when the canvas never draws it. `presentationTime` is when the element's picture was painted. A 2D canvas shows a DOM change in the same frame as plain DOM (5 ms median against 4 ms, software rendering). | measured | C157 | `/perf/` | Performance, Latency and long frames |
 | `copyElement(el, { html: true })` writes PNG, HTML and text in one `ClipboardItem`. | measured | C157 | `/capture/` | Capture, Clipboard, print margins, folders |
+| Redaction done in the paint handler is in `captureStream()`, `MediaRecorder` and WebRTC output. | measured | C157 | `/telestrator/` | Screen capture with HTML annotation tools |
+| `toBlob()` on a drawable canvas that holds a figure with a nested plain canvas gives one untainted PNG. | measured | C157 | `/media-tiles/` | Video, image and chart tiles |
 
 ### 3D, XR and native toolkits
 
@@ -337,6 +406,11 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A guard on every page (PR #63) counts contexts and puts a note with a Reload button over a canvas that stays lost. `check:jank` limits a page to 8 live WebGL contexts and 0 lost canvases. Whether this ends the white boxes on the phone has not been reported. | measured in C157; not verified on A159 | C157 | every page | Pages that hold still |
 | On the phone the float16 Display P3 2D contexts of `/hdr-glow/` were lost every 1.5 s, the interval of the page's float readback. PR #75 made the readback a button and added an 8-bit fallback. Which of the readback, the float canvas or the GPU process causes the loss is not known. | reported | A159 | `/hdr-glow/` | HDR interface |
 | On the phone a 2D canvas of `/scoped-transitions/` showed white with the broken-picture icon. Killing the GPU process in the test browser loses all thirteen contexts and all come back within 2.5 s. | reported; recovery measured | A159, C157 | `/scoped-transitions/` | Transitions and motion, View transitions drawn by a canvas |
+| A drawable 2D canvas made with `willReadFrequently: true`, after one `drawElementImage()`, loses every 2D context on the page, and they are lost again every half second while it exists. Ten other 2D operations tried do not lose a canvas. | reported | A159 (Android 10); no loss in C157 | `/canvas-loss/`, `/crashes/` | Which 2D operation loses the canvas |
+| `getImageData()` with `pixelFormat: 'rgba-float16'` on a float16 Display P3 2D canvas loses every float16 2D context on the page, on a timer and on a tap, though not on every call. Drawing elements into that canvas with no readback does not lose it. | reported | A159 | `/hdr-glow/` | HDR interface |
+| With `willReadFrequently` removed from drawable canvases by the guard and reads made from a `drawImage()` copy, the phone ran all 21 trials with both fixes holding. | reported | A159 | `/canvas-loss/` | Which 2D operation loses the canvas |
+| `/instruments/`, `/scoped-transitions/` and the five text pages of PR #80 lost 2D canvases or the tab on the phone with small canvases and no WebGL context. The cause is not identified. | reported | A159 | those pages | Which 2D operation loses the canvas |
+| Crashes, lost contexts and script errors from every copy of the site are stored by `/api/reports` and listed by `npm run reports`. | measured | C157 | `docs/crash-reports.md` | Which 2D operation loses the canvas |
 
 ## Chromium bugs worth filing
 
@@ -349,7 +423,7 @@ Crashes and behaviour that looks wrong, each with where to reproduce it. All wer
 | 3 | Tab crash: `adoptNode()` of a drawable canvas that has painted into a same-origin iframe. | `/transports/crash-adopt.html`, button B | Works if the canvas has never painted. Probably the same failure as 2. |
 | 4 | Tab crash: an opacity effect around a drawable canvas, inside an iframe that is itself drawn into a canvas. | `/board/` with a page tile whose fixtures sit in a box with `opacity: .02` | `visibility: hidden` does not crash. |
 | 5 | Tab crash: `WEBGL_lose_context.loseContext()` on an attached drawable WebGL canvas holding an element texture. | Seen in check fixtures of `/selection/` and `/player-fx/` | A smaller case with one canvas did not crash. The cause is not known. |
-| 6 | `updateElementGeometry()` does not invalidate the cached hit-test result for a point. `elementFromPoint()` and a click at the same point see the old layout. | Live check on `/particles/`; also `/native-ui/` | A point 1 or 2 px away is correct. Any DOM attribute change clears it. |
+| 6 | `updateElementGeometry()` does not invalidate the cached hit-test result for a point. `elementFromPoint()` and a click at the same point see the old layout. | Live check on `/particles/`; also `/native-ui/`, `/hit-regions/` | A point 1 or 2 px away is correct. Any DOM attribute change clears it. The same happens after a 2D `drawElementImage()` moves an element. The cache holds two points. `elementsFromPoint()` is not affected. |
 | 7 | After `moveBefore()` takes an element out of a drawable canvas and back in the same task, drawing throws "The element can only be drawn into its nearest ancestor <canvas>". | `/slot/` | A plain insert works. |
 | 8 | `clearElementGeometry()` does not remove the old hit region. | `/three-form/` | |
 | 9 | `canvasTransform` is in CSS pixels on some canvases and buffer pixels on others. | `/portal/` on a HiDPI screen | Seen in the UI primitives work. The motion work later measured unzoomed layout pixels at 1× and 2× backing. The conditions for the difference were not isolated. |
@@ -362,15 +436,23 @@ Crashes and behaviour that looks wrong, each with where to reproduce it. All wer
 | 16 | The H.264 software encoder in WebCodecs crashed the tab. | Earlier testing for `/capture/` | Not re-tested. The library uses VP9 with a VP8 fallback. |
 | 17 | A click on a new canvas at the spot where the pointer already rested does not focus the element under it until the pointer moves. | `/elements/` recording (PR #48) | Seen with Playwright input. |
 | 18 | Reported from Chrome 159 on Android: an animated transparent WebGL canvas with drawable children becomes a solid white block. | `/particles/` with `engine="webgl"` | Not reproduced in software rendering. Cause unconfirmed. |
-| 19 | Reported from Chrome 159 on Android: canvases on new pages lose their context on first load and show a white box with a broken-picture icon. | `/selection/` and other pages built on 2026-11-21 | Cause not identified. May be a resource limit and not a bug. |
+| 19 | Reported from Chrome 159 on Android: canvases on new pages lose their context on first load and show a white box with a broken-picture icon. | `/selection/` and other pages built on 2026-11-21 | Two causes were found later (bugs 27 and 28). Pages that do neither still lost canvases, so this row stays open. `/crashes/` lists every case with steps. |
 | 20 | Tab crash: `SpeechRecognition.available({ langs: ['en-US'], processLocally: true })`. | Any page, headless Chromium 157 (`/voice/` asks only after a tap) | Not related to HTML-in-canvas. Not tried in a headed browser. |
 | 21 | `Translator.availability({ sourceLanguage: 'en', targetLanguage: 'fr' })` never settles. | `/translate-lens/`, headless Chromium 157 | The page gives up after 3 s. |
 | 22 | Possible: a drawable element whose hit box was outside the canvas keeps an empty picture after the hit box returns, until something else repaints it. | `/carousel/` | Not reduced to a small page yet. |
 | 23 | `<geolocation>` in a canvas reports `isValid` false with reason `intersection_occluded_or_distorted`, even drawn over its own box with no transform. | `/protected/` | May be intended. |
 | 24 | A touch drag on `<input type="range">` drawn rotated 90 degrees is not followed. A mouse drag is, and a slider drawn at 17 degrees drags by touch. | `/element-ideas/`, touch emulation | Needs a check on a real phone before it is reported. |
-| 25 | A drawable element nested in another drawable element gets a cut or empty paint record when it repaints partly outside the canvas or the window, and the record is not refreshed when it comes into view. | Live check on `/minimap/` | Possibly the same as bug 22. That is inferred, not tested. |
+| 25 | A drawable element nested in another drawable element gets a cut or empty paint record when it repaints partly outside the canvas or the window, and the record is not refreshed when it comes into view. | Live check on `/minimap/` | Possibly the same as bug 22. That is inferred, not tested. `/keycaps/` reproduces it in its last live check: the record is clipped to the window at the last drawn position and not recorded again when it scrolls in (Chromium 157.0.8103.78). |
 | 26 | A scroll container that is a non-drawable child of a drawable canvas does not take user scrolls from its drawn descendants, and a `wheel` listener on it does not make wheel events cancelable. | `/minimap/` | |
-| 27 | Reported from Chrome 159 on Android: float16 Display P3 2D contexts with drawn elements are lost repeatedly. | `/hdr-glow/` | Needs a reduced page before filing. |
+| 27 | Reported from Chrome 159 on Android: `getImageData()` with `pixelFormat: 'rgba-float16'` on a float16 Display P3 2D canvas loses every float16 2D context on the page. | `/hdr-glow/`, `/crashes/` | Corrected on 2026-11-21: drawing elements with no readback does not lose the context. Needs a reduced page, without HTML-in-canvas if it still reproduces, before filing. HDR output itself showed no bug on `/hdr-glow/repro.html`. |
+| 28 | Reported from Chrome 159 on Android 10: a drawable 2D canvas made with `willReadFrequently: true` loses every 2D context on the page after one `drawElementImage()`, and again every half second while it exists. | `/canvas-loss/` (trial `wrf`), `/crashes/repro/readback-matrix.html` | No loss in headless Chromium 157. |
+| 29 | Candidate: `:active` is not applied to a `drawable` descendant of a canvas for a touch press. It is for a mouse press. | `/form-state/`, emulated touch | Needs a reduction and a real touch screen before filing. |
+| 30 | Candidate: the content of a `<canvas>` (2D or `bitmaprenderer`) nested in a `drawable` element is drawn shifted by minus the canvas's offset inside that element, and cut by the canvas's box. | Live check "Where the content of an inner canvas is drawn when it has padding round it" on `/media-tiles/` | `contain: paint` or a transform on the inner canvas avoids it. Ratio 1 and 2. |
+| 31 | After `drawElementImage()` with a source rectangle, `updateElementGeometry(el, { canvasTransform })` leaves the hit region with the size of the source rectangle. | Live check on `/text-notes/` | May be intended. Then the API has no call that restores the whole region without a draw. |
+| 32 | Possible: `captureStream()` on a WebGL 2 drawable canvas drawn in the `paint` event delivers black frames unless `preserveDrawingBuffer` is set. | `/presenter/`, software GL | Not reduced to a case without HTML-in-canvas. |
+| 33 | In a worker, `drawImage(VideoFrame)`, `createImageBitmap(VideoFrame)` and `texImage2D(VideoFrame)` of an I420 frame wait for the main thread. | Check rows on `/worker-compositor/`, software rendering | Not related to HTML-in-canvas. |
+
+`/crashes/` (`public/crashes/cases.js`) holds every crash and context loss with steps and evidence for a report. Add a case there when a new one is found.
 
 Further cases of bugs 2 and 5. On `/iframe-tiles/`, removing an iframe canvas child inside `paint` or a microtask of it crashes the tab, and so does `loseContext()` there when the canvas has an iframe child; leaving the event with `setTimeout(0)` first avoids both. On `/protected/`, `loseContext()` on a drawable canvas that is then removed crashes the tab: at once when both happen in one task, and after a 150 ms wait too when the canvas has an iframe child.
 
