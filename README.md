@@ -43,58 +43,18 @@ The minimum code:
 
 Every other page is an experiment. Each one asks a question about the API (for example, whether a `<slot>` works inside a canvas, or whether one element can be drawn in two places) and reports what worked and what did not. The slot pages, `<canvas-slot>` and `<dom-portal>` are experiments, not recommended patterns. Experiments have no reading order.
 
-Every experiment page has an "About this experiment" box with the question it asks, the pages it builds on and the API calls it uses. The text for the boxes is in [`public/shared/learn.js`](public/shared/learn.js), with a table of which experiments use each API call.
+Every experiment page has an "About this experiment" box with the question it asks, the pages it builds on and the API calls it uses. The text for each box is in the page's own `page.json`. [`public/shared/learn.js`](public/shared/learn.js) draws the box and holds a table of which experiments use each API call.
 
 ## The demos
 
-| Demo | What it explores |
-|---|---|
-| `/start/` | Tutorial: enable the API, draw one element, common errors, where each API call is used, glossary |
-| `/slot/` | `<canvas-slot>`: light-DOM children slotted into a shadow canvas |
-| `/slot-bare/` | Just `<slot>` in `<canvas>` with declarative shadow DOM; a shadow root on `<body>` |
-| `/offscreen/` | `ElementImage` snapshots rendered in a worker; magnifier; pixel mirrors |
-| `/cross-tab/` | Slots streamed to another tab over MessagePorts, with input sent back |
-| `/cross-origin/` | Borrowing and lending DOM across origins |
-| `/transports/` | Transport lab: ~50 routes for moving DOM out of its canvas, each tested live |
-| `/portal/` | `<dom-portal for="id">`: one live element drawn twice, interactive in both places |
-| `/lens/` | `<dom-lens>`: fifteen lenses over live DOM (magnifier, ray-traced glass, fisheye, water drop, x-ray, black hole…), sharp at any zoom, one draw and one shader each |
-| `/shader-css/` | `fx="ripple"`: any element through a WebGL shader, driven by CSS custom properties |
-| `/slot-effects/` | `<canvas-slot effect="tilt">`: named effects with no render loop, and `effect="#shader"` to point a slot at your own fragment shader |
-| `/physical/` | `<physical-ui material="cloth">`: working forms on jelly, cloth and paper |
-| `/select/` | `<select picker="wheel">`: a customisable select whose options are drawn by a canvas inside the picker (wheel, fisheye list, radial, 3D carousel, hand of cards, colour grid, helix); a canvas in the button; a canvas inside each option; a select drawn in a canvas |
-| `/datalist/` | `<input list picker="list">`: datalist suggestions drawn one option at a time by a canvas in a popover; datalist options as tick labels of a range input |
-| `/inputs/` | `<input type="time" picker="clock">`, `type="date" picker="calendar"`, `type="color" picker="swatches"`: pickers made of buttons in a canvas; every built-in form control drawn rotated in a canvas |
-| `/a11y/` | Accessibility audit: API probes, a pattern-by-pattern table (tree, focus order, find, selection, zoom), the same audit run over every demo, and a by-hand checklist |
-| `/capture/` | Any element or a whole page to PNG (up to print quality), video (MediaRecorder or frame-exact WebCodecs) or print with one call |
-| `/perf/` | Performance wall: how many live elements before frames drop; DOM vs 2D canvas vs worker |
-| `/elements/` | Every HTML element, input type and a few attributes inside a drawable canvas: drawn or not, hit testing, real clicks and keys, and one idea per element. `ELEMENTS.md` is the same table as Markdown; `npm run record:elements` re-records it |
-| `/element-ideas/` | 17 ideas from the element catalogue built with the real elements: picker wheel, mixing desk, step sequencer, CRT textarea, in-canvas dialog, anchored popovers, inert, find and camera, MathML, video, image map, cover flow, radial menu, table bar chart, ins and del, editable style, marquee ticker. `npm run check:ideas` drives each with real input |
-| `/transitions/` | `<live-transition>`: shatter, fold, burn, morph or your own fragment shader between two states that both stay live and clickable |
-| `/view-transitions/` | The View Transitions API with a canvas that draws HTML: names on the canvas and on its children, a shader in place of the cross-fade, scoped transitions, and two documents |
-| `/time-scrubber/` | `<dom-rewind>`: a ring buffer of DOM frames to scrub back through, with motion trails and restore |
-| `/particles/` | `<glyph-field>`: text as glyph particles that stays selectable, searchable and editable |
-| `/selection/` | `<selection-fx>`: the canvas draws the highlight of selected text (2D and shader effects), plus measurements of what the browser paints for a selection in a canvas |
-| `/caret/` | An editable block in a canvas: CSS caret shape and animation in the picture, a caret streak and wavy typo lines drawn by the canvas, `highlightsFromPoint()` |
-| `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
-| `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
-| `/embed/` | Cross-origin cards the host distorts and restyles without DOM access |
-| `/support/` | Share one region of a page with a support agent or a vision model |
-| `/three-form/` | A live form on a laptop screen, a billboard and a curved wall in three.js (WebGL or `?renderer=webgpu`), via `lib/html3d.js` |
-| `/board/` | An infinite zoomable board whose tiles are live notes and iframes |
-| `/xr/` | WebXR panels made of HTML, with controller rays, an on-panel keyboard and a built-in headset emulator (`?emulate=1`) |
-| `/xr-room/` | WebXR panels that use the room: fingertip presses from hand tracking, snapping to detected walls and tables, anchors, depth occlusion and an XR quad layer. Runs in a simulated room and in the emulator; a device is needed for the rest |
-| `/slot-view/` | `<slot-view src name>`: a live piece of another site with no iframe box, consent on the providing side, input forwarded ([protocol](public/slot-view/PROTOCOL.md)) |
-| `/pip/` | `pipElement(el)`: picture-in-picture for any element, moved for real, as a live picture, or as a video |
-| `/video/` | A `<video controls>` with captions as a canvas child under a shader. What is drawn (frames, controls, `::cue`), and what is left out (cross-origin, encrypted) |
-| `/overlay/` | HTML over video in one canvas: recorded with sound, exported frame by frame with WebCodecs, sent over WebRTC |
-| `/audio/` | Web Audio band levels as CSS custom properties that drive a shader over a working `<audio>` card |
-| `/player-parts/` | Parts of the native media player: restyled through `::-webkit-media-controls-*`, player state driving a shader through `:has()`, and the controls drawn as a layer apart from the picture |
-| `/player-fx/` | One WebGL shader over the native controls and the video frame as two textures from one `<video>`: the play button grows into a lens, the controls refract, melt into and light the picture. Finds the box of each control without script access |
-| `/native-ui/` | Real DOM inputs as widgets inside an egui (Rust) app and a Qt Quick (C++) app, both compiled to WebAssembly. Research on other frameworks: [docs/native-frameworks.md](docs/native-frameworks.md) |
-| `/wasm-ui/` | A C program whose blocking main loop and blocking modal dialog wait for the canvas `paint` event through JSPI, drawing real elements with `drawElementImage()`. One edge filter as a WebNN graph and as C. |
-| `/component-kit/` | One drawable custom element written with a scoped registry, manual slot assignment, Reference Target, `using`, Observable and `moveBefore()`, and again without them, with the lines each feature removes |
+Each page describes itself in a `page.json` file in its own folder (`public/<name>/page.json`): its menu group, title, one-line description, the question it asks and the calls it uses. No file lists every page. The homepage and the menu are built from the page files.
 
-What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
+```
+npm run build    # writes public/shared/pages.js from the page files (not committed)
+npm run pages    # prints the list of pages by group
+```
+
+The results of each experiment are in [findings/](findings/), one file per page or strand, with the index in [FINDINGS.md](FINDINGS.md).
 
 ## Library
 
@@ -102,7 +62,7 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 - `public/lib/video-export.js`: for a canvas that draws a `<video>` and HTML together. `recordCanvas(canvas, { ms, audioFrom })` (MediaRecorder with the video's sound), `exportFrames(canvas, { video, root, from, seconds, fps, audio })` (seeks the video and steps CSS animations one frame at a time, WebCodecs, WebM with Opus), `decodeSound(url)`, `loopback(stream)` (what a WebRTC peer receives). Test media is rebuilt with `tools/media/make.sh`.
 - `public/lib/slot-share.js`: `publish(canvasSlot)` and `<slot-mirror name>` to share slots over a MessagePort; `connectBroker()` introduces same-origin tabs through a SharedWorker (`broker.js`).
 - `public/lib/element-capture.js`: `captureElement(el, { scale })`, `capturePage({ full })`, `recordElement(el)`, `exportVideo(el, { fps })` (WebCodecs, frame by frame), `encodeFrames(frames)`, `printElement(el)`, `copyElement(el)`; `{ dpi: 300 }` for print-quality PNG. Works on elements that were never written for canvas.
-- `public/lib/a11y-audit.js`: `auditDocument(doc)` runs the accessibility checks from `/a11y/` on any same-origin document. Demos registered in `shared/demos.js` are audited automatically; `/a11y/?url=/path/` adds another page. `auditPattern(doc)` measures one pattern fixture; add a pattern in `public/a11y/patterns.js` and `pattern.html`.
+- `public/lib/a11y-audit.js`: `auditDocument(doc)` runs the accessibility checks from `/a11y/` on any same-origin document. Every page with a `page.json` is audited automatically; `/a11y/?url=/path/` adds another page. `auditPattern(doc)` measures one pattern fixture; add a pattern in `public/a11y/patterns.js` and `pattern.html`.
 - `public/lib/live-transition.js`: `<live-transition>`. Children are states; `show(i, { effect, origin })`, or `begin(i)` then set `progress` to hold part way. Effects are functions in `LiveTransition.effects`. Or write your own blend: `LiveTransition.shaders.name = { glsl, pick? }`, where `glsl` is a `vec4 transition(vec2 uv)` in the gl-transitions convention (`getFromColor`, `getToColor`, `progress`, `ratio`), then `show(i, { effect: 'name' })`. Both states stay live inside the shader; `pick(x, y, p)` says which state the pointer reaches at a point. `backend="webgpu|webgl"` names a route (WebGPU when usable otherwise); a shader with a `wgsl` string beside `glsl` runs on both.
 - `public/lib/dom-rewind.js`: `<dom-rewind seconds trails>`. `place(el, { x, y, rotate })`, `seek(secondsAgo)`, `replay()`, `restore()`, `oncapture` / `onrestore` for app state. `for await (const { time, bitmap } of rw.frames({ seconds, fps }))` hands the recorded history back as ImageBitmaps for a video encoder. If the canvas context is lost, `<live-transition>` and `<dom-rewind>` show their children as plain HTML until it returns (`fallbackReason`, `showPlain(reason)`, `showCanvas()`, events `livefallback` / `rewindfallback`), as `<glyph-field>` already did.
 - `public/lib/glyph-field.js`: `<glyph-field pointer="repel" engine="2d|webgl|webgpu|auto">`. `explode()`, `rain()`, `vortex()`, `scatter()`, `assemble()`, `highlight(text)`. While letters are in flight the hit box follows the pointer, so a flying letter of a link can be hovered, clicked or tapped (`particleAt(x, y)` says which letter is under a point).
@@ -135,11 +95,11 @@ What works and what doesn't is in [FINDINGS.md](FINDINGS.md).
 
 ## Plan for new platform features
 
-`/chrome-apis/` is a plan, not a demo: every feature that chromestatus.com lists for Chrome 130 to 160, an idea for combining it with a drawable canvas, and a ranked list of demos to build. `npm run build:plan` generates the page data and `docs/chrome-apis-plan.md` from `tools/chrome-apis/ideas.json` and `demos.json` (add `-- --fetch` to download the feature lists again). When a planned demo is built, add `"built": "/its-page/"` to its entry in `demos.json` and run `npm run build:plan`. `npm run record:probes` runs `/chrome-apis/probes.html` in Chromium and records the results that the plan cites.
+`/chrome-apis/` is a plan, not a demo: every feature that chromestatus.com lists for Chrome 130 to 160, an idea for combining it with a drawable canvas, and a ranked list of demos to build. `npm run build` generates the page data and the one-document version, `public/chrome-apis/plan.md`, from `tools/chrome-apis/ideas.json` and `demos.json`. Neither output is committed. `npm run build:plan -- --fetch` downloads the feature lists again. When a planned demo is built, put `"plan": "<demo key>"` in the `page.json` of the page that builds it. `npm run record:probes` runs `/chrome-apis/probes.html` in Chromium and records the results that the plan cites.
 
 ## Pages must hold still
 
-Opening a demo must not move it. `npm run check:jank` opens every page in `public/shared/demos.js` as a phone (412 px wide, device scale factor 2.625, touch, CPU slowed 4x), touches nothing, and fails if the page shifts its layout, scrolls itself, moves focus, covers itself, blanks a canvas or flashes, from navigation until its live checks finish and through a change of viewport height like the URL bar hiding. It needs Playwright with Chromium (`npm i -D playwright`).
+Opening a demo must not move it. `npm run check:jank` opens every page that has a `page.json` as a phone (412 px wide, device scale factor 2.625, touch, CPU slowed 4x), touches nothing, and fails if the page shifts its layout, scrolls itself, moves focus, covers itself, blanks a canvas or flashes, from navigation until its live checks finish and through a change of viewport height like the URL bar hiding. It needs Playwright with Chromium (`npm i -D playwright`).
 
 ```
 npm run check:jank                      # every page
@@ -151,14 +111,37 @@ npm run check:jank -- --json out.json --shots frames/   # full numbers and every
 For a new demo page:
 
 - Put `<script src="/shared/nav.js"></script>` first in `<body>`. It reserves the menu's space and holds the first paint until your module scripts have built the page.
-- Add one line for it in `public/shared/demos.js` (menu and homepage) and one entry in `public/shared/learn.js` (the question the experiment asks, the pages it builds on, the calls it uses). The menu script puts the "About this experiment" box under the page's `<p class="lede">`, so write one. Write the page as an experiment: state the question, and put what worked, what did not and what is still open under "Findings".
+- Add `public/<name>/page.json` beside it: `group`, `title`, `blurb` and `tags` for the menu and the homepage, and `question`, `result`, `first` and `api` for the "About this experiment" box. The fields are documented at the top of `tools/site/pages.mjs`. Do not add the page to any shared list. The menu script puts the "About this experiment" box under the page's `<p class="lede">`, so write one. Write the page as an experiment: state the question, and put what worked, what did not and what is still open under "Findings".
 - In the first paragraph, say what the demo does and how to use it. Put the demo above the test tables.
 - Use the same section names as the other pages: "How it works" for the explanation, "Live checks" for the results table and "Findings" for the conclusions, in that order after the demo.
 - `runTests()` puts its results table in a `<details>` with the pass count in the summary line. It is closed on screens narrower than 700 px.
 - Live checks run on their own fixtures, out of flow (fixed or absolute, or a hidden copy of the page with `lib/check-fixture.js`). They never call `scrollIntoView()`, `scrollTo()` or `focus()` on the page the reader is looking at, and never insert or remove anything in the flow above the results.
 - Do not size a canvas stage with `dvh`: it changes every time a phone's URL bar moves. Use `svh`.
 - Only assign `canvas.width` and `canvas.height` when the size really changed. Assigning clears the canvas.
-- A page whose checks cannot meet this yet goes in `CHECKS_WAIT_FOR_TAP` in `public/shared/support.js`; its checks then wait for a button. Known exceptions with their reasons are in `tools/jank/allow.json`.
+- A page whose checks cannot meet this yet has `<meta name="checks" content="tap">` in its `<head>`; its checks then wait for a button. Known exceptions with their reasons are in the `jank` field of the page's `page.json`.
+
+## A canvas must not stay lost
+
+A browser can take a canvas's context away: the GPU process restarts, memory is short, a WebGPU device is lost, or the page holds too many WebGL contexts. Chrome on Android keeps 8 WebGL contexts alive per tab, frames included (16 on desktop). Making a ninth takes the oldest away, which is usually the demo at the top of the page.
+
+`public/shared/context-guard.js` handles this on every page. `nav.js` loads it before any page script, so a page does nothing to get it. It:
+
+- counts every context a page makes (`window.__gfx.summary()` prints the counts and every loss);
+- when one more WebGL context would reach the limit, takes the context of canvases that were removed from the page earlier (finished check fixtures), so the browser does not take one from a canvas on screen;
+- calls `requestPaint()` on a 2D canvas when its context is restored;
+- puts a note with a Reload button and the context counts over any visible canvas that is still lost 1.5 seconds after the loss. If the page shows its own `role="alert"` message over the canvas, the guard adds nothing.
+
+`public/shared/backend.js` remembers a lost WebGPU device for ten minutes in `sessionStorage`. In that time `webgpu()` answers null and pages use WebGL, because a device that was lost once on a phone is usually lost again on the next page. `?webgpu=retry` forgets the loss.
+
+For a new page or library:
+
+- Keep at most 8 WebGL contexts alive, counting the visible demo and one check fixture. `npm run check:jank` fails a page above that (`glContexts`) and a page that shows the guard's note (`lostCanvases`).
+- Do not make a WebGL context to test for support. Use `webgl2()` from `shared/backend.js`, which asks once and gives the context back.
+- A canvas made for a check is removed from the page when the check ends. The guard frees its context if the limit is near. Do not call `WEBGL_lose_context.loseContext()` yourself to free a context: threads have seen it crash the renderer in Chromium 157 on a drawable canvas still in the page, on one removed in the same task, and on one with an iframe child.
+- Handle the loss in the library when a better answer than the note exists: listen for `webglcontextlost` (WebGL), `contextlost` (2D) and the window event `webgpulost` (WebGPU, sent by `shared/backend.js`), then move the content to a new canvas or show it as plain HTML. `SurfaceElement` in `lib/surface.js` shows plain HTML for both canvas events when its subclass does nothing.
+- To see what a page does on a loss, call `getExtension('WEBGL_lose_context').loseContext()` on a canvas in the console, or make 16 more WebGL contexts.
+
+The measurements behind these rules, and what still needs a real phone, are in [docs/lost-contexts.md](docs/lost-contexts.md).
 
 ## Show the code
 
@@ -198,8 +181,6 @@ The slot pages use `shared/source-view.js` instead, which shows whole stand-alon
 - `native/egui-dom/` (Rust, egui 0.37). Build with `native/egui-dom/build.sh`. Needs the `wasm32-unknown-unknown` target and `wasm-bindgen-cli` 0.2.130; `wasm-opt` is used if installed.
 - `native/qt-dom/` (C++, Qt Quick 6.10.3). Build with `QT=… EMSDK=… native/qt-dom/build.sh`. Needs Qt for WebAssembly (single-threaded), the matching desktop Qt and Emscripten 4.0.7.
 
-`/wasm-ui/` runs `native/wasm-ui/ui.c`. Build with `native/wasm-ui/build.sh`. Needs only clang with the wasm32 target and wasm-ld; the output `public/wasm-ui/ui.wasm` is committed.
-
 The build output is committed in `public/native-ui/egui/` and `public/native-ui/qt/`, because the deploy does not have these toolchains. Each build script also copies the sources next to the output for the page's code listings, so edit the files in `native/` and rebuild. The Qt binary is statically linked against the open-source edition of Qt (LGPL-3.0 and GPL-3.0); its complete source is `native/qt-dom/` plus Qt 6.10.3 from download.qt.io.
 
 ## Develop and deploy
@@ -207,8 +188,11 @@ The build output is committed in `public/native-ui/egui/` and `public/native-ui/
 Static files in `public/`, served by Workers static assets.
 
 ```
-npx wrangler dev   # needs a Cloudflare login because of the Workers AI binding
-npm run deploy   # deploys html-in-canvas-demos and html-in-canvas-remote
+npm run build      # once, and after changing a page.json: writes the generated menu
+npm run dev        # build, then wrangler dev. Needs a Cloudflare login because of the Workers AI binding
+npm run deploy     # build, then deploy html-in-canvas-demos and html-in-canvas-remote
+npm run tools      # lists the scripts under tools/
+npm run check:merge   # does this branch merge with main and with the other open branches
 ```
 
-Pushes to `main` deploy both Workers through Workers Builds.
+Pushes to `main` deploy both Workers through Workers Builds. Its install step runs the `postinstall` script, which is the build. [ARCHITECTURE.md](ARCHITECTURE.md), "Files that parallel branches share", says which files a pull request should and should not edit.
