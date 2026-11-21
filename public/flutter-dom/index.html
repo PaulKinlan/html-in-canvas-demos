@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>A DOM form inside a Flutter web app</title>
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/flutter-dom/ui.css">
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A DOM form inside a Flutter web app</h1>
+  <p class="lede">
+    Flutter draws every widget itself with CanvasKit, so a Flutter web app has no real inputs apart from one hidden text field.
+    This app shows a real <code>&lt;form&gt;</code> with an <code>&lt;input&gt;</code>, a <code>&lt;select&gt;</code> and a <code>&lt;textarea&gt;</code> as one of its widgets.
+    Flutter gets the form's pixels through <code>createImageFromTextureSource()</code> in <code>dart:ui_web</code> and rotates, tilts, fades and blurs them with its own widgets.
+    The browser still handles the form's input. Load the app, type in the form, then move the Flutter sliders.
+  </p>
+
+  <div class="fd-bar">
+    <label>Design
+      <select id="design">
+        <option value="overlay">A second canvas holds the form (Flutter's default rasterizer)</option>
+        <option value="in-canvas">The form is inside Flutter's own canvas (multi-surface rasterizer, patched upload)</option>
+      </select>
+    </label>
+  </div>
+  <div class="fd-stage" id="fd-stage">
+    <div class="fd-host" id="fd-host"></div>
+    <!-- #region markup -->
+    <!-- The real form. It is drawn into this canvas, and Flutter is given the canvas. -->
+    <canvas class="fd-source" id="fd-source" content="drawable" layoutsubtree>
+      <form class="fd-form" id="fd-form" drawable onsubmit="return false">
+        <label>Email <input name="email" type="email" autocomplete="email" placeholder="you@example.com"></label>
+        <label>Plan <select name="plan"><option>Free</option><option>Team</option><option>Enterprise</option></select></label>
+        <label>Notes <textarea name="notes" rows="2">Typed into a real textarea.</textarea></label>
+      </form>
+    </canvas>
+    <!-- #endregion markup -->
+    <p class="fd-msg" id="fd-msg">
+      <button type="button" id="fd-load">Load the Flutter app (8 MB)</button>
+      <span>Flutter 3.50.1 with CanvasKit, served from this site. It is not loaded until you ask.</span>
+    </p>
+  </div>
+  <div class="fd-bar">
+    <label>Texture source <select id="route"></select></label>
+    <label><input type="checkbox" id="debug"> Show the canvas that takes the input</label>
+  </div>
+  <p class="note"><output id="stats">No measurements yet.</output></p>
+  <p class="note">
+    The text field and the four sliders at the top are Flutter widgets. The form below them is the DOM form: the caret, the selection, the keyboard on a phone,
+    autofill and the native select picker are the browser's. The yellow badge is a Flutter widget drawn over the form.
+    The second design restarts the page with a different engine setting.
+  </p>
+  <details class="show-code">
+    <summary>Show the code <small>a DOM form as a Flutter widget</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The form is a child of a 2D canvas that sits over the Flutter view.</b></li>
+      <li data-code="/flutter-dom/ui.css#source-css" data-lang="css"><b>The canvas is invisible and still takes input.</b></li>
+      <li data-code="/flutter-dom/bridge.js#paint"><b>JavaScript: on each paint event, draw the form into the canvas and wake Flutter.</b></li>
+      <li data-code="/flutter-dom/bridge.js#take"><b>JavaScript: what Flutter is given.</b> Three ways of handing over the same canvas.</li>
+      <li data-code="/flutter-dom/app/src/main.dart#interop" data-lang="js"><b>Dart: the interface to the page.</b></li>
+      <li data-code="/flutter-dom/app/src/main.dart#image" data-lang="js"><b>Dart: canvas to <code>ui.Image</code>.</b> One <code>createImageFromTextureSource()</code> call per paint event.</li>
+      <li data-code="/flutter-dom/app/src/main.dart#widget" data-lang="js"><b>Dart: the widget.</b> Flutter sets the width, the browser answers with the height, and a <code>RawImage</code> shows the pixels.</li>
+      <li data-code="/flutter-dom/app/src/main.dart#scene" data-lang="js"><b>Dart: the widget in a scene.</b> <code>Transform</code>, <code>Opacity</code> and <code>ImageFiltered</code> apply to it like any widget.</li>
+      <li data-code="/flutter-dom/app/src/main.dart#place" data-lang="js"><b>Dart: report where the widget was drawn.</b></li>
+      <li data-code="/flutter-dom/bridge.js#place"><b>JavaScript: put the real form there.</b> Flutter's matrix becomes a CSS <code>matrix3d()</code> on the canvas.</li>
+      <li data-code="/flutter-dom/bridge.js#layout"><b>JavaScript: layout.</b></li>
+      <li data-code="/flutter-dom/bridge.js#adopt"><b>The second design: the form inside Flutter's canvas.</b> Flutter is given the form itself, and one <code>texImage2D()</code> call is replaced by <code>texElementSubImage2D()</code>.</li>
+      <li data-code="/flutter-dom/app/src/flutter_bootstrap.js#start"><b>Starting Flutter in a host element.</b></li>
+      <li data-code="/flutter-dom/main.js#load"><b>Loading it on request.</b></li>
+      <li data-code="/flutter-dom/app/src/main.dart" data-lang="js"><b>All of main.dart.</b></li>
+      <li data-code="/flutter-dom/bridge.js"><b>All of bridge.js.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    <code>createImageFromTextureSource()</code> makes a <code>ui.Image</code> from an image, a video, a canvas, an <code>ImageBitmap</code> or a <code>VideoFrame</code>.
+    It does not take an element, so the page needs something that turns the form into one of those. Two designs do that here.
+  </p>
+  <ul>
+    <li>
+      <strong>A second canvas.</strong> The form is a child of a 2D canvas with <code>content="drawable"</code>. Each <code>paint</code> event draws the form with
+      <code>drawElementImage()</code>, and Flutter makes a new <code>ui.Image</code> from the canvas. The same canvas lies over the Flutter view with <code>opacity: 0</code>.
+      After each frame Flutter reports the widget's 4×4 matrix, and the page sets it as a CSS <code>matrix3d()</code> on the canvas, so the real fields are under the pointer where Flutter drew them.
+      This works with an unchanged Flutter engine.
+    </li>
+    <li>
+      <strong>The form inside Flutter's own canvas.</strong> With the engine option <code>canvasKitForceMultiSurfaceRasterizer</code>, CanvasKit renders into a WebGL canvas on the page.
+      The page sets <code>content="drawable"</code> on that canvas and moves the form into it. Flutter is given the form itself as the texture source.
+      CanvasKit uploads a source with <code>gl.texImage2D(…, source)</code>; the page replaces that one call with <code>texElementSubImage2D()</code>.
+      The matrix goes to <code>updateElementGeometry()</code>. There is no second canvas and no copy. The patch stands in for a change to the engine.
+    </li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">The checks load two more copies of the Flutter app in a small frame, one for each design, so they do not touch the one above. They take about 20 seconds.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in headless Chromium 157 on 2026-11-21 with software rendering, at 1× and at a 2.625 device scale with touch. Flutter 3.50.1, Dart 3.14.0.</p>
+  <ul class="findings">
+    <li><strong><code>createImageFromTextureSource()</code> does not take an element or an <code>ElementImage</code>.</strong> With <code>transferOwnership: false</code> the engine calls <code>createImageBitmap()</code> on the source, which throws a <code>TypeError</code> for both. With <code>transferOwnership: true</code> the call returns a <code>ui.Image</code> of the size it was told, and the error comes when the image is used: CanvasKit and Skwasm both upload lazily.</li>
+    <li><strong>It takes a 2D canvas that drew the element.</strong> A canvas with <code>content="drawable"</code> draws the form with <code>drawElementImage()</code> on each <code>paint</code> event, and Flutter makes a new <code>ui.Image</code> from it. The pixels read back from the image with <code>toByteData()</code> match the canvas. Flutter's <code>Transform</code> (with perspective), <code>Opacity</code> and <code>ImageFiltered</code> apply to the form, and a Flutter widget is drawn over it. This needs no change to Flutter. It worked the same with CanvasKit (dart2js) and with single-threaded Skwasm (dart2wasm).</li>
+    <li><strong>The copy is cheap next to Flutter's own frame.</strong> For a 924×572 px form image: <code>drawElementImage()</code> 0.1 ms; <code>createImageFromTextureSource()</code> 4 to 5 ms when the engine copies the canvas with <code>createImageBitmap()</code>, and 0.2 ms with <code>transferOwnership: true</code>, which hands CanvasKit the canvas itself. Flutter's raster time for the frame was 37 to 41 ms in every case, on a software renderer. The texture upload is inside the raster time and could not be separated. These numbers need a phone to mean anything: the page shows them live under the demo.</li>
+    <li><strong>Input works through the same canvas laid over the Flutter view.</strong> The canvas has <code>opacity: 0</code> and Flutter's 4×4 widget matrix as a CSS <code>matrix3d()</code>. Typing, the caret and the <code>&lt;select&gt;</code> by keyboard worked with the form rotated 38° and tilted 35° in perspective. Drag selection and Tab between the three fields worked at the starting angle. A click hands focus between Flutter's <code>TextField</code> and the DOM fields in both directions.</li>
+    <li><strong>Flutter's canvas is in a shadow root and, by default, is not the canvas it renders into.</strong> The canvas inside <code>flt-glass-pane</code>'s shadow root has a <code>bitmaprenderer</code> context. CanvasKit renders into an <code>OffscreenCanvas</code> and transfers bitmaps. <code>content="drawable"</code> can be set on the visible canvas: a child of it gets <code>paint</code> events and <code>updateElementGeometry()</code> moves its hit box. Its pixels cannot be used: a <code>bitmaprenderer</code> has no draw call for elements, and an <code>ElementImage</code> captured there is refused by every other canvas with "The source was captured from a different canvas".</li>
+    <li><strong>With the multi-surface rasterizer the form can live in Flutter's own canvas.</strong> The engine option <code>canvasKitForceMultiSurfaceRasterizer</code> (in the engine source, the mode chosen for Safari and Firefox) makes CanvasKit draw into a WebGL2 canvas on the page. The form is moved into it, Flutter is handed the form as the texture source, and CanvasKit's <code>gl.texImage2D(…, source)</code> is replaced by <code>texElementSubImage2D()</code> in a short patch. There is no second canvas and no copy: <code>createImageFromTextureSource()</code> took 0.2 ms and Flutter's raster 8 ms for the same form. The two raster times come from different rasterizers, so they do not measure the copy alone. The patch stands in for an engine change. Not tried with Skwasm.</li>
+    <li><strong><code>updateElementGeometry()</code> accepts a perspective matrix.</strong> In the in-canvas design Flutter's 4×4 matrix is passed as <code>canvasTransform</code>, and the three fields are hit tested correctly while rotated and tilted.</li>
+    <li><strong>Flutter takes focus back when focus moves inside its view.</strong> When Flutter's hidden text input loses focus to another element in the same <code>flutter-view</code>, the engine refocuses its input. With the form inside Flutter's canvas a click on a DOM field after using the Flutter <code>TextField</code> did not move focus. The bridge blurs Flutter's input on <code>pointerdown</code> first, which closes Flutter's text connection.</li>
+    <li><strong>Flutter listens for keys on <code>window</code> in the capture phase.</strong> It sees every key typed into the form. With the form inside its view, Tab in the email field moved focus to the Flutter <code>TextField</code> instead of the next DOM field. The bridge adds its own capture listener before the engine starts and stops key events that come from the form.</li>
+    <li><strong>Flutter sets <code>pointer-events: none</code> on its scene.</strong> A form moved into Flutter's canvas inherits it and needs <code>pointer-events: auto</code>. Page stylesheets do not reach the shadow root, so the bridge adds the stylesheet there.</li>
+    <li><strong>The browser does not know what Flutter draws on top.</strong> The yellow badge is a Flutter widget over a corner of the form, and a pointer on the badge still goes to the form. The same was found for egui on <a href="/native-ui/">/native-ui/</a>. Neither design here guards against it.</li>
+    <li><strong>Tab order is split.</strong> Tab walks the three DOM fields in DOM order and then leaves the form. Flutter's widgets are not in that order.</li>
+    <li><strong>Not verified on a phone.</strong> Frame rates, the on-screen keyboard, IME composition, where the native <code>&lt;select&gt;</code> picker opens for a rotated form, and screen readers were not tested. Multi-threaded Skwasm, which renders in a worker, was not tested either: the site is not cross-origin isolated.</li>
+  </ul>
+</main>
+<script type="module" src="/flutter-dom/main.js"></script>
+</body>
+</html>

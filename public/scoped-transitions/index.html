@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>View transitions drawn by a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  /* #region css-clock */
+  /* A transition scoped to a canvas shows nothing: its pseudo-elements are inside the canvas.
+     So each group runs a keyframe that only counts from 0 to 1, and the canvas reads the count. */
+  @property --vt-p { syntax: "<number>"; inherits: false; initial-value: 0; }
+  @keyframes vt-clock { from { --vt-p: 0; } to { --vt-p: 1; } }
+  .vt-canvas { view-transition-name: none; view-transition-scope: all; }
+  .vt-canvas::view-transition-group(*) { animation: vt-clock var(--ms, 900ms) cubic-bezier(.4, 0, .2, 1) both; }
+  /* #endregion css-clock */
+  .vt-canvas.no-scope { view-transition-scope: none; }
+
+  canvas.stage { display: block; width: 100%; border-radius: 12px; background: #10242b; }
+  .tiles { box-sizing: border-box; width: 100%; height: 100%; padding: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font: 14px/1.3 system-ui; position: relative; }
+  .tile { border-radius: 10px; padding: 8px 10px; color: #111; background: #fff; display: grid; gap: 4px; align-content: center; min-width: 0; }
+  .tile.c1 { background: #ffd6a5; } .tile.c2 { background: #caffbf; } .tile.c3 { background: #9bf6ff; }
+  .tile.c4 { background: #bdb2ff; } .tile.c5 { background: #ffc6ff; } .tile.c6 { background: #fdffb6; }
+  .tile button, .tile input { font: inherit; max-width: 100%; }
+  .clock { font: 600 13px var(--mono); }
+  #glcv { height: 250px; }
+
+  /* #region css-nest */
+  .nest { display: grid; grid-template-columns: 130px 1fr; gap: 10px; }
+  .nest.wide { grid-template-columns: 40px 1fr; }
+  #side { view-transition-name: nest-side; }
+  #ncvwrap { view-transition-name: nest-stage; min-width: 0; }
+  #nest::view-transition-group(*), #nest::view-transition-old(*), #nest::view-transition-new(*) { animation-duration: var(--ms, 900ms); }
+  /* #endregion css-nest */
+  #side { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; font-size: 14px; overflow: hidden; white-space: nowrap; }
+  #ncv { height: 200px; }
+  #ntiles { grid-template-columns: repeat(2, 1fr); }
+
+  /* #region css-rows */
+  #rows { display: grid; gap: 6px; }
+  .rowcv { display: block; width: 100%; height: 64px; view-transition-class: row; }
+  /* One rule for every row: the class matches all five names. */
+  #rows::view-transition-group(.row) { animation-duration: var(--ms, 900ms); animation-timing-function: cubic-bezier(.3, 1.4, .5, 1); }
+  /* Each canvas is live in its new snapshot, so the old one is not needed. */
+  #rows::view-transition-old(.row) { display: none; }
+  #rows::view-transition-new(.row) { animation: none; }
+  /* #endregion css-rows */
+  .row { box-sizing: border-box; width: calc(100% - 56px); height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); font: 15px system-ui; color: var(--fg); }
+  .row .dot { width: 22px; height: 22px; border-radius: 50%; flex: none; }
+  .row .score { margin-left: auto; font: 600 14px var(--mono); }
+
+  /* #region css-group */
+  #gcv { view-transition-name: group-stage; height: 230px; }
+  ::view-transition-old(group-stage) { display: none; }
+  ::view-transition-new(group-stage) { animation: none; }
+  #puck { view-transition-name: puck; }
+  #twin { view-transition-name: twin; }
+  ::view-transition-group(puck), ::view-transition-group(twin) { animation-duration: var(--ms, 900ms); animation-timing-function: cubic-bezier(.4, 0, .2, 1); }
+  /* #endregion css-group */
+  #puck { box-sizing: border-box; width: 130px; padding: 8px 10px; border-radius: 12px; background: #fff; color: #111; font: 14px/1.3 system-ui; display: grid; gap: 4px; }
+  #puck button { font: inherit; }
+  #twinrow { height: 34px; position: relative; margin-top: 8px; }
+  #twin { position: absolute; left: 0; top: 0; height: 34px; padding: 0 12px; border-radius: 99px; background: #fb5607; color: #fff; font: 600 13px/34px system-ui; white-space: nowrap; }
+  #twin.b { left: auto; right: 0; }
+
+  #app { height: 360px; }
+  #screen { box-sizing: border-box; width: 100%; height: 100%; background: #f7f4ec; color: #1d1b16; font: 15px/1.4 system-ui; display: grid; grid-template-rows: auto 1fr; border-radius: 12px; overflow: hidden; }
+  #screen.dark { background: #15191c; color: #e8eef0; }
+  #screen nav { display: flex; gap: 4px; padding: 8px; background: #0001; }
+  #screen.dark nav { background: #fff1; }
+  #screen nav button { flex: 1; font: inherit; padding: 8px 4px; border: 0; border-radius: 8px; background: transparent; color: inherit; }
+  #screen nav button[aria-current=true] { background: #fb5607; color: #fff; }
+  #screen section { padding: 12px 14px; display: grid; gap: 8px; align-content: start; min-height: 0; }
+  #screen section[hidden] { display: none; }
+  #screen .msg { font: inherit; text-align: left; padding: 9px 11px; border-radius: 10px; border: 1px solid #0002; background: #fff8; color: inherit; }
+  #screen.dark .msg { border-color: #fff3; background: #fff1; }
+  #screen .photo { height: 150px; border-radius: 12px; background: radial-gradient(circle at 30% 30%, #ffd166, #ef476f 45%, #073b4c); }
+  #screen input[type=text] { font: inherit; padding: 6px 8px; max-width: 100%; box-sizing: border-box; }
+  #screen h3 { margin: 0; font-size: 18px; }
+  #screen p { margin: 0; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 12px 0; }
+  .controls label { font-size: 14px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  .said { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; }
+
+  #rigbox { position: sticky; top: 8px; z-index: 5; display: inline-block; max-width: 100%; box-sizing: border-box; margin: 12px 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 30px 16px 16px; }
+  #rigbox.done { position: relative; top: auto; }
+  #rigbox .cap { font: 12px var(--mono); color: var(--muted); position: absolute; left: 10px; top: 8px; }
+  @media (max-width: 420px) { #rigbox { padding-left: 3px; padding-right: 3px; } }
+  #rigbox canvas { display: block; width: 300px; max-width: 100%; height: 60px; margin-bottom: 4px; }
+  .rk { width: 300px; height: 60px; position: relative; }
+  .rk i { position: absolute; left: 20px; top: 10px; width: 60px; height: 30px; background: rgb(255, 204, 0); }
+  #rrows::view-transition-group(.rrow) { animation-duration: 1234ms; }
+  #rrows canvas { height: 20px; view-transition-class: rrow; }
+  #rpuck { width: 60px; height: 30px; background: rgb(255, 204, 0); view-transition-name: rig-puck; }
+  ::view-transition-group(rig-puck) { animation-duration: 400ms; animation-timing-function: linear; }
+  pre code { white-space: pre; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>View transitions drawn by a canvas</h1>
+  <p class="lede">
+    Five experiments in which <code>startViewTransition()</code> supplies the timing and a canvas draws the pictures.
+    The content is HTML inside <code>&lt;canvas layoutsubtree&gt;</code>. Press the button under each one. The clocks show which pictures are live.
+    <label style="white-space: nowrap"><input type="checkbox" id="slow"> Run everything at 3 seconds</label>
+  </p>
+
+  <h2>1. A WebGL shader timed by a transition scoped to the canvas</h2>
+  <p>
+    "Shuffle" calls <code>canvas.startViewTransition()</code> and reorders six HTML tiles.
+    The browser animates a hidden group for each tile. The canvas reads each group's progress, turns the tile once about its vertical axis and lifts it toward the viewer. The fragment shader ripples the tile and splits its colour channels along the direction of travel.
+  </p>
+  <!-- #region markup-gl -->
+  <canvas id="glcv" class="stage vt-canvas" content="drawable" layoutsubtree aria-label="Six tiles drawn by WebGL">
+    <div id="gtiles" class="tiles" drawable>
+      <div class="tile c1" style="view-transition-name: g-1"><strong>One</strong><span class="clock" data-clock></span></div>
+      <div class="tile c2" style="view-transition-name: g-2"><strong>Two</strong><label><input type="checkbox"> Tick</label></div>
+      <div class="tile c3" style="view-transition-name: g-3"><strong>Three</strong><button type="button" data-count>Pressed 0</button></div>
+      <div class="tile c4" style="view-transition-name: g-4"><strong>Four</strong><span>HTML text</span></div>
+      <div class="tile c5" style="view-transition-name: g-5"><strong>Five</strong><input type="text" value="Input" size="6" aria-label="Text in tile five"></div>
+      <div class="tile c6" style="view-transition-name: g-6"><strong>Six</strong><span class="clock" data-clock></span></div>
+    </div>
+  </canvas>
+  <!-- #endregion markup-gl -->
+  <div class="controls"><button id="gshuffle" type="button">Shuffle</button></div>
+  <div class="said" id="said1" role="status"></div>
+  <details class="show-code">
+    <summary>Show the code <small>CSS times each tile, a shader draws it</small></summary>
+    <ol>
+      <li data-code="#markup-gl"><b>The markup.</b> One <code>drawable</code> wrapper holds the grid. Each tile has a <code>view-transition-name</code>.</li>
+      <li data-code="#css-clock"><b>The clock.</b> The canvas is the scope and has <code>view-transition-name: none</code>, so it keeps drawing.</li>
+      <li data-code="/scoped-transitions/canvas-vt.js#clock"><b>Read the clock.</b></li>
+      <li data-code="#shader-gl"><b>The fragment shader and the matrix.</b> <code>uP</code> is the tile's progress. The matrix turns the tile and applies perspective.</li>
+      <li data-code="/lib/element-gl.js#upload"><b>The texture.</b> The page has one WebGL context, held by <code>lib/element-gl.js</code>. The wrapper is uploaded with <code>texElementSubImage2D()</code>.</li>
+      <li data-code="#draw-gl"><b>Draw each tile.</b> The old box was measured before the change, the new box is the layout now.</li>
+      <li data-code="#go-gl"><b>Start the transition.</b></li>
+    </ol>
+  </details>
+
+  <h2>2. A canvas-scoped transition inside a transition on its ancestor</h2>
+  <p>
+    The sidebar and the canvas are in a grid. One transition is scoped to the grid and resizes the sidebar. The other is scoped to the canvas and shuffles its tiles. Start them in either order.
+    The checkbox removes <code>view-transition-scope: all</code> from the canvas, which changes the result of the first button.
+  </p>
+  <!-- #region markup-nest -->
+  <div class="nest" id="nest">
+    <div id="side">Sidebar<br>Inbox<br>Drafts<br>Sent</div>
+    <div id="ncvwrap">
+      <canvas id="ncv" class="stage vt-canvas" content="drawable" layoutsubtree aria-label="Four tiles drawn by a 2D canvas">
+        <div id="ntiles" class="tiles" drawable>
+          <div class="tile c1" style="view-transition-name: n-1"><strong>A</strong><span class="clock" data-clock></span></div>
+          <div class="tile c2" style="view-transition-name: n-2"><strong>B</strong><button type="button" data-count>Pressed 0</button></div>
+          <div class="tile c3" style="view-transition-name: n-3"><strong>C</strong><label><input type="checkbox"> Tick</label></div>
+          <div class="tile c4" style="view-transition-name: n-4"><strong>D</strong><span class="clock" data-clock></span></div>
+        </div>
+      </canvas>
+    </div>
+  </div>
+  <!-- #endregion markup-nest -->
+  <div class="controls">
+    <button id="n-outer-inner" type="button">Sidebar, then shuffle</button>
+    <button id="n-inner-outer" type="button">Shuffle, then sidebar</button>
+    <button id="n-both" type="button">Both at once</button>
+    <label><input type="checkbox" id="n-scope" checked> view-transition-scope: all on the canvas</label>
+  </div>
+  <div class="said" id="said2" role="status"></div>
+  <details class="show-code">
+    <summary>Show the code <small>two scopes, one inside the other</small></summary>
+    <ol>
+      <li data-code="#markup-nest"><b>The markup.</b></li>
+      <li data-code="#css-nest"><b>The outer scope.</b> The canvas cannot be named (its name is <code>none</code>), so its wrapper is.</li>
+      <li data-code="#go-nest"><b>Start both.</b></li>
+      <li data-code="#draw-2d"><b>The 2D drawing used by the canvas.</b> The nine-argument <code>drawElementImage()</code> copies one tile out of the wrapper's picture.</li>
+    </ol>
+  </details>
+
+  <h2>3. <code>view-transition-class</code> with one canvas for each list item</h2>
+  <p>
+    Each row is its own canvas with one HTML child, a <code>view-transition-name</code> and the class <code>row</code>. The transition is scoped to the list and the browser moves the canvases.
+    While it runs, each canvas draws its row in horizontal strips that bow sideways like a plucked string, further for rows that travel further.
+  </p>
+  <!-- #region markup-rows -->
+  <div id="rows">
+    <canvas class="rowcv" content="drawable" layoutsubtree style="view-transition-name: row-1"><div class="row" drawable data-name="Mirabel" data-score="71"><span class="dot" style="background:#ef476f"></span><span>Mirabel</span><label><input type="checkbox"> Seen</label><span class="score">71</span></div></canvas>
+    <canvas class="rowcv" content="drawable" layoutsubtree style="view-transition-name: row-2"><div class="row" drawable data-name="Anselm" data-score="94"><span class="dot" style="background:#ffd166"></span><span>Anselm</span><label><input type="checkbox"> Seen</label><span class="score">94</span></div></canvas>
+    <canvas class="rowcv" content="drawable" layoutsubtree style="view-transition-name: row-3"><div class="row" drawable data-name="Zofia" data-score="38"><span class="dot" style="background:#06d6a0"></span><span>Zofia</span><label><input type="checkbox"> Seen</label><span class="score">38</span></div></canvas>
+    <canvas class="rowcv" content="drawable" layoutsubtree style="view-transition-name: row-4"><div class="row" drawable data-name="Kwame" data-score="56"><span class="dot" style="background:#118ab2"></span><span>Kwame</span><label><input type="checkbox"> Seen</label><span class="score">56</span></div></canvas>
+    <canvas class="rowcv" content="drawable" layoutsubtree style="view-transition-name: row-5"><div class="row" drawable data-name="Ines" data-score="82"><span class="dot" style="background:#8338ec"></span><span>Ines</span><label><input type="checkbox"> Seen</label><span class="score">82</span></div></canvas>
+  </div>
+  <!-- #endregion markup-rows -->
+  <div class="controls">
+    <button id="r-name" type="button">Sort by name</button>
+    <button id="r-score" type="button">Sort by score</button>
+    <button id="r-rev" type="button">Reverse</button>
+  </div>
+  <div class="said" id="said3" role="status"></div>
+  <details class="show-code">
+    <summary>Show the code <small>the browser moves the canvases, each canvas distorts its own row</small></summary>
+    <ol>
+      <li data-code="#markup-rows"><b>The markup.</b> One canvas for each row, because a canvas child cannot be a transition element and a canvas can.</li>
+      <li data-code="#css-rows"><b>The class.</b></li>
+      <li data-code="#draw-rows"><b>Draw a row in strips.</b></li>
+      <li data-code="#go-rows"><b>Start the transition on the list.</b></li>
+    </ol>
+  </details>
+
+  <h2>4. The group box of a canvas child as the position to draw at</h2>
+  <p>
+    This one is a document transition. The white card is a child of the canvas with a <code>view-transition-name</code>. Its group has no picture, but it has the right box at every frame.
+    The canvas reads that box and draws the card there, stretched along its direction of travel, with copies behind it. The orange label below is ordinary HTML in the same transition, moved by the browser.
+  </p>
+  <!-- #region markup-group -->
+  <canvas id="gcv" class="stage" content="drawable" layoutsubtree aria-label="A card drawn where its transition group is">
+    <div id="puck" drawable><strong>Card</strong><span class="clock" data-clock></span><button type="button" data-count>Pressed 0</button></div>
+  </canvas>
+  <div id="twinrow"><div id="twin">HTML outside the canvas</div></div>
+  <!-- #endregion markup-group -->
+  <div class="controls">
+    <button id="gmove" type="button">Move</button>
+    <label><input type="checkbox" id="greset" checked> Put the hit box back after each draw</label>
+  </div>
+  <div class="said" id="said4" role="status"></div>
+  <details class="show-code">
+    <summary>Show the code <small>read <code>::view-transition-group()</code>, draw there</small></summary>
+    <ol>
+      <li data-code="#markup-group"><b>The markup.</b></li>
+      <li data-code="#css-group"><b>The names.</b> The canvas has a name so that its live picture is shown without a cross-fade.</li>
+      <li data-code="#box-group"><b>Read the group's box.</b></li>
+      <li data-code="#draw-group"><b>Draw at the box, then put the hit box back.</b> Without the last line the transition does not move: the browser takes the place of the last draw as the card's new position and retargets the group to it.</li>
+    </ol>
+  </details>
+
+  <h2>5. One canvas draws every change of a small app</h2>
+  <p>
+    The whole app below is one HTML element in one canvas. Every change (a tab, opening a message, the theme) goes through one function.
+    It takes an <code>ElementImage</code> of the app as it is, starts a transition scoped to the canvas, changes the DOM, and draws from the old picture to the live app with the chosen effect.
+  </p>
+  <!-- #region markup-app -->
+  <canvas id="app" class="stage vt-canvas" content="drawable" layoutsubtree aria-label="A small app drawn by one canvas">
+    <div id="screen" drawable style="view-transition-name: screen">
+      <nav>
+        <button type="button" data-tab="inbox" aria-current="true">Inbox</button>
+        <button type="button" data-tab="photo">Photo</button>
+        <button type="button" data-tab="settings">Settings</button>
+      </nav>
+      <section data-view="inbox">
+        <button type="button" class="msg" data-open="Lunch on Thursday">Lunch on Thursday</button>
+        <button type="button" class="msg" data-open="Build 4127 passed">Build 4127 passed</button>
+        <button type="button" class="msg" data-open="Your parcel is at the depot">Your parcel is at the depot</button>
+        <span class="clock" data-clock></span>
+      </section>
+      <section data-view="message" hidden>
+        <h3 id="msg-title"></h3>
+        <p>The message body is ordinary HTML text. Select it, or go back.</p>
+        <button type="button" class="msg" data-tab="inbox">Back to the inbox</button>
+      </section>
+      <section data-view="photo" hidden>
+        <div class="photo"></div>
+        <p>A gradient standing in for a photo.</p>
+        <button type="button" class="msg" data-count>Pressed 0</button>
+      </section>
+      <section data-view="settings" hidden>
+        <label><input type="checkbox" id="dark"> Dark theme</label>
+        <label>Name <input type="text" value="Paul" size="10" aria-label="Name"></label>
+        <span class="clock" data-clock></span>
+      </section>
+    </div>
+  </canvas>
+  <!-- #endregion markup-app -->
+  <div class="controls">
+    <label>Effect
+      <select id="effect">
+        <option value="columns">columns fall away</option>
+        <option value="blinds">blinds</option>
+        <option value="iris">iris from the tap</option>
+      </select>
+    </label>
+  </div>
+  <div class="said" id="said5" role="status"></div>
+  <details class="show-code">
+    <summary>Show the code <small>one function for every change</small></summary>
+    <ol>
+      <li data-code="#markup-app"><b>The markup.</b> The app is one <code>drawable</code> element with a name, so it has one group to time.</li>
+      <li data-code="#go-app"><b>Every change goes through <code>go()</code>.</b> The old picture has to be taken in a <code>paint</code> handler, before the transition starts.</li>
+      <li data-code="#draw-app"><b>Draw from the old picture to the live app.</b></li>
+      <li data-code="/scoped-transitions/canvas-vt.js#run"><b>The helper that keeps the canvas painting while a transition runs.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    A view transition gives two things: timing (a set of CSS animations, one for each named element) and pictures (the old and new snapshots).
+    Inside a canvas the pictures are not available, because the canvas renders none of its contents and no call hands a snapshot to script. The timing is available.
+    Experiments 1, 2 and 5 scope the transition to the canvas and read the group animations as clocks. Experiment 4 uses a document transition and reads the group's box. Experiment 3 leaves the moving to the browser and uses one canvas for each moving thing.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These run when this section is on screen, on the fixtures in the box below. Two of them start a transition on the whole document for under half a second. Nothing visible changes in it.</p>
+  <div id="rigbox">
+    <div class="cap">test rig</div>
+    <div id="rnest"><canvas id="r2d" class="vt-canvas" content="drawable" layoutsubtree width="300" height="60"><div class="rk" id="r2dk" drawable><i id="r2di" style="view-transition-name: rig-b"></i></div></canvas></div>
+    <div id="rrows">
+      <canvas content="drawable" layoutsubtree width="300" height="20" style="view-transition-name: rr-1"><div class="rk" drawable style="height:20px"></div></canvas>
+      <canvas content="drawable" layoutsubtree width="300" height="20" style="view-transition-name: rr-2"><div class="rk" drawable style="height:20px"></div></canvas>
+    </div>
+    <canvas id="rdoc" content="drawable" layoutsubtree width="300" height="60"><div id="rpuck" drawable></div></canvas>
+  </div>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>The canvas-scoped clock drives a WebGL shader.</strong> A WebGL canvas can be the scope of a transition like a 2D one. The shader gets one number for each tile, and CSS still sets the duration and easing. The page holds one WebGL context, through <code>lib/element-gl.js</code>.</li>
+    <li><strong>Nesting works when the canvas has <code>view-transition-scope: all</code> all the time.</strong> Without it, a transition on an ancestor that is already running has taken the names inside the canvas, and a transition started on the canvas then is rejected with "Snapshot capture failed". Started in the other order, or in the same task, both run without it.</li>
+    <li><strong><code>view-transition-class</code> matches canvases</strong> in a scoped transition, so one rule times a list of canvases. Each canvas stays live in its new snapshot and can distort its own content while the browser moves it.</li>
+    <li><strong>The group box of a canvas child can be drawn at, in a document transition.</strong> The canvas has to put the child's hit box back at its destination after each draw. If it does not, the group is retargeted to the place of the last draw every frame and stops moving.</li>
+    <li><strong>One canvas can draw every change of an app.</strong> The old state is an <code>ElementImage</code> taken in a <code>paint</code> handler. It stays drawable after the DOM has changed, and can be drawn in pieces with the nine-argument <code>drawElementImage()</code>.</li>
+    <li><strong>The old state is a picture.</strong> In experiment 5 only the new state is live and takes input during the change. <a href="/transitions/"><code>&lt;live-transition&gt;</code></a> keeps both states live, at the cost of having both in the DOM.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests } from '/shared/support.js';
+  import { onScreen } from '/shared/on-screen.js';
+  import { scoped, clock, boxesOf, run, fit, report, watch2d } from '/scoped-transitions/canvas-vt.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const frames = (n = 2) => new Promise((r) => { const f = () => (n-- ? requestAnimationFrame(f) : r()); f(); });
+  const must = (cond, msg) => { if (!cond) throw new Error(msg); };
+  const clamp = (v) => Math.min(1, Math.max(0, v));
+  const nameOf = (el) => el.style.viewTransitionName;
+  const shuffleInto = (wrapper, items) => { for (const k of [...items].sort(() => Math.random() - 0.5)) wrapper.append(k); };
+
+  const t0 = performance.now();
+  // A clock inside a canvas makes that canvas paint again, so only the clocks that are in the viewport tick.
+  setInterval(() => {
+    for (const c of document.querySelectorAll('[data-clock]')) {
+      const r = (c.closest('canvas') ?? c).getBoundingClientRect();
+      if (r.bottom > 0 && r.top < innerHeight) c.textContent = ((performance.now() - t0) / 1000).toFixed(1) + ' s';
+    }
+  }, 200);
+  for (const b of document.querySelectorAll('[data-count]')) { let n = 0; b.addEventListener('click', () => { b.textContent = `Pressed ${++n}`; }); }
+  $('slow').onchange = () => document.documentElement.style.setProperty('--ms', $('slow').checked ? '3000ms' : '900ms');
+
+  // No HTML-in-canvas: take the content out of each canvas so that it is ordinary HTML.
+  const unwrap = (canvas, note) => {
+    const box = document.createElement('div');
+    box.className = canvas.className.replace('vt-canvas', '');
+    box.style.cssText = 'height:auto;padding:1px;' + (canvas.style.cssText || '');
+    box.id = canvas.id;
+    box.append(...canvas.children);
+    canvas.replaceWith(box);
+    if (note) note.textContent = 'Shown as ordinary HTML: ' + (supported ? 'this canvas could not be drawn.' : 'this browser has no HTML-in-canvas API.');
+    return box;
+  };
+  // A 2D canvas whose context was lost and did not come back: show its content as ordinary HTML and say so.
+  const lost2d = (canvas, ctx, said, after) => watch2d(canvas, ctx, () => {
+    const box = unwrap(canvas);
+    after?.(box);
+    said.textContent = 'This canvas lost its 2D context and the browser did not restore it, so its content is shown as ordinary HTML. Reload the page to draw it in a canvas again. ' + (window.__gfx?.summary() ?? '');
+  });
+
+  // ------------------------------------------------------------ 1. WebGL shader on the canvas-scoped clock
+  // #region shader-gl
+  // lib/element-gl.js owns the page's one WebGL context and draws a quad for each call. This is its fragment shader.
+  const FS = `#version 300 es
+  precision highp float;
+  in vec2 vUv;
+  uniform sampler2D uTex;
+  uniform vec4 uRect;     // this tile's rectangle in the wrapper's picture, in 0..1
+  uniform vec2 uDir;      // direction of travel
+  uniform float uP;       // this tile's progress, from its view-transition group
+  uniform float uLift;    // 0 at rest, 1 half way
+  uniform float uShade;
+  out vec4 outColor;
+  void main() {
+    vec2 uv = vUv;
+    uv.x += sin(vUv.y * 6.2831853 + uP * 14.0) * 0.07 * uLift;          // the tile ripples while it is in the air
+    if (uv.x < 0.0 || uv.x > 1.0) discard;
+    vec2 lo = uRect.xy, hi = uRect.xy + uRect.zw;
+    vec2 t = lo + uv * uRect.zw, off = uDir * 0.06 * uLift * uRect.zw;  // red and blue are sampled ahead and behind
+    vec4 mid = texture(uTex, t);
+    outColor = vec4(texture(uTex, clamp(t + off, lo, hi)).r, mid.g, texture(uTex, clamp(t - off, lo, hi)).b, mid.a);
+    outColor.rgb *= uShade;
+  }`;
+  // The matrix for one tile: the unit square, turned by `turn` about its vertical axis, moved toward the viewer by `lift`
+  // CSS px and projected with perspective. Column-major, straight to clip space.
+  function tileMatrix(cv, box, turn, lift) {
+    const cw = cv.clientWidth, ch = cv.clientHeight, D = 700, c = Math.cos(turn), sn = Math.sin(turn);
+    const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+    return new Float32Array([
+      (2 * box.w * c) / cw, 0, 0, (box.w * sn) / D,
+      0, (-2 * box.h) / ch, 0, 0,
+      0, 0, 1, 0,
+      (2 * (cx - 0.5 * box.w * c)) / cw - 1, 1 - (2 * (cy - 0.5 * box.h)) / ch, 0, 1 - (0.5 * box.w * sn + lift) / D,
+    ]);
+  }
+  // #endregion shader-gl
+
+  async function setupGL() {
+    const cv = $('glcv'), wrapper = $('gtiles'), items = [...wrapper.children];
+    const state = { active: null, from: null, uploads: 0 };
+    const { ElementGL, supported: glOK } = await import('/lib/element-gl.js');
+    if (!glOK) { unwrap(cv, $('said1')); return { cv, wrapper, items, state, plain: true }; }
+    // The canvas stays in the page when its context is lost. The library asks for the context back and repaints.
+    const stage = new ElementGL(cv, {
+      fragment: FS,
+      attributes: { antialias: true },
+      onLost: () => { $('said1').textContent = 'The WebGL context was lost. The tiles come back when the browser returns it.'; },
+      onRestored: () => { $('said1').textContent = 'The WebGL context is back.'; },
+    });
+
+    // #region draw-gl
+    cv.addEventListener('paint', () => {
+      if (stage.lost) return;
+      stage.upload(wrapper);                      // texElementSubImage2D: the wrapper is the texture
+      state.uploads++;
+      if (!stage.begin([0.063, 0.141, 0.169, 1])) return;
+      const W = wrapper.offsetWidth, H = wrapper.offsetHeight, now = boxesOf(items);
+      const tiles = items.map((el) => {
+        const to = now.get(el), from = (state.active && state.from?.get(el)) || to;
+        const p = state.active ? clock(cv, nameOf(el)) : 1;
+        const dx = to.x - from.x, dy = to.y - from.y, far = Math.hypot(dx, dy);
+        return { to, from, p, dx, dy, far, lift: far > 1 ? Math.sin(Math.PI * clamp(p)) : 0 };
+      });
+      tiles.sort((x, y) => x.lift - y.lift);      // the highest tile is drawn last
+      for (const t of tiles) {
+        const box = { x: t.from.x + t.dx * t.p, y: t.from.y + t.dy * t.p - t.lift * 24, w: t.to.w, h: t.to.h };
+        const turn = t.far > 1 ? Math.PI * 2 * t.p : 0;
+        stage.quad(wrapper, tileMatrix(cv, box, turn, t.lift * 150), (gl, u) => {
+          gl.uniform4f(u('uRect'), t.to.x / W, t.to.y / H, t.to.w / W, t.to.h / H);
+          gl.uniform2f(u('uDir'), t.far > 1 ? t.dx / t.far : 0, t.far > 1 ? t.dy / t.far : 0);
+          gl.uniform1f(u('uP'), t.p);
+          gl.uniform1f(u('uLift'), t.lift);
+          gl.uniform1f(u('uShade'), 0.5 + 0.5 * Math.abs(Math.cos(turn)));
+        });
+      }
+      // A WebGL draw does not place the element. Its hit box stays where the tiles rest.
+      cv.updateElementGeometry(wrapper, { canvasTransform: new DOMMatrix() });
+    });
+    // #endregion draw-gl
+    new ResizeObserver(() => cv.requestPaint()).observe(cv);
+    cv.requestPaint();
+    return { cv, wrapper, items, state, stage };
+  }
+
+  let glDemo = null;
+  if (supported) { try { glDemo = await setupGL(); } catch (err) { unwrap($('glcv'), $('said1')); $('said1').textContent += ' ' + err.message; } }
+  else unwrap($('glcv'), $('said1'));
+
+  // #region go-gl
+  $('gshuffle').onclick = () => {
+    const wrapper = $('gtiles'), items = [...wrapper.children];
+    if (!glDemo || glDemo.plain) {   // ordinary HTML: let the browser do an ordinary scoped transition
+      const vt = scoped ? wrapper.startViewTransition(() => shuffleInto(wrapper, items)) : (shuffleInto(wrapper, items), null);
+      return report(vt, $('said1'));
+    }
+    glDemo.state.from = boxesOf(glDemo.items);                 // the old boxes
+    const vt = run(glDemo.cv, () => shuffleInto(wrapper, glDemo.items), glDemo.state);
+    report(vt, $('said1'), 'Transition on the canvas');
+  };
+  // #endregion go-gl
+
+  // ------------------------------------------------------------ a 2D canvas that draws its tiles on the clock (used by 2)
+  // #region draw-2d
+  function flip2d(cv, wrapper) {
+    const items = [...wrapper.children], state = { active: null, from: null };
+    const ctx = cv.getContext('2d');
+    cv.addEventListener('paint', () => {
+      const dpr = cv.width / cv.clientWidth || 1;
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      if (!state.active) { ctx.drawElementImage(wrapper, 0, 0, wrapper.offsetWidth, wrapper.offsetHeight); return; }
+      for (const el of items) {
+        const to = { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight };
+        const from = state.from.get(el) ?? to, p = clock(cv, nameOf(el)), lift = Math.sin(Math.PI * clamp(p));
+        const moved = Math.hypot(to.x - from.x, to.y - from.y) > 1 ? 1 : 0;
+        ctx.save();
+        ctx.translate(from.x + (to.x - from.x) * p + to.w / 2, from.y + (to.y - from.y) * p + to.h / 2 - lift * 20 * moved);
+        ctx.rotate(lift * 0.3 * moved);
+        ctx.scale(1 + lift * 0.15 * moved, 1 + lift * 0.15 * moved);
+        ctx.drawElementImage(wrapper, to.x, to.y, to.w, to.h, -to.w / 2, -to.h / 2, to.w, to.h);
+        ctx.restore();
+      }
+      cv.updateElementGeometry(wrapper, { canvasTransform: new DOMMatrix() });
+    });
+    fit(cv);
+    lost2d(cv, ctx, $('said2'));
+    return { cv, wrapper, items, state, shuffle: () => { state.from = boxesOf(items); return run(cv, () => shuffleInto(wrapper, items), state); } };
+  }
+  // #endregion draw-2d
+
+  // ------------------------------------------------------------ 2. nested scopes
+  const nest = $('nest');
+  const inner = supported ? flip2d($('ncv'), $('ntiles')) : (unwrap($('ncv'), $('said2')), null);
+  $('n-scope').onchange = () => $('ncv').classList.toggle('no-scope', !$('n-scope').checked);
+  // #region go-nest
+  const outcome = async (vt, label) => {
+    if (!vt) return `${label}: changed without a transition (no element.startViewTransition, or the canvas is shown as ordinary HTML)`;
+    try { await vt.ready; await vt.finished; return `${label}: ran`; } catch (err) { return `${label}: rejected (${err.message.replace(/^Transition was aborted because of invalid state\. /, '')})`; }
+  };
+  const startOuter = () => (scoped ? nest.startViewTransition(() => nest.classList.toggle('wide')) : (nest.classList.toggle('wide'), null));
+  const startInner = () => {
+    if (inner) return inner.shuffle();
+    const w = $('ntiles');
+    return scoped ? w.startViewTransition(() => shuffleInto(w, [...w.children])) : (shuffleInto(w, [...w.children]), null);
+  };
+  async function nested(order) {
+    $('said2').textContent = 'Running.';
+    let a, b;
+    if (order === 'outer-inner') { a = startOuter(); await a?.ready.catch(() => {}); await frames(6); b = startInner(); }
+    if (order === 'inner-outer') { b = startInner(); await b?.ready.catch(() => {}); await frames(6); a = startOuter(); }
+    if (order === 'both') { a = startOuter(); b = startInner(); }
+    $('said2').textContent = (await Promise.all([outcome(a, 'sidebar'), outcome(b, 'shuffle')])).join('. ') + '.';
+  }
+  $('n-outer-inner').onclick = () => nested('outer-inner');
+  $('n-inner-outer').onclick = () => nested('inner-outer');
+  $('n-both').onclick = () => nested('both');
+  // #endregion go-nest
+
+  // ------------------------------------------------------------ 3. one canvas for each row
+  const rows = $('rows');
+  const rowState = { active: null, start: 0, travel: new Map() };
+  const rowCanvases = [...rows.children];
+  if (supported) {
+    for (const cv of rowCanvases) {
+      const row = cv.firstElementChild, ctx = cv.getContext('2d');
+      // #region draw-rows
+      cv.addEventListener('paint', () => {
+        const dpr = cv.width / cv.clientWidth || 1;
+        const w = row.offsetWidth, h = row.offsetHeight, mx = (cv.clientWidth - w) / 2, my = (cv.clientHeight - h) / 2;
+        ctx.reset();
+        ctx.scale(dpr, dpr);
+        const travel = rowState.active ? rowState.travel.get(cv) ?? 0 : 0;
+        if (!travel) { ctx.drawElementImage(row, mx, my, w, h); return; }
+        const ms = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ms')) || 900;
+        const t = clamp((performance.now() - rowState.start) / ms), swing = Math.sin(Math.PI * t) * Math.min(22, Math.abs(travel) * 0.2) * Math.sign(travel);
+        const STRIPS = 24;
+        for (let i = 0; i < STRIPS; i++) {
+          const sy = (h * i) / STRIPS, sh = h / STRIPS;
+          const dx = swing * Math.sin((i / (STRIPS - 1)) * Math.PI) * Math.cos(t * 14);   // the middle of the row bows, like a plucked string
+          ctx.drawElementImage(row, 0, sy, w, sh, mx + dx, my + sy, w, sh);
+        }
+        cv.updateElementGeometry(row, { canvasTransform: new DOMMatrix().translate(mx, my) });
+      });
+      // #endregion draw-rows
+      fit(cv);
+      lost2d(cv, ctx, $('said3'), (box) => { box.style.viewTransitionName = cv.style.viewTransitionName; box.style.padding = '8px 0'; });
+    }
+  } else {
+    for (const cv of rowCanvases) { const d = unwrap(cv); d.style.viewTransitionName = cv.style.viewTransitionName; d.style.padding = '8px 0'; }
+  }
+  // #region go-rows
+  function sortRows(order) {
+    const list = [...rows.children];
+    const key = (el) => el.querySelector('.row').dataset;
+    const next = order === 'reverse' ? list.toReversed()
+      : list.toSorted((x, y) => (order === 'name' ? key(x).name.localeCompare(key(y).name) : key(y).score - key(x).score));
+    const before = new Map(list.map((el) => [el, el.offsetTop]));
+    const vt = run(rows, () => {
+      rows.append(...next);
+      for (const el of next) rowState.travel.set(el, el.offsetTop - before.get(el));   // how far each row will move
+      rowState.start = performance.now();
+    }, rowState, supported ? rowCanvases : []);
+    report(vt, $('said3'), 'Transition on the list');
+  }
+  $('r-name').onclick = () => sortRows('name');
+  $('r-score').onclick = () => sortRows('score');
+  $('r-rev').onclick = () => sortRows('reverse');
+  // #endregion go-rows
+
+  // ------------------------------------------------------------ 4. the group box of a canvas child
+  // #region box-group
+  /** Where the browser has the group of a named element now, in viewport px, or null when there is no transition. */
+  function groupBox(name) {
+    const s = getComputedStyle(document.documentElement, `::view-transition-group(${name})`);
+    if (!s.transform || s.transform === 'none' || !parseFloat(s.width)) return null;
+    const m = new DOMMatrix(s.transform);
+    return { x: m.e, y: m.f, w: parseFloat(s.width), h: parseFloat(s.height) };
+  }
+  // #endregion box-group
+  const gState = { active: null, at: 'a', trail: [] };
+  function setupGroup() {
+    const cv = $('gcv'), puck = $('puck'), ctx = cv.getContext('2d');
+    const rest = () => {
+      const w = puck.offsetWidth, h = puck.offsetHeight, k = gState.at === 'a' ? 1 : 1.35;
+      return gState.at === 'a' ? { x: 14, y: 14, w, h } : { x: cv.clientWidth - w * k - 14, y: cv.clientHeight - h * k - 14, w: w * k, h: h * k };
+    };
+    // #region draw-group
+    cv.addEventListener('paint', () => {
+      const dpr = cv.width / cv.clientWidth || 1, home = rest();
+      let box = home;
+      const g = gState.active ? groupBox('puck') : null;
+      if (g) { const r = cv.getBoundingClientRect(); box = { x: g.x - r.x, y: g.y - r.y, w: g.w, h: g.h }; }
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      if (g) {
+        const last = gState.trail.at(-1) ?? box, vx = box.x - last.x, vy = box.y - last.y, speed = Math.hypot(vx, vy);
+        gState.trail.push(box);
+        if (gState.trail.length > 9) gState.trail.shift();
+        gState.trail.slice(0, -1).forEach((b, i) => {             // copies behind the card
+          ctx.globalAlpha = 0.07 * (i + 1);
+          ctx.drawElementImage(puck, b.x, b.y, b.w, b.h);
+        });
+        ctx.globalAlpha = 1;
+        ctx.translate(box.x + box.w / 2, box.y + box.h / 2);       // stretch along the direction of travel
+        ctx.rotate(Math.atan2(vy, vx || 1e-6));
+        ctx.scale(1 + Math.min(0.5, speed / 40), 1 - Math.min(0.25, speed / 80));
+        ctx.rotate(-Math.atan2(vy, vx || 1e-6));
+        ctx.drawElementImage(puck, -box.w / 2, -box.h / 2, box.w, box.h);
+      } else {
+        gState.trail.length = 0;
+        ctx.drawElementImage(puck, home.x, home.y, home.w, home.h);
+      }
+      // The draw moved the card's hit box. Put it back at the destination, or the group follows the drawing.
+      if (g && $('greset').checked) cv.updateElementGeometry(puck, { canvasTransform: new DOMMatrix().translate(home.x, home.y).scale(home.w / puck.offsetWidth) });
+    });
+    // #endregion draw-group
+    fit(cv);
+    lost2d(cv, ctx, $('said4'));
+    $('gmove').onclick = () => {
+      const change = () => { gState.at = gState.at === 'a' ? 'b' : 'a'; $('twin').classList.toggle('b'); cv.requestPaint(); };
+      if (!document.startViewTransition) { change(); return; }
+      const vt = document.startViewTransition(change);
+      gState.active = vt;
+      const tick = () => { if (gState.active !== vt) return; cv.requestPaint(); requestAnimationFrame(tick); };
+      vt.ready.then(tick, () => {});
+      vt.finished.catch(() => {}).then(() => { if (gState.active === vt) gState.active = null; cv.requestPaint(); });
+      report(vt, $('said4'), 'Document transition');
+    };
+  }
+  if (supported) setupGroup();
+  else {
+    unwrap($('gcv'), $('said4'));
+    $('gmove').onclick = () => { const f = () => $('twin').classList.toggle('b'); document.startViewTransition ? document.startViewTransition(f) : f(); };
+  }
+
+  // ------------------------------------------------------------ 5. one canvas draws every change of an app
+  const app = $('app'), screen = $('screen');
+  const appState = { active: null, old: null, want: null, origin: { x: 0, y: 0 } };
+  const show = (view) => {
+    for (const s of screen.querySelectorAll('section')) s.hidden = s.dataset.view !== view;
+    for (const b of screen.querySelectorAll('nav button')) b.setAttribute('aria-current', String(b.dataset.tab === view || (view === 'message' && b.dataset.tab === 'inbox')));
+  };
+  // #region go-app
+  async function go(update, event) {
+    const canDraw = supported && scoped && app.isConnected && app.tagName === 'CANVAS';
+    if (!canDraw || appState.active) { update(); app.requestPaint?.(); return; }
+    if (event) { const r = app.getBoundingClientRect(); appState.origin = { x: event.clientX - r.x, y: event.clientY - r.y }; }
+    // Take a picture of the app as it is. captureElementImage() needs the element's paint record, so do it in a paint handler.
+    await new Promise((done) => { appState.want = done; app.requestPaint(); });
+    const vt = run(app, update, appState);
+    report(vt, $('said5'), 'Transition on the canvas');
+  }
+  screen.addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-tab]'), open = e.target.closest('[data-open]');
+    if (tab) go(() => show(tab.dataset.tab), e);
+    else if (open) go(() => { $('msg-title').textContent = open.dataset.open; show('message'); }, e);
+  });
+  $('dark').addEventListener('change', (e) => {
+    const on = e.target.checked, r = e.target.getBoundingClientRect();
+    go(() => screen.classList.toggle('dark', on), { clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 });
+  });
+  // #endregion go-app
+  if (supported) {
+    const ctx = app.getContext('2d');
+    // #region draw-app
+    app.addEventListener('paint', () => {
+      const dpr = app.width / app.clientWidth || 1, W = screen.offsetWidth, H = screen.offsetHeight;
+      if (appState.want) {
+        appState.old?.close();
+        appState.old = app.captureElementImage(screen);
+        appState.want(); appState.want = null;
+      }
+      ctx.reset();
+      ctx.scale(dpr, dpr);
+      const old = appState.old;
+      if (!appState.active || !old) { ctx.drawElementImage(screen, 0, 0, W, H); return; }
+      const p = clock(app, 'screen'), effect = $('effect').value;
+      if (effect === 'iris') {
+        // The old picture shrinks back. The live app shows through a growing circle.
+        ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(1 - 0.1 * p, 1 - 0.1 * p); ctx.globalAlpha = 1 - 0.5 * p;
+        ctx.drawElementImage(old, -W / 2, -H / 2, W, H); ctx.restore();
+        const { x, y } = appState.origin, reach = Math.hypot(Math.max(x, W - x), Math.max(y, H - y));
+        ctx.save(); ctx.beginPath(); ctx.arc(x, y, reach * p, 0, Math.PI * 2); ctx.clip();
+        ctx.drawElementImage(screen, 0, 0, W, H); ctx.restore();
+      } else {
+        ctx.drawElementImage(screen, 0, 0, W, H);                       // the live app underneath
+        const N = effect === 'columns' ? 8 : 10;
+        for (let i = 0; i < N; i++) {
+          const q = clamp(p * 1.7 - i * 0.7 / N);                        // each piece starts a little later
+          if (q >= 1) continue;
+          ctx.save();
+          if (effect === 'columns') {                                   // a column of the old picture falls and turns
+            const sw = W / N, sx = i * sw;
+            ctx.globalAlpha = 1 - q * q;
+            ctx.translate(sx + sw / 2, H / 2 + q * q * H * 1.1);
+            ctx.rotate((i % 2 ? 1 : -1) * q * 0.6);
+            ctx.drawElementImage(old, sx, 0, sw, H, -sw / 2, -H / 2, sw + 0.5, H);
+          } else {                                                      // a band of the old picture closes like a blind
+            const sh = H / N, sy = i * sh;
+            ctx.drawElementImage(old, 0, sy, W, sh, 0, sy + (sh * q) / 2, W, sh * (1 - q));
+          }
+          ctx.restore();
+        }
+      }
+      app.updateElementGeometry(screen, { canvasTransform: new DOMMatrix() });   // the app takes input where it rests
+    });
+    // #endregion draw-app
+    fit(app);
+    lost2d(app, ctx, $('said5'));
+  } else unwrap(app, $('said5'));
+
+  // ------------------------------------------------------------ live checks
+  const r2d = $('r2d'), r2dk = $('r2dk'), r2di = $('r2di'), rnest = $('rnest'), rrows = $('rrows'), rdoc = $('rdoc'), rpuck = $('rpuck');
+  const rig = { x: 20, follow: false, reset: true, old: null, want: null, drawOld: false, pixel: null };
+  if (supported) {
+    const c2 = r2d.getContext('2d', { willReadFrequently: true });
+    r2d.addEventListener('paint', () => {
+      if (rig.want) { rig.old?.close(); rig.old = r2d.captureElementImage(r2dk); rig.want(); rig.want = null; }
+      c2.reset();
+      if (rig.drawOld && rig.old) { c2.drawElementImage(rig.old, 0, 0, 300, 60); rig.pixel = [...c2.getImageData(40, 20, 1, 1).data]; }
+      else c2.drawElementImage(r2dk, 0, 0, 300, 60);
+      r2d.updateElementGeometry(r2dk, { canvasTransform: new DOMMatrix() });
+    });
+    r2d.requestPaint();
+    for (const c of rrows.children) { const x = c.getContext('2d'); c.addEventListener('paint', () => { x.reset(); x.fillStyle = 'rgb(0, 204, 255)'; x.fillRect(0, 0, 300, 20); }); c.requestPaint(); }
+    const cd = rdoc.getContext('2d');
+    rdoc.addEventListener('paint', () => {
+      cd.reset();
+      let x = rig.x;
+      const g = rig.follow ? groupBox('rig-puck') : null;
+      if (g) x = g.x - rdoc.getBoundingClientRect().x;
+      cd.drawElementImage(rpuck, x, 10, 60, 30);
+      if (g && rig.reset) rdoc.updateElementGeometry(rpuck, { canvasTransform: new DOMMatrix().translate(rig.x, 10) });
+    });
+    rdoc.requestPaint();
+  }
+  async function during(target, update, look) {
+    const vt = target.startViewTransition(update);
+    try { await vt.ready; return await look(vt); } finally { vt.skipTransition(); await vt.finished.catch(() => {}); }
+  }
+  // Follow the rig card's group through a document transition and report how far along it got.
+  async function followGroup(reset) {
+    rig.reset = reset; rig.follow = true;
+    const left = () => rdoc.getBoundingClientRect().x;
+    const vt = document.startViewTransition(() => { rig.x = 200; rdoc.requestPaint(); });
+    const seen = [];
+    try {
+      await vt.ready;
+      for (let i = 0; i < 40; i++) {
+        rdoc.requestPaint(); await frames(1);
+        const g = groupBox('rig-puck'); if (!g) break;
+        seen.push(g.x - left());
+      }
+    } finally { vt.skipTransition(); await vt.finished.catch(() => {}); rig.follow = false; rig.x = 20; rdoc.requestPaint(); await frames(2); }
+    return seen;
+  }
+
+  const tests = [
+    {
+      name: 'A WebGL canvas is the scope of a transition and one of its groups can be read as a clock',
+      why: 'Experiment 1. The page holds one WebGL context, so this check starts a transition with an empty update on that canvas. Nothing in it moves.',
+      async run() {
+        must(glDemo && !glDemo.plain, 'experiment 1 is not drawing with WebGL here');
+        must(!glDemo.stage.lost, 'the WebGL context is lost');
+        must(glDemo.state.uploads > 0, 'texElementSubImage2D() has not uploaded the tiles yet');
+        return await during(glDemo.cv, () => {}, async (vt) => {
+          must(vt.transitionRoot === glDemo.cv, 'transitionRoot is not the canvas');
+          const seen = [];
+          for (let i = 0; i < 8; i++) { await frames(1); seen.push(clock(glDemo.cv, 'g-1')); }
+          must(seen.at(-1) > seen[0] && seen.at(-1) > 0, `--vt-p did not advance: ${seen.map((p) => p.toFixed(2)).join(' ')}`);
+          return `${glDemo.state.uploads} uploads so far, --vt-p ${seen.map((p) => p.toFixed(2)).join(' ')}`;
+        });
+      },
+    },
+    {
+      name: 'A canvas-scoped transition starts while a transition on its ancestor is running (view-transition-scope: all on the canvas)',
+      why: 'Experiment 2, first button.',
+      async run() {
+        return await during(rnest, () => {}, async () => {
+          await frames(2);
+          return await during(r2d, () => {}, async () => {
+            const seen = []; for (let i = 0; i < 6; i++) { await frames(1); seen.push(clock(r2d, 'rig-b')); }
+            must(seen.at(-1) > 0, `inner clock did not advance: ${seen.join(' ')}`);
+            return `both ready, inner --vt-p reached ${seen.at(-1).toFixed(2)}`;
+          });
+        });
+      },
+    },
+    {
+      name: 'The same without view-transition-scope: all on the canvas',
+      expect: 'fail',
+      why: 'The outer transition has taken the names inside the canvas, so the inner one cannot capture them.',
+      async run() {
+        r2d.classList.add('no-scope');
+        try {
+          await frames(2);
+          return await during(rnest, () => {}, async () => {
+            await frames(2);
+            return await during(r2d, () => {}, async () => 'both ready');
+          });
+        } finally { r2d.classList.remove('no-scope'); }
+      },
+    },
+    {
+      name: 'In the other order (canvas first, then its ancestor) both run without view-transition-scope: all',
+      why: 'Experiment 2, second button. The outer transition skips a scope that is already active.',
+      async run() {
+        r2d.classList.add('no-scope');
+        try {
+          await frames(2);
+          return await during(r2d, () => {}, async () => {
+            await frames(2);
+            return await during(rnest, () => {}, async () => {
+              await frames(3);
+              const p = clock(r2d, 'rig-b');
+              must(p > 0, 'the inner clock stopped');
+              return `both ready, inner --vt-p ${p.toFixed(2)}`;
+            });
+          });
+        } finally { r2d.classList.remove('no-scope'); }
+      },
+    },
+    {
+      name: 'view-transition-class on canvases is matched by ::view-transition-group(.class) in a scoped transition',
+      why: 'Experiment 3. The rig rule sets 1234ms for the class.',
+      async run() {
+        return await during(rrows, () => { rrows.append(rrows.firstElementChild); }, async () => {
+          const d = [1, 2].map((n) => getComputedStyle(rrows, `::view-transition-group(rr-${n})`).animationDuration);
+          must(d.every((v) => v === '1.234s'), `durations are ${d.join(', ')}, the class rule says 1.234s`);
+          return `both groups run for ${d[0]}`;
+        });
+      },
+    },
+    {
+      name: 'Draw a canvas child at its group box in a document transition, putting its hit box back after each draw',
+      why: 'Experiment 4. The group should travel from 20px to 200px.',
+      timeout: 6000,
+      async run() {
+        const seen = await followGroup(true);
+        must(seen.length > 3, `only ${seen.length} frames`);
+        must(Math.max(...seen) > 120, `the group got to ${Math.max(...seen).toFixed(0)}px of 200`);
+        return `group x over ${seen.length} frames: ${seen.filter((_, i) => i % 4 === 0).map((v) => v.toFixed(0)).join(' ')}`;
+      },
+    },
+    {
+      name: 'The same without putting the hit box back',
+      expect: 'fail',
+      why: 'Drawing the child at the group box makes that box its new position, so the group has nowhere to go.',
+      timeout: 6000,
+      async run() {
+        const seen = await followGroup(false);
+        must(seen.length > 3, `only ${seen.length} frames`);
+        must(Math.max(...seen) > 120, `the group stayed at ${Math.max(...seen).toFixed(0)}px of 200 for ${seen.length} frames`);
+        return 'the group moved';
+      },
+    },
+    {
+      name: 'An ElementImage taken before a canvas-scoped transition still draws the old state during it',
+      why: 'Experiment 5. The child is yellow before the change and blue after.',
+      async run() {
+        await new Promise((done) => { rig.want = done; r2d.requestPaint(); });
+        try {
+          return await during(r2d, () => { r2di.style.background = 'rgb(0, 0, 255)'; }, async () => {
+            rig.drawOld = true; rig.pixel = null;
+            r2d.requestPaint(); await frames(2);
+            must(rig.pixel, 'the canvas did not paint during the transition');
+            must(rig.pixel[0] > 200 && rig.pixel[2] < 60, `old picture pixel is ${rig.pixel.slice(0, 3)}, expected yellow`);
+            must(getComputedStyle(r2di).backgroundColor === 'rgb(0, 0, 255)', 'the DOM did not change');
+            return `old picture pixel ${rig.pixel.slice(0, 3)} while the element is blue`;
+          });
+        } finally { rig.drawOld = false; r2di.style.background = ''; r2d.requestPaint(); }
+      },
+    },
+  ];
+
+  if (supported && scoped) {
+    const gate = onScreen($('rigbox'));
+    gate.reserve($('tests'), tests);
+    await gate.seen;
+    await frames(6);
+    await runTests($('tests'), gate.gate(tests));
+    gate.stop();
+  } else {
+    $('tests').innerHTML = `<tr><td class="note">${supported ? 'This browser has no element.startViewTransition() (Chrome 147 and later).' : 'The checks need the HTML-in-canvas API.'} The buttons above still make their changes.</td></tr>`;
+  }
+  $('rigbox').classList.add('done');
+</script>
+</body>
+</html>
