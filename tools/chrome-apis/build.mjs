@@ -7,7 +7,8 @@
 // Inputs, all in this folder:
 //   features.json  features for Chrome 130 to 160 from the chromestatus.com API (a cache)
 //   ideas.json     hand-written: for a feature id, how well it fits (1 to 3), the idea, planned demos, pages to see
-//   demos.json     hand-written: the planned demos, in rank order
+//   demos.json     hand-written: the planned demos, in rank order. When a demo is built, add
+//                  "built": "/its-page/" to its entry and run this script again.
 // and public/chrome-apis/probes-recorded.json from `npm run record:probes`.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -171,6 +172,7 @@ for (const [tier, title, note] of TIERS) {
     n = demos.indexOf(d) + 1;
     const used = features.filter((f) => f.demos.includes(d.key)).sort((x, y) => y.fit - x.fit || x.milestone - y.milestone);
     md += `\n#### ${n}. ${d.title}\n\n`;
+    if (d.built) md += `- **Built:** [${d.built}](https://html-in-canvas.page${d.built})\n`;
     md += `- **Shows:** ${d.shows}\n- **Build:** ${d.build}\n`;
     if (d.measured) md += `- **Measured:** ${d.measured}\n`;
     md += `- **Uncertain:** ${d.uncertain}\n`;
