@@ -2,7 +2,7 @@
 
 The goals of this project, the strands of work and their status, every open idea with its source, and what is still unverified because it needs real hardware. Status is as of 2026-11-21. Results are in [FINDINGS.md](FINDINGS.md). How the code is organised is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-When you finish something listed here, update its line. When a page leaves new ideas, add them to the section for its strand.
+This file has one writer at a time. A pull request that adds or changes a page does not edit it: the page's open ideas and unverified items go in its file in [findings/](findings/), and a planning pass copies them here. The reason is in [ARCHITECTURE.md](ARCHITECTURE.md), "Files that parallel branches share".
 
 ## Contents
 
@@ -47,7 +47,7 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 |---|---|---|---|---|
 | Slots | `/slot/`, `/slot-bare/`, `/slot-bare/plain.html` | `canvas-slot.js`, `light-slots.js` | #1, #2, #5, #23, #30, #31 | Done. The mount-point pattern from the ExtensibleWebApps repository was studied and added (`/slot/mount.html`). |
 | Workers, tabs, origins | `/offscreen/`, `/cross-tab/`, `/cross-origin/`, `/transports/` | `slot-share.js`, `broker.js` | #1, #2, #3, #18 | Done. 49 transport routes tested. New routes are planned (demo 18). |
-| Cross-context | `/tear-off/`, `/remote/`, `/embed/`, `/support/`, `/slot-view/`, `/pip/`, `/transports-2/`, `/iframe-tiles/` | `live-*.js`, `slot-view.js`, `slot-provider.js`, `element-pip.js`, `src/cross-context.js` | #9, #15, #26, #35 | Built. Not verified between two real networks or with a real cross-site pair. Demo 18 is built as `/transports-2/` and demo 22 as `/iframe-tiles/` (PR #54). |
+| Cross-context | `/tear-off/`, `/remote/`, `/embed/`, `/support/`, `/slot-view/`, `/pip/` | `live-*.js`, `slot-view.js`, `slot-provider.js`, `element-pip.js`, `src/cross-context.js` | #9, #15, #26, #35 | Built. Not verified between two real networks or with a real cross-site pair. Demos 18 and 22 are assigned to this thread. |
 | UI primitives | `/portal/`, `/lens/`, `/shader-css/`, `/slot-effects/`, `/physical/` | `surface.js`, `dom-portal.js`, `dom-lens.js`, `lens-gl.js`, `lens-gpu.js`, `shader-fx.js`, `effects.js`, `slot-effects.js`, `physical-ui.js`, `fx.js` | #6, #12, #17, #19, #28, #32, #33, #42, #44 | Built. Five pages still gate their checks behind a tap. Demo 21 (component kit) is assigned to this thread. |
 | Form controls | `/select/`, `/datalist/`, `/inputs/` | `select-picker.js`, `placed-popover.js`, `datalist-picker.js`, `input-pickers.js` | #45 | Built. Not tried on a phone. |
 | Transitions and motion | `/transitions/`, `/view-transitions/`, `/time-scrubber/`, `/particles/` | `live-transition.js`, `dom-rewind.js`, `glyph-field.js` | #4, #8, #10, #20, #27, #43 | Built. |
@@ -56,12 +56,12 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 | Native UI toolkits | `/native-ui/` | `native/egui-dom/`, `native/qt-dom/`, `docs/native-frameworks.md` | #47 | Built for egui and Qt Quick. Eight follow-up experiments are listed below. Demo 28 is assigned to this thread. |
 | Video and sound | `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/` | `video-export.js`, `webm-mux.js` | #46, #51 | Built. Hardware decoding and sound are not verified. Demo 19 (media state) landed in #51 as additions to the media pages. |
 | Accessibility, capture, performance | `/a11y/`, `/capture/`, `/perf/` | `a11y-audit.js`, `element-capture.js` | #7, #13, #14, #16, #22, #24 | Built. By-hand results (screen reader, IME, flicker, frame rates) are still wanted. Demos 10, 17 and 20 are assigned to this thread. |
-| Pages that hold still | every page | `tools/jank/`, `shared/support.js`, `shared/nav.js` | #29 and the per-page fixes #23 to #28 | Done. All pages hold still on load. Gated pages are listed in `CHECKS_WAIT_FOR_TAP`. |
+| Pages that hold still | every page | `tools/jank/`, `shared/support.js`, `shared/nav.js` | #29 and the per-page fixes #23 to #28 | Done. All pages hold still on load. Gated pages carry `<meta name="checks" content="tap">`. |
 | Show the code | every page | `shared/show-code.js`, `shared/source-view.js` | #30, #34 | Done. The two listing components could be unified. |
 | Learning resource | `/start/`, homepage, `shared/learn.js` | | #36, #38, #39, #40, #41 | Done. Open recommendations are listed below. |
 | Element catalogue | `/elements/`, `ELEMENTS.md` | `tools/elements/` | #48 (open) | Built, waiting to merge. 121 ideas, none built. |
 | Text selection | `/selection/`, `/caret/` | `selection-fx.js` | #49, #52 | Built. Demo 9 (carets and highlights) landed in #52 as `/caret/`. Touch selection is not verified. |
-| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `docs/chrome-apis-plan.md` | `tools/chrome-apis/` | #50 (open) | Plan written, 27 probes recorded. Building the 28 demos started on 2026-11-21. |
+| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `/chrome-apis/plan.md` | `tools/chrome-apis/` | #50 | Plan written, 27 probes recorded. Building the 28 demos started on 2026-11-21. |
 | Lost canvases on new pages | new pages | shared fix | none yet | In progress in its own thread. See "Site-wide work that is open". |
 
 ## Open pull requests
@@ -77,7 +77,7 @@ Each of them appends a section to FINDINGS.md. Merged the same day while this fi
 
 ## Planned demos from the Chrome APIs plan
 
-Source: `tools/chrome-apis/demos.json` and `docs/chrome-apis-plan.md` (PR #50). The plan surveys the 678 features that chromestatus.com lists for Chrome 130 to 160, has an idea for 359 of them, and ranks 28 demos in three tiers. The full description of each demo (what it shows, how to build it, what was measured, what is uncertain) is in the plan document. When a demo ships, set `"built": "/path/"` on its entry in `demos.json` and run `npm run build:plan`.
+Source: `tools/chrome-apis/demos.json` and `public/chrome-apis/plan.md` (written by `npm run build`). The plan surveys the 678 features that chromestatus.com lists for Chrome 130 to 160, has an idea for 359 of them, and ranks 28 demos in three tiers. The full description of each demo (what it shows, how to build it, what was measured, what is uncertain) is in the plan document. When a demo ships, set `"built": "/path/"` on its entry in `demos.json` and run `npm run build:plan`.
 
 "Thread" is the project thread the demo was assigned to on 2026-11-21. By 14:40 UTC that day two had shipped: demo 9 as `/caret/` (PR #52) and demo 19 as additions to the media pages (PR #51, FINDINGS.md "Media state, lazy loading, the iframe policy, output latency"). Check `demos.json` and the open pull requests for the current state.
 
@@ -255,7 +255,7 @@ Rank 2 and rank 3 are in `ELEMENTS.md` under "Ideas". Rank 2 includes developer 
 | Item | Source | Notes |
 |---|---|---|
 | Canvases losing their graphics context on load on the phone | Phone reports 2026-11-21, thread "Fix lost canvases on new pages" | New pages showed a white box with a broken-picture icon on Chrome 159 on Android. The suspected cause is several WebGL contexts and a WebGPU device opened at once. The cause is not confirmed. A shared fix is being built. Until it lands, follow the rules in ARCHITECTURE.md, "How to add a page", step 8. |
-| Pages whose checks wait for a tap | `CHECKS_WAIT_FOR_TAP` in `shared/support.js` | Eighteen pages on 2026-11-21. `/portal/`, `/lens/`, `/shader-css/`, `/physical/` shift by 0.25 to 1.03 with checks forced on because `#check-bench` grows and shrinks. `/slot-effects/` shifts by 1.40 and covers over 40% of the screen. `/cross-origin/` scrolls 990 px. `/remote/` moves focus four times. A fixed-size bench would probably fix the bench cases. |
+| Pages whose checks wait for a tap | `<meta name="checks" content="tap">` in each page (`grep -l 'name="checks"' public/*/index.html`) | Nineteen pages on 2026-11-21. `/portal/`, `/lens/`, `/shader-css/`, `/physical/` shift by 0.25 to 1.03 with checks forced on because `#check-bench` grows and shrinks. `/slot-effects/` shifts by 1.40 and covers over 40% of the screen. `/cross-origin/` scrolls 990 px. `/remote/` moves focus four times. A fixed-size bench would probably fix the bench cases. |
 | A flaky check | project notes | `/lens/`: "Pinned lens: clicks land on the magnified drawing". |
 | `<dom-portal>` in viewport mode resizes its canvas on every `innerHeight` change | project notes | This clears the canvas when a phone's URL bar moves. |
 | `testStage()` takes taps while checks run | FINDINGS.md, "Video and sound" | The media pages wrap it with `pointer-events: none`. Other pages still have the problem. |
@@ -267,7 +267,7 @@ Rank 2 and rank 3 are in `ELEMENTS.md` under "Ideas". Rank 2 includes developer 
 | Real-GPU recordings for the homepage | learning-resource review | The thumbnails are from software rendering. |
 | Check the stated floor of Chrome 148 | learning-resource review | The pages say "Chrome 148+". Nothing older than Chromium 153 was tested. |
 | Unify `show-code.js` and `source-view.js` | PR #34 | Two listing components exist. |
-| Split FINDINGS.md | learning-resource review | It was kept as one file because every thread appends to it. |
+| Split FINDINGS.md | learning-resource review | Done 2026-11-21: one file per strand in `findings/`. The index, bug list and API requests in `FINDINGS.md` are not yet split and are updated in a documentation pass. |
 | No CI | this document | `check:jank` and `check:fx` are run by hand. A GitHub Action would need Playwright with a Chromium that has the API. |
 
 ## Not verified: needs real hardware or a person
@@ -291,8 +291,6 @@ Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-2
 | Capture | Visible flicker during a capture | "Flicker check" on `/capture/`. |
 | Video | Hardware-decoded video in the canvas; Widevine and HDR; audible output and audio timing; `AudioEncoder` and seek accuracy on Android; which media state pseudo-classes Chrome 159 has by default; `texImage2D(video)` with a hardware decoder; the touch layout of the controls | First four checks on `/video/`, fourth check on `/player-parts/`. |
 | Remote | Any WebRTC connection between two real networks; TURN; the deployed rooms across devices | `/remote/` on two devices. Both ends have a connection log with a Copy button. |
-| Transport lab 2 | Element Capture of an element, a drawable canvas and a canvas child; what stops while the tab is frozen; WebTransport against a real server | `/transports-2/`: the Element Capture button on desktop Chrome, the freeze test on a phone with the tab hidden for 90 seconds, `?wt=<url>` for a server. |
-| Iframe tiles | `frame-sizing: content-height` and the focus policy on Chrome 159; whether cross-origin tiles load during prerender with `Supports-Loading-Mode: prerender-cross-origin-frames` | `/iframe-tiles/`: "Run the measurements", then "Prerender both pages" and open each link. |
 | Vision endpoint | `/api/x/vision` with its real AI binding | `/support/` on the deployed site. |
 | Storage partitioning | The BroadcastChannel bridge and the window-name consent route between two real sites | Needs two origins that are not same-site. |
 | Consent window on Android | Android opens the `/slot-view/` consent window as a tab | Phone. |
