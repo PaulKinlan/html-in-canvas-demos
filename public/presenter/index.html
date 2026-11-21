@@ -1,0 +1,1224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>A video presenter over a slide made of DOM</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .row { font-size: 14px; margin: 10px 0; gap: 8px 14px; }
+  .row label { display: inline-flex; gap: 6px; align-items: center; min-height: 40px; max-width: 100%; min-width: 0; }
+  .row select, .row button, .row input[type=range] { font: inherit; min-height: 40px; }
+  .row select { padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: inherit; min-width: 0; flex: 0 1 auto; }
+  .row input[type=range] { width: 120px; }
+  .row button[disabled], .row input[disabled] { opacity: .5; }
+  .row output { font-variant-numeric: tabular-nums; min-width: 6.5em; text-align: center; }
+  .screen { position: relative; max-width: 640px; aspect-ratio: 16 / 9; border-radius: 10px; overflow: clip; background: #14213d; }
+  .screen canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+  .screen canvas[hidden] { display: none; }
+  #blank[hidden] { display: none; }
+  #blank { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: #fff; background: #222; }
+  /* The handle that moves the presenter. It is plain HTML over the canvas, so it is not in the stream. */
+  #grip { position: absolute; width: 40px; height: 40px; margin: -20px 0 0 -20px; padding: 0; border-radius: 50%; border: 2px solid #fff; background: rgb(0 0 0 / .35); color: #fff;
+    font: 700 18px/1 system-ui; touch-action: none; cursor: grab; }
+  #grip:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  #status, #camInfo { font: 13px/1.5 var(--mono); color: var(--muted); margin: 6px 0; white-space: pre-line; }
+  #status { min-height: 3em; }
+  #camInfo { min-height: 1.5em; }
+  #result { margin: 8px 0 0; max-width: 640px; }
+  #result video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; }
+  #result figcaption { font-size: 13px; color: var(--muted); margin: 6px 0; min-height: 1.5em; }
+  figure { margin: 0; }
+
+  /* #region css */
+  /* Both layers are 640 by 360 layout pixels, whatever size the canvas is shown at. */
+  .layer { position: absolute; left: 0; top: 0; width: 640px; height: 360px; overflow: hidden; color: #f4f1ea; font: 22px/1.3 system-ui, sans-serif; --slide-accent: #ffb300; }
+  /* The back layer has the slide's background and body. The front layer has only the title, on a clear background. */
+  #slideBack { background: radial-gradient(120% 90% at 85% 100%, color-mix(in srgb, var(--slide-accent) 30%, #14213d), #14213d 70%); }
+  /* The front layer covers the whole slide. It must not take the hits meant for the back layer. */
+  #slideFront { pointer-events: none; }
+  #slideFront h2 { pointer-events: auto; position: absolute; left: 26px; top: 20px; margin: 0; font: 800 46px/1.05 system-ui, sans-serif; color: var(--slide-accent); text-shadow: 0 2px 0 rgb(0 0 0 / .35); }
+  /* #endregion css */
+  .layer [hidden] { display: none; }
+  .slide { position: absolute; inset: 132px 26px 20px 26px; }
+  .slide p { margin: 0 0 10px; }
+  .slide a { color: var(--slide-accent); }
+  .slide ul { margin: 0; padding-left: 24px; width: 290px; }
+  .slide li { margin-bottom: 8px; }
+  .slide .under { position: absolute; right: 0; bottom: 0; width: 262px; padding: 12px 14px; border-radius: 12px; background: rgb(0 0 0 / .35); border: 2px solid var(--slide-accent); }
+  .slide .under a { display: block; min-height: 60px; font: 700 26px/60px system-ui; }
+  .slide .under output { font: 700 26px ui-monospace, monospace; color: var(--slide-accent); }
+  .slide fieldset { position: absolute; right: 0; top: -8px; width: 270px; margin: 0; padding: 4px 12px 8px; border: 2px solid var(--slide-accent); border-radius: 12px; background: rgb(0 0 0 / .35); }
+  .slide legend { font-size: 18px; padding: 0 6px; }
+  .slide fieldset label { display: flex; align-items: center; gap: 12px; min-height: 58px; font-size: 24px; }
+  .slide input[type=radio] { width: 34px; height: 34px; margin: 0; accent-color: var(--slide-accent); }
+  .slide .left { position: absolute; left: 0; top: 0; width: 300px; }
+  .slide .left label { display: block; font-size: 18px; margin-bottom: 12px; }
+  .slide .left input[type=range] { display: block; width: 280px; height: 44px; margin: 0; accent-color: var(--slide-accent); }
+  .slide .left input[type=text] { display: block; width: 264px; height: 46px; padding: 0 8px; font: 22px system-ui; border-radius: 8px; border: 2px solid var(--slide-accent); background: #0b1226; color: #fff; }
+  .chart { position: absolute; left: 0; right: 0; bottom: 0; height: 170px; display: flex; gap: 18px; align-items: flex-end; }
+  .chart .col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; text-align: center; font-size: 17px; }
+  .chart .col b { display: block; height: calc(var(--share, .3) * 118px); min-height: 4px; border-radius: 8px 8px 0 0; transition: height .5s cubic-bezier(.2, .8, .2, 1);
+    background: linear-gradient(100deg, var(--slide-accent) 40%, #fff 50%, var(--slide-accent) 60%) 0 0 / 300% 100%; animation: sheen 2.4s linear infinite; }
+  .chart .col span { display: block; padding-top: 4px; white-space: nowrap; }
+  @keyframes sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
+  .slide .live { position: absolute; right: 0; top: -40px; font: 700 15px system-ui; letter-spacing: .06em; }
+  .slide .live i { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ff3b30; margin-right: 6px; animation: pulse 1s ease-in-out infinite alternate; }
+  @keyframes pulse { to { opacity: .2; transform: scale(.6); } }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>A video presenter over a slide made of DOM</h1>
+  <p class="lede">
+    The picture below is one canvas. It draws a slide that is HTML and, over it, a video with transparency: a clip with an alpha channel, or the camera with its background removed.
+    Tap the slide's link, fill in its form and select its text, including under the video. Drag the round handle to move the presenter. Pick an effect, then send the canvas as a camera or record it.
+  </p>
+
+  <div class="stage">
+    <div class="screen" id="screen">
+      <!-- #region markup -->
+      <canvas id="deck" content="drawable" layoutsubtree width="640" height="360" aria-label="Slides with a presenter video over them">
+        <div id="slideBack" class="layer" drawable>
+          <section class="slide" data-n="0">
+            <p>This slide is HTML drawn in a canvas. The moving shape is a video. It is only pixels, so it takes no clicks.</p>
+            <p>Select this sentence with the mouse or a long press. It can be selected under the video too.</p>
+          </section>
+          <section class="slide" data-n="1" hidden>
+            <ul><li>A link takes taps.</li><li>A field takes text.</li><li>Text can be selected.</li></ul>
+            <div class="under"><a href="#tapped" id="under">Tap this link</a>Taps received: <output id="taps">0</output></div>
+          </section>
+          <section class="slide" data-n="2" hidden>
+            <form id="poll">
+              <div class="left">
+                <label>How sure are you? <output id="sureOut">60%</output><input type="range" id="sure" min="0" max="100" value="60"></label>
+                <label>Your name<input type="text" id="who" maxlength="16" autocomplete="off" placeholder="Type here"></label>
+              </div>
+              <fieldset>
+                <legend>Which route draws the slide?</legend>
+                <label><input type="radio" name="route" value="0"> 2D canvas</label>
+                <label><input type="radio" name="route" value="1"> WebGL</label>
+                <label><input type="radio" name="route" value="2"> WebGPU</label>
+              </fieldset>
+            </form>
+          </section>
+          <section class="slide" data-n="3" hidden>
+            <div class="live"><i></i>LIVE</div>
+            <p id="chartNote">Answers from the poll on slide 3.</p>
+            <div class="chart" id="chart">
+              <div class="col"><b></b><span>2D: <output>2</output></span></div>
+              <div class="col"><b></b><span>WebGL: <output>1</output></span></div>
+              <div class="col"><b></b><span>WebGPU: <output>1</output></span></div>
+              <div class="col"><b></b><span>Sure: <output>60%</output></span></div>
+            </div>
+          </section>
+        </div>
+        <div id="slideFront" class="layer" drawable>
+          <h2 data-n="0">A presenter over<br>a slide made of DOM</h2>
+          <h2 data-n="1" hidden>A link and a list<br>under the video</h2>
+          <h2 data-n="2" hidden>A form that<br>takes input</h2>
+          <h2 data-n="3" hidden>A chart built<br>from elements</h2>
+        </div>
+      </canvas>
+      <!-- #endregion markup -->
+      <button type="button" id="grip" aria-label="Move the presenter. Drag, or use the arrow keys.">✥</button>
+      <p id="blank" hidden></p>
+    </div>
+  </div>
+
+  <div class="row">
+    <button type="button" id="prev" aria-label="Previous slide">◀ Previous</button>
+    <output id="where">Slide 1 of 4</output>
+    <button type="button" id="next" aria-label="Next slide">Next ▶</button>
+    <label><input type="checkbox" id="behind"> Presenter behind the title</label>
+  </div>
+  <div class="row">
+    <label>Presenter <select id="source">
+      <option value="clip">Clip with an alpha channel</option>
+      <option value="figure">Drawn figure on green, chroma key</option>
+      <option value="cam-chroma">Camera, chroma key</option>
+      <option value="cam-diff">Camera, difference from a captured background</option>
+      <option value="cam-mask">Camera, segmentation mask from the browser</option>
+    </select></label>
+    <label>Effect <select id="effect">
+      <option value="0">None</option>
+      <option value="4">Invert the slide under the presenter</option>
+      <option value="1">Hologram, the slide shows through (WebGL)</option>
+      <option value="2">Halftone in the slide's accent colour (WebGL)</option>
+      <option value="3">Bend the slide around the presenter (WebGL)</option>
+    </select></label>
+  </div>
+  <div class="row">
+    <label>Size <input type="range" id="size" min="120" max="420" value="270"></label>
+    <label>Key tolerance <input type="range" id="tol" min="2" max="45" value="12" disabled></label>
+    <button type="button" id="plate" disabled>Capture background</button>
+    <button type="button" id="pick" disabled>Take the key colour from the top left corner</button>
+  </div>
+  <div class="row">
+    <button type="button" id="send">Send as a camera</button>
+    <button type="button" id="record">Record 5 s</button>
+  </div>
+  <p id="status" role="status">Loading the clip.</p>
+  <p id="camInfo"></p>
+  <figure id="result" hidden>
+    <figcaption id="resultNote"></figcaption>
+    <video id="out" controls playsinline muted></video>
+  </figure>
+
+  <details class="show-code">
+    <summary>Show the code <small>a slide in two layers, a video between them</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> The canvas has two <code>drawable</code> children: the slide and its title. The presenter video is not in the canvas.</li>
+      <li data-code="#css"><b>The CSS of the two layers.</b> The title layer has <code>pointer-events: none</code> and the title itself has <code>auto</code>.</li>
+      <li data-code="#paint2d"><b>The 2D route.</b> <code>drawElementImage()</code> for each layer and <code>drawImage(video)</code> between them. The shadow is the 2D context's own.</li>
+      <li data-code="#shader"><b>The shader of the WebGL route.</b> The key, the shadow and the effects.</li>
+      <li data-code="#glpaint"><b>The WebGL paint handler.</b> <code>texElementSubImage2D()</code> for each layer, <code>texImage2D()</code> for the video frame, then <code>updateElementGeometry()</code>.</li>
+      <li data-code="#camera"><b>The camera.</b> What it reports for background blur and segmentation, and the mask route.</li>
+      <li data-code="#buttons"><b>Send and record.</b></li>
+      <li data-code="/lib/video-export.js#loopback"><b><code>loopback()</code>.</b></li>
+      <li data-code="/lib/video-export.js#record"><b><code>recordCanvas()</code>.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The slide is two elements of 640 by 360 layout pixels. The back one has the background and the body. The front one has the title. The presenter is drawn between them or after both.</li>
+    <li>The presenter is drawn from a <code>&lt;video&gt;</code> that is not a child of the canvas. Nothing of it exists for hit testing, so every tap goes to the slide.</li>
+    <li>The clip with an alpha channel is drawn with a 2D context. A camera, the drawn figure and three of the effects need a shader. The page then makes a second canvas with a WebGL 2 context and moves the two slide elements into it.</li>
+    <li>The video does not invalidate the canvas, because it is not in it. <code>requestVideoFrameCallback()</code> calls <code>requestPaint()</code> for each frame.</li>
+    <li>The chroma key compares the chroma of each pixel with a key colour. The difference key compares each pixel with a frame captured when the person was out of the picture.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small canvas in a corner of the window. The picture above is not touched. The last check asks for the camera.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering and its fake camera, 2026-11-21. The rows above say what your browser does.</p>
+  <ul class="findings">
+    <li><strong>Works: the slide takes input under the presenter.</strong> A link, a radio button, a range input and a text field were used through the video's pixels, and text under it was selected. This holds on both routes.</li>
+    <li><strong>Works: alpha video by three routes.</strong> A <code>&lt;video&gt;</code> child of a drawable element, <code>drawImage(video)</code> and <code>texImage2D(video)</code> all keep the alpha of the VP9 clip.</li>
+    <li><strong>Works: chroma key and difference key in one shader.</strong> Both need no browser support beyond <code>texImage2D(video)</code>. The difference key needs a still camera and a captured background.</li>
+    <li><strong>Works: the composed canvas as a stream.</strong> <code>captureStream()</code> through <code>RTCPeerConnection</code> carries the slide and the presenter. <code>MediaRecorder</code> records it.</li>
+    <li><strong>Limit: a presenter that is a <code>&lt;video&gt;</code> element takes the taps.</strong> As a child of the slide it is hit on its clear pixels too. It needs <code>pointer-events: none</code>.</li>
+    <li><strong>Limit: the video raises no <code>paint</code>.</strong> A video outside the canvas gave 0 paints a second until the page called <code>requestPaint()</code> for each frame.</li>
+    <li><strong>Needed: <code>preserveDrawingBuffer</code> for the WebGL stream.</strong> Without it <code>captureStream()</code> of the WebGL canvas gave black frames, because the canvas is drawn only in its <code>paint</code> handler. The 2D canvas needs nothing.</li>
+    <li><strong>Limit: the bend effect moves pixels, not hit boxes.</strong> A control drawn up to 27 pixels from its place is still hit at its place.</li>
+    <li><strong>Not available here: segmentation by the browser.</strong> The fake camera lists neither <code>backgroundBlur</code> nor <code>backgroundSegmentationMask</code> in <code>getCapabilities()</code>. The mask route is written and has not run.</li>
+    <li><strong>Not verified here:</strong> a real camera, the two keys on a real background, hardware-decoded alpha video, and the frame rate of the shader on a phone. The checks above and the status line under the picture report them on your device.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { recordCanvas, loopback, painted } from '/lib/video-export.js';
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+
+  // A drawable canvas is never read with getImageData(): on Chrome 159 for Android a drawable 2D canvas made with
+  // willReadFrequently lost every 2D context on the page. Pixels are read from a drawImage() copy in a plain canvas.
+  let readCopy = null;
+  function copyOf(source) {
+    readCopy ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    if (readCopy.canvas.width !== source.width || readCopy.canvas.height !== source.height) { readCopy.canvas.width = source.width; readCopy.canvas.height = source.height; }
+    readCopy.clearRect(0, 0, source.width, source.height);
+    readCopy.drawImage(source, 0, 0);
+    return readCopy;
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const say = (text) => ($('status').textContent = text);
+  const ALPHA = '/media/alpha.webm';
+
+  /** The presenter's box in slide pixels. Its width follows the shape of the video. */
+  function box(S) {
+    const src = S.src, w = src?.w() || 1, h = src?.h() || 1;
+    const bw = (S.h * w) / h;
+    return { x: S.cx - bw / 2, y: S.cy - S.h / 2, w: bw, h: S.h };
+  }
+  /** A video element as a source of presenter pixels. */
+  const videoSource = (v) => ({ image: () => (v.readyState >= 2 ? v : null), w: () => v.videoWidth, h: () => v.videoHeight, mask: () => null });
+
+  // #region paint2d
+  /** The 2D route. `S` says where the presenter is and which video gives its pixels. */
+  function mount2d(canvas, layers, S) {
+    const ctx = canvas.getContext('2d');
+    const m = { paints: 0, ctx };
+    const FAR = 4000;
+    canvas.addEventListener('paint', () => {
+      if (layers.back.parentNode !== canvas) return; // the layers are in the other canvas
+      m.paints++;
+      const { W, H } = S;
+      ctx.clearRect(0, 0, W, H);
+      // With a size, each layer fills the buffer at any shown size and its hit boxes are scaled with it.
+      ctx.drawElementImage(layers.back, 0, 0, W, H);
+      if (!S.behind) ctx.drawElementImage(layers.front, 0, 0, W, H);
+      const image = S.src?.image();
+      if (image) {
+        const r = box(S);
+        if (S.shadow) {
+          // The shadow alone: the picture is drawn off the canvas and its shadow is offset back onto it.
+          ctx.save();
+          ctx.shadowColor = 'rgb(0 0 0 / .6)';
+          ctx.shadowBlur = 16;
+          ctx.shadowOffsetX = FAR - 14;
+          ctx.shadowOffsetY = 10;
+          ctx.drawImage(image, r.x - FAR, r.y, r.w, r.h);
+          ctx.restore();
+        }
+        ctx.save();
+        if (S.effect === 4) ctx.globalCompositeOperation = 'difference';
+        ctx.drawImage(image, r.x, r.y, r.w, r.h); // the alpha of the video is kept
+        ctx.restore();
+      }
+      if (S.behind) ctx.drawElementImage(layers.front, 0, 0, W, H);
+    });
+    return m;
+  }
+  // #endregion paint2d
+
+  // #region shader
+  const FRAG = `#version 300 es
+  precision highp float;
+  uniform sampler2D uBack;   // the slide, from texElementSubImage2D()
+  uniform sampler2D uFront;  // the title on a clear background, premultiplied
+  uniform sampler2D uP;      // the presenter's video frame
+  uniform sampler2D uPlate;  // a frame captured with nobody in it
+  uniform sampler2D uMask;   // the browser's segmentation mask, where there is one
+  uniform vec2 uRes;
+  uniform vec4 uRect;        // the presenter's box: left, top, width, height, as fractions of the canvas
+  uniform int uKey;          // 0 the video's own alpha, 1 chroma, 2 difference from the plate, 3 mask
+  uniform int uEffect;
+  uniform vec3 uKeyColor, uAccent;
+  uniform float uTol, uTime, uBehind, uHas, uMirror, uShadow;
+  out vec4 outColor;
+
+  vec2 chroma(vec3 c) { return vec2(-0.169 * c.r - 0.331 * c.g + 0.5 * c.b, 0.5 * c.r - 0.419 * c.g - 0.081 * c.b); }
+
+  // The presenter's colour and alpha at a place on the canvas.
+  vec4 person(vec2 uv) {
+    vec2 q = (uv - uRect.xy) / uRect.zw;
+    if (uHas < 0.5 || q.x < 0.0 || q.y < 0.0 || q.x > 1.0 || q.y > 1.0) return vec4(0.0);
+    if (uMirror > 0.5) q.x = 1.0 - q.x;
+    vec4 c = texture(uP, q);
+    float a = c.a;
+    if (uKey == 1) {
+      // Chroma key. Brightness is ignored, so a shadow on the green wall is removed too.
+      a = smoothstep(uTol, uTol + 0.08, distance(chroma(c.rgb), chroma(uKeyColor)));
+      c.rgb = mix(vec3(dot(c.rgb, vec3(0.3, 0.59, 0.11))), c.rgb, a); // take the key colour out of the soft edge
+    } else if (uKey == 2) {
+      a = smoothstep(uTol, uTol + 0.08, distance(c.rgb, texture(uPlate, q).rgb));
+    } else if (uKey == 3) {
+      a = texture(uMask, q).r;
+    }
+    vec2 e = min(q, 1.0 - q);
+    return vec4(c.rgb, a * smoothstep(0.0, 0.012, min(e.x, e.y)));
+  }
+  // The presenter's alpha around a place, r pixels away: xy is its slope, z its mean.
+  vec3 ring(vec2 uv, float r) {
+    vec2 g = vec2(0.0);
+    float mean = 0.0;
+    for (int i = 0; i < 12; i++) {
+      float t = float(i) * 0.5236;
+      vec2 d = vec2(cos(t), sin(t));
+      float a = person(uv + d * r * ((i & 1) == 0 ? 1.0 : 0.55) / uRes).a;
+      mean += a;
+      g += d * a;
+    }
+    return vec3(g, mean) / 12.0;
+  }
+  vec3 slide(vec2 uv) {
+    vec3 c = texture(uBack, uv).rgb;
+    if (uBehind < 0.5) { vec4 f = texture(uFront, uv); c = c * (1.0 - f.a) + f.rgb; }
+    return c;
+  }
+
+  void main() {
+    vec2 uv = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y) / uRes;
+    vec4 p = person(uv);
+    vec3 halo = uEffect >= 1 && uEffect <= 3 ? ring(uv, 26.0) : vec3(0.0);
+    float line = 1.0 - smoothstep(0.0, 0.1, abs(halo.z - 0.5)); // 1 on the presenter's outline
+    vec2 at = uv;
+    // Bend: next to the presenter the slide is looked up nearer to them, so its content is pushed outwards.
+    if (uEffect == 3) at += halo.xy * (90.0 / uRes) * (1.0 - p.a);
+    vec3 s = slide(at);
+    // The shadow is the presenter's alpha, blurred, 14 pixels left and 10 down.
+    s *= 1.0 - 0.6 * uShadow * ring(uv - vec2(-14.0, 10.0) / uRes, 12.0).z;
+    vec3 col;
+    if (uEffect == 1) {
+      // Hologram. The slide is seen through the presenter with its colours split. The presenter adds light in the accent colour.
+      float lum = dot(p.rgb, vec3(0.3, 0.59, 0.11));
+      float scan = 0.7 + 0.3 * sin(uv.y * uRes.y * 1.6 - uTime * 6.0);
+      vec2 o = vec2(3.0 / uRes.x, 0.0);
+      vec3 through = vec3(slide(at + o).r, slide(at).g, slide(at - o).b);
+      col = mix(s, through * 0.6 + uAccent * lum * scan * 0.85, p.a) + uAccent * line * 0.5;
+    } else if (uEffect == 2) {
+      // Halftone. The presenter is dots of the slide's accent colour, larger where the video is brighter, with an outline.
+      const float cell = 7.0;
+      mat2 turn = mat2(0.7071, -0.7071, 0.7071, 0.7071);
+      vec2 g = turn * (uv * uRes) / cell;
+      vec4 pc = person(transpose(turn) * ((floor(g) + 0.5) * cell) / uRes);
+      float radius = (0.14 + 0.5 * dot(pc.rgb, vec3(0.3, 0.59, 0.11))) * pc.a;
+      float dots = (1.0 - smoothstep(radius - 0.08, radius + 0.02, length(fract(g) - 0.5))) * step(0.01, pc.a);
+      col = mix(s * (1.0 - 0.6 * p.a), uAccent, max(dots, line));
+    } else if (uEffect == 4) {
+      col = mix(s, abs(s - p.rgb), p.a);
+    } else {
+      col = mix(s, p.rgb, p.a);
+      if (uEffect == 3) col += uAccent * line * 0.35;
+    }
+    if (uBehind > 0.5) { vec4 f = texture(uFront, uv); col = col * (1.0 - f.a) + f.rgb; }
+    outColor = vec4(col, 1.0);
+  }`;
+  // #endregion shader
+  const VERT = `#version 300 es
+  void main() { vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2)); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`;
+
+  /** The WebGL 2 route. Returns null, after calling onFail, where it cannot run. */
+  function mountGL(canvas, layers, S, onFail = () => {}) {
+    // Without preserveDrawingBuffer, captureStream() of this canvas gave black frames: the buffer drawn in the paint handler was already cleared when the stream read it.
+    // gfx-allow: webgl-context the page's one WebGL context, made only when a keyed source or a shader effect is picked. The shader samples the video and two slide textures in one draw, which ElementGL's one-texture quad does not do
+    const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, preserveDrawingBuffer: true });
+    if (!gl || !('texElementSubImage2D' in gl)) { onFail('WebGL 2 with texElementSubImage2D() is not available in this browser.'); return null; }
+    const program = gl.createProgram();
+    for (const [type, src] of [[gl.VERTEX_SHADER, VERT], [gl.FRAGMENT_SHADER, FRAG]]) {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { onFail(`The shader did not compile: ${gl.getShaderInfoLog(s)}`); return null; }
+      gl.attachShader(program, s);
+    }
+    gl.linkProgram(program);
+    gl.useProgram(program);
+    const U = (name) => gl.getUniformLocation(program, name);
+    // One texture per unit, bound once.
+    const NAMES = ['uBack', 'uFront', 'uP', 'uPlate', 'uMask'], sizes = [];
+    NAMES.forEach((name, i) => {
+      gl.activeTexture(gl.TEXTURE0 + i);
+      gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+      gl.uniform1i(U(name), i);
+    });
+    const m = { gl, paints: 0, lost: false, wantPlate: false, hasPlate: false, placed: '', grabbing: null, t0: performance.now() };
+
+    // #region glpaint
+    function element(unit, el) {
+      // The texture must have the size the browser paints the element at.
+      const want = canvas.getElementImageDefaultSize(el);
+      const w = Math.max(1, Math.ceil(want.width)), h = Math.max(1, Math.ceil(want.height));
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      if (sizes[unit] !== `${w}x${h}`) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+        sizes[unit] = `${w}x${h}`;
+      }
+      gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, el);
+    }
+    /** A WebGL draw does not tell the browser where the layers are. Say it once for each shown size. */
+    function place() {
+      const key = `${canvas.clientWidth}x${canvas.clientHeight}`;
+      if (m.placed === key) return;
+      m.placed = key;
+      for (const el of [layers.back, layers.front]) {
+        // The unit of canvasTransform has been CSS pixels on some canvases and buffer pixels on others. Measure it.
+        canvas.updateElementGeometry(el, { canvasTransform: new DOMMatrix() });
+        const measured = el.getBoundingClientRect().width;
+        const unit = measured > 0 ? el.offsetWidth / measured : 1;
+        canvas.updateElementGeometry(el, { canvasTransform: new DOMMatrix().scale((unit * canvas.clientWidth) / S.W) });
+        el.toggleAttribute('data-moved'); // Chromium 157 keeps old hit-test answers until an attribute changes
+      }
+    }
+    canvas.addEventListener('paint', () => {
+      if (m.lost || layers.back.parentNode !== canvas) return;
+      m.paints++;
+      try {
+        element(0, layers.back);
+        element(1, layers.front);
+        const src = S.src, image = src?.image();
+        if (image) {
+          gl.activeTexture(gl.TEXTURE2);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image); // a <video>, a canvas or a VideoFrame
+          if (m.wantPlate) {
+            gl.activeTexture(gl.TEXTURE3);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+            m.wantPlate = false;
+            m.hasPlate = true;
+          }
+          const mask = S.key === 3 && src.mask();
+          if (mask) {
+            gl.activeTexture(gl.TEXTURE4);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask);
+          }
+        }
+        const r = box(S);
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.uniform2f(U('uRes'), S.W, S.H);
+        gl.uniform4f(U('uRect'), r.x / S.W, r.y / S.H, r.w / S.W, r.h / S.H);
+        gl.uniform1i(U('uKey'), S.key === 2 && !m.hasPlate ? 0 : S.key);
+        gl.uniform1i(U('uEffect'), S.effect);
+        gl.uniform3fv(U('uKeyColor'), S.keyColor);
+        gl.uniform3fv(U('uAccent'), S.accent);
+        gl.uniform1f(U('uTol'), S.tol);
+        gl.uniform1f(U('uTime'), ((performance.now() - m.t0) / 1000) % 1000);
+        gl.uniform1f(U('uBehind'), S.behind ? 1 : 0);
+        gl.uniform1f(U('uHas'), image ? 1 : 0);
+        gl.uniform1f(U('uMirror'), S.mirror ? 1 : 0);
+        gl.uniform1f(U('uShadow'), S.shadow ? 1 : 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        place();
+      } catch (err) {
+        onFail(`Drawing failed: ${err.message}`);
+      }
+      if (m.grabbing) {
+        const px = new Uint8Array(canvas.width * canvas.height * 4);
+        gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        m.grabbing({ data: px, width: canvas.width, height: canvas.height });
+        m.grabbing = null;
+      }
+    });
+    // #endregion glpaint
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); m.lost = true; onFail('The WebGL context was lost.'); });
+    canvas.addEventListener('webglcontextrestored', () => { m.lost = false; });
+    /** The canvas as drawn in one paint, as a function (x, y from the top left) that returns [r, g, b]. */
+    m.grab = () => new Promise((resolve) => {
+      m.grabbing = ({ data, width, height }) => resolve((x, y) => { const i = ((height - 1 - Math.round(y)) * width + Math.round(x)) * 4; return [data[i], data[i + 1], data[i + 2]]; });
+      canvas.requestPaint();
+    });
+    return m;
+  }
+
+  /** The average colour of the top left corner of a video frame, as three numbers from 0 to 1. */
+  const probe = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  probe.canvas.width = probe.canvas.height = 8;
+  function cornerColour(image, w, h) {
+    probe.drawImage(image, 0, 0, w * 0.08, h * 0.08, 0, 0, 8, 8);
+    const d = probe.getImageData(0, 0, 8, 8).data, sum = [0, 0, 0];
+    for (let i = 0; i < d.length; i += 4) for (let k = 0; k < 3; k++) sum[k] += d[i + k] / (64 * 255);
+    return sum;
+  }
+  const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255);
+
+  // ---- the page's deck ----
+  const ACCENTS = ['#ffb300', '#4fc3f7', '#9be15d', '#ff6fa5'];
+  const layers = { back: $('slideBack'), front: $('slideFront') };
+  const S = { W: 640, H: 360, src: null, cx: 492, cy: 212, h: 270, key: 0, keyColor: [0, 0.8, 0], tol: 0.12, effect: 0, behind: false, mirror: false, accent: hex(ACCENTS[0]), shadow: true };
+  const routes = { '2d': null, gl: null };
+  let route = '2d', slide = 0, onScreen = false, sending = null;
+  const active = () => routes[route].canvas;
+  const repaint = () => { if (supported && routes[route]) active().requestPaint(); };
+
+  function showSlide(n) {
+    slide = (n + 4) % 4;
+    for (const el of document.querySelectorAll('#deck [data-n], #deckGL [data-n]')) el.hidden = +el.dataset.n !== slide;
+    for (const el of [layers.back, layers.front]) el.style.setProperty('--slide-accent', ACCENTS[slide]);
+    S.accent = hex(ACCENTS[slide]);
+    $('where').value = `Slide ${slide + 1} of 4`;
+    repaint();
+  }
+  $('prev').onclick = () => showSlide(slide - 1);
+  $('next').onclick = () => showSlide(slide + 1);
+  addEventListener('keydown', (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.target.closest?.('input, select, textarea, #grip')) return;
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') showSlide(slide + 1);
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') showSlide(slide - 1);
+  });
+
+  // The slide's own controls.
+  let taps = 0;
+  $('under').addEventListener('click', (e) => { e.preventDefault(); $('taps').value = ++taps; });
+  const votes = [2, 1, 1];
+  function showChart() {
+    const cols = $('chart').querySelectorAll('.col'), most = Math.max(...votes);
+    votes.forEach((v, i) => { cols[i].style.setProperty('--share', v / most); cols[i].querySelector('output').value = v; });
+    cols[3].style.setProperty('--share', $('sure').value / 100);
+    cols[3].querySelector('output').value = `${$('sure').value}%`;
+    $('sureOut').value = `${$('sure').value}%`;
+    $('chartNote').textContent = `Answers from the poll on slide 3${$('who').value ? `, last answered by ${$('who').value}` : ''}.`;
+  }
+  $('poll').addEventListener('change', (e) => { if (e.target.name === 'route') votes[+e.target.value]++; showChart(); });
+  $('poll').addEventListener('input', showChart);
+  $('poll').addEventListener('submit', (e) => e.preventDefault());
+  showChart();
+
+  // The handle. It is HTML over the canvas at the middle of the presenter's box.
+  const grip = $('grip');
+  function placeGrip() {
+    grip.style.left = `${(S.cx / S.W) * 100}%`;
+    grip.style.top = `${(Math.max(22, S.cy - S.h / 2) / S.H) * 100}%`;
+  }
+  function movePresenter(dx, dy) {
+    S.cx = Math.min(S.W, Math.max(0, S.cx + dx));
+    S.cy = Math.min(S.H + 100, Math.max(40, S.cy + dy));
+    placeGrip();
+    repaint();
+  }
+  let dragging = null;
+  grip.addEventListener('pointerdown', (e) => { dragging = { id: e.pointerId, x: e.clientX, y: e.clientY }; grip.setPointerCapture(e.pointerId); e.preventDefault(); });
+  grip.addEventListener('pointermove', (e) => {
+    if (dragging?.id !== e.pointerId) return;
+    const k = S.W / $('screen').clientWidth;
+    movePresenter((e.clientX - dragging.x) * k, (e.clientY - dragging.y) * k);
+    dragging.x = e.clientX; dragging.y = e.clientY;
+  });
+  for (const type of ['pointerup', 'pointercancel']) grip.addEventListener(type, () => (dragging = null));
+  grip.addEventListener('keydown', (e) => {
+    const d = { ArrowLeft: [-10, 0], ArrowRight: [10, 0], ArrowUp: [0, -10], ArrowDown: [0, 10] }[e.key];
+    if (d) { movePresenter(...d); e.preventDefault(); }
+  });
+  $('size').oninput = () => { S.h = +$('size').value; placeGrip(); repaint(); };
+  $('behind').onchange = () => { S.behind = $('behind').checked; repaint(); };
+  $('tol').oninput = () => { S.tol = $('tol').value / 100; repaint(); };
+  placeGrip();
+
+  // ---- the two routes ----
+  function fail(text) {
+    $('blank').hidden = false;
+    $('blank').textContent = text;
+  }
+  function useRoute(name) {
+    if (name === 'gl' && !routes.gl) {
+      // The second canvas is made the first time a shader is needed.
+      const c = document.createElement('canvas');
+      c.id = 'deckGL';
+      c.setAttribute('content', 'drawable');
+      c.setAttribute('layoutsubtree', '');
+      c.setAttribute('aria-label', $('deck').getAttribute('aria-label'));
+      c.width = S.W; c.height = S.H;
+      c.hidden = true;
+      $('deck').after(c);
+      const m = mountGL(c, layers, S, (text) => {
+        // Go back to the 2D route and say why.
+        $('source').value = 'clip'; $('effect').value = '0'; S.effect = 0;
+        setSource('clip').then(() => say(`${text} The page went back to the 2D route.`));
+      });
+      if (!m) { c.remove(); return false; }
+      routes.gl = { canvas: c, m };
+    }
+    if (route === name) return true;
+    sending?.stop();
+    routes[route].canvas.hidden = true;
+    routes[name].canvas.hidden = false;
+    routes[name].canvas.append(layers.back, layers.front); // the slide moves to the canvas that draws it
+    if (routes.gl) routes.gl.m.placed = '';
+    route = name;
+    return true;
+  }
+
+  // ---- the presenter's sources ----
+  const clip = Object.assign(document.createElement('video'), { muted: true, playsInline: true, loop: true, preload: 'auto' });
+  const camVideo = Object.assign(document.createElement('video'), { muted: true, playsInline: true });
+  let alphaUrl = null, camera = null, source = 'clip', figure = null, maskReader = null, wantKey = false;
+  const alphaReady = fetch(ALPHA).then((r) => r.blob()).then((b) => (alphaUrl = URL.createObjectURL(b))).catch(() => (alphaUrl = ALPHA));
+  for (const v of [clip, camVideo]) {
+    // The video is not in the canvas, so the canvas is asked to paint for each of its frames.
+    const each = () => {
+      if (S.src?.video === v && onScreen) {
+        if (wantKey && v.readyState >= 2) { S.keyColor = cornerColour(v, v.videoWidth, v.videoHeight); wantKey = false; describe(); }
+        repaint();
+      }
+      v.requestVideoFrameCallback(each);
+    };
+    v.requestVideoFrameCallback?.(each);
+    v.addEventListener('error', () => say(`The video did not play: ${v.error?.message ?? 'unknown error'}`));
+  }
+
+  /** A figure drawn on a flat green, 30 times a second. It stands in for a camera in front of a green wall. */
+  function startFigure() {
+    const c = document.createElement('canvas'), g = c.getContext('2d');
+    c.width = 300; c.height = 400;
+    let timer = 0;
+    const draw = () => {
+      const t = performance.now() / 1000, sway = Math.sin(t * 1.3) * 8;
+      g.fillStyle = '#12c22a'; g.fillRect(0, 0, 300, 400);
+      g.lineCap = 'round';
+      g.strokeStyle = '#2b4c9b'; g.lineWidth = 34;
+      g.beginPath(); g.moveTo(205 + sway, 210); g.lineTo(262, 150 + Math.sin(t * 5) * 34); g.stroke();            // the waving arm
+      g.beginPath(); g.moveTo(95 + sway, 215); g.lineTo(70, 330); g.stroke();
+      g.fillStyle = '#2b4c9b'; g.beginPath(); g.roundRect(80 + sway, 180, 140, 240, 46); g.fill();                  // the body
+      g.fillStyle = '#f2c49b'; g.beginPath(); g.arc(150 + sway * 1.4, 112, 62, 0, 7); g.fill();                     // the head
+      g.fillStyle = '#4a2c17'; g.beginPath(); g.arc(150 + sway * 1.4, 92, 64, Math.PI, 0); g.fill();
+      g.fillStyle = '#222';
+      for (const dx of [-22, 22]) { g.beginPath(); g.arc(150 + sway * 1.4 + dx, 116, 6, 0, 7); g.fill(); }
+      g.strokeStyle = '#a33'; g.lineWidth = 5; g.beginPath(); g.arc(150 + sway * 1.4, 132, 22, 0.5, 2.6); g.stroke();
+      if (onScreen && source === 'figure') repaint();
+    };
+    draw();
+    timer = setInterval(() => onScreen && draw(), 33);
+    return { source: { image: () => c, w: () => 300, h: () => 400, mask: () => null }, canvas: c, stop: () => clearInterval(timer) };
+  }
+
+  // #region camera
+  const list = (v) => (v === undefined ? 'not listed' : JSON.stringify(v));
+  /** What the camera track says about background blur and segmentation. */
+  function cameraReport(track) {
+    const caps = track.getCapabilities?.() ?? {}, has = navigator.mediaDevices.getSupportedConstraints?.() ?? {};
+    return {
+      blur: caps.backgroundBlur, mask: caps.backgroundSegmentationMask,
+      text: `getCapabilities(): backgroundBlur ${list(caps.backgroundBlur)}, backgroundSegmentationMask ${list(caps.backgroundSegmentationMask)}. ` +
+        `getSupportedConstraints(): backgroundBlur ${!!has.backgroundBlur}, backgroundSegmentationMask ${!!has.backgroundSegmentationMask}. ` +
+        `Camera: ${track.getSettings().width}×${track.getSettings().height}, "${track.label}".`,
+    };
+  }
+  /**
+   * The mask route. The track is asked for a segmentation mask, then read frame by frame.
+   * Each VideoFrame carries its mask in metadata().backgroundSegmentationMask, which is another VideoFrame.
+   * Resolves with a source for the shader, or throws with the reason.
+   */
+  async function startMask(track) {
+    const caps = track.getCapabilities?.() ?? {};
+    if (!caps.backgroundSegmentationMask?.includes?.(true)) throw new Error('getCapabilities() lists no backgroundSegmentationMask for this camera');
+    await track.applyConstraints({ backgroundSegmentationMask: true });
+    if (typeof MediaStreamTrackProcessor === 'undefined') throw new Error('there is no MediaStreamTrackProcessor to read the frames with');
+    const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+    const now = { frame: null, mask: null, masks: 0, frames: 0, stopped: false };
+    (async () => {
+      while (!now.stopped) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const mask = value.metadata?.().backgroundSegmentationMask ?? null;
+        now.frame?.close(); now.mask?.close();
+        now.frame = value; now.mask = mask;
+        now.frames++; if (mask) now.masks++;
+        if (onScreen) repaint();
+      }
+    })().catch((err) => say(`Reading the camera frames stopped: ${err.message}`));
+    return {
+      source: { image: () => now.frame, w: () => now.frame?.displayWidth ?? 16, h: () => now.frame?.displayHeight ?? 9, mask: () => now.mask },
+      now,
+      stop: () => { now.stopped = true; reader.cancel().catch(() => {}); now.frame?.close(); now.mask?.close(); now.frame = now.mask = null; },
+    };
+  }
+  // #endregion camera
+
+  function stopCamera() {
+    maskReader?.stop(); maskReader = null;
+    for (const t of camera?.getTracks() ?? []) t.stop();
+    camera = null;
+    camVideo.srcObject = null;
+    $('camInfo').textContent = '';
+  }
+  const ROUTE_TEXT = { '2d': 'Drawn with a 2D context: drawElementImage() for the slide, drawImage(video) for the presenter.', gl: 'Drawn with WebGL 2: texElementSubImage2D() for the slide, texImage2D() for the presenter\'s frame.' };
+  function describe(extra = '') {
+    const keyed = { 0: source === 'clip' ? 'The video\'s own alpha is used.' : 'Nothing is removed from the camera picture.', 1: `Chroma key on rgb(${S.keyColor.map((v) => Math.round(v * 255)).join(', ')}).`, 2: routes.gl?.m.hasPlate ? 'Difference key against the captured background.' : 'No background captured yet, so nothing is removed. Step out of the picture and tap Capture background.', 3: 'The mask comes from the browser.' }[S.key];
+    say(`${ROUTE_TEXT[route]}\n${keyed}${extra ? `\n${extra}` : ''}`);
+    $('tol').disabled = S.key !== 1 && S.key !== 2;
+    $('plate').disabled = S.key !== 2;
+    $('pick').disabled = S.key !== 1;
+  }
+  async function setSource(name) {
+    let extra = '';
+    source = name;
+    figure?.stop(); figure = null;
+    maskReader?.stop(); maskReader = null;
+    if (!name.startsWith('cam')) stopCamera();
+    if (name !== 'clip') clip.pause();
+    S.mirror = false;
+    if (name === 'clip') {
+      await alphaReady;
+      if (!clip.src) clip.src = alphaUrl;
+      S.src = { ...videoSource(clip), video: clip };
+      S.key = 0;
+      if (onScreen) clip.play().catch(() => {});
+    } else if (name === 'figure') {
+      figure = startFigure();
+      S.src = figure.source;
+      S.key = 1;
+      S.keyColor = cornerColour(figure.canvas, 300, 400);
+    } else {
+      if (!camera) {
+        camera = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360, facingMode: 'user' }, audio: false });
+        camVideo.srcObject = camera;
+        await camVideo.play();
+      }
+      const track = camera.getVideoTracks()[0];
+      $('camInfo').textContent = cameraReport(track).text;
+      S.src = { ...videoSource(camVideo), video: camVideo };
+      S.mirror = true;
+      if (name === 'cam-chroma') { S.key = 1; wantKey = true; }
+      else if (name === 'cam-diff') { S.key = 2; if (routes.gl) routes.gl.m.hasPlate = false; }
+      else {
+        try {
+          maskReader = await startMask(track);
+          S.src = maskReader.source;
+          S.key = 3;
+        } catch (err) {
+          S.key = 0;
+          extra = `The mask route did not start: ${err.message}. The camera is drawn with nothing removed.`;
+        }
+      }
+    }
+    const gl = name !== 'clip' || (S.effect >= 1 && S.effect <= 3);
+    if (!useRoute(gl ? 'gl' : '2d')) return;
+    $('blank').hidden = true;
+    placeGrip();
+    describe(extra);
+    repaint();
+  }
+  $('source').onchange = () => setSource($('source').value).catch((err) => {
+    $('source').value = 'clip';
+    return setSource('clip').then(() => say(`Could not use that source: ${err.message}. The clip is shown.`));
+  });
+  $('effect').onchange = () => { S.effect = +$('effect').value; setSource(source); };
+  $('plate').onclick = () => { const m = routes.gl?.m; if (!m) return; m.wantPlate = true; repaint(); setTimeout(() => describe(), 200); };
+  $('pick').onclick = () => {
+    const image = S.src?.image();
+    if (image) { S.keyColor = cornerColour(image, S.src.w(), S.src.h()); describe(); repaint(); }
+  };
+
+  if (supported) {
+    routes['2d'] = { canvas: $('deck'), m: mount2d($('deck'), layers, S) };
+    new ResizeObserver(() => { if (routes.gl) routes.gl.m.placed = ''; repaint(); }).observe($('screen'));
+    // The clip is loaded when the picture is near the window and paused when it leaves.
+    new IntersectionObserver(([e]) => {
+      onScreen = e.isIntersecting;
+      if (onScreen && !S.src) setSource('clip');
+      else if (onScreen && source === 'clip') clip.play().catch(() => {});
+      else if (!onScreen) clip.pause();
+    }, { rootMargin: '100px 0px' }).observe($('screen'));
+    repaint();
+  } else {
+    fail('This picture is drawn with HTML-in-canvas, which this browser does not have. The slides cannot be shown here.');
+    for (const el of document.querySelectorAll('.row button, .row select, .row input')) el.disabled = true;
+    grip.hidden = true;
+    say('HTML-in-canvas is not available.');
+  }
+
+  // #region buttons
+  function show(blobOrStream, note) {
+    const out = $('out');
+    $('result').hidden = false;
+    $('resultNote').replaceChildren(note);
+    if (out.src.startsWith('blob:')) URL.revokeObjectURL(out.src);
+    out.srcObject = null;
+    out.removeAttribute('src');
+    if (blobOrStream instanceof Blob) {
+      out.src = URL.createObjectURL(blobOrStream);
+      $('resultNote').append(' ', Object.assign(document.createElement('a'), { href: out.src, download: 'presenter.webm', textContent: 'Download the file' }), '.');
+    } else {
+      out.srcObject = blobOrStream;
+    }
+    out.play().catch(() => {});
+  }
+  $('send').onclick = async () => {
+    if (sending) return sending.stop();
+    try {
+      const canvas = active(), stream = canvas.captureStream(30);
+      const link = await loopback(stream);
+      show(link.stream, 'What the other end of the connection receives.');
+      $('send').textContent = 'Stop sending';
+      const timer = setInterval(async () => {
+        canvas.requestPaint();
+        const s = await link.stats();
+        if (s) $('resultNote').textContent = `What the other end of the connection receives: ${s.width}×${s.height}, ${s.fps} frames a second, ${s.kbps} kbit/s.`;
+      }, 1000);
+      sending = { stop: () => { clearInterval(timer); link.close(); stream.getTracks().forEach((t) => t.stop()); sending = null; $('send').textContent = 'Send as a camera'; $('resultNote').textContent = 'Stopped sending.'; } };
+    } catch (err) {
+      say(`Could not send: ${err.message}`);
+    }
+  };
+  $('record').onclick = async () => {
+    $('record').disabled = true;
+    try {
+      $('record').textContent = 'Recording';
+      const blob = await recordCanvas(active(), { ms: 5000 });
+      show(blob, `The recording: ${(blob.size / 1024).toFixed(0)} kB of ${blob.mimeType}.`);
+    } catch (err) {
+      say(`Recording failed: ${err.message}`);
+    }
+    $('record').textContent = 'Record 5 s';
+    $('record').disabled = false;
+  };
+  // #endregion buttons
+
+  // ---- live checks: every one on its own fixture ----
+  const media = [], stops = [];
+  // The fixture box lies over the bottom left of the window while checks run. It lets taps through, except for the moment a check asks what is at a point.
+  const quietStage = () => { const s = testStage(); s.style.pointerEvents = 'none'; return s; };
+  const withStage = (fn) => { const s = quietStage(); s.style.pointerEvents = 'auto'; try { return fn(); } finally { s.style.pointerEvents = 'none'; } };
+  const hitAt = (x, y) => withStage(() => document.elementFromPoint(x, y));
+  function release() {
+    for (const stop of stops.splice(0)) { try { stop(); } catch {} }
+    for (const v of media.splice(0)) { try { v.pause(); for (const t of v.srcObject?.getTracks?.() ?? []) t.stop(); v.srcObject = null; v.removeAttribute('src'); v.load(); } catch {} }
+  }
+  async function presented(video, ms = 6000) {
+    video.play().catch(() => {});
+    const ok = await Promise.race([new Promise((r) => video.requestVideoFrameCallback(() => r(true))), sleep(ms).then(() => false)]);
+    if (!ok) throw new Error(video.error ? `the video did not play: ${video.error.message}` : 'the video presented no frame');
+  }
+  async function alphaVideo(style = '') {
+    await alphaReady;
+    const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, loop: true, preload: 'auto', src: alphaUrl });
+    v.style.cssText = style;
+    media.push(v);
+    return v;
+  }
+  const BLUE = 'position:absolute;background:#0000ff;color:#0000ff;font:16px/1.2 system-ui;overflow:hidden;text-decoration:none';
+  const WORDS = 'text under the video '.repeat(30);
+  function scene() {
+    return { W: 320, H: 180, src: null, cx: 160, cy: 90, h: 170, key: 0, keyColor: [0, 1, 0], tol: 0.12, effect: 0, behind: false, mirror: false, accent: [1, 0, 1], shadow: false };
+  }
+  /** A 320 by 180 2D canvas with a yellow slide. `inner` is the slide's markup. */
+  function fixture2d(inner = '') {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = 320; c.height = 180;
+    c.style.cssText = 'width:320px;height:180px;flex:none';
+    c.innerHTML = `<div drawable style="position:absolute;left:0;top:0;width:320px;height:180px;overflow:hidden;background:#ffd400">${inner}</div><div drawable style="position:absolute;left:0;top:0;width:320px;height:180px;pointer-events:none"></div>`;
+    quietStage().append(c);
+    const S = scene(), layers = { back: c.children[0], front: c.children[1] };
+    return { c, S, layers, back: layers.back, m: mount2d(c, layers, S) };
+  }
+  /** One WebGL fixture for all the WebGL checks, so the checks open one context. A cyan link on the left, a radio button on a blue label on the right. */
+  let glFix = null;
+  function fixtureGL() {
+    if (!glFix) {
+      const c = document.createElement('canvas');
+      c.setAttribute('content', 'drawable');
+      c.setAttribute('layoutsubtree', '');
+      c.width = 320; c.height = 180;
+      c.style.cssText = 'width:320px;height:180px;flex:none';
+      c.innerHTML = `<div drawable style="position:absolute;left:0;top:0;width:320px;height:180px;overflow:hidden;background:#ffd400">
+        <a href="#gl-link" style="${BLUE};left:20px;top:20px;width:130px;height:140px;background:#00ffff;color:#00ffff">${WORDS}</a>
+        <label style="${BLUE};left:170px;top:20px;width:130px;height:140px"><input type="radio" name="check-radio" style="position:absolute;left:35px;top:40px;width:60px;height:60px;margin:0"></label>
+      </div><div drawable style="position:absolute;left:0;top:0;width:320px;height:180px;pointer-events:none"></div>`;
+      const S = scene(), layers = { back: c.children[0], front: c.children[1] };
+      quietStage().append(c);
+      let error = null;
+      const m = mountGL(c, layers, S, (text) => (error = text));
+      if (!m) throw new Error(error);
+      glFix = { c, S, layers, m, link: c.querySelector('a'), radio: c.querySelector('input'), error: () => error };
+    }
+    Object.assign(glFix.S, scene(), { cx: 160, cy: 90, h: 180 });
+    glFix.radio.checked = false;
+    glFix.m.hasPlate = false; glFix.m.placed = '';
+    if (glFix.c.parentNode !== quietStage()) quietStage().append(glFix.c);
+    return glFix;
+  }
+  /**
+   * A video that plays a canvas through captureStream(), in place of a camera in front of a wall.
+   * The wall is green, or green on the left and dark blue on the right. `box(true)` puts a red box in front of it.
+   */
+  async function wallVideo({ twoColours = false, withBox = true } = {}) {
+    const c = document.createElement('canvas'), g = c.getContext('2d');
+    c.width = 160; c.height = 90;
+    let boxOn = withBox, n = 0;
+    const draw = () => {
+      g.fillStyle = '#00d000'; g.fillRect(0, 0, 160, 90);
+      if (twoColours) { g.fillStyle = '#000090'; g.fillRect(80, 0, 80, 90); }
+      if (boxOn) { g.fillStyle = '#ff0000'; g.fillRect(100, 28, 40, 34); }
+      g.fillStyle = n++ % 2 ? '#00d000' : '#00d100'; g.fillRect(0, 88, 2, 2); // a change, so that a frame is sent
+    };
+    draw();
+    const timer = setInterval(draw, 50);
+    const stream = c.captureStream(20);
+    const v = Object.assign(document.createElement('video'), { muted: true, playsInline: true, srcObject: stream });
+    media.push(v);
+    stops.push(() => clearInterval(timer));
+    await presented(v);
+    return { v, box: (on) => { boxOn = on; draw(); } };
+  }
+  const near = (p, q, by = 45) => Math.abs(p[0] - q[0]) < by && Math.abs(p[1] - q[1]) < by && Math.abs(p[2] - q[2]) < by;
+  const YELLOW = [255, 212, 0], CYAN = [0, 255, 255], RED = [255, 0, 0], PURE_BLUE = [0, 0, 255];
+  const rgb = (p) => `rgb(${p[0]}, ${p[1]}, ${p[2]})`;
+  /** Count the points of a 2D canvas region that are the slide's yellow, a darkened yellow, and anything else. */
+  function census(ctx, x, y, w, h, step = 4) {
+    const d = copyOf(ctx.canvas).getImageData(x, y, w, h).data;
+    const n = { yellow: 0, dark: 0, other: 0, first: null };
+    for (let j = 0; j < h; j += step) for (let i = 0; i < w; i += step) {
+      const k = (j * w + i) * 4, p = [d[k], d[k + 1], d[k + 2]];
+      if (near(p, YELLOW, 14)) n.yellow++;
+      else if (p[2] < 30 && p[0] > 40 && p[0] < 242 && Math.abs(p[1] / p[0] - 0.83) < 0.05) n.dark++;
+      else { n.other++; n.first ??= [x + i, y + j]; }
+    }
+    return n;
+  }
+  const each = (tests) => tests.map((t) => ({ timeout: 20000, ...t, run: async () => { if (!supported) throw new Error('HTML-in-canvas is not available'); try { return await t.run(); } finally { release(); } } }));
+
+  runTests($('results'), each([
+    {
+      name: 'An alpha video inside a drawable element keeps its alpha',
+      why: 'The VP9 clip is a child of a yellow slide. Its clear part must show the yellow.',
+      run: async () => {
+        const f = fixture2d();
+        const v = await alphaVideo('position:absolute;left:75px;top:5px;width:170px;height:170px;pointer-events:none');
+        f.back.append(v);
+        await presented(v);
+        v.pause();
+        await sleep(100);
+        await painted(f.c);
+        const n = census(f.m.ctx, 75, 5, 170, 170);
+        if (!n.yellow) throw new Error('no point of the video\'s box shows the slide: the alpha was lost');
+        if (!n.other) throw new Error('the video\'s frame is not in the picture');
+        return `of ${n.yellow + n.other + n.dark} points in the video's box, ${n.yellow} are the slide's yellow and ${n.other} are the video's disc`;
+      },
+    },
+    {
+      name: 'drawImage(video) over drawElementImage(slide) keeps the alpha and casts a shadow',
+      why: 'The 2D route of this page. The shadow is the context\'s shadowBlur, drawn from the video\'s alpha.',
+      run: async () => {
+        const f = fixture2d();
+        const v = await alphaVideo();
+        await presented(v);
+        v.pause();
+        await sleep(100);
+        f.S.src = videoSource(v);
+        await painted(f.c);
+        const plain = census(f.m.ctx, 0, 0, 320, 180);
+        f.S.shadow = true;
+        await painted(f.c);
+        const shaded = census(f.m.ctx, 0, 0, 320, 180);
+        if (!plain.yellow || !plain.other) throw new Error(`${plain.yellow} points are the slide and ${plain.other} are the video`);
+        if (shaded.dark < plain.dark + 20) throw new Error(`the shadow darkened ${shaded.dark - plain.dark} points of the slide`);
+        return `${plain.other} of ${plain.yellow + plain.other + plain.dark} points are the video and the rest are the slide; with the shadow on, ${shaded.dark - plain.dark} more points of the slide are darker`;
+      },
+    },
+    {
+      name: 'A link and its text under the presenter\'s pixels are found by elementFromPoint() and caretRangeFromPoint()',
+      why: 'A link fills the slide. The video is drawn over it with drawImage(). The point asked about is one where the canvas shows the video.',
+      run: async () => {
+        const f = fixture2d(`<a href="#check-link" style="${BLUE};left:0;top:0;width:320px;height:180px">${WORDS}</a>`);
+        const link = f.back.firstElementChild;
+        const v = await alphaVideo();
+        await presented(v);
+        v.pause();
+        await sleep(100);
+        f.S.src = videoSource(v);
+        await painted(f.c);
+        await sleep(50);
+        // A point of the canvas that is not the link's blue is a point of the video.
+        const d = copyOf(f.m.ctx.canvas).getImageData(0, 0, 320, 180).data;
+        let at = null;
+        for (let y = 20; y < 160 && !at; y += 3) for (let x = 20; x < 300 && !at; x += 3) {
+          const all = [[0, 0], [6, 0], [-6, 0], [0, 6], [0, -6]].every(([dx, dy]) => { const k = ((y + dy) * 320 + x + dx) * 4; return !near([d[k], d[k + 1], d[k + 2]], PURE_BLUE, 60); });
+          if (all) at = [x, y];
+        }
+        if (!at) throw new Error('no point of the canvas shows the video');
+        const k = (at[1] * 320 + at[0]) * 4, seen = [d[k], d[k + 1], d[k + 2]];
+        const r = f.c.getBoundingClientRect();
+        const hit = hitAt(r.left + at[0], r.top + at[1]);
+        const caret = withStage(() => document.caretRangeFromPoint?.(r.left + at[0], r.top + at[1]));
+        if (hit !== link) throw new Error(`the canvas shows ${rgb(seen)} at ${at}; elementFromPoint() there returned ${hit ? `<${hit.localName}>` : 'nothing'}`);
+        const inText = caret?.startContainer?.parentNode === link;
+        if (!inText) throw new Error(`the link was hit, but caretRangeFromPoint() returned ${caret ? caret.startContainer.nodeName : 'nothing'}`);
+        return `at ${at.join(', ')} the canvas shows the video, ${rgb(seen)}; elementFromPoint() returns the <a> and caretRangeFromPoint() returns character ${caret.startOffset} of its text`;
+      },
+    },
+    {
+      name: 'A presenter that is a <video> element lets a hit through its clear pixels',
+      expect: 'fail',
+      why: 'The other way to compose: the video as a child of the slide, over the link. Expected to fail: an element is hit on its whole box.',
+      run: async () => {
+        const f = fixture2d(`<a href="#check-link" style="${BLUE};left:0;top:0;width:320px;height:180px">${WORDS}</a>`);
+        const link = f.back.firstElementChild;
+        const v = await alphaVideo('position:absolute;left:75px;top:5px;width:170px;height:170px');
+        f.back.append(v);
+        await presented(v);
+        v.pause();
+        await painted(f.c);
+        await sleep(100);
+        const clear = near([...copyOf(f.m.ctx.canvas).getImageData(80, 10, 1, 1).data], PURE_BLUE, 20);
+        const r = f.c.getBoundingClientRect();
+        const hit = hitAt(r.left + 80, r.top + 10);
+        v.style.pointerEvents = 'none';
+        await painted(f.c);
+        await sleep(50);
+        const after = hitAt(r.left + 80, r.top + 10);
+        if (hit === link) return 'the link was hit through the video';
+        throw new Error(`the canvas shows ${clear ? 'the link' : 'the video'} at 80, 10; elementFromPoint() returned <${hit?.localName}>. With pointer-events: none on the video it returns <${after?.localName}>`);
+      },
+    },
+    {
+      name: 'A chroma key shader removes a flat green and keeps a red box',
+      why: 'The video plays a canvas stream: green with a red box. The slide comes from texElementSubImage2D(), the frame from texImage2D(video).',
+      run: async () => {
+        const f = fixtureGL();
+        const wall = await wallVideo();
+        f.S.src = videoSource(wall.v);
+        f.S.key = 1;
+        f.S.keyColor = cornerColour(wall.v, 160, 90);
+        await sleep(150);
+        const px = await f.m.grab();
+        if (f.error()) throw new Error(f.error());
+        const onLink = px(60, 90), onBox = px(240, 90), onSlide = px(160, 170);
+        if (!near(onBox, RED)) throw new Error(`the red box is ${rgb(onBox)} in the canvas`);
+        if (!near(onLink, CYAN) || !near(onSlide, YELLOW)) throw new Error(`where the video is green the canvas shows ${rgb(onLink)} and ${rgb(onSlide)}; the slide has cyan and yellow there`);
+        return `key colour taken from the frame's corner: rgb(${f.S.keyColor.map((x) => Math.round(x * 255)).join(', ')}). Where the video is green the canvas shows the slide, ${rgb(onLink)} and ${rgb(onSlide)}. The box is ${rgb(onBox)}`;
+      },
+    },
+    {
+      name: 'A radio button under the keyed presenter is found at its drawn place and checked by a click',
+      why: 'The WebGL route. The red box of the video covers the radio button. The click is a script click on what elementFromPoint() returns.',
+      run: async () => {
+        const f = fixtureGL();
+        const wall = await wallVideo();
+        f.S.src = videoSource(wall.v);
+        f.S.key = 1;
+        f.S.keyColor = cornerColour(wall.v, 160, 90);
+        await sleep(150);
+        const px = await f.m.grab();
+        await sleep(100);
+        const covered = px(235, 90);
+        const r = f.c.getBoundingClientRect();
+        const hit = hitAt(r.left + 235, r.top + 90), linkHit = hitAt(r.left + 60, r.top + 90);
+        if (!near(covered, RED)) throw new Error(`the canvas shows ${rgb(covered)} over the radio button, not the red box`);
+        if (hit !== f.radio) throw new Error(`elementFromPoint() at the radio button returned ${hit ? `<${hit.localName}>` : 'nothing'}`);
+        let changed = 0;
+        f.radio.addEventListener('change', () => changed++, { once: true });
+        const before = f.m.paints;
+        hit.click();
+        await sleep(300);
+        if (!f.radio.checked || !changed) throw new Error('the click did not check the radio button');
+        return `the canvas shows ${rgb(covered)} there; elementFromPoint() returns the <input>, and the link beside it is ${linkHit === f.link ? 'found too' : 'not found'}. A click checked it and fired change. ${f.m.paints - before} paint followed with no requestPaint()`;
+      },
+    },
+    {
+      name: 'A difference key against a captured frame removes a wall of two colours',
+      why: 'The wall is green and dark blue, which one key colour cannot remove. A frame is captured, then a red box enters.',
+      run: async () => {
+        const f = fixtureGL();
+        const wall = await wallVideo({ twoColours: true, withBox: false });
+        f.S.src = videoSource(wall.v);
+        f.S.key = 2;
+        const unkeyed = (await f.m.grab())(60, 90);
+        f.m.wantPlate = true;
+        await painted(f.c);
+        wall.box(true);
+        await sleep(400);
+        const px = await f.m.grab();
+        const left = px(60, 90), right = px(290, 170), onBox = px(240, 90);
+        if (!near(onBox, RED)) throw new Error(`the red box is ${rgb(onBox)} in the canvas`);
+        if (!near(left, CYAN) || !near(right, YELLOW)) throw new Error(`behind the green the canvas shows ${rgb(left)} and behind the blue ${rgb(right)}; the slide has cyan and yellow there`);
+        return `before the capture the canvas shows the wall, ${rgb(unkeyed)}. After it the slide shows through both colours, ${rgb(left)} and ${rgb(right)}, and the box that entered is ${rgb(onBox)}`;
+      },
+    },
+    {
+      name: 'texImage2D(video) keeps the alpha of the VP9 clip, and the shader draws its shadow',
+      why: 'The alpha clip on the WebGL route with no key.',
+      run: async () => {
+        const f = fixtureGL();
+        const v = await alphaVideo();
+        await presented(v);
+        v.pause();
+        await sleep(100);
+        f.S.src = videoSource(v);
+        f.S.h = 170;
+        const read = async () => {
+          const px = await f.m.grab(), points = [];
+          for (let y = 2; y < 180; y += 4) for (let x = 2; x < 320; x += 4) points.push(px(x, y));
+          return points;
+        };
+        const corner = (await f.m.grab())(82, 12);
+        const plain = await read();
+        f.S.shadow = true;
+        const shaded = await read();
+        const video = plain.filter((p) => !near(p, YELLOW, 14) && !near(p, CYAN, 14) && !near(p, PURE_BLUE, 14)).length;
+        const darker = shaded.filter((p, i) => p[0] + p[1] + p[2] < plain[i][0] + plain[i][1] + plain[i][2] - 40).length;
+        if (!video) throw new Error('the video is not in the canvas');
+        if (near(corner, [0, 0, 0], 30)) throw new Error(`the clear corner of the video is ${rgb(corner)}: the alpha was lost`);
+        if (darker < 20) throw new Error(`the shadow darkened ${darker} points`);
+        return `${video} of ${plain.length} points show the video and its clear corner shows the slide, ${rgb(corner)}. With the shadow on, ${darker} points of the slide are darker`;
+      },
+    },
+    {
+      name: 'The composed canvas arrives over WebRTC with the slide and the presenter',
+      why: 'captureStream() of the WebGL canvas through two RTCPeerConnections in this page.',
+      run: async () => {
+        const f = fixtureGL();
+        const wall = await wallVideo();
+        f.S.src = videoSource(wall.v);
+        f.S.key = 1;
+        f.S.keyColor = cornerColour(wall.v, 160, 90);
+        const stream = f.c.captureStream(30);
+        const link = await loopback(stream);
+        const far = Object.assign(document.createElement('video'), { muted: true, playsInline: true, srcObject: link.stream });
+        media.push(far);
+        far.play().catch(() => {});
+        try {
+          let ok = false, stats = null, a = null, b = null;
+          const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+          for (let tries = 0; tries < 70 && !ok; tries++) {
+            f.c.requestPaint();
+            await sleep(150);
+            if (!far.videoWidth) continue;
+            ctx.canvas.width = far.videoWidth; ctx.canvas.height = far.videoHeight;
+            ctx.drawImage(far, 0, 0);
+            const at = (x, y) => [...ctx.getImageData(Math.round((x * far.videoWidth) / 320), Math.round((y * far.videoHeight) / 180), 1, 1).data].slice(0, 3);
+            a = at(60, 90); b = at(240, 90);
+            ok = near(a, CYAN, 70) && near(b, RED, 70);
+            stats = await link.stats();
+          }
+          if (!ok) throw new Error(far.videoWidth ? `video arrived, but the slide's link is ${rgb(a)} and the presenter's box is ${rgb(b)}` : 'no video arrived');
+          return `received ${far.videoWidth}×${far.videoHeight}${stats?.fps ? ` at ${stats.fps} frames a second` : ''}; the slide's link is ${rgb(a)} and the presenter's box is ${rgb(b)}`;
+        } finally {
+          link.close();
+          stream.getTracks().forEach((t) => t.stop());
+        }
+      },
+    },
+    {
+      name: 'paint events while only the presenter video changes',
+      why: 'Counted for one second each: the video outside the canvas, the same with requestPaint() from requestVideoFrameCallback(), and the video as a child of the slide.',
+      run: async () => {
+        const f = fixture2d();
+        const v = await alphaVideo();
+        await presented(v);
+        f.S.src = videoSource(v);
+        await painted(f.c);
+        await sleep(200);
+        let n = f.m.paints;
+        await sleep(1000);
+        const alone = f.m.paints - n;
+        let on = true;
+        const pump = () => { if (on) { f.c.requestPaint(); v.requestVideoFrameCallback(pump); } };
+        v.requestVideoFrameCallback(pump);
+        n = f.m.paints;
+        await sleep(1000);
+        const pumped = f.m.paints - n;
+        on = false;
+        f.S.src = null;
+        v.style.cssText = 'position:absolute;left:75px;top:5px;width:170px;height:170px;pointer-events:none';
+        f.back.append(v);
+        v.play().catch(() => {});
+        await sleep(300);
+        n = f.m.paints;
+        await sleep(1000);
+        const child = f.m.paints - n;
+        if (pumped < 8) throw new Error(`${pumped} paints a second with requestPaint() for each video frame`);
+        if (alone > 3) throw new Error(`${alone} paints a second came with the video outside the canvas and no requestPaint()`);
+        return `outside the canvas: ${alone} paints a second. With requestPaint() for each video frame: ${pumped}. As a child of the slide, with no requestPaint(): ${child}`;
+      },
+    },
+    {
+      name: 'What the camera reports for background blur and a segmentation mask',
+      why: 'Opens the camera, reads getCapabilities() and getSupportedConstraints(), reads one frame\'s metadata, and stops the camera.',
+      run: async () => {
+        let stream = camera, mine = false;
+        if (!stream) {
+          if (!navigator.mediaDevices?.getUserMedia) throw new Error('there is no getUserMedia here');
+          stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360, facingMode: 'user' }, audio: false });
+          mine = true;
+        }
+        try {
+          const track = stream.getVideoTracks()[0], report = cameraReport(track);
+          let metadata = 'no MediaStreamTrackProcessor';
+          if (mine && typeof MediaStreamTrackProcessor !== 'undefined') {
+            const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+            const { value } = await Promise.race([reader.read(), sleep(3000).then(() => ({}))]);
+            metadata = value ? `a frame's metadata() has ${Object.keys(value.metadata?.() ?? {}).join(', ') || 'no keys'}` : 'no frame came in 3 s';
+            value?.close();
+            reader.cancel().catch(() => {});
+          } else if (!mine) metadata = 'the demo is using the camera, so no frame was read';
+          return `${report.text} ${metadata}`;
+        } finally {
+          if (mine) for (const t of stream.getTracks()) t.stop();
+        }
+      },
+    },
+  ]));
+</script>
+</body>
+</html>
