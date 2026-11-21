@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Form controls drawn as instruments</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .idea output { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button, .idea .controls select { min-height: 40px; font: inherit; }
+  .idea .controls label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+  /* The drag handles. A faint ring, so the element has a picture of its own. */
+  .grip { box-sizing: border-box; border-radius: 50%; border: 2px solid #8884; touch-action: none; cursor: grab; }
+
+  /* #region plain-css */
+  /* The controls as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: grid; gap: 10px; align-content: start; justify-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .plain-controls .grip { display: none; }
+  .plain-controls form { display: flex; flex-wrap: wrap; gap: 8px; }
+  .plain-controls #rotaryForm fieldset { display: flex; flex-wrap: wrap; gap: 8px; }
+  .plain-controls #odoInput { width: 9ch; height: 44px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); letter-spacing: normal !important; font: 600 22px/44px var(--mono); }
+  .plain-controls #prismForm fieldset { height: auto; }
+  .plain-note { margin: 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+  /* #endregion plain-css */
+
+  /* #region rotary-css */
+  #rotaryForm fieldset { border: 0; margin: 0; padding: 0; }
+  #rotaryForm label { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; height: 40px; padding: 0 12px 0 9px; border-radius: 20px; border: 1px solid var(--line); background: var(--card); color: var(--fg); font: 15px system-ui, sans-serif; white-space: nowrap; cursor: pointer; }
+  #rotaryForm label:has(:checked) { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* The focus ring is a border colour and an inset shadow: an outline would be outside the label's picture. */
+  #rotaryForm label:has(:focus-visible) { border-color: var(--fg); box-shadow: inset 0 0 0 2px var(--fg); }
+  #rotaryForm input { margin: 0; width: 18px; height: 18px; accent-color: #fff; outline: none; }
+  #rotaryGrip { width: 124px; height: 124px; }
+  /* #endregion rotary-css */
+
+  /* #region odometer-css */
+  #odoInput { box-sizing: border-box; width: 252px; height: 66px; margin: 0; padding: 0; border: 0; border-bottom: 1px solid #ffffff14; outline: none; background: transparent; text-align: right; font: 600 44px/66px var(--mono); color: transparent; caret-color: #ffd34d; appearance: textfield; }
+  #odoInput::selection { background: #ffd34d66; color: transparent; }
+  #odoInput::-webkit-inner-spin-button { display: none; }
+  /* #endregion odometer-css */
+
+  /* #region prism-css */
+  #prismForm fieldset { box-sizing: border-box; width: 280px; height: 264px; margin: 0; padding: 14px 16px; border: 1px solid var(--line); background: var(--card); color: var(--fg); display: grid; gap: 8px; align-content: start; font: 15px system-ui, sans-serif; }
+  #prismForm legend { float: left; width: 100%; padding: 0; font-weight: 600; font-size: 17px; }
+  #prismForm label { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
+  #prismForm label.row { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 15px; color: var(--fg); }
+  #prismForm input:not([type=radio], [type=checkbox]) { font: 16px system-ui, sans-serif; min-height: 40px; min-width: 0; box-sizing: border-box; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  #prismForm input[type=radio], #prismForm input[type=checkbox] { width: 20px; height: 20px; margin: 0; }
+  #prismForm .tried :invalid:not(fieldset) { border-color: var(--bad); box-shadow: inset 0 0 0 1px var(--bad); }
+  #prismForm .tried input[type=checkbox]:invalid { outline: 2px solid var(--bad); }
+  #prismForm p.buttons { display: flex; gap: 8px; justify-content: space-between; margin: 0; align-self: end; }
+  #prismForm fieldset > p.buttons { margin-top: auto; }
+  #prismForm button { min-height: 40px; min-width: 84px; font: inherit; }
+  #prismSummary { font-size: 15px; color: var(--fg); min-height: 0; margin: 0; font-family: inherit; }
+  /* #endregion prism-css */
+
+  /* #region gauge-css */
+  #gaugeMeter { display: block; width: 300px; height: 24px; margin: 0; }
+  /* #endregion gauge-css */
+
+  /* #region clock-css */
+  #clockInput { box-sizing: border-box; height: 44px; margin: 0; padding: 4px 10px; font: 18px system-ui, sans-serif; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); }
+  #clockGrip { width: 224px; height: 224px; }
+  /* #endregion clock-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Form controls drawn as instruments</h1>
+  <p class="lede">
+    Five ideas from the <a href="/elements/">element catalogue</a>, built. In each one the canvas draws a form control as a different machine,
+    and the real control still holds the value, takes the keyboard and does its own validation. Turn the knob, type in the counter, press Next
+    with an empty field, and drag the clock hands. The line under each canvas is read from the form.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#rotary">Rotary switch</a><a href="#odometer">Odometer</a><a href="#prism">Form on a prism</a><a href="#gauge">Dial gauge</a><a href="#clock">Clock hands</a>
+  </nav>
+
+  <section class="idea" id="rotary">
+    <h2>Rotary switch from a radio group</h2>
+    <p>Five radio buttons. Their labels are drawn round a knob, and the knob points at the checked one. Tap a label, drag the knob, or focus a radio and use the arrow keys.</p>
+    <canvas id="rotaryCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 310px">
+      <!-- #region rotary-html -->
+      <form id="rotaryForm">
+        <fieldset>
+          <legend>Fan speed</legend>
+          <label drawable><input type="radio" name="speed" value="off"> Off</label>
+          <label drawable><input type="radio" name="speed" value="low" checked> Low</label>
+          <label drawable><input type="radio" name="speed" value="medium"> Medium</label>
+          <label drawable><input type="radio" name="speed" value="high"> High</label>
+          <label drawable><input type="radio" name="speed" value="boost"> Boost</label>
+        </fieldset>
+      </form>
+      <div id="rotaryGrip" class="grip" drawable aria-hidden="true"></div>
+      <!-- #endregion rotary-html -->
+    </canvas>
+    <output id="rotaryOut"></output>
+    <p class="found">The radio group is the only state. Arrow keys, the one-checked rule and the form value are the browser's. The page adds the knob: it reads which radio is checked, and a drag checks the radio of the nearest position.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#rotary-html"><b>Mark each label <code>drawable</code>.</b> The form and the fieldset are not drawn.</li>
+      <li data-code="/instruments/rotary.js#rotary"><b>Draw the knob from the checked radio and the labels round it.</b></li>
+      <li data-code="/instruments/rotary.js#rotary-drag"><b>A drag on the knob checks a radio.</b></li>
+      <li data-code="#rotary-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="odometer">
+    <h2>Odometer for a number input</h2>
+    <p>One <code>&lt;input type="number"&gt;</code>. Tap the wheels and type, use the up and down arrow keys, or press the buttons. The wheels roll to the new value.</p>
+    <canvas id="odoCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 150px">
+      <form id="odoForm"><input id="odoInput" drawable type="number" name="miles" min="0" max="999999" step="1" value="12345" inputmode="numeric" aria-label="Miles"></form>
+    </canvas>
+    <div class="controls">
+      <button type="button" data-odo="1">+1</button><button type="button" data-odo="-1">-1</button><button type="button" data-odo="2468">+2468</button><button type="button" data-odo="987654">+987654</button>
+      <button type="button" id="odoDrive" aria-pressed="false">Drive</button>
+    </div>
+    <output id="odoOut"></output>
+    <p class="found">The input's text is transparent and the canvas draws the digits, because the picture of the old value is gone once the value changes. The input still draws the caret and the selection, and letter spacing puts each character over its wheel. Its focus ring is drawn by the canvas.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/instruments/odometer.js#odometer-fit"><b>Make one character as wide as one wheel.</b></li>
+      <li data-code="/instruments/odometer.js#odometer"><b>Draw the wheels from the value, then the input on top.</b></li>
+      <li data-code="#odometer-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="prism">
+    <h2>Form on a prism, one fieldset per face</h2>
+    <p>A three-step form. Next and Back turn the prism. Press Next with a field empty, or type a name on the first face and press Enter.</p>
+    <canvas id="prismCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 320px">
+      <!-- #region prism-html -->
+      <form id="prismForm">
+        <fieldset drawable>
+          <legend>1. Who</legend>
+          <label>Name <input name="name" required autocomplete="name"></label>
+          <label>Email <input name="email" type="email" required autocomplete="email"></label>
+          <p class="buttons"><span></span><button type="button" data-turn="1">Next</button></p>
+        </fieldset>
+        <fieldset drawable>
+          <legend>2. What</legend>
+          <label class="row"><input type="radio" name="ticket" value="standard" checked> Standard</label>
+          <label class="row"><input type="radio" name="ticket" value="student"> Student</label>
+          <label>Seats (1 to 6) <input name="seats" type="number" min="1" max="6" required inputmode="numeric"></label>
+          <p class="buttons"><button type="button" data-turn="-1">Back</button><button type="button" data-turn="1">Next</button></p>
+        </fieldset>
+        <fieldset drawable>
+          <legend>3. Confirm</legend>
+          <output id="prismSummary" name="summary"></output>
+          <label class="row"><input type="checkbox" name="agree" required> I agree to the terms</label>
+          <p class="buttons"><button type="button" data-turn="-1">Back</button><button type="submit">Book</button></p>
+        </fieldset>
+      </form>
+      <!-- #endregion prism-html -->
+    </canvas>
+    <output id="prismOut" style="min-height: 4.5em"></output>
+    <p class="found">Validation messages, <code>:invalid</code> styles, the Enter key and the submitted data are the form's own. The page adds the turn, sets <code>inert</code> on the two faces that are turned away, and turns to a face when the browser reports an invalid field on it.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#prism-html"><b>One form, three <code>drawable</code> fieldsets.</b></li>
+      <li data-code="/instruments/prism.js#prism"><b>Draw the faces in strips while the prism turns, and flat when it rests.</b></li>
+      <li data-code="/instruments/prism.js#prism-turn"><b>Turn on Next, on Back and on <code>invalid</code>.</b></li>
+      <li data-code="#prism-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="gauge">
+    <h2>Dial gauge from a <code>&lt;meter&gt;</code></h2>
+    <p>The arc is the picture of a <code>&lt;meter&gt;</code> element, bent. Move the slider through the low and high marks, then change where the optimum is (the green mark): the browser picks the colour of the bar.</p>
+    <canvas id="gaugeCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 300px">
+      <meter id="gaugeMeter" drawable min="0" max="100" low="25" high="75" optimum="90" value="62">62 out of 100</meter>
+    </canvas>
+    <div class="controls">
+      <label>Value <input id="gaugeValue" type="range" min="0" max="100" value="62"></label>
+      <label>Optimum <select id="gaugeOptimum"><option value="90">high (90)</option><option value="50">middle (50)</option><option value="10">low (10)</option></select></label>
+      <label><input id="gaugeLive" type="checkbox"> Wander</label>
+    </div>
+    <output id="gaugeOut"></output>
+    <p class="found">The element supplies the bar, its track and its colour rules. The page adds the bend, the needle and the tick labels, which it reads from the element's attributes.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/instruments/gauge.js#gauge"><b>Draw the meter in 100 slices round an arc, then the needle.</b></li>
+      <li data-code="#gauge-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="clock">
+    <h2>Clock hands from a time input</h2>
+    <p>One <code>&lt;input type="time"&gt;</code>, drawn under a clock face. Drag either hand, or type in the field. Taking the minute hand past 12 changes the hour.</p>
+    <canvas id="clockCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 320px">
+      <input id="clockInput" drawable type="time" name="at" value="10:08" step="60" aria-label="Time">
+      <div id="clockGrip" class="grip" drawable aria-hidden="true"></div>
+    </canvas>
+    <div class="controls"><button type="button" id="clockNow">Set to now</button></div>
+    <output id="clockOut"></output>
+    <p class="found">The input holds the time and is the control a keyboard or a screen reader uses. The page draws the face from <code>valueAsNumber</code> and writes <code>value</code> while a hand is dragged.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/instruments/clock.js#clock"><b>Draw the face and hands from the value.</b></li>
+      <li data-code="/instruments/clock.js#clock-drag"><b>A drag writes the value.</b></li>
+      <li data-code="#clock-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>Each canvas holds the real control as a descendant marked <code>drawable</code>. A <code>paint</code> handler draws the machine with ordinary 2D calls and draws the control, or parts of it, with <code>drawElementImage()</code>. That call also moves the control's hit region to where it was drawn, so taps, the caret and the focus order need no code. Three techniques are used more than once:</p>
+  <ul>
+    <li><b>Strips.</b> A 2D context has affine transforms only. The prism's perspective and the gauge's bend are made by drawing the same element many times, each time clipped to a narrow strip with its own transform. The last draw sets the hit region, so the prism ends each turn with one flat draw.</li>
+    <li><b>A grip element.</b> The knob and the clock face are canvas drawings, with no element. A round <code>drawable</code> element that is only a faint ring is drawn over each. It receives the pointer events and carries <code>touch-action: none</code>, so the rest of the canvas still scrolls the page.</li>
+    <li><b>The control is the state.</b> No demo keeps its own copy of the value. The paint handler reads <code>checked</code>, <code>valueAsNumber</code> or <code>value</code>, and a drag writes them.</li>
+  </ul>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="/instruments/kit.js#mount"><b>The paint loop and the draw helpers shared by the five demos.</b></li>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/instruments/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/instruments/kit.js#plain"><b>The controls are then shown as plain HTML.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window, and none of them touches the demos above.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21, with a mouse, a keyboard and emulated touch.</p>
+  <p><b>On a phone (Chrome 159 on Android, reported 2026-11-21):</b> the first version of this page lost its canvases repeatedly: a white box with a broken-picture icon, then a white screen, then an empty canvas. The cause was found later on the phone by another experiment on this site: a drawable 2D canvas created with <code>willReadFrequently: true</code>, once drawn into and read, loses every 2D context on the page about every half second. The first version's live checks made such canvases on load. This version reads pixels from a <code>drawImage()</code> copy, keeps the checks behind a tap, and after one lost context stops drawing and shows every control as plain HTML. Whether that ends the losses on the phone is not verified.</p>
+  <ul class="findings">
+    <li><b>A radio group works with only its labels drawn.</b> The form and the fieldset are not drawn. Each <code>drawable</code> label is drawn rotated at its own place, a tap on it checks its radio, the arrow keys move the checked radio and the focus, and <code>FormData</code> holds one value.</li>
+    <li><b>A <code>drawable</code> element drawn over canvas pixels works as a drag handle with its own <code>touch-action</code>.</b> A touch drag on the knob or the clock face did not scroll the page, and a vertical swipe on the same canvas beside the knob scrolled it by the length of the swipe.</li>
+    <li><b>A number input with transparent text adds no pixels to the canvas.</b> It still draws its caret and its selection, and a tap between two wheels puts the caret there. So a canvas can draw the digits itself and leave editing to the input.</li>
+    <li><b>An outline is not in an element's picture.</b> The picture ends at the border box. The odometer's focus ring is drawn by the canvas from <code>:focus-visible</code>, and the radio labels show focus with a border and an inset shadow.</li>
+    <li><b><code>stepUp()</code> raises <code>paint</code> and no <code>input</code> event.</b> The canvas redraws by itself. Code that mirrors the value somewhere else has to be told.</li>
+    <li><b>The browser's validation message appears at the drawn field.</b> After Next on an empty field, and after Book with the box unchecked, the message pointed at the field where the canvas had drawn it.</li>
+    <li><b>An <code>inert</code> fieldset is still drawn, still submitted and still validated.</b> <code>elementFromPoint()</code> returns the canvas at its place. Submitting with an invalid field on an inert face raises <code>invalid</code> on that field. The browser cannot focus it, so the page turns the prism to it and focuses it.</li>
+    <li><b>Enter in a field on the first face submits the form</b> through the Book button on the third face, which is inert. With later fields empty, that turns the prism to the first face that has one.</li>
+    <li><b>Strips stand in for perspective and for a bend.</b> 28 strips for a face of the prism and 100 for the gauge leave no visible steps at these sizes. During a turn the hit region of a face is that of its last strip, so the faces are inert until the flat draw at the end.</li>
+    <li><b>A <code>&lt;meter&gt;</code> keeps its colour rules when bent.</b> The slices carry the green, yellow or red that the browser picks from <code>low</code>, <code>high</code> and <code>optimum</code>. Setting <code>value</code> or <code>optimum</code> raises <code>paint</code>.</li>
+    <li><b>Not verified:</b> everything on a phone. In particular the Android time picker that a tap on the time input may open, the on-screen keyboard over the odometer and the prism, where the validation message appears on Android, and how the strips perform on a real GPU.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  // A demo's script is loaded and started the first time its section comes near the screen.
+  const started = new Set();
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting || started.has(e.target.id)) continue;
+      started.add(e.target.id);
+      watch.unobserve(e.target);
+      import(`./${e.target.id}.js`).then((m) => m.default()).catch((err) => console.error(e.target.id, err));
+    }
+  }, { rootMargin: '100px 0px' });
+  if (supported) document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const need = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+  // A fixture canvas on the test stage. paint(ctx, canvas) runs on every paint event.
+  async function rig(html, paint, w = 240, h = 170) {
+    need();
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, ctx, paints: 0, error: null };
+    canvas.addEventListener('paint', () => { state.paints++; ctx.reset(); try { paint(ctx, canvas); state.error = null; } catch (e) { state.error = e; } });
+    state.frame = async () => { const n = state.paints; canvas.requestPaint(); for (let i = 0; i < 80 && state.paints === n; i++) await sleep(25); await sleep(40); };
+    for (let i = 0; i < 12; i++) { await state.frame(); if (state.paints && !state.error) break; }
+    if (state.error) throw state.error;
+    return state;
+  }
+  // Pixels are read from a small copy made with drawImage(), never from the drawable canvas itself.
+  const copy = document.createElement('canvas');
+  const read = (state, x, y, w = 1, h = 1) => {
+    copy.width = w; copy.height = h;
+    const c2 = copy.getContext('2d');
+    c2.drawImage(state.canvas, x, y, w, h, 0, 0, w, h);
+    return c2.getImageData(0, 0, w, h).data;
+  };
+  const draw = (ctx, el, x = 0, y = 0) => ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
+  const middle = (el) => { const b = el.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2, b]; };
+  const q = (state, sel) => state.canvas.querySelector(sel);
+  const METER = '<meter drawable min="0" max="100" low="25" high="75" optimum="90" value="100" style="display:block;width:200px;height:20px;margin:0"></meter>';
+  const arc = (ctx, meter) => {
+    for (let i = 0; i < 50; i++) {
+      ctx.save();
+      ctx.translate(120, 120); ctx.rotate(-1.5 + 3 * (i + 0.5) / 50); ctx.translate(0, -100); ctx.scale(1.4, 1); ctx.translate(-4 * i - 2, 0);
+      ctx.beginPath(); ctx.rect(4 * i - 0.2, 0, 4.4, 20); ctx.clip();
+      draw(ctx, meter);
+      ctx.restore();
+    }
+  };
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'A label drawn rotated is found where it is drawn, and a click there checks its radio',
+      why: 'A label holding a radio, marked drawable, drawn turned by 0.6 radians away from its layout position. elementFromPoint() at the middle of its drawn box must return the label or its radio, elementFromPoint() at the drawn radio must return the radio, and click() on it must check it.',
+      run: async () => {
+        const s = await rig('<form><label drawable style="display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 12px;background:#246;color:#fff;font:15px system-ui"><input type="radio" name="a" value="x"> Medium</label></form>',
+          (ctx, c) => { ctx.translate(120, 90); ctx.rotate(0.6); const l = c.querySelector('label'); draw(ctx, l, -l.offsetWidth / 2, -20); });
+        const label = q(s, 'label'), radio = q(s, 'input');
+        const [x, y, box] = middle(label);
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !label.contains(hit)) throw new Error(`elementFromPoint returned ${hit?.localName ?? 'nothing'}`);
+        // The radio inside the label has its own drawn box. click() on the element found there checks it.
+        // (click() on the label would also move focus to the radio, and a check must not move focus.)
+        const [rx, ry] = middle(radio);
+        const inner = document.elementFromPoint(rx, ry);
+        if (inner !== radio) throw new Error(`at the drawn radio, elementFromPoint returned ${inner?.localName ?? 'nothing'}`);
+        inner.click();
+        if (!radio.checked) throw new Error('the click did not check the radio');
+        return `Found <${hit.localName}> at the middle of the label and the radio at its own drawn box. The drawn box of the label is ${Math.round(box.width)} by ${Math.round(box.height)} px for a ${label.offsetWidth} by ${label.offsetHeight} px label. The radio is checked.`;
+      },
+    },
+    {
+      name: 'Radios whose labels are drawn apart are still one group',
+      why: 'Three labels of one radio group, each drawn at a different place. Checking the third must uncheck the first, and FormData must hold one value.',
+      run: async () => {
+        const one = (v, on) => `<label drawable style="display:inline-block;height:30px;padding:0 8px;background:#246;color:#fff;font:14px/30px system-ui"><input type="radio" name="g" value="${v}"${on ? ' checked' : ''}> ${v}</label>`;
+        const s = await rig(`<form>${one('a', true)}${one('b')}${one('c')}</form>`, (ctx, c) => { c.querySelectorAll('label').forEach((l, i) => draw(ctx, l, 10 + i * 70, 10 + i * 45)); });
+        const radios = s.canvas.querySelectorAll('input');
+        const [x, y] = middle(radios[2]);
+        document.elementFromPoint(x, y)?.click();
+        const values = new FormData(q(s, 'form')).getAll('g');
+        if (radios[0].checked || !radios[2].checked || values.join() !== 'c') throw new Error(`checked: ${[...radios].map((r) => r.checked)}, form: ${values}`);
+        return `After a click at the third drawn radio: g=${values[0]}, and the first is unchecked.`;
+      },
+    },
+    {
+      name: 'stepUp() on a drawn number input raises paint and no input event',
+      why: 'The odometer has to redraw when a button calls stepUp(). The check counts paint events and input events after one stepUp() with no requestPaint().',
+      run: async () => {
+        const s = await rig('<input drawable type="number" value="41" style="width:120px;height:40px;font:20px system-ui;margin:0">', (ctx, c) => draw(ctx, c.querySelector('input'), 10, 10));
+        const input = q(s, 'input');
+        let inputs = 0;
+        input.addEventListener('input', () => inputs++);
+        const before = s.paints;
+        input.stepUp();
+        await sleep(400);
+        if (s.paints === before) throw new Error('no paint event after stepUp()');
+        if (inputs) throw new Error('stepUp() raised an input event');
+        return `value ${input.value}, ${s.paints - before} paint event(s), 0 input events.`;
+      },
+    },
+    {
+      name: 'A field with transparent text adds no pixels to the canvas',
+      why: 'The odometer draws its own digits over an input whose text is transparent. The picture of that input must be empty, so the digits are not drawn twice.',
+      run: async () => {
+        const s = await rig('<input drawable type="number" value="12345" style="width:200px;height:50px;margin:0;padding:0;border:0;outline:none;background:transparent;color:transparent;font:600 36px monospace;appearance:textfield">', (ctx, c) => draw(ctx, c.querySelector('input'), 10, 10));
+        const data = read(s, 10, 10, 200, 49);
+        let inked = 0;
+        for (let i = 3; i < data.length; i += 4) if (data[i] > 8) inked++;
+        if (inked) throw new Error(`${inked} pixels are not transparent`);
+        return 'All 9,800 pixels where the input is drawn are transparent.';
+      },
+    },
+    {
+      name: 'After strips, one flat draw puts a field at its flat place',
+      why: 'The prism draws a fieldset in strips with different scales, and each draw moves the hit region. The last draw is flat at 10,10. A field inside the fieldset must then be found at its layout offset from that point.',
+      run: async () => {
+        const s = await rig('<form><fieldset drawable style="box-sizing:border-box;width:200px;height:120px;margin:0;padding:10px;border:1px solid #888;background:#fff"><input name="n" style="width:150px;height:36px;margin:20px 0 0;font:16px system-ui"></fieldset></form>',
+          (ctx, c) => {
+            const f = c.querySelector('fieldset');
+            for (let i = 0; i < 10; i++) { ctx.save(); ctx.transform(0.4 + i * 0.05, 0, 0, 0.8 + i * 0.02, 30 + i * 3, 12); ctx.beginPath(); ctx.rect(i * 20, 0, 20, 120); ctx.clip(); draw(ctx, f); ctx.restore(); }
+            ctx.clearRect(0, 0, 240, 170);
+            draw(ctx, f, 10, 10);
+          });
+        const field = q(s, 'input'), set = q(s, 'fieldset');
+        const cb = s.canvas.getBoundingClientRect(), fb = field.getBoundingClientRect();
+        // offsetLeft is measured from the padding edge of the fieldset, so its border is added.
+        const wantX = cb.left + 10 + set.clientLeft + field.offsetLeft, wantY = cb.top + 10 + set.clientTop + field.offsetTop;
+        const off = Math.hypot(fb.left - wantX, fb.top - wantY);
+        const [x, y] = middle(field);
+        const hit = document.elementFromPoint(x, y);
+        if (off > 1.5) throw new Error(`the field is ${off.toFixed(1)} px from its flat place`);
+        if (hit !== field) throw new Error(`elementFromPoint returned ${hit?.localName ?? 'nothing'}`);
+        return `The field is ${off.toFixed(1)} px from its flat place and elementFromPoint() returns it.`;
+      },
+    },
+    {
+      name: 'An inert fieldset is drawn, is not found by elementFromPoint(), and is still validated',
+      why: 'The two faces of the prism that are turned away are inert. Their pictures are still needed during a turn, their fields must not take input, and an empty required field on them must still fail validation.',
+      run: async () => {
+        const s = await rig('<form><fieldset drawable inert style="box-sizing:border-box;width:200px;height:100px;margin:0;padding:10px;border:1px solid #888;background:#135"><input name="n" required style="width:150px;height:36px;margin:0;font:16px system-ui"></fieldset></form>',
+          (ctx, c) => draw(ctx, c.querySelector('fieldset'), 10, 10));
+        const field = q(s, 'input'), set = q(s, 'fieldset'), form = q(s, 'form');
+        const [r, g, b, a] = read(s, 15, 100);
+        if (a < 200) throw new Error('the inert fieldset was not drawn');
+        const [x, y] = middle(field);
+        const hit = document.elementFromPoint(x, y);
+        if (hit && set.contains(hit)) throw new Error(`elementFromPoint returned <${hit.localName}> inside the inert fieldset`);
+        let invalid = 0;
+        field.addEventListener('invalid', () => invalid++);
+        const valid = form.checkValidity();
+        if (valid || !invalid) throw new Error(`form.checkValidity() is ${valid}, invalid events ${invalid}`);
+        return `Drawn (pixel ${r},${g},${b}). elementFromPoint() returns <${hit?.localName}>. willValidate ${field.willValidate}, form.checkValidity() false, one invalid event on the field.`;
+      },
+    },
+    {
+      name: 'A meter drawn in slices round an arc keeps the colour the browser chose',
+      why: 'A meter at 100 with the optimum at 90 is drawn in 50 slices round an arc. A pixel on the arc must be mostly green. With the value at 10, two regions from the optimum, a pixel at the start of the arc must be mostly red.',
+      run: async () => {
+        const s = await rig(METER, (ctx, c) => arc(ctx, c.querySelector('meter')), 240, 170);
+        const at = (a) => read(s, Math.round(120 + Math.sin(a) * 90), Math.round(120 - Math.cos(a) * 90));
+        const top = at(0);
+        if (!(top[3] > 200 && top[1] > top[0] + 30)) throw new Error(`pixel at the top of the arc is ${[...top]}`);
+        q(s, 'meter').value = 10;
+        await s.frame(); await s.frame();
+        const start = at(-1.44);
+        if (!(start[3] > 200 && start[0] > start[1] + 30)) throw new Error(`pixel at the start of the arc is ${[...start]} with the value at 10`);
+        return `At 100: rgb ${top[0]},${top[1]},${top[2]} at the top of the arc. At 10: rgb ${start[0]},${start[1]},${start[2]} at its start.`;
+      },
+    },
+    {
+      name: 'Setting meter.value or a time input value raises paint with no requestPaint()',
+      why: 'The gauge and the clock redraw when script writes the value. The check writes each value once and counts paint events.',
+      run: async () => {
+        const s = await rig(`${METER}<input drawable type="time" value="10:08" style="margin:0;height:40px;font:16px system-ui">`, (ctx, c) => { draw(ctx, c.querySelector('meter'), 10, 10); draw(ctx, c.querySelector('input'), 10, 50); });
+        const meter = q(s, 'meter'), time = q(s, 'input');
+        let n = s.paints;
+        meter.value = 40;
+        await sleep(350);
+        const forMeter = s.paints - n;
+        n = s.paints;
+        time.value = '13:45';
+        await sleep(350);
+        const forTime = s.paints - n;
+        if (!forMeter || !forTime) throw new Error(`paint events: meter ${forMeter}, time ${forTime}`);
+        if (time.valueAsNumber / 60000 !== 825) throw new Error(`valueAsNumber is ${time.valueAsNumber}`);
+        return `meter: ${forMeter} paint event(s). time: ${forTime}, and valueAsNumber is 825 minutes.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
