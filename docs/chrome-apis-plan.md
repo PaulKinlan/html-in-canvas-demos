@@ -146,6 +146,7 @@ These run in Chrome 157 to 159 today, and most have a measured result behind the
 
 #### 10. Carets, highlights and editing drawn through shaders
 
+- **Built:** [/caret/](https://html-in-canvas.page/caret/)
 - **Shows:** A text editor on a 3D monitor with a block caret from CSS, a shader that smears the caret between positions, proofreader corrections as animated custom highlights, and find-in-page matches that pulse. This strand shares ground with the text selection effects thread.
 - **Build:** caret-animation: manual stops the blink; the shader finds the caret by colour key and draws motion from the last two positions. Custom highlights use one keyed colour through ::highlight(*). highlightsFromPoint() makes highlighted words clickable where they are drawn. A second editor uses EditContext with the canvas drawing all text.
 - **Measured:** The block caret is in the picture (215 px against 24 px for a bar). Custom highlights are in the picture. highlightsFromPoint() returns the highlight at the drawn position in Chromium 157 and nothing in 153.
@@ -261,6 +262,7 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 22. Packaging the custom elements with newer DOM features
 
+- **Built:** [/component-kit/](https://html-in-canvas.page/component-kit/)
 - **Shows:** canvas-slot, dom-portal and dom-lens defined in a scoped registry, with manual slot assignment from declarative shadow DOM, Reference Target for labels, snapshots closed with using, and paint events as an Observable.
 - **Build:** A branch of the libraries with feature checks, and a page that lists which feature removed which line of code.
 - **Uncertain:** Whether a scoped registry changes how slotted children are found by the canvas.

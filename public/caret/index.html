@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carets and highlights in a canvas</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .screen { padding: 22px 20px; border-radius: 14px; border: 1px solid #2c3440; background: #0e1216; }
+  /* #region editor-css */
+  /* One colour is the key: the caret, the typo marks and the effect all use it. */
+  selection-fx#edit { --key: #ff3d7f; --selection-fx-color: var(--key); --selection-fx-bg: #0e1216; color: #cfe3d4; }
+  #editor {
+    font: 16px/1.7 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    white-space: pre-wrap; overflow-wrap: anywhere; outline: none; min-height: 8em;
+    caret-color: var(--key);
+    caret-shape: block;          /* bar | block | underscore, Chrome 144 */
+    caret-animation: manual;     /* no blink, so the canvas is not repainted twice a second, Chrome 140 */
+  }
+  /* Find-in-page matches (Chrome 144) and spelling marks, in colours a pixel count can find. */
+  #editor::search-text { background: rgb(0, 255, 128); color: #000; }
+  #editor::search-text:current { background: rgb(0, 200, 255); color: #000; }
+  #editor::spelling-error { text-decoration: underline wavy rgb(255, 230, 0); }
+  /* #endregion editor-css */
+  selection-fx#edit[effect=key-glow] #editor::highlight(typo) { text-decoration: underline wavy var(--key) 2px; }
+  @media (max-width: 620px) { .screen { padding: 16px 12px; } #editor { font-size: 14.5px; } }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .bar label { font-size: 14px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .bar select { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  .pick button { min-height: 40px; }
+  .pick button[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #readout, #fix, #counts { font: 12.5px/1.5 var(--mono); color: var(--muted); min-height: 1.5em; margin: 8px 0; overflow-wrap: anywhere; }
+  #fix button { font: inherit; margin-left: 6px; }
+  table.has td:first-child { white-space: nowrap; font-weight: 600; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Carets and highlights in a canvas</h1>
+  <p class="lede">
+    An editable block drawn by a canvas. The browser draws the CSS caret into the picture. The canvas adds a streak behind it and wavy lines under misspelled words. Tap a marked word to correct it.
+  </p>
+
+  <div class="bar pick" id="pick" role="group" aria-label="Effect">
+    <button data-effect="caret">Streak and wavy lines (2D)</button>
+    <button data-effect="key-glow">Glow by colour key (shader)</button>
+    <button data-effect="none">Browser only</button>
+  </div>
+
+  <div class="screen">
+    <!-- #region markup -->
+    <selection-fx id="edit" effect="caret" highlight="typo">
+      <div id="editor" contenteditable="true" spellcheck="true" autocapitalize="off">$ git commit -m "fix teh caret"
+Type here. The block caret is CSS, and the canvas draws
+the streak that follows it.
+
+Misspelled words are found by a small list on this page:
+recieve, seperate, definately, occured.
+Tap one of them to see the correction.</div>
+    </selection-fx>
+    <!-- #endregion markup -->
+  </div>
+  <div id="fix" role="status"></div>
+  <div id="readout" role="status">Tap the text to place the caret.</div>
+
+  <div class="bar">
+    <label>Caret shape
+      <select id="shape"><option>block</option><option>bar</option><option>underscore</option></select>
+    </label>
+    <label><input type="checkbox" id="blink"> Let the caret blink</label>
+    <label>Engine
+      <select id="engine"><option value="auto">Best available</option><option value="webgpu">WebGPU</option><option value="webgl">WebGL</option><option value="2d">2D only</option></select>
+    </label>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>caret and highlights</small></summary>
+    <ol>
+      <li data-code="#markup"><b>An editable element inside <code>&lt;selection-fx&gt;</code>.</b> <code>highlight="typo"</code> names the CSS Custom Highlight whose ranges are measured.</li>
+      <li data-code="#editor-css"><b>The caret is CSS.</b> <code>caret-shape</code>, <code>caret-color</code> and <code>caret-animation</code>.</li>
+      <li data-code="#typos"><b>Mark the misspelled words</b> with a Highlight that has no style. The canvas draws the wavy line.</li>
+      <li data-code="#hit"><b>Find the marked word under a tap</b> with <code>CSS.highlights.highlightsFromPoint()</code>.</li>
+      <li data-code="/lib/selection-fx.js#caret"><b>Inside the element: where the caret is.</b> A collapsed <code>Range</code> has one client rectangle.</li>
+      <li data-code="/lib/selection-fx.js#effect-caret"><b>The 2D effect.</b> A quad from the old caret position to the new one, and a sine line under each marked rectangle.</li>
+      <li data-code="/lib/selection-fx.js#effect-key-glow"><b>The shader effect.</b> It is given no positions. It looks for the key colour in the element's picture.</li>
+      <li data-code="/lib/selection-fx.js"><b>The whole element.</b></li>
+    </ol>
+  </details>
+
+  <h2>Two things only a person can check</h2>
+  <p>
+    The test browser has no find bar and no spelling dictionary. On this page find-in-page matches are styled green (<code>::search-text</code>) and spelling marks yellow (<code>::spelling-error</code>).
+    Open find-in-page, search for <code>caret</code>, and press the button. It reads the canvas back and counts pixels of each colour. Zero while you can see the marks means the browser draws them over the page and leaves them out of the element's picture.
+  </p>
+  <div class="bar"><button id="count">Count mark pixels in the canvas</button></div>
+  <div id="counts" role="status"></div>
+
+  <h2>What this browser has</h2>
+  <table class="results has"><tbody id="has"></tbody></table>
+
+  <h2>Live checks</h2>
+  <p class="note">These start when you press the button. They use fixtures in a corner of the window and do not take focus, so the checks on the caret itself are the numbers under the editor.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Measured in headless Chromium 157 on Linux with a software renderer, 2026-11-21.</p>
+  <ul class="findings">
+    <li><strong>The caret is in the element's picture</strong>, with its <code>caret-color</code> and <code>caret-shape</code>. The line under the editor counts its pixels in the canvas each time it moves.</li>
+    <li><strong><code>caret-animation: manual</code> stops the repaints.</strong> A blinking caret fires <code>paint</code> twice a second, and a shader effect uploads the element's texture each time. With <code>manual</code> the canvas is repainted only when the caret moves.</li>
+    <li><strong>The caret's position comes from a collapsed <code>Range</code>.</strong> <code>getClientRects()</code> returns one rectangle of zero width at the caret, at the drawn position. On an empty line it returns nothing, so the streak skips that move.</li>
+    <li><strong><code>CSS.highlights.highlightsFromPoint(x, y)</code> answers at the drawn position.</strong> It returns the Highlight and the range under the point, so a word that is only marked by a range can be tapped. No element wraps the word.</li>
+    <li><strong>A shader can find the caret without being told where it is.</strong> The key-glow effect has no rectangles. It samples the element's picture for the key colour, which the caret and the <code>::highlight()</code> underline both use. This also works for anything else painted in that colour, wanted or not.</li>
+    <li><strong><code>::highlight(*)</code> is not in Chromium 157</strong> (it is listed for 158), so each named Highlight still needs its own rule.</li>
+    <li><strong>The marks are redrawn from ranges, so they survive editing.</strong> The typo list runs again on every <code>input</code> event and replaces the Highlight. A correction replaces the range's text with <code>Range.deleteContents()</code> and <code>insertNode()</code>.</li>
+  </ul>
+  <p><strong>Not built or not verified:</strong></p>
+  <ul class="findings">
+    <li><strong>Find-in-page and spelling marks in the picture:</strong> not verified here, see the button above.</li>
+    <li><strong>The Proofreader API</strong> (origin trial) is not in the test browser. The typo list on this page stands in for it. The table above says whether your browser has it.</li>
+    <li><strong>Typing on an Android keyboard</strong>, with composition and autocorrect, was not tested.</li>
+    <li><strong>Not built:</strong> the editor on a 3D monitor (<a href="/three-form/">the 3D form</a> has the surface), and a second editor using <code>EditContext</code> with the canvas drawing all the text.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint, stillDrawn, inkFraction } from '/shared/support.js';
+  import { looksBlank } from '/lib/gpu-util.js';
+  import '/lib/selection-fx.js';
+  banner();
+  const $ = (id) => document.getElementById(id);
+  const fx = $('edit'), editor = $('editor');
+
+  // ---- effect, caret shape, blink, engine
+  function setEffect(name) {
+    fx.setAttribute('effect', name);
+    for (const b of $('pick').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.effect === name));
+  }
+  $('pick').addEventListener('click', (e) => { const n = e.target.closest('button')?.dataset.effect; if (n) setEffect(n); });
+  for (const b of $('pick').querySelectorAll('button')) b.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the caret
+  setEffect('caret'); // a 2D effect: loading the page creates no GPU context
+  $('shape').addEventListener('change', (e) => { editor.style.caretShape = e.target.value; });
+  $('blink').addEventListener('change', (e) => { editor.style.caretAnimation = e.target.checked ? 'auto' : 'manual'; });
+  $('engine').addEventListener('change', (e) => fx.setAttribute('engine', e.target.value));
+  fx.addEventListener('selectionfxfallback', (e) => { $('readout').textContent = `Changed engine: ${e.detail.reason}.`; if (fx.getAttribute('engine')) $('engine').value = fx.getAttribute('engine'); });
+  fx.addEventListener('surfacefallback', (e) => { $('readout').textContent = `Showing plain HTML because of: ${e.detail.reason}. Editing works, the effects are off.`; });
+
+  // #region typos
+  const TYPOS = { teh: 'the', recieve: 'receive', seperate: 'separate', definately: 'definitely', occured: 'occurred', wich: 'which', adress: 'address' };
+  const typos = new Highlight();
+  CSS.highlights?.set('typo', typos);
+
+  function markTypos() {
+    typos.clear();
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      for (const m of node.data.matchAll(/[A-Za-z]+/g)) {
+        if (!TYPOS[m[0].toLowerCase()]) continue;
+        const range = new Range();
+        range.setStart(node, m.index);
+        range.setEnd(node, m.index + m[0].length);
+        typos.add(range);
+      }
+    }
+    fx.refresh?.(); // a Highlight with no ::highlight() style causes no repaint, so say so
+  }
+  editor.addEventListener('input', markTypos);
+  markTypos();
+  // #endregion typos
+
+  // #region hit
+  // Which marked word is under the pointer? The answer is for where the canvas
+  // drew the text. Older browsers fall back to comparing rectangles.
+  function typoAt(x, y) {
+    const hit = CSS.highlights.highlightsFromPoint?.(x, y)?.find((h) => h.highlight === typos);
+    if (hit) return hit.ranges[0];
+    return [...typos].find((range) => [...range.getClientRects()].some((r) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom));
+  }
+  editor.addEventListener('click', (e) => {
+    const range = typoAt(e.clientX, e.clientY);
+    const fix = $('fix');
+    fix.textContent = '';
+    if (!range) return;
+    const word = range.toString(), right = TYPOS[word.toLowerCase()];
+    const button = document.createElement('button');
+    button.textContent = `Replace with “${right}”`;
+    button.addEventListener('pointerdown', (ev) => ev.preventDefault()); // keep the caret in the editor
+    button.addEventListener('click', () => {
+      range.deleteContents();
+      range.insertNode(document.createTextNode(right));
+      editor.normalize();
+      fix.textContent = `Replaced “${word}”.`;
+      markTypos();
+    });
+    fix.append(`“${word}” is marked, found by ${CSS.highlights.highlightsFromPoint ? 'highlightsFromPoint()' : 'comparing rectangles'}.`, button);
+  });
+  // #endregion hit
+
+  // ---- the caret, measured in the canvas
+  const near = (d, i, r, g, b, t = 40) => d[i + 3] > 60 && Math.abs(d[i] - r) < t && Math.abs(d[i + 1] - g) < t && Math.abs(d[i + 2] - b) < t;
+  async function count(colours) {
+    const image = await fx.readback();
+    const out = colours.map(() => 0);
+    const d = image.data;
+    for (let i = 0; i < d.length; i += 4) colours.forEach(([r, g, b], n) => { if (near(d, i, r, g, b)) out[n]++; });
+    return out;
+  }
+  let paints = 0;
+  // The element moves to a new canvas when its engine changes, so listen on whichever canvas is current.
+  const counted = new WeakSet();
+  const watchPaints = () => { const c = fx.canvas; if (c && !counted.has(c)) { counted.add(c); c.addEventListener('paint', () => paints++); } };
+  fx.addEventListener('selectionfxengine', watchPaints);
+  if (supported) customElements.whenDefined('selection-fx').then(watchPaints);
+  let pending = 0;
+  fx.addEventListener('selectionfxcaret', (e) => {
+    clearTimeout(pending);
+    const c = e.detail.caret;
+    if (!c) { $('readout').textContent = 'No caret in the editor.'; return; }
+    // Count only on the browser-only effect and the 2D engine: the other effects add the key colour themselves.
+    pending = setTimeout(async () => {
+      let text = `Caret at ${c.x.toFixed(0)}, ${c.y.toFixed(0)}, ${c.h.toFixed(0)} px tall, shape ${getComputedStyle(editor).caretShape || 'auto'}.`;
+      if (fx.getAttribute('effect') === 'none' && fx.engine === '2d') {
+        const [n] = await count([[255, 61, 127]]);
+        const s = fx.scale;
+        text += ` ${n} caret-colour pixels in the canvas (${(n / s / s).toFixed(0)} CSS px²).`;
+      } else text += ' Pick “Browser only” to count the caret\'s pixels.';
+      const before = paints;
+      setTimeout(() => { $('readout').textContent = `${text} ${paints - before} paint event(s) in the last 2 s without moving.`; }, 2000);
+      $('readout').textContent = text;
+    }, 150);
+  });
+
+  $('count').addEventListener('pointerdown', (e) => e.preventDefault());
+  $('count').addEventListener('click', async () => {
+    if (!fx.live) { $('counts').textContent = 'The editor is shown as plain HTML, so there is no canvas to read.'; return; }
+    const was = fx.getAttribute('effect');
+    fx.setAttribute('effect', 'none');
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      const [match, current, spelling] = await count([[0, 255, 128], [0, 200, 255], [255, 230, 0]]);
+      $('counts').textContent = `In the canvas: ${match} find-match pixels, ${current} current-match pixels, ${spelling} spelling-mark pixels.`;
+    } catch (err) { $('counts').textContent = `Could not read the canvas: ${err.message}`; }
+    setEffect(was);
+  });
+
+  // ---- what this browser has
+  const has = [
+    ['caret-shape', CSS.supports('caret-shape: block'), 'Chrome 144'],
+    ['caret-animation', CSS.supports('caret-animation: manual'), 'Chrome 140'],
+    ['CSS.highlights', !!CSS.highlights, 'Custom Highlight API'],
+    ['highlightsFromPoint()', !!CSS.highlights?.highlightsFromPoint, 'Chrome 140'],
+    ['::highlight(*)', CSS.supports('selector(::highlight(*))'), 'listed for Chrome 158'],
+    ['::search-text', CSS.supports('selector(::search-text)'), 'find-in-page pseudo, Chrome 144'],
+    ['::spelling-error', CSS.supports('selector(::spelling-error)'), ''],
+    ['EditContext', 'EditContext' in self, 'not used on this page'],
+    ['Proofreader', 'Proofreader' in self, 'origin trial; this page uses its own word list'],
+  ];
+  for (const [name, ok, note] of has) {
+    const tr = $('has').insertRow();
+    tr.insertCell().textContent = name;
+    const c = tr.insertCell(); c.textContent = ok ? 'yes' : 'no'; c.className = `status ${ok ? 'pass' : 'fail'}`;
+    const n = tr.insertCell(); n.textContent = note; n.className = 'note';
+  }
+
+  // ------------------------------------------------------------ live checks
+  const style = document.createElement('style');
+  style.textContent = `::highlight(caret-check) { background: rgb(0, 255, 255); }
+    selection-fx.caret-fixture { width: 260px; font: 20px/30px monospace; color: #000; background: #fff; --selection-fx-color: rgb(255, 0, 255); --selection-fx-bg: #fff; }
+    selection-fx.caret-fixture p { margin: 0; }
+    selection-fx.caret-fixture p::highlight(caret-key) { background: rgb(255, 0, 255); }`;
+  document.head.append(style);
+  const settle = (ms = 120) => new Promise((r) => requestAnimationFrame(() => setTimeout(r, ms)));
+  async function fxFixture(effect, engine, name) {
+    const el = document.createElement('selection-fx');
+    el.className = 'caret-fixture';
+    el.setAttribute('effect', effect);
+    el.setAttribute('engine', engine);
+    el.setAttribute('highlight', name);
+    el.setAttribute('bleed', '14');
+    el.innerHTML = '<p>ABCDEFGHIJ KLMNOPQRST second line</p>';
+    testStage().append(el);
+    for (let i = 0; i < 60 && !el.ready; i++) await new Promise((r) => setTimeout(r, 50));
+    if (!el.ready) throw new Error(`the element did not start (${el.note || el.getAttribute('plain') || 'no paint yet'})`);
+    const text = el.querySelector('p').firstChild;
+    const range = new Range();
+    range.setStart(text, 2);
+    range.setEnd(text, 8);
+    CSS.highlights.set(name, new Highlight(range));
+    el.refresh();
+    return el;
+  }
+  const tests = [
+    {
+      name: 'highlightsFromPoint() finds a Highlight where the canvas drew the text',
+      why: 'A paragraph drawn 60 px right and 40 px down of its layout position. The point asked is the middle of the range\'s rectangle.',
+      run: async () => {
+        if (!CSS.highlights?.highlightsFromPoint) throw new Error('no highlightsFromPoint() in this browser');
+        const canvas = document.createElement('canvas');
+        canvas.setAttribute('content', 'drawable');
+        canvas.setAttribute('layoutsubtree', '');
+        canvas.style.cssText = 'display:block;width:340px;height:110px;background:#fff';
+        canvas.width = 340; canvas.height = 110;
+        const p = document.createElement('p');
+        p.setAttribute('drawable', '');
+        p.style.cssText = 'margin:0;width:260px;font:20px/30px monospace;color:#000';
+        p.textContent = 'ABCDEFGHIJ KLMNOPQRST';
+        canvas.append(p);
+        testStage().append(canvas);
+        const ctx = canvas.getContext('2d');
+        canvas.onpaint = () => { ctx.reset(); ctx.drawElementImage(p, 60, 40, p.offsetWidth, p.offsetHeight); };
+        const range = new Range();
+        range.setStart(p.firstChild, 2);
+        range.setEnd(p.firstChild, 8);
+        const h = new Highlight(range);
+        CSS.highlights.set('caret-check', h);
+        try {
+          await nextPaint(canvas);
+          await settle();
+          const r = range.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+          const hits = CSS.highlights.highlightsFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          const miss = CSS.highlights.highlightsFromPoint(c.x + 5, c.y + 5);
+          if (hits[0]?.highlight !== h || miss.length) throw new Error(`${hits.length} hit(s) on the word, ${miss.length} in the empty corner`);
+          return `hit at ${(r.x - c.x).toFixed(0)}, ${(r.y - c.y).toFixed(0)} in the canvas, ${hits[0].ranges.length} range, nothing in the empty corner`;
+        } finally { CSS.highlights.delete('caret-check'); }
+      },
+    },
+    {
+      name: 'The caret effect draws a wavy line under a marked range (2D)',
+      why: 'A Highlight with no style over six characters. Coloured pixels must appear in the lower part of that line only.',
+      run: async () => {
+        const el = await fxFixture('caret', '2d', 'caret-mark');
+        try {
+          await settle();
+          const image = await el.readback();
+          const s = el.scale, r = el.marked[0];
+          if (!r) throw new Error('no marked rectangle');
+          let low = 0, high = 0;
+          for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+            const i = (y * image.width + x) * 4;
+            if (!near(image.data, i, 255, 0, 255, 90)) continue;
+            if (y / s - el.bleed > r.y + r.h * 0.7) low++; else high++;
+          }
+          if (low < 30 || high > low / 4) throw new Error(`${low} pixels under the text, ${high} above`);
+          return `${low} line pixels under the word, ${high} elsewhere; rectangle ${r.w.toFixed(1)}×${r.h.toFixed(1)}`;
+        } finally { CSS.highlights.delete('caret-mark'); el.dispose(); }
+      },
+    },
+    {
+      name: 'The key-glow shader lights the area around a keyed highlight (WebGL)',
+      why: 'The fixture\'s ::highlight() background is the key colour. The shader is given no rectangles. Pixels just outside the highlight must be tinted.',
+      run: async () => {
+        const el = await fxFixture('key-glow', 'webgl', 'caret-key');
+        try {
+          if (el.engine !== 'webgl') throw new Error(`engine is ${el.engine}: ${el.note}`);
+          await settle(400);
+          const image = await el.readback();
+          const s = el.scale, r = el.rects[0];
+          let halo = 0;
+          for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+            const px = x / s - el.bleed, py = y / s - el.bleed;
+            if (px >= r.x - 1 && px <= r.x + r.w + 1 && py >= r.y - 1 && py <= r.y + r.h + 1) continue;
+            const i = (y * image.width + x) * 4, d = image.data;
+            if (d[i + 3] > 20 && d[i] - d[i + 1] > 15) halo++;
+          }
+          if (el.lastError) throw el.lastError;
+          if (halo < 100) throw new Error(`${halo} tinted pixels outside the highlight`);
+          return `${halo} tinted pixels outside the highlight`;
+        } finally { CSS.highlights.delete('caret-key'); el.dispose(); }
+      },
+    },
+    stillDrawn(() => [
+      { name: 'the editor', ink: async () => (!fx.live ? null : fx.engine === 'webgpu' ? (looksBlank(fx.canvas) ? 0 : 1) : inkFraction(await fx.readback())), rescue: () => fx.fallBackToPlain('the canvas was blank after the checks') },
+    ]),
+  ];
+  runTests($('tests'), supported ? tests : tests.slice(0, 1));
+</script>
+</body>
+</html>
