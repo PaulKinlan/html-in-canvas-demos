@@ -242,6 +242,10 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A real headset, Android AR, `XRQuadLayer`. | not verified | | `/xr/` | 3D and spatial |
 | egui and Qt Quick compiled to WebAssembly can use DOM elements as widgets with a bridge of about 200 lines each. | measured | C157 | `/native-ui/` | Native UI toolkits |
 | The browser does not know what a toolkit draws over an element, and Tab does not cross from a DOM field to a toolkit widget. | measured | C157 | `/native-ui/` | Native UI toolkits |
+| A folded surface drawn as two tilted planes keeps hit testing through a perspective matrix per half. `devicePosture` and `viewport.segments` place the panes. | measured, emulated posture | C157 | `/fold/` | Devices |
+| Canvas children convert to Stream Deck HID reports, ESC/POS raster and RGB565 frames, and simulated devices are drawn from the bytes. | measured, no device | C157 | `/hardware-out/` | Devices |
+| A title bar element drawn by a canvas works in a simulated window, and the computed `app-region` is found at the drawn position. | measured, simulated window | C157 | `/window-chrome/` | Devices |
+| A real foldable, a real Stream Deck, printer or LED matrix, and an installed app window. | not verified | | `/fold/`, `/hardware-out/`, `/window-chrome/` | Devices |
 
 ### Phones and lost contexts
 
