@@ -368,6 +368,7 @@ export function flyToButton(select, { ms = 520, canvas = null } = {}) {
     state.last = { drawn, from: [from.left, from.top, from.width, from.height].map(Math.round), to: [to.left, to.top].map(Math.round), ink: inkOf(copy) };
     const done = () => {
       copy.remove();
+      copy.width = copy.height = 0; // give the copy's memory back at once
       target.style.opacity = '';
       target.animate([{ transform: 'scale(1.18)' }, { transform: 'scale(1)' }], { duration: 220, easing: 'ease-out' });
     };
