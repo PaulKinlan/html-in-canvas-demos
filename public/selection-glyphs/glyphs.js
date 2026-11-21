@@ -5,7 +5,7 @@
 // of a snapshot of the canvas, or the element drawn again through a clip.
 
 import { defineSelectionEffect } from '/lib/selection-fx.js';
-import { glyphRects, roundPath } from '/lib/selection-tools.js';
+import { glyphRects, roundPath, copyCanvas } from '/lib/selection-tools.js';
 
 const GRAVITY = 1500;
 const still = matchMedia('(prefers-reduced-motion: reduce)');
@@ -132,10 +132,7 @@ export function attach(el, { onchange = () => {} } = {}) {
     // where the element has no ink, so the pieces are letters without a backing.
     el.capturing = true;
     try {
-      const image = await el.readback();
-      const sprite = new OffscreenCanvas(image.width, image.height);
-      sprite.getContext('2d').putImageData(image, 0, 0);
-      g.sprite = sprite;
+      g.sprite = copyCanvas(el); // drawImage() of the canvas: no pixels are read back
     } finally { el.capturing = false; }
     const have = new Set(g.items.map((p) => `${p.home.x.toFixed(1)},${p.home.y.toFixed(1)}`));
     const cx = rects.reduce((a, r) => a + r.x, 0) / rects.length;

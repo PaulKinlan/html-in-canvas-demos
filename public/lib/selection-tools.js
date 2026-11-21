@@ -128,6 +128,29 @@ export async function whenReady(el, ms = 3000) {
   return el;
 }
 
+// #region snapshot
+/**
+ * The element's canvas as ImageData, read from a copy. The canvas is drawn,
+ * copied to an OffscreenCanvas with drawImage(), and the pixels are read from
+ * the copy. The drawable canvas itself is never read with getImageData():
+ * on Android Chrome 159 a drawable 2D canvas that is read back that way lost
+ * every 2D context on the page.
+ */
+export function snapshot(el) {
+  const copy = copyCanvas(el);
+  return copy.getContext('2d').getImageData(0, 0, copy.width, copy.height);
+}
+
+/** A copy of the element's canvas after a fresh draw, as an OffscreenCanvas. */
+export function copyCanvas(el) {
+  el.contentDirty = true;
+  el.render(performance.now());
+  const copy = new OffscreenCanvas(el.canvas.width, el.canvas.height);
+  copy.getContext('2d').drawImage(el.canvas, 0, 0);
+  return copy;
+}
+// #endregion snapshot
+
 /** Count pixels of an ImageData for which test(r, g, b, a, x, y) is true. */
 export function countPixels(image, test) {
   const d = image.data;

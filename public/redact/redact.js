@@ -7,7 +7,7 @@
 // removeText() replaces it.
 
 import { defineSelectionEffect } from '/lib/selection-fx.js';
-import { offsetsOf, rangeAt, copyText, roundPath } from '/lib/selection-tools.js';
+import { offsetsOf, rangeAt, copyText, roundPath, copyCanvas } from '/lib/selection-tools.js';
 
 const scratch = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(1, 1) : null;
 const LETTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHKMNPRSTUVWXYZ0123456789';
@@ -170,11 +170,9 @@ export function attach(el, article, { onchange = () => {} } = {}) {
     dispose() { CSS.highlights.delete(name); },
     /** The canvas on the page's background colour, as a PNG blob. */
     async png(background) {
-      const image = await el.readback();
-      const out = new OffscreenCanvas(image.width, image.height);
+      const top = copyCanvas(el);
+      const out = new OffscreenCanvas(top.width, top.height);
       const c = out.getContext('2d');
-      const top = new OffscreenCanvas(image.width, image.height);
-      top.getContext('2d').putImageData(image, 0, 0);
       c.fillStyle = background;
       c.fillRect(0, 0, out.width, out.height);
       c.drawImage(top, 0, 0);

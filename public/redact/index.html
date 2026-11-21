@@ -87,7 +87,7 @@
     <li><strong>The canvas hides nothing from the DOM.</strong> After a redaction, <code>textContent</code>, <code>Range.toString()</code> and copy return the covered text. A canvas redaction is only safe as an exported picture, or together with removing the text.</li>
     <li><strong>Pixels and blur are made from the text's own pixels</strong>, so they keep some information about it: length, word gaps and rough letter shapes. The bar keeps only the length. Changing letters keeps the length and the font.</li>
     <li><strong><code>ctx.filter</code> applies to <code>drawElementImage()</code>.</strong> The blur style is the element drawn a second time through a <code>blur()</code> filter and a clip.</li>
-    <li><strong>A canvas can be the source of its own <code>drawImage()</code></strong> after <code>drawElementImage()</code>. The pixel style reads the part of the canvas it is about to replace. The canvas is not tainted by same-origin element content, so <code>getImageData()</code> and PNG export work.</li>
+    <li><strong>A canvas can be the source of its own <code>drawImage()</code></strong> after <code>drawElementImage()</code>. The pixel style reads the part of the canvas it is about to replace. The canvas is not tainted by same-origin element content, so PNG export works. The page reads pixels only from a <code>drawImage()</code> copy of the canvas.</li>
     <li><strong>Replacing characters in the DOM changes line breaks</strong> when the block character is wider than the letters it replaces. The offsets stay valid because the number of characters does not change.</li>
   </ul>
   <p><strong>Not verified:</strong> what find-in-page and TalkBack report for a redacted range (both read the DOM, so the expected answer is the original text until it is removed), and selecting by touch on a phone.</p>
@@ -96,7 +96,7 @@
 <script type="module">
   import { banner, supported, runTests, testStage, stillDrawn, inkFraction } from '/shared/support.js';
   import '/lib/selection-fx.js';
-  import { rangeAt, copyText, whenReady, countPixels } from '/lib/selection-tools.js';
+  import { rangeAt, copyText, whenReady, countPixels, snapshot } from '/lib/selection-tools.js';
   import { attach } from './redact.js';
   banner();
   const $ = (id) => document.getElementById(id);
@@ -195,7 +195,7 @@
         try {
           r.add(rangeAt(p, 5, 15));
           await settle();
-          const image = await f.readback();
+          const image = snapshot(f);
           const m = f.marked[0], s = f.scale;
           if (!m) throw new Error('no rectangle for the range');
           const x0 = Math.ceil((m.x + f.bleed) * s), x1 = Math.floor((m.x + m.w + f.bleed) * s), y0 = Math.ceil((m.y + f.bleed) * s) + 1, y1 = Math.floor((m.y + m.h + f.bleed) * s) - 1;
@@ -213,14 +213,14 @@
       run: async () => {
         const { f, p, r } = await fixture();
         try {
-          const clean = await f.readback();
+          const clean = snapshot(f);
           r.add(rangeAt(p, 5, 15));
           await settle();
           const out = [];
           for (const style of ['pixels', 'blur', 'scramble']) {
             r.style(style);
             await settle();
-            const d = differ(clean, await f.readback(), f, f.marked[0]);
+            const d = differ(clean, snapshot(f), f, f.marked[0]);
             if (d.inside < 200 || d.outside > 0) throw new Error(`${style}: ${d.inside} pixels changed inside, ${d.outside} outside`);
             out.push(`${style} ${d.inside}`);
           }
@@ -252,7 +252,7 @@
           const before = f.marked[0].w, length = p.textContent.length;
           const n = r.removeText();
           await settle();
-          await f.readback();
+          snapshot(f);
           const after = f.marked.reduce((a, m) => a + m.w, 0);
           if (p.textContent.includes('SECRET') || p.textContent.length !== length || !f.marked.length) throw new Error(`text is “${p.textContent}”`);
           return `${n} characters replaced; range was ${before.toFixed(0)} px wide, now ${after.toFixed(0)} px in ${f.marked.length} line(s)`;
@@ -260,7 +260,7 @@
       },
     },
     stillDrawn(() => [
-      { name: 'the letter', ink: async () => (!el.live ? null : inkFraction(await el.readback())), rescue: () => el.fallBackToPlain('the canvas was blank after the checks') },
+      { name: 'the letter', ink: async () => (!el.live ? null : inkFraction(snapshot(el))), rescue: () => el.fallBackToPlain('the canvas was blank after the checks') },
     ]),
   ];
   runTests($('tests'), supported ? tests : []);

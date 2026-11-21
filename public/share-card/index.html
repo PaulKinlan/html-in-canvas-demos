@@ -109,6 +109,7 @@
 <script type="module">
   import { banner, supported, runTests, testStage, nextPaint, stillDrawn, inkFraction } from '/shared/support.js';
   import '/lib/selection-fx.js';
+  import { snapshot } from '/lib/selection-tools.js';
   import { createCard, quoteFrom, FORMATS } from './card.js';
   banner();
   const $ = (id) => document.getElementById(id);
@@ -264,7 +265,9 @@
           c.onpaint = () => { ctx.reset(); ctx.drawElementImage(d, 0, 0, 400, 80); };
           await painted;
           await settle();
-          const row = ctx.getImageData(100, 40, 60, 1).data;
+          const copy = new OffscreenCanvas(60, 1).getContext('2d');
+          copy.drawImage(c, 100, 40, 60, 1, 0, 0, 60, 1); // read from a copy, not from the drawable canvas
+          const row = copy.getImageData(0, 0, 60, 1).data;
           let dark = 0, grey = 0;
           for (let i = 0; i < row.length; i += 4) { if (row[i] < 40) dark++; else if (row[i] < 215) grey++; }
           if (dark < 3 || dark > 5 || grey > 2) throw new Error(`${dark} black and ${grey} grey pixels across the line`);
@@ -290,8 +293,8 @@
       },
     },
     stillDrawn(() => [
-      { name: 'the card', ink: async () => (canvas.isConnected ? inkFraction(canvas.getContext('2d')) : null) },
-      { name: 'the article', ink: async () => { const fx = $('demo'); return !fx.live ? null : inkFraction(await fx.readback()); }, rescue: () => $('demo').fallBackToPlain('the canvas was blank after the checks') },
+      { name: 'the card', ink: async () => { if (!canvas.isConnected) return null; const copy = new OffscreenCanvas(canvas.width, canvas.height).getContext('2d'); copy.drawImage(canvas, 0, 0); return inkFraction(copy); } },
+      { name: 'the article', ink: async () => { const fx = $('demo'); return !fx.live ? null : inkFraction(snapshot(fx)); }, rescue: () => $('demo').fallBackToPlain('the canvas was blank after the checks') },
     ]),
   ];
   runTests($('tests'), supported ? tests : []);

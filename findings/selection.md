@@ -67,6 +67,7 @@ Measured in headless Chromium 157 (Linux, software renderer, device scale factor
 - After a 2D `drawElementImage()` with a size different from the layout size, `getBoundingClientRect()` of the element reports the drawn size (396×208 for a 600×315 figure). Layout sizes come from `offsetWidth` and `clientHeight`.
 - `s.rects` in a `<selection-fx>` effect holds the selection and the `highlight` attribute's ranges together. An effect that draws the two differently reads `s.marked` for the ranges and uses `s.rects` only while something is selected.
 - Fitting type by `scrollHeight` and then changing `line-height` undoes the fit. The line height is fixed in CSS.
+- Reported from Paul's phone (Android Chrome 159) through the coordinator on 2026-11-21, not measured here: a drawable 2D canvas that is read back with `getImageData()` (with `willReadFrequently`) lost every 2D context on the page. These five pages never call `getImageData()` on a drawable canvas. `snapshot()` and `copyCanvas()` in `lib/selection-tools.js` copy the canvas to an `OffscreenCanvas` with `drawImage()` and read the copy.
 - The site menu stays at the top of the window, so a minimap that follows the scroll is placed 64 px below the window's top edge.
 - The article's own minimap column is part of the element, so the minimap shows an empty strip at its right edge.
 
