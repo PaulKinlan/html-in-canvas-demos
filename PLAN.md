@@ -13,6 +13,7 @@ This file has one writer at a time. A pull request that adds or changes a page d
 - [Planned demos from the Chrome APIs plan](#planned-demos-from-the-chrome-apis-plan)
 - [Open ideas by strand](#open-ideas-by-strand)
 - [Ideas from the element catalogue](#ideas-from-the-element-catalogue)
+- [Backlog](#backlog)
 - [Site-wide work that is open](#site-wide-work-that-is-open)
 - [Not verified: needs real hardware or a person](#not-verified-needs-real-hardware-or-a-person)
 - [Reports to make upstream](#reports-to-make-upstream)
@@ -263,6 +264,278 @@ Rank 1:
 - Focus order shown as a path.
 
 Rank 2 and rank 3 are in `ELEMENTS.md` under "Ideas". Rank 2 includes developer tools drawn by a canvas (layout debugger overlay, paint event inspector, hit region viewer, landmark map, heading outline) that would also serve this project's own testing.
+
+## Backlog
+
+Every idea that was listed in this project and is not built, one line each, as of 2026-11-21 at 16:00 UTC. Sources: the sections above, `public/elements/ideas.js`, the files in `findings/`, `docs/native-frameworks.md` and `tools/chrome-apis/ideas.json`. The list has 170 lines in 30 groups. Of the 121 element catalogue ideas, 17 are built, which is what the project owner pointed at on 2026-11-21 ("we haven't even got half of the demos done").
+
+Rank 1 is being built now, rank 2 follows, rank 3 is small, speculative, blocked, or not a demo. Inside a rank, groups are in build order. The element catalogue comes first because most of the unbuilt ideas are there. Each group is 2 to 7 ideas that share fixtures, is built by one thread on a branch from `main`, and ships as one pull request with its own page folder and its own file in `findings/`. A group does not edit `public/elements/ideas.js` or `/element-ideas/`: it names the ideas it built under "For the index" in its findings file, and a documentation pass marks them here and in the catalogue.
+
+### Rank 1: being built (55 ideas, groups 1 to 11)
+
+#### 1. Form controls drawn as instruments
+
+- 1.1 (rank 1) Rotary switch from a radio group (element catalogue, rank 1)
+- 1.2 (rank 1) Odometer for a number input (element catalogue, rank 1)
+- 1.3 (rank 1) Form on a prism, one fieldset per face (element catalogue, rank 1)
+- 1.4 (rank 1) Dial gauge from a meter (element catalogue, rank 2)
+- 1.5 (rank 1) Clock hands from a time input (element catalogue, rank 2)
+
+#### 2. Text elements
+
+- 2.1 (rank 1) Marker-pen highlight (element catalogue, rank 1)
+- 2.2 (rank 1) Keycaps from kbd (element catalogue, rank 1)
+- 2.3 (rank 1) Split-flap output (element catalogue, rank 2)
+- 2.4 (rank 1) Flip clock from a time element (element catalogue, rank 2)
+- 2.5 (rank 1) Code that types itself (element catalogue, rank 2)
+
+#### 3. Tables, lists and page structure
+
+- 3.1 (rank 1) Sortable table with rows that travel (element catalogue, rank 1)
+- 3.2 (rank 1) Accordion that unfolds (element catalogue, rank 1)
+- 3.3 (rank 1) Live minimap of a page (element catalogue, rank 1)
+- 3.4 (rank 1) Tab switcher of live pages (element catalogue, rank 1)
+- 3.5 (rank 1) Heat map over table cells (element catalogue, rank 2)
+
+#### 4. Developer tools drawn by a canvas
+
+- 4.1 (rank 1) Focus order shown as a path (element catalogue, rank 1)
+- 4.2 (rank 1) Layout debugger overlay (element catalogue, rank 2)
+- 4.3 (rank 1) Paint event inspector (element catalogue, rank 2)
+- 4.4 (rank 1) Hit region viewer (element catalogue, rank 2)
+- 4.5 (rank 1) Landmark map (element catalogue, rank 2)
+
+#### 5. Video compositing
+
+- 5.1 (rank 1) WebGPU external textures (`importExternalTexture(video)`) composed with element textures in one pass (video and sound)
+- 5.2 (rank 1) A worker as the compositor: `MediaStreamTrackProcessor`, transferred `ElementImage` overlays, `VideoTrackGenerator` (video and sound)
+- 5.3 (rank 1) A presenter over live slides (video and sound)
+- 5.4 (rank 1) A screen-share telestrator (video and sound)
+- 5.5 (rank 1) Video as a material for text (video and sound)
+
+#### 6. Video, time and words
+
+- 6.1 (rank 1) Cassette deck from audio controls (element catalogue, rank 1)
+- 6.2 (rank 1) Live captions from `SpeechRecognition`, with the Translator API for a second language (video and sound)
+- 6.3 (rank 1) Timed comments that cross the video as clickable DOM (video and sound)
+- 6.4 (rank 1) Captions drawn apart from the video (element catalogue, rank 2)
+- 6.5 (rank 1) Word-by-word highlighting from `SpeechSynthesis` boundary events (video and sound)
+
+#### 7. Select pickers
+
+- 7.1 (rank 1) A lens over a long option list (`/select/` ideas)
+- 7.2 (rank 1) Physical options (cloth or jelly) (`/select/` ideas)
+- 7.3 (rank 1) A map or seat plan as a picker (`/select/` ideas)
+- 7.4 (rank 1) A colour select that samples pixels (`/select/` ideas)
+- 7.5 (rank 1) A transition that carries the chosen option into the button (`/select/` ideas)
+
+#### 8. Input pickers
+
+- 8.1 (rank 1) A range input bent round a dial (`/datalist/` and `/inputs/` ideas)
+- 8.2 (rank 1) A date range on one calendar (`/datalist/` and `/inputs/` ideas)
+- 8.3 (rank 1) A colour wheel that reads its own pixels (`/datalist/` and `/inputs/` ideas)
+- 8.4 (rank 1) A week picker on a year view (`/datalist/` and `/inputs/` ideas)
+- 8.5 (rank 1) Ghost-text suggestion in the input (`/datalist/` and `/inputs/` ideas)
+
+#### 9. Text selection
+
+- 9.1 (rank 1) Other people's selections (`/selection/` ideas)
+- 9.2 (rank 1) Selected glyphs as particles (`/selection/` ideas)
+- 9.3 (rank 1) A share card made from the selection (`/selection/` ideas)
+- 9.4 (rank 1) Redaction of the selected text (`/selection/` ideas)
+- 9.5 (rank 1) A heat map and a minimap of selections (`/selection/` ideas)
+
+#### 10. View transitions
+
+- 10.1 (rank 1) A WebGL or WebGPU shader driven by the canvas-scoped transition clock (view transitions, not tried)
+- 10.2 (rank 1) A scoped transition on an ancestor with a canvas-scoped one nested inside it (view transitions, not tried)
+- 10.3 (rank 1) `view-transition-class` and nested groups with one canvas per list item (view transitions, not tried)
+- 10.4 (rank 1) One page-wide canvas that draws every transition itself (view transitions, not tried)
+- 10.5 (rank 1) A child's group box as a timing source (view transitions, not tried)
+
+#### 11. Native UI toolkits
+
+- 11.1 (rank 1) Dear ImGui with Emscripten: a DOM element through one `ImGui::Image()` call (`docs/native-frameworks.md`)
+- 11.2 (rank 1) Flutter web showing a DOM element through `createImageFromTextureSource()` (`docs/native-frameworks.md`)
+- 11.3 (rank 1) Qt Widgets: `drawElementImage()` on a raster window's 2D canvas after Qt's flush (`docs/native-frameworks.md`)
+- 11.4 (rank 1) Godot or Unity: a DOM chat box and login form on a quad in a 3D scene (`docs/native-frameworks.md`)
+- 11.5 (rank 1) A framework's ARIA tree inside the canvas, positioned with `updateElementGeometry()` (`docs/native-frameworks.md`)
+
+### Rank 2: next (74 ideas, groups 12 to 27)
+
+#### 12. Forms: effects raised by the control's own state
+
+- 12.1 (rank 2) Per-keystroke ink (element catalogue, rank 2)
+- 12.2 (rank 2) Button press that dents the surface (element catalogue, rank 2)
+- 12.3 (rank 2) Colour input that recolours its own scene (element catalogue, rank 2)
+- 12.4 (rank 2) Liquid progress bar (element catalogue, rank 2)
+- 12.5 (rank 2) Search field that focuses the scene (element catalogue, rank 2)
+
+#### 13. Forms: controls in a drawn setting
+
+- 13.1 (rank 2) Exploded form diagram (element catalogue, rank 2)
+- 13.2 (rank 2) Wall calendar around a date input (element catalogue, rank 2)
+- 13.3 (rank 2) File input on a drawn letter box (element catalogue, rank 2)
+- 13.4 (rank 2) Disabled panel in one step (element catalogue, rank 2)
+
+#### 14. Text, second batch
+
+- 14.1 (rank 2) Ruby that appears near the pointer (element catalogue, rank 2)
+- 14.2 (rank 2) Pull quote behind the column (element catalogue, rank 2)
+- 14.3 (rank 2) Selection that glows (element catalogue, rank 2)
+- 14.4 (rank 2) Kinetic heading (element catalogue, rank 2)
+- 14.5 (rank 2) Footnotes that slide out (element catalogue, rank 2)
+- 14.6 (rank 2) Strike-through drawn by hand (element catalogue, rank 2)
+
+#### 15. Images, charts and video tiles
+
+- 15.1 (rank 2) Video wall (element catalogue, rank 2)
+- 15.2 (rank 2) Figure with a live caption (element catalogue, rank 2)
+- 15.3 (rank 2) Resolution chosen by drawn size (element catalogue, rank 2)
+- 15.4 (rank 2) SVG chart as a live texture (element catalogue, rank 2)
+- 15.5 (rank 2) Chart and legend exported as one picture (element catalogue, rank 2)
+
+#### 16. Lists and tables, second batch
+
+- 16.1 (rank 2) Column highlight from col (element catalogue, rank 2)
+- 16.2 (rank 2) Glossary cards from a dl (element catalogue, rank 2)
+- 16.3 (rank 2) Staggered list entrance (element catalogue, rank 2)
+- 16.4 (rank 2) Sticky header that casts a shadow (element catalogue, rank 2)
+- 16.5 (rank 2) Timeline from an ordered list (element catalogue, rank 2)
+
+#### 17. Page structure in depth
+
+- 17.1 (rank 2) Sections on a cube (element catalogue, rank 2)
+- 17.2 (rank 2) Navigation on a ribbon (element catalogue, rank 2)
+- 17.3 (rank 2) Slices between hr elements (element catalogue, rank 2)
+- 17.4 (rank 2) Header that folds away (element catalogue, rank 2)
+- 17.5 (rank 2) Drawer cabinet from details (element catalogue, rank 2)
+- 17.6 (rank 2) Aside as a margin note on a string (element catalogue, rank 2)
+
+#### 18. Top layer and paint clocks
+
+- 18.1 (rank 2) Menu that stays readable on a tilted toolbar (element catalogue, rank 2)
+- 18.2 (rank 2) Tooltip drawn by the canvas (element catalogue, rank 2)
+- 18.3 (rank 2) Modal that leaves the scene (element catalogue, rank 2)
+- 18.4 (rank 2) Loading state that stops by itself (element catalogue, rank 2)
+- 18.5 (rank 2) Caret as a heartbeat (element catalogue, rank 2)
+- 18.6 (rank 2) Video as a frame clock for a whole scene (element catalogue, rank 2)
+- 18.7 (rank 2) Animated image as the only clock (element catalogue, rank 2)
+
+#### 19. Frames and nested canvases
+
+- 19.1 (rank 2) Widget with its own effect inside a scene (element catalogue, rank 2)
+- 19.2 (rank 2) Email preview on a drawn phone (element catalogue, rank 2)
+- 19.3 (rank 2) Custom element that packages an effect (element catalogue, rank 2)
+- 19.4 (rank 2) HTML button inside an SVG diagram (element catalogue, rank 2)
+- 19.5 (rank 2) Script that shows itself (element catalogue, rank 2)
+
+#### 20. Play
+
+- 20.1 (rank 2) Drag a card out of the scene (element catalogue, rank 2)
+- 20.2 (rank 2) Pixel editor from checkboxes (element catalogue, rank 2)
+- 20.3 (rank 2) Sliding puzzle of a live page (element catalogue, rank 2)
+- 20.4 (rank 2) Contenteditable on a curling page (element catalogue, rank 2)
+
+#### 21. Accessibility views
+
+- 21.1 (rank 2) Focus ring that leads the eye (element catalogue, rank 2)
+- 21.2 (rank 2) Heading outline beside the page (element catalogue, rank 2)
+
+#### 22. Video, second batch
+
+- 22.1 (rank 2) A title editor: clips, HTML title cards, the `/transitions/` shaders between clips, `exportFrames()` (video and sound)
+- 22.2 (rank 2) A cinema screen in the `/three-form/` scene with a `PannerNode` at the screen (video and sound)
+- 22.3 (rank 2) A `display-p3` canvas with HDR or wide-gamut video (video and sound)
+- 22.4 (rank 2) A player skin as a shader on the timeline strip only (video and sound)
+- 22.5 (rank 2) A WebGPU version of the `/player-fx/` shader (video and sound)
+- 22.6 (rank 2) Animated images (GIF, APNG, WebP, AVIF, SVG SMIL, Lottie) as canvas children: does `paint` fire per frame (video and sound)
+
+#### 23. Media controls and state
+
+- 23.1 (rank 2) Customisable media controls mocked with a custom element (video and sound)
+- 23.2 (rank 2) State pseudo-classes on other elements (`:open`, `:popover-open`, `:user-invalid`, `:checked`) driving `--fx-*` through `:has()` (video and sound)
+- 23.3 (rank 2) A test of the proposal that `drawElementImage()` takes a pseudo-element or a `::part()` (video and sound)
+- 23.4 (rank 2) Casting the composed stream with the Presentation or Remote Playback API (video and sound)
+
+#### 24. Select, inputs and selection, second batch
+
+- 24.1 (rank 2) `<select multiple>` drawn by a canvas (`/select/` ideas)
+- 24.2 (rank 2) Rich suggestions through a customisable select with no button (`/datalist/` and `/inputs/` ideas)
+- 24.3 (rank 2) Selection in 3D (`/selection/` ideas)
+- 24.4 (rank 2) Translate the selection in place (`/selection/` ideas)
+- 24.5 (rank 2) Haptics on selection change (`/selection/` ideas)
+- 24.6 (rank 2) Selection effects for form controls (`/selection/` ideas)
+
+#### 25. Motion and capture
+
+- 25.1 (rank 2) `<dom-rewind>.frames()` fed to a real video encoder (`findings/motion.md`)
+- 25.2 (rank 2) Hit testing for two pointers at once on shards or glyphs (FINDINGS.md summary)
+
+#### 26. Follow-ups to the Chrome APIs plan
+
+- 26.1 (rank 2) Semantic zoom on `/board/`: a tile too small to read is replaced by a summary from the Summarizer API (`tools/chrome-apis/ideas.json`)
+- 26.2 (rank 2) Multicol `::column` fragments drawn as book pages with a page-turn shader (plan demo 2, second layout)
+- 26.3 (rank 2) Canvas `TextMetrics` selection rectangles (Chrome 160) compared with DOM Range rects (`tools/chrome-apis/ideas.json`)
+- 26.4 (rank 2) A WebGL route for `/hdr-glow/` with an `RGBA16F` drawing buffer and a bloom pass (`findings/hdr-glow.md`)
+- 26.5 (rank 2) The CSS uniform binding moved into `shader-fx.js`, and a registered `<custom-ident>` that selects the effect (`findings/css-uniforms.md`)
+
+#### 27. Native UI toolkits, second batch
+
+- 27.1 (rank 2) A Qt Quick `TextField` backed by an `<input>`, compared for IME and autofill on Android (`docs/native-frameworks.md`)
+- 27.2 (rank 2) Occlusion without a guard: can `canvasClip` express "this window covers that field" (`docs/native-frameworks.md`)
+
+### Rank 3: later, blocked, or not a demo (41 lines, groups 28 to 30)
+
+#### 28. Element catalogue, rank 3
+
+- 28.1 (rank 3) Suggestion ring from a datalist (element catalogue, rank 3)
+- 28.2 (rank 3) Password field that can be shared (element catalogue, rank 3)
+- 28.3 (rank 3) Hero picture from selectedcontent (element catalogue, rank 3)
+- 28.4 (rank 3) Folder tabs from legends (element catalogue, rank 3)
+- 28.5 (rank 3) Subscripts that settle (element catalogue, rank 3)
+- 28.6 (rank 3) Bidirectional text explained (element catalogue, rank 3)
+- 28.7 (rank 3) Abbreviations expanded in place (element catalogue, rank 3)
+- 28.8 (rank 3) Quotation marks as ornaments (element catalogue, rank 3)
+- 28.9 (rank 3) Variables that light up together (element catalogue, rank 3)
+- 28.10 (rank 3) Line breaks as cut lines (element catalogue, rank 3)
+- 28.11 (rank 3) Photo gallery with real alt text (element catalogue, rank 3)
+- 28.12 (rank 3) Caption as a rubber stamp (element catalogue, rank 3)
+- 28.13 (rank 3) Footer totals that count up (element catalogue, rank 3)
+- 28.14 (rank 3) Machine values next to shown values (element catalogue, rank 3)
+- 28.15 (rank 3) Document title as a heading (element catalogue, rank 3)
+- 28.16 (rank 3) Address on an envelope (element catalogue, rank 3)
+- 28.17 (rank 3) Footer that is the floor (element catalogue, rank 3)
+- 28.18 (rank 3) Subtitle that types under the title (element catalogue, rank 3)
+- 28.19 (rank 3) Toast stack in the scene (element catalogue, rank 3)
+- 28.20 (rank 3) Stock ticker with real links (element catalogue, rank 3)
+- 28.21 (rank 3) Warn about invisible frames (element catalogue, rank 3)
+- 28.22 (rank 3) Template stamped many times (element catalogue, rank 3)
+- 28.23 (rank 3) Unknown elements in a design system audit (element catalogue, rank 3)
+- 28.24 (rank 3) xmp as a literal code sample (element catalogue, rank 3)
+- 28.25 (rank 3) Label coverage check (element catalogue, rank 3)
+- 28.26 (rank 3) Minesweeper from a table of buttons (element catalogue, rank 3)
+- 28.27 (rank 3) Summary as a lever (element catalogue, rank 3)
+- 28.28 (rank 3) Old web page in a drawn monitor (element catalogue, rank 3)
+
+#### 29. Blocked by the browser or by hardware
+
+- 29.1 (rank 3) Customisable select with the picker in the scene (element catalogue, rank 3). Blocked today.
+- 29.2 (rank 3) PDF pages as a book (element catalogue, rank 3). Not measured.
+- 29.3 (rank 3) Cross-origin image wall (element catalogue, rank 3). Blocked without CORS.
+- 29.4 (rank 3) Popover drawn into the canvas (element catalogue, rank 3). Blocked today.
+- 29.5 (rank 3) Permission button in a scene (element catalogue, rank 3). Blocked.
+- 29.6 (rank 3) A drawer on the overscroll area (plan demo 6). No `overscroll-area` property in Chromium 157.
+- 29.7 (rank 3) The form as an `XRQuadLayer` (`findings/3d.md`). Written, needs a headset.
+- 29.8 (rank 3) Real-device checks of the native toolkit pages: IME, native pickers, TalkBack (`docs/native-frameworks.md`).
+- 29.9 (rank 3) Safari and Firefox as viewers, and a real cross-site pair of origins (`findings/cross-context.md`). Needs a person and a second site.
+
+#### 30. Library and site work, not demos
+
+- 30.1 (rank 3) fx library: an npm package, TypeScript types, a minified build (PR #44). Publishing is the project owner's decision.
+- 30.2 (rank 3) A "Use it" block for every library (learning-resource review).
+- 30.3 (rank 3) Real-GPU recordings for the homepage (learning-resource review). Needs a real GPU.
+- 30.4 (rank 3) The rows of "Site-wide work that is open" below.
 
 ## Site-wide work that is open
 
