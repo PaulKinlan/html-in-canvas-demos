@@ -1455,6 +1455,7 @@ const m4 = (() => {
 //   import { pickBackend, webgpu } from '/shared/backend.js';
 //   const backend = await pickBackend();            // 'webgpu' | 'webgl' | '2d'
 //   const { device, format } = await webgpu();      // or null, with webgpu.reason saying why
+//   const gpu = await webgpu({ compat: true });     // also accept a compatibility mode device
 //
 // WebGPU is only chosen when it is really usable, because a WebGPU device that
 // dies takes every WebGL context and large 2D canvas on the page with it:
@@ -1470,43 +1471,82 @@ const m4 = (() => {
 // `webgpu({ force: true })` skips both rules (for tests that render to a
 // texture and never present).
 
-let attempt = null;
-let forcedAttempt = null;
+/**
+ * Optional WebGPU features, asked for only by webgpu({ features: true }) and
+ * only where the adapter lists them. `device.features.has(name)` is the test.
+ * The device every page shares is made with a plain requestDevice().
+ * /webgpu-features/ shows what each one is for and what is drawn without it.
+ */
+const OPTIONAL_FEATURES = ['texture-component-swizzle', 'float32-blendable', 'dual-source-blending', 'primitive-index'];
 
-/** The page's shared WebGPU device, or null. Never throws. */
-function webgpu({ force = false } = {}) {
-  attempt ??= open(false);
-  if (!force) return attempt;
-  // A forced device is the page's own when that works, else one that skipped
-  // the rules. It is never handed to a caller that did not ask for it: showing
-  // a canvas with it could destroy it, and every WebGL context with it.
-  forcedAttempt ??= attempt.then((gpu) => gpu ?? open(true));
-  return forcedAttempt;
+const attempts = new Map();
+
+/**
+ * The page's shared WebGPU device, or null. Never throws.
+ *
+ *   webgpu()                    the page's device: a core adapter that passes both rules
+ *   webgpu({ features: true })  a second device, with OPTIONAL_FEATURES. Every option
+ *                               below can be combined with it
+ *   webgpu({ compat: true })    the page's device, or when there is no core adapter, one from
+ *                               a compatibility mode adapter (OpenGL ES 3.1 class hardware)
+ *   webgpu({ compat: 'only' })  ask for a compatibility mode adapter first
+ *   webgpu({ force: true })     skip both rules (tests that never present)
+ *
+ * `gpu.level` is 'core' or 'compatibility'. A compatibility device has lower
+ * limits and rejects some core shaders, so only pages written for it ask.
+ */
+function webgpu({ force = false, compat = false, features = false } = {}) {
+  const f = features ? '+features' : '';
+  const page = () => once(`page${f}`, () => open({ features }));
+  // A forced, compatibility or features device is never handed to a caller
+  // that did not ask for it: showing a canvas with a forced one could destroy
+  // it and every WebGL context with it, and a compatibility one fails core-only shaders.
+  if (force && compat) return once(`forced-compat${f}`, () => open({ force: true, compat: true, features }));
+  if (force) return once(`forced${f}`, () => page().then((gpu) => gpu ?? open({ force: true, features })));
+  if (compat === 'only') return once(`compat-only${f}`, () => open({ compat: true, features, byName: true }));
+  if (compat) return once(`compat${f}`, () => page().then((gpu) => gpu ?? ((features ? webgpu.featuresReason : webgpu.reason) === NO_ADAPTER ? once(`compat-fallback${f}`, () => open({ compat: true, features })) : null)));
+  return page();
 }
-/** Why the page's device (the one webgpu() gives without force) is not usable. Empty when it is. */
+const NO_ADAPTER = 'WebGPU found no graphics adapter';
+/** Why the page's device (the one webgpu() gives without options) is not usable. Empty when it is. */
 webgpu.reason = '';
+/** The same for webgpu({ features: true }). */
+webgpu.featuresReason = '';
+/** Why webgpu({ compat: 'only' }) gave nothing. */
+webgpu.compatReason = '';
 
-async function open(force) {
+function once(key, make) {
+  if (!attempts.has(key)) attempts.set(key, make());
+  return attempts.get(key);
+}
+
+async function open({ force = false, compat = false, features = false, byName = false }) {
+  const mine = !force && !compat; // only a page's own device reports through webgpu.reason
+  const say = (reason) => (features ? (webgpu.featuresReason = reason) : (webgpu.reason = reason));
   const no = (reason) => {
-    if (!force) webgpu.reason = reason;
+    if (mine) say(reason);
+    if (compat) webgpu.compatReason = reason;
     return null;
   };
   try {
     if (!navigator.gpu) return no('this browser has no WebGPU');
-    if (!force) {
+    // A device lost a moment ago is not tried again (see lostBefore()), unless the route was asked for by name.
+    if (!force && !byName) {
       const before = lostBefore();
       if (before) return no(before);
     }
-    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-    if (!adapter) return no('WebGPU found no graphics adapter');
+    const adapter = await navigator.gpu.requestAdapter(compat ? { featureLevel: 'compatibility' } : { powerPreference: 'high-performance' });
+    if (!adapter) return no(compat ? 'WebGPU found no compatibility mode adapter' : NO_ADAPTER);
     const info = adapter.info ?? {};
     const software = info.isFallbackAdapter ?? adapter.isFallbackAdapter ?? /swiftshader|llvmpipe|software/i.test(`${info.architecture} ${info.description}`);
     if (software && !force) return no('the only WebGPU adapter is a software one');
-    const device = await adapter.requestDevice();
-    const gpu = { device, adapter, format: navigator.gpu.getPreferredCanvasFormat(), lost: false, software: !!software };
+    const device = await adapter.requestDevice(features ? { requiredFeatures: OPTIONAL_FEATURES.filter((name) => adapter.features.has(name)) } : undefined);
+    // A device from a core adapter always has this feature. One from a compatibility adapter has it only when asked.
+    const level = device.features.has('core-features-and-limits') ? 'core' : 'compatibility';
+    const gpu = { device, adapter, format: navigator.gpu.getPreferredCanvasFormat(), lost: false, software: !!software, level };
     device.lost.then((e) => {
       gpu.lost = true;
-      if (!force) webgpu.reason = `the WebGPU device was lost (${e.message || e.reason})`;
+      if (mine) say(`the WebGPU device was lost (${e.message || e.reason})`);
       if (!force && e.reason !== 'destroyed') rememberLoss(e.message || e.reason || 'no reason given');
       dispatchEvent(new CustomEvent('webgpulost', { detail: e }));
     });
@@ -1517,7 +1557,7 @@ async function open(force) {
         return no(problem);
       }
     }
-    if (!force) webgpu.reason = '';
+    if (mine) say('');
     return gpu;
   } catch (err) {
     return no(`WebGPU failed to start (${err.message})`);
@@ -1591,12 +1631,14 @@ function webgl2() {
  * `want` (an attribute or ?backend= value) wins when it is usable.
  */
 async function pickBackend({ want = '', order = ['webgpu', 'webgl', '2d'] } = {}) {
-  const usable = async (name) => (name === 'webgpu' ? !!(await webgpu()) : name === 'webgl' ? webgl2() : true);
+  // 'webgpu-compat' is a tier between WebGPU and WebGL for pages that list it:
+  // a compatibility mode device where no core adapter exists.
+  const usable = async (name) => (name === 'webgpu' ? !!(await webgpu()) : name === 'webgpu-compat' ? !!(await webgpu({ compat: true })) : name === 'webgl' ? webgl2() : true);
   if (want && order.includes(want) && (await usable(want))) return want;
   for (const name of order) if (await usable(name)) return name;
   return '2d';
 }
-return { webgpu, webgl2, pickBackend };
+return { OPTIONAL_FEATURES, webgpu, webgl2, pickBackend };
 })();
 
 // ---- public/lib/shader-fx.js ----
