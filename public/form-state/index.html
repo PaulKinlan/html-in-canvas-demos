@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Form effects driven by the paint event</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); touch-action: pan-y; }
+  .idea output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button { min-height: 40px; font: inherit; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* #region plain-css */
+  /* The controls as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: flex; flex-wrap: wrap; gap: 10px; align-content: start; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .plain-note { margin: 0; flex-basis: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+  /* #endregion plain-css */
+
+  /* #region ink-css */
+  #inkText { box-sizing: border-box; display: block; width: 348px; height: 168px; margin: 0; padding: 14px 16px; resize: none; border: 1px solid #c9bfa6; border-radius: 6px; outline: none; background: #f6f0df; color: #1b2a6e; caret-color: #1b2a6e; font: 22px/1.45 Georgia, 'Times New Roman', serif; }
+  /* Focus changes the border, which is inside the picture. An outline would be outside it. */
+  #inkText:focus { border-color: #1b2a6e; box-shadow: inset 0 0 0 1px #1b2a6e; }
+  /* #endregion ink-css */
+
+  /* #region dent-css */
+  #dentPanel { box-sizing: border-box; width: 300px; padding: 14px; border-radius: 16px; background: #2a2f3a; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  #dentDisplay { grid-column: 1 / -1; box-sizing: border-box; height: 48px; padding: 0 12px; border-radius: 8px; background: #0e1116; color: #9ff0b0; font: 600 24px/48px var(--mono); text-align: right; overflow: hidden; white-space: nowrap; }
+  #dentPanel button { box-sizing: border-box; height: 54px; margin: 0; border: 1px solid #596274; border-radius: 10px; outline: none; background: #454d5e; color: #fff; font: 600 20px system-ui, sans-serif; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  #dentPanel button:focus-visible { border-color: #fff; box-shadow: inset 0 0 0 2px #fff; }
+  /* The pressed style is what changes the picture. The paint handler reads :active, not this colour. */
+  #dentPanel button:active { background: #363d4b; border-color: #454d5e; }
+  /* #endregion dent-css */
+
+  /* #region tint-css */
+  #tintInput { box-sizing: border-box; display: block; width: 56px; height: 56px; margin: 0; padding: 0; border: 3px solid #222; border-radius: 50%; outline: none; background: none; overflow: hidden; cursor: pointer; }
+  #tintInput::-webkit-color-swatch-wrapper { padding: 0; }
+  #tintInput::-webkit-color-swatch { border: 0; border-radius: 50%; }
+  #tintInput:focus-visible { border-color: #fff; }
+  #tintCard { box-sizing: border-box; width: 236px; margin: 0; padding: 14px 16px; border-radius: 10px; background: #fff; color: #111; font: 15px/1.4 system-ui, sans-serif; }
+  #tintCard h3 { margin: 0 0 4px; font-size: 18px; color: #111; }
+  #tintCard p { margin: 0 0 10px; color: #333; }
+  #tintCard .chips { display: flex; gap: 6px; }
+  #tintCard .chips span { flex: 1; height: 26px; border-radius: 5px; }
+  /* #endregion tint-css */
+
+  /* #region liquid-css */
+  #liquidBar { box-sizing: border-box; display: block; width: 300px; height: 150px; margin: 0; appearance: none; border: 3px solid #5a6a80; border-radius: 26px; background: #18202b; overflow: hidden; }
+  #liquidBar::-webkit-progress-bar { background: #18202b; }
+  /* The browser's own bar is kept, faint, so that a new value changes the element's picture. */
+  #liquidBar::-webkit-progress-value { background: #ffffff14; }
+  /* #endregion liquid-css */
+
+  /* #region focus-css */
+  #focusField { box-sizing: border-box; display: block; width: 348px; height: 48px; margin: 0; padding: 0 18px; border: 1px solid var(--line); border-radius: 24px; outline: none; background: var(--card); color: var(--fg); font: 17px system-ui, sans-serif; }
+  #focusField:focus { border-color: var(--accent); }
+  #focusCanvas a.result { box-sizing: border-box; display: block; width: 170px; height: 68px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); text-decoration: none; font: 600 15px/1.3 system-ui, sans-serif; overflow: hidden; }
+  #focusCanvas a.result small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+  .plain-controls a.result { display: block; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; }
+  .plain-controls a.result small { display: block; color: var(--muted); }
+  /* #endregion focus-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Form effects driven by the paint event</h1>
+  <p class="lede">
+    Five form ideas from the <a href="/elements/">element catalogue</a>. In each one the effect has no listener on the control. A key press, a
+    pressed button, a new colour, a new progress value or a focus ring changes the control's picture, the browser raises <code>paint</code> on
+    the canvas, and the paint handler reads the control's state (<code>value</code>, <code>:active</code>, <code>position</code>,
+    <code>:focus</code>) and draws the effect from it. The question is how far that goes before a listener is needed. It went all the way
+    for four of the five. The pressed button needed a listener for touch.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#ink">Ink per keystroke</a><a href="#dent">Button that dents</a><a href="#tint">Colour input as a lamp</a><a href="#liquid">Liquid progress</a><a href="#focus">Search that sets the page aside</a>
+  </nav>
+
+  <section class="idea" id="ink">
+    <h2>Per-keystroke ink</h2>
+    <p>A <code>&lt;textarea&gt;</code>. Tap it and type. Each new letter arrives wet: the canvas draws the textarea a second time, blurred and enlarged, in a circle at the letter, and a stain spreads and dries.</p>
+    <canvas id="inkCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 196px">
+      <textarea id="inkText" drawable name="note" aria-label="Note" spellcheck="false" autocomplete="off" placeholder="Type here">Dear canvas, </textarea>
+    </canvas>
+    <output class="line" id="inkOut"></output>
+    <p class="found">The wet letter is the textarea's own picture, drawn again through a blur filter. The place of the letter comes from a range over the textarea's value. Deleting makes no ink, because the handler only acts when the value got longer.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/form-state/ink.js#ink"><b>Compare the value's length in the paint handler and draw the ink.</b></li>
+      <li data-code="#ink-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="dent">
+    <h2>Button press that dents the surface</h2>
+    <p>A keypad of real buttons. Press and hold one: the panel sinks round it. Let go, and a ring travels out across the other keys. Space or Enter on a focused key does the same. The line under the canvas counts which route reported each press.</p>
+    <canvas id="dentCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 356px">
+      <!-- #region dent-html -->
+      <div id="dentPanel" drawable role="group" aria-label="Keypad">
+        <output id="dentDisplay" aria-label="Entered digits"></output>
+        <button type="button" value="1">1</button><button type="button" value="2">2</button><button type="button" value="3">3</button>
+        <button type="button" value="4">4</button><button type="button" value="5">5</button><button type="button" value="6">6</button>
+        <button type="button" value="7">7</button><button type="button" value="8">8</button><button type="button" value="9">9</button>
+        <button type="button" value="clear" aria-label="Clear">C</button><button type="button" value="0">0</button><button type="button" value=".">.</button>
+      </div>
+      <!-- #endregion dent-html -->
+    </canvas>
+    <output class="line" id="dentOut"></output>
+    <p class="found">While the surface moves, the panel is drawn as a mesh of 144 triangles, each a clipped draw of the same element with its own affine transform. The keys are still the buttons: a draw that is clipped away at the end puts the hit region back on the flat panel.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#dent-html"><b>One <code>drawable</code> panel that holds the buttons.</b></li>
+      <li data-code="/form-state/dent.js#dent"><b>Read <code>:active</code> in the paint handler and draw the panel as a mesh.</b></li>
+      <li data-code="/form-state/dent.js#dent-touch"><b>The second route, for a touch press.</b></li>
+      <li data-code="#dent-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="tint">
+    <h2>Colour input that recolours its own scene</h2>
+    <p>The round lamp is an <code>&lt;input type="color"&gt;</code>. Tap it to choose a colour, or use the buttons, which only write its <code>value</code>. The light on the wall and on the card is that colour.</p>
+    <canvas id="tintCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 260px">
+      <input id="tintInput" drawable type="color" name="light" value="#ffd9a0" aria-label="Colour of the light">
+      <div id="tintCard" drawable>
+        <h3>Paint sample</h3>
+        <p>White card, black text and four pigments.</p>
+        <div class="chips"><span style="background:#e63946"></span><span style="background:#f4d35e"></span><span style="background:#2a9d8f"></span><span style="background:#3a56d4"></span></div>
+      </div>
+    </canvas>
+    <div class="controls">
+      <button type="button" data-tint="#ffd9a0">Warm</button><button type="button" data-tint="#9fd0ff">Cool</button><button type="button" data-tint="#ff3b6b">Red</button><button type="button" data-tint="#62f0a0">Green</button><button type="button" data-tint="#ffffff">White</button>
+    </div>
+    <output class="line" id="tintOut"></output>
+    <p class="found">The card is drawn in its own colours and then multiplied by the light, so a red light turns the green and blue pigments nearly black. The input is drawn last, so it shows the colour that was chosen and not the lit one.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/form-state/tint.js#tint"><b>Read <code>input.value</code> in the paint handler and multiply the scene by it.</b></li>
+      <li data-code="#tint-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="liquid">
+    <h2>Liquid progress bar</h2>
+    <p>A <code>&lt;progress&gt;</code> element drawn as a tank. The buttons write its <code>value</code>, or remove it to make the bar indeterminate. The level follows on a spring and the surface is stirred by how fast it moves.</p>
+    <canvas id="liquidCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 250px">
+      <progress id="liquidBar" drawable max="100" value="35" aria-label="Upload">35%</progress>
+    </canvas>
+    <div class="controls">
+      <button type="button" id="liquidAdd">Add 15</button><button type="button" id="liquidEmpty">Empty</button><button type="button" id="liquidUnknown">Indeterminate</button><button type="button" id="liquidUpload">Simulate an upload</button>
+    </div>
+    <output class="line" id="liquidOut"></output>
+    <p class="found">The tank's outline is the element's own: the element is drawn first and the liquid is filled with <code>source-atop</code>, which keeps it inside the pixels the element painted. The percentage is read from <code>progress.position</code>.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="/form-state/liquid.js#liquid"><b>Read <code>position</code> in the paint handler and fill inside the element's picture.</b></li>
+      <li data-code="#liquid-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <section class="idea" id="focus">
+    <h2>Search field that focuses the scene</h2>
+    <p>A search field above six links. Tap the field: the links blur, dim and shrink. Type, for example <kbd>se</kbd>, and the links whose text matches come back sharp. Tap outside the field to leave it.</p>
+    <canvas id="focusCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 324px">
+      <!-- #region focus-html -->
+      <input id="focusField" drawable type="search" name="q" placeholder="Search these pages" aria-label="Search these pages" autocomplete="off" enterkeyhint="search">
+      <a class="result" drawable href="/start/">Start<small>The raw API in 60 lines</small></a>
+      <a class="result" drawable href="/elements/">Elements<small>180 elements in a canvas</small></a>
+      <a class="result" drawable href="/select/">Select<small>Pickers drawn by a canvas</small></a>
+      <a class="result" drawable href="/selection/">Selection<small>Highlight effects</small></a>
+      <a class="result" drawable href="/lens/">Lens<small>Fourteen magnifiers</small></a>
+      <a class="result" drawable href="/instruments/">Instruments<small>Controls as machines</small></a>
+      <!-- #endregion focus-html -->
+    </canvas>
+    <output class="line" id="focusOut"></output>
+    <p class="found">The links are real links at every stage, and a blurred link can still be tapped. The focus ring that widens round the field is drawn by the canvas, because an outline is outside an element's picture.</p>
+    <details class="show-code"><summary>Show the code</summary><ol>
+      <li data-code="#focus-html"><b>The field and each link are <code>drawable</code> children of the canvas.</b></li>
+      <li data-code="/form-state/focus.js#focus"><b>Read <code>:focus</code> and the value in the paint handler, and blur what does not match.</b></li>
+      <li data-code="#focus-css"><b>Styles.</b></li>
+    </ol></details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>The browser raises <code>paint</code> on a drawable canvas when the picture of one of its <code>drawable</code> descendants changes. Typing changes a textarea's picture, <code>:active</code> and <code>:focus</code> styles change a button's or a field's, and a new <code>value</code> changes a colour swatch or a progress bar. So the paint handler is called at the moments an effect needs, and it can read the state from the control:</p>
+  <ul>
+    <li><b>The handler compares.</b> <code>paint</code> says that something changed, and <code>event.changedElements</code> says which element, but not what. The ink demo keeps the last length of the value, the dent demo keeps whether a button was active, and the others ease towards the current state.</li>
+    <li><b>The state must be in the picture.</b> A state that changes no pixel raises no <code>paint</code>. The pressed style of the keys, the focus border of the fields and the faint browser bar inside the tank are there for that reason.</li>
+    <li><b>Animation is asked for from inside the handler.</b> While an effect is still moving, the handler asks for one more <code>paint</code> with <code>requestPaint()</code> in the next frame. When it has settled the page draws nothing until the control changes again.</li>
+    <li><b>Extra draws move the hit region.</b> The ink and the dent draw their element several times with different transforms, and input goes to the place of the last draw. Each ends with a draw that is clipped away completely at the flat position.</li>
+  </ul>
+  <details class="show-code"><summary>Show the code</summary><ol>
+    <li data-code="/form-state/kit.js#mount"><b>The paint loop and the draw helpers shared by the five demos.</b></li>
+    <li data-code="#start"><b>Each demo starts when its section comes near the screen.</b></li>
+    <li data-code="/form-state/kit.js#lost"><b>A lost context stops every demo.</b></li>
+    <li data-code="/form-state/kit.js#plain"><b>The controls are then shown as plain HTML.</b></li>
+  </ol></details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>The checks wait for a tap. Each one builds its own small canvas in a corner of the window, and none of them touches the demos above. Pixels are read from a <code>drawImage()</code> copy, not from the drawable canvas.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-21, with a mouse, a keyboard and emulated touch. Not yet run on a phone.</p>
+  <ul class="findings">
+    <li><b>Four of the five effects need no listener.</b> Typing, a value written by script, a new colour, a new progress value, focus and blur each raised <code>paint</code>, and the handler read the state from the control. After each effect settled the page drew nothing: 0 paint events in 0.8 s for the lamp and the tank, and 2 in 0.7 s for the textarea, whose caret blinks.</li>
+    <li><b>A touch press did not set <code>:active</code> on a button drawn in a canvas.</b> With a mouse and with Space on a focused key the button matched <code>:active</code> and the dent ran from <code>paint</code> alone. With an emulated touch press held for 0.45 s no button matched <code>:active</code>, though the tap still clicked the key. A button outside the canvas matched <code>:active</code> for about 20 ms after the same touch. The dent has a <code>pointerdown</code> listener as a second route, and the line under the demo counts which route saw each press.</li>
+    <li><b>A state that changes no pixel raises no <code>paint</code>.</b> A hidden input's value and an attribute with no style changed with no paint event. The pressed style, the focus border and the faint browser bar in the tank are what make the state visible to the canvas.</li>
+    <li><b><code>event.changedElements</code> names the control.</b> It held the textarea after its value changed and the colour input after its value changed. It says which element changed, not what changed, so the handler keeps the last value to compare.</li>
+    <li><b><code>ctx.filter</code> applies to <code>drawElementImage()</code>.</b> A box drawn through <code>blur(6px)</code> had alpha 42 at 5 px outside its edge. The wet ink and the links set aside by the search are the element drawn again through a blur.</li>
+    <li><b><code>createValueRange()</code> gives the box of a typed character at the drawn place.</b> The ink is put at the middle of that box. The textarea is drawn several times with different scales, so the box is read before the extra draws of the next frame move it.</li>
+    <li><b>A draw inside an empty clip moves the hit region and adds no pixels.</b> The ink and the dent end each frame with one at the flat position. After the ink, a tap near the start of the first line put the caret at index 1.</li>
+    <li><b>A triangle mesh bends a panel of buttons in a 2D context.</b> 144 clipped draws of the same element, each with the affine transform of its triangle. A clip 0.6 px larger than each triangle hides most of the lines between neighbours. Faint diagonal lines can still be seen on the dark panel.</li>
+    <li><b><code>source-atop</code> after one draw of an element keeps later fills inside its picture.</b> The liquid has the rounded outline of the <code>&lt;progress&gt;</code> element with no clip path: alpha 0 in the rounded corner.</li>
+    <li><b>Removing <code>value</code> from a <code>&lt;progress&gt;</code> raises <code>paint</code></b> with <code>appearance: none</code> too (1 event), and <code>position</code> is then -1. The browser's own indeterminate look raised 4 paint events in 0.5 s.</li>
+    <li><b>A link drawn blurred and dimmed is still found at its drawn place</b> by <code>elementFromPoint()</code>.</li>
+    <li><b>Not verified:</b> everything on a phone. In particular whether a touch press sets <code>:active</code> on Chrome 159 on Android (the line under the keypad says), the on-screen keyboard over the ink and the search field, the Android colour dialog opened from the drawn lamp, and the speed of 144 draws per frame.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  // A demo's script is loaded and started the first time its section comes near the screen.
+  const started = new Set();
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting || started.has(e.target.id)) continue;
+      started.add(e.target.id);
+      watch.unobserve(e.target);
+      import(`./${e.target.id}.js`).then((m) => m.default()).catch((err) => console.error(e.target.id, err));
+    }
+  }, { rootMargin: '100px 0px' });
+  if (supported) document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const need = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+  // A fixture canvas on the test stage. paint(ctx, canvas, event) runs on every paint event.
+  async function rig(html, paint, w = 240, h = 120) {
+    need();
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = w; canvas.height = h;
+    canvas.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    const ctx = canvas.getContext('2d');
+    const state = { canvas, ctx, paints: 0, error: null, changed: [] };
+    canvas.addEventListener('paint', (event) => {
+      state.paints++;
+      state.changed.push([...(event.changedElements ?? [])]);
+      ctx.reset();
+      try { paint(ctx, canvas, event); state.error = null; } catch (e) { state.error = e; }
+    });
+    state.frame = async () => { const n = state.paints; canvas.requestPaint(); for (let i = 0; i < 80 && state.paints === n; i++) await sleep(25); await sleep(40); };
+    for (let i = 0; i < 12; i++) { await state.frame(); if (state.paints && !state.error) break; }
+    if (state.error) throw state.error;
+    await sleep(120);
+    return state;
+  }
+  // Pixels are read from a small copy made with drawImage(), never from the drawable canvas itself.
+  const copy = document.createElement('canvas');
+  const read = (state, x, y, w = 1, h = 1) => {
+    copy.width = w; copy.height = h;
+    const c2 = copy.getContext('2d');
+    c2.drawImage(state.canvas, x, y, w, h, 0, 0, w, h);
+    return c2.getImageData(0, 0, w, h).data;
+  };
+  const draw = (ctx, el, x = 0, y = 0) => ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
+  const q = (state, sel) => state.canvas.querySelector(sel);
+  // Change something, wait, and report the paint events that followed with no requestPaint().
+  const after = async (state, change, ms = 350) => {
+    const n = state.paints;
+    await change();
+    await sleep(ms);
+    return { count: state.paints - n, changed: state.changed.slice(n).flat() };
+  };
+  const names = (list) => [...new Set(list.map((el) => `<${el.localName}>`))].join(', ') || 'none';
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'Setting a textarea\'s value raises paint, and changedElements holds the textarea',
+      why: 'The ink demo has no input listener. It depends on a paint event after the value changes. The check writes value from script, with no requestPaint(), and reads event.changedElements.',
+      run: async () => {
+        const s = await rig('<textarea drawable style="width:200px;height:80px;margin:0;font:16px system-ui">abc</textarea>', (ctx, c) => draw(ctx, c.querySelector('textarea'), 10, 10));
+        const area = q(s, 'textarea');
+        const r = await after(s, () => { area.value = 'abcd'; });
+        if (!r.count) throw new Error('no paint event after the value changed');
+        if (!r.changed.includes(area)) throw new Error(`changedElements held ${names(r.changed)}`);
+        return `${r.count} paint event(s). changedElements: ${names(r.changed)}.`;
+      },
+    },
+    {
+      name: 'A value that changes no pixel raises no paint',
+      why: 'The effects only see a change that is in the picture. A hidden input and an attribute with no style are changed, and the check expects no paint event for either.',
+      run: async () => {
+        const s = await rig('<div drawable style="width:200px;height:60px;background:#246"><input type="hidden" value="a"></div>', (ctx, c) => draw(ctx, c.querySelector('div'), 10, 10));
+        const box = q(s, 'div');
+        const r1 = await after(s, () => { q(s, 'input').value = 'b'; });
+        const r2 = await after(s, () => { box.setAttribute('data-state', 'on'); });
+        if (r1.count || r2.count) throw new Error(`paint events: hidden input ${r1.count}, attribute ${r2.count}`);
+        return 'No paint event after a hidden input changed value, and none after an attribute with no style changed.';
+      },
+    },
+    {
+      name: 'A range over a textarea\'s value gives the box of one character at its drawn place',
+      why: 'The ink is drawn at the letter that was typed. createValueRange(i, i + 1).getBoundingClientRect() must return a box inside the drawn textarea, and a later character on the same line must be further right.',
+      run: async () => {
+        const s = await rig('<textarea drawable style="width:200px;height:80px;margin:0;padding:8px;border:1px solid #888;font:18px monospace">abcdefgh</textarea>', (ctx, c) => draw(ctx, c.querySelector('textarea'), 20, 20));
+        const area = q(s, 'textarea');
+        if (!area.createValueRange) throw new Error('this browser has no createValueRange()');
+        const field = area.getBoundingClientRect(), cb = s.canvas.getBoundingClientRect();
+        const b = area.createValueRange(1, 2).getBoundingClientRect(), g = area.createValueRange(6, 7).getBoundingClientRect();
+        if (!b.width) throw new Error('the range has an empty box');
+        if (Math.abs(field.left - cb.left - 20) > 1.5) throw new Error(`the textarea is reported ${(field.left - cb.left).toFixed(1)} px into the canvas, drawn at 20`);
+        if (b.left < field.left || b.right > field.right || g.left - b.left < 40) throw new Error(`boxes: b at ${b.left.toFixed(1)}, g at ${g.left.toFixed(1)}, field ${field.left.toFixed(1)} to ${field.right.toFixed(1)}`);
+        return `"b" is ${(b.left - field.left).toFixed(1)} px into the textarea and "g" is ${(g.left - field.left).toFixed(1)} px, each ${b.width.toFixed(1)} px wide. The textarea is reported where it was drawn.`;
+      },
+    },
+    {
+      name: 'ctx.filter applies to drawElementImage()',
+      why: 'The wet ink and the links set aside by the search are an element drawn through a blur filter. A black box on a transparent canvas is drawn with blur(6px). A pixel 5 px outside its edge must be partly covered.',
+      run: async () => {
+        const s = await rig('<div drawable style="width:80px;height:60px;background:#000"></div>', (ctx, c) => { ctx.filter = 'blur(6px)'; draw(ctx, c.querySelector('div'), 60, 30); });
+        const outside = read(s, 54, 60)[3], inside = read(s, 100, 60)[3], far = read(s, 20, 60)[3];
+        if (!(outside > 10 && outside < 245)) throw new Error(`alpha 5 px outside the edge is ${outside}`);
+        if (inside < 240 || far > 4) throw new Error(`alpha inside ${inside}, far outside ${far}`);
+        return `Alpha is ${inside} inside the box, ${outside} at 5 px outside its edge and ${far} at 40 px.`;
+      },
+    },
+    {
+      name: 'A draw that is clipped away completely still moves the hit region',
+      why: 'The ink and the dent end with such a draw to put input back at the flat position. A button is drawn at 120,60, then drawn again at 10,10 inside an empty clip. Its pixels must be at the first place and elementFromPoint() must find it at the second.',
+      run: async () => {
+        const s = await rig('<button drawable type="button" style="width:80px;height:40px;margin:0;border:0;background:#c00;color:#fff">go</button>', (ctx, c) => {
+          const b = c.querySelector('button');
+          draw(ctx, b, 120, 60);
+          ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 0, 0); ctx.clip(); draw(ctx, b, 10, 10); ctx.restore();
+        });
+        const button = q(s, 'button'), cb = s.canvas.getBoundingClientRect();
+        const drawn = read(s, 125, 65), empty = read(s, 15, 15);
+        if (drawn[3] < 200 || empty[3] > 4) throw new Error(`alpha at the first place ${drawn[3]}, at the second ${empty[3]}`);
+        const at2 = document.elementFromPoint(cb.left + 50, cb.top + 30), at1 = document.elementFromPoint(cb.left + 160, cb.top + 80);
+        if (at2 !== button) throw new Error(`elementFromPoint at the clipped draw returned ${at2?.localName ?? 'nothing'}`);
+        if (at1 === button) throw new Error('the button is still found where its pixels are');
+        return `Pixels at 120,60 only. elementFromPoint() returns the button at 10,10 and <${at1?.localName}> where the pixels are.`;
+      },
+    },
+    {
+      name: 'A colour input shows a value set from script, and that raises paint',
+      why: 'The lamp buttons only write input.value. The check writes #00c800 and expects a paint event and a mostly green pixel in the middle of the drawn swatch.',
+      run: async () => {
+        const s = await rig('<input drawable type="color" value="#c80000" style="width:80px;height:50px;margin:0">', (ctx, c) => draw(ctx, c.querySelector('input'), 20, 20));
+        const input = q(s, 'input');
+        const before = read(s, 60, 45);
+        const r = await after(s, () => { input.value = '#00c800'; });
+        if (!r.count) throw new Error('no paint event after the value changed');
+        const px = read(s, 60, 45);
+        if (!(px[1] > 150 && px[0] < 60)) throw new Error(`the swatch pixel is ${px[0]},${px[1]},${px[2]}`);
+        return `Swatch pixel ${before[0]},${before[1]},${before[2]} before and ${px[0]},${px[1]},${px[2]} after. ${r.count} paint event(s), changedElements: ${names(r.changed)}.`;
+      },
+    },
+    {
+      name: 'progress.value raises paint, and source-atop keeps a fill inside the element\'s picture',
+      why: 'The tank writes value and expects a paint event. Its liquid is a fill over the whole canvas with source-atop after the element is drawn. A pixel inside the rounded bar must take the fill colour and a pixel in the cut-off corner must stay transparent.',
+      run: async () => {
+        const s = await rig('<progress drawable max="100" value="20" style="display:block;appearance:none;box-sizing:border-box;width:160px;height:80px;margin:0;border:0;border-radius:40px;background:#123;overflow:hidden"></progress>', (ctx, c) => {
+          draw(ctx, c.querySelector('progress'), 20, 20);
+          ctx.globalCompositeOperation = 'source-atop'; ctx.fillStyle = '#f0f'; ctx.fillRect(0, 0, 240, 120);
+        });
+        const bar = q(s, 'progress');
+        const r = await after(s, () => { bar.value = 70; });
+        if (!r.count) throw new Error('no paint event after value changed');
+        const inside = read(s, 100, 60), corner = read(s, 23, 23), outside = read(s, 5, 5);
+        if (!(inside[0] > 200 && inside[1] < 60 && inside[3] > 240)) throw new Error(`inside pixel is ${[...inside]}`);
+        if (corner[3] > 30 || outside[3] > 4) throw new Error(`alpha in the corner ${corner[3]}, outside ${outside[3]}`);
+        return `${r.count} paint event(s) for value 70, position ${bar.position}. Inside ${inside[0]},${inside[1]},${inside[2]}, alpha ${corner[3]} in the rounded corner and ${outside[3]} outside.`;
+      },
+    },
+    {
+      name: 'Removing value from a progress element: position is -1, and whether paint is raised',
+      why: 'The tank shows an indeterminate bar by reading position < 0 in the paint handler. That only works if the change raises paint. The check removes the attribute and reports the count for a bar with appearance: none and for a bar with the browser\'s own look.',
+      run: async () => {
+        const s = await rig('<progress id="a" drawable max="100" value="50" style="display:block;appearance:none;width:160px;height:24px;margin:0"></progress><progress id="b" drawable max="100" value="50" style="display:block;width:160px;height:24px;margin:0"></progress>', (ctx, c) => {
+          draw(ctx, c.querySelector('#a'), 20, 10); draw(ctx, c.querySelector('#b'), 20, 60);
+        });
+        const a = q(s, '#a'), b = q(s, '#b');
+        const ra = await after(s, () => a.removeAttribute('value'), 500);
+        const rb = await after(s, () => b.removeAttribute('value'), 500);
+        if (a.position !== -1 || b.position !== -1) throw new Error(`position is ${a.position} and ${b.position}`);
+        if (!ra.count) throw new Error(`no paint for the bar with appearance: none (browser look: ${rb.count})`);
+        return `position -1 for both. Paint events in 0.5 s: ${ra.count} with appearance: none, ${rb.count} with the browser's look.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
