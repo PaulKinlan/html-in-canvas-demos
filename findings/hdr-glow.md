@@ -54,7 +54,15 @@ Reported by the project owner with a screenshot of the first version of the page
 | The interval | 1.5 s, which was the interval of the page's status readback (`getImageData()` with `pixelFormat: 'rgba-float16'`, four 1 by 1 reads). Chrome's own retry of a lost 2D context could give a similar rhythm, so the readback is suspected, not shown, as the cause. |
 | The readback after the first loss | 0.00 for every sample. |
 
-What the page does now: it reads floats back only when "Read values back" is pressed or the map view is chosen (one read, not one per frame), its live checks wait for a tap, and when a float16 context is lost it moves the panel into a new canvas with an 8-bit context and says whether a readback came in the 2.5 seconds before. The loss is remembered for the tab in `sessionStorage`; "Use float16 again" clears it. The fallback was tested in the test browser with a dispatched `contextlost` event, not with a real loss.
+Second report, same phone, after the readback became a button (PR 75): the panel was drawn and stayed until the map view was chosen. The page's notice then read "The float16 canvas lost its context on this device (right after a float readback with getImageData(), 5.3 s after load)". The screen line read "dynamic-range high, colour gamut srgb".
+
+| Result | Label |
+|---|---|
+| `getImageData()` with `pixelFormat: 'rgba-float16'` on a float16 Display P3 2D canvas loses that context, and the other float16 2D contexts on the page with it | reported, A159, twice: on a 1.5 s timer, and once on demand |
+| Drawing elements into the float16 canvas with no readback does not lose it | reported, A159 ("it worked for a bit") |
+| The phone's screen matches `(dynamic-range: high)` | reported, A159 |
+
+What the page does now: it reads floats back only when "Read values back" is pressed or the map view is chosen, and its live checks wait for a tap. When a float16 context is lost within 2.5 seconds of a readback, the panel moves into a new float16 canvas, and readback and the map view are switched off on that device (`localStorage`). When it is lost with no readback before, the new canvas is 8-bit and the notice says so (`sessionStorage`). "Reset and reload" clears both. Both paths were tested in the test browser with a dispatched `contextlost` event, not with a real loss.
 
 ## Things that bit
 
@@ -67,7 +75,8 @@ What the page does now: it reads floats back only when "Read values back" is pre
 - Whether values above 1.0 in a 2D canvas reach an HDR screen above standard white in Chrome 157 to 159, and whether `toneMapping: extended` is needed for it. To verify: open `/hdr-glow/` on an HDR phone with "As stored" selected. The white strip holds the word BRIGHTER at headroom times white; if it can be read, the range is shown.
 - The effect of `dynamic-range-limit` on the canvas element. The page has a select for it.
 - `(dynamic-range: high)` on the test phone. The page prints what the screen reports.
-- Why the float16 contexts are lost on the phone: the float readback, the float16 canvas itself, or the GPU process. The notice on the page after the next loss separates the first from the other two.
+- Whether an 8-bit readback (`getImageData()` with no `pixelFormat`) of a float16 canvas also loses the context on the phone, and whether the loss is a GPU process crash. Not tried.
+- Whether a new float16 canvas made right after the loss works on the phone. The first report's log (losses every 1.5 s, each after a restore) suggests a restored context draws again.
 - Speed of the repaint (about 15 a second, every frame during a deploy) and of the map view's full readback on a phone.
 
 ## Open ideas
@@ -83,7 +92,7 @@ What the page does now: it reads floats back only when "Read values back" is pre
 
 ## Chromium bugs
 
-- Chrome 159 on Android: float16 Display P3 2D contexts with drawn elements are lost repeatedly (reported, A159, `/hdr-glow/`). Needs a reduced page before filing.
+- Chrome 159 on Android: `getImageData(…, { pixelFormat: 'rgba-float16' })` on a float16 Display P3 2D canvas loses every float16 2D context on the page (reported, A159, `/hdr-glow/`). Needs a reduced page, without HTML-in-canvas if it still reproduces, before filing.
 
 ## API requests
 

@@ -100,7 +100,7 @@
     </fieldset>
     <label><code>dynamic-range-limit</code> <select id="limit"><option>no-limit</option><option>constrained</option><option>standard</option></select></label>
     <button id="read" type="button">Read values back</button>
-    <button id="retry" type="button" disabled>Use float16 again</button>
+    <button id="retry" type="button" disabled>Reset and reload</button>
   </div>
   <p id="screen">&nbsp;</p>
 
@@ -111,7 +111,7 @@
       <li data-code="#hdr-css"><b>The CSS route.</b> Colours whose components are multiplied by a custom property.</li>
       <li data-code="#markup"><b>The markup.</b> <code>data-glow</code> marks the two elements that the canvas raises.</li>
       <li data-code="#paint"><b>On <code>paint</code>.</b> Draw the panel, raise the marked elements, then apply the chosen view.</li>
-      <li data-code="#fallback"><b>The fallback.</b> If the float context is lost, the panel moves to a new canvas with an 8-bit context.</li>
+      <li data-code="#fallback"><b>The fallback.</b> If the float context is lost after a readback, the panel moves to a new float16 canvas and readback is switched off. After any other loss the new canvas is 8-bit.</li>
       <li data-code="#glow"><b>The canvas route.</b> A <code>multiply</code> fill over the element's box and a halo from a canvas shadow.</li>
     </ol>
   </details>
@@ -129,7 +129,7 @@
     "As stored" when the screen reports <code>dynamic-range: high</code> and "Exposed down" otherwise.</p>
 
   <h2>Live checks</h2>
-  <p>These run on their own small canvases in the corner of the window. They wait for a tap, because they read float pixels back and open a WebGL and a WebGPU context, and the float canvas was lost on the test phone. Rows marked as expected failures record what the API clamps or refuses in the browser that wrote this page.</p>
+  <p>These run on their own small canvases in the corner of the window. They wait for a tap, because they read float pixels back and open a WebGL and a WebGPU context. On the test phone a float readback loses every float16 context on the page, so running them there also replaces the demo's canvas. Rows marked as expected failures record what the API clamps or refuses in the browser that wrote this page.</p>
   <table class="results"><tbody id="tests"></tbody></table>
 
   <h2>Findings</h2>
@@ -144,7 +144,8 @@
     <li>WebGL and WebGPU do not receive the values. <code>texElementSubImage2D()</code> raises <code>INVALID_OPERATION</code> for an RGBA16F texture, and <code>drawElementImageToTexture()</code> into an
       <code>rgba16float</code> texture stores 1.0 for a CSS value of 3.0. On those routes a shader has to decide which pixels to raise.</li>
     <li><code>toneMapping: { mode: 'extended' }</code> is accepted by the 2D context and reported back as <code>standard</code> in Chromium 157 without the experimental features flag. The line under the controls prints what this browser reports.</li>
-    <li>On Chrome 159 on an Android phone the float16 2D contexts on this page were lost about every 1.5 seconds, the visible canvas and the check fixtures together. The first version of the page read float pixels back on that interval. The page now reads back only when asked, and moves the panel to an 8-bit canvas if the float context is lost; the notice then says whether a readback came just before.</li>
+    <li>On Chrome 159 on an Android phone, <code>getImageData()</code> with <code>pixelFormat: 'rgba-float16'</code> loses the float16 2D context, and every other float16 context on the page with it. The first version of the page read back every 1.5 seconds and was lost every 1.5 seconds. With readback on a button, the canvas was lost "right after a float readback" when the map view was chosen. Drawing alone did not lose it. After such a loss the page now starts a new float16 canvas and switches readback and the map view off on that device.</li>
+    <li>That phone reports <code>dynamic-range: high</code>.</li>
     <li>Not verified: whether the values reach the screen above standard white. The test browser has no HDR output. The white strip in the demo answers it on the device that opens the page.</li>
   </ul>
 </main>
@@ -160,7 +161,7 @@
   const slider = document.getElementById('headroom'), sliderOut = document.getElementById('headroom-out'), limit = document.getElementById('limit');
   const deploy = document.getElementById('deploy'), badge = document.getElementById('badge'), fill = document.getElementById('fill');
   const retry = document.getElementById('retry'), readButton = document.getElementById('read');
-  let sizes = null;
+  let sizes = null, view = 'screen', map = null;
   const say = (text) => { notice.hidden = false; notice.textContent = text; };
 
   // #region context
@@ -174,11 +175,13 @@
   // #endregion context
 
   // #region fallback
-  // On the test phone (Chrome 159, Android) the float16 context was lost again and again. When that happens
-  // the page moves the panel into a new canvas with an ordinary 8-bit context, and remembers it for this tab.
-  const LOST_KEY = 'hdr-glow-float-lost';
+  // On the test phone (Chrome 159, Android) getImageData() with pixelFormat 'rgba-float16' loses the float16
+  // context. After such a loss the page moves the panel into a new float16 canvas and switches readback off
+  // on this device. If a float context is lost with no readback before it, the new canvas is 8-bit instead.
+  const LOST_KEY = 'hdr-glow-float-lost', READ_KEY = 'hdr-glow-readback-loses';
   const recall = () => { try { return sessionStorage.getItem(LOST_KEY); } catch { return null; } };
-  let ctx = null, attrs = {}, isFloat = false, lastRead = -1e9;
+  const readbackLoses = () => { try { return localStorage.getItem(READ_KEY); } catch { return null; } };
+  let ctx = null, attrs = {}, isFloat = false, lastRead = -1e9, swaps = 0;
   function useCanvas(target, float) {
     canvas = target;
     ctx = float ? floatContext(target) : target.getContext('2d');
@@ -186,15 +189,18 @@
     isFloat = attrs.colorType === 'float16';
     target.addEventListener('paint', onPaint);
     target.addEventListener('contextlost', onLost);
-    target.addEventListener('contextrestored', () => { if (!recall()) notice.hidden = true; target.requestPaint(); });
+    target.addEventListener('contextrestored', () => { if (!recall() && !readbackLoses()) notice.hidden = true; target.requestPaint(); });
   }
   function onLost() {
     if (!isFloat || document.hidden) { say('The canvas lost its context. It is drawn again when the browser gives it back.'); return; }
-    const when = window.__checkState === 'running' ? 'while the live checks were running'
-      : performance.now() - lastRead < 2500 ? 'right after a float readback with getImageData()'
+    const afterRead = window.__checkState === 'running' || performance.now() - lastRead < 2500;
+    const when = window.__checkState === 'running' ? 'while the live checks were reading float pixels back'
+      : afterRead ? 'right after a float readback with getImageData()'
       : 'with no readback in the 2.5 seconds before';
     const reason = `${when}, ${(performance.now() / 1000).toFixed(1)} s after load`;
-    try { sessionStorage.setItem(LOST_KEY, reason); } catch { /* private mode */ }
+    // A loss that follows a readback gets another float canvas, up to four times. Any other loss gets 8 bits.
+    const again = afterRead && ++swaps <= 4;
+    try { if (again) localStorage.setItem(READ_KEY, reason); else sessionStorage.setItem(LOST_KEY, reason); } catch { /* private mode */ }
     const next = document.createElement('canvas');
     next.id = 'canvas'; next.setAttribute('content', 'drawable'); next.setAttribute('layoutsubtree', '');
     const old = canvas;
@@ -202,9 +208,19 @@
     old.before(next);
     if (next.moveBefore) next.moveBefore(ui, null); else next.append(ui);
     old.remove();
-    useCanvas(next, false);
-    eightBit(reason);
+    useCanvas(next, again);
+    if (again && isFloat) noReadback(reason); else eightBit(reason);
     sizes?.observe(next, { box: 'device-pixel-content-box' });
+  }
+  function noReadback(reason) {
+    readButton.disabled = true; retry.disabled = false;
+    const mapChoice = document.querySelector('input[name="view"][value="map"]');
+    mapChoice.disabled = true;
+    if (view === 'map') { view = high.matches ? 'screen' : 'exposed'; document.querySelector(`input[name="view"][value="${view}"]`).checked = true; }
+    map = null;
+    readout = 'Readback is off on this device.';
+    describeScreen();
+    say(`Reading float pixels back loses the float16 context on this device (last seen ${reason}). The panel is in a new float16 canvas, and "Read values back" and the map view are off. "Reset and reload" turns them on again.`);
   }
   function eightBit(reason) {
     ui.style.setProperty('--headroom', 1);
@@ -212,13 +228,13 @@
     readout = 'The canvas is 8-bit, so there are no float pixels to read.';
     for (const input of document.querySelectorAll('input[name="view"]')) input.disabled = true;
     describeScreen();
-    say(`The float16 canvas lost its context on this device (${reason}). The panel is now in an 8-bit canvas, where every value is clamped to 1.0. "Use float16 again" reloads the page with the float canvas.`);
+    say(`The float16 canvas lost its context on this device (${reason}). The panel is now in an 8-bit canvas, where every value is clamped to 1.0. "Reset and reload" tries the float canvas again.`);
   }
   // #endregion fallback
 
   const high = matchMedia('(dynamic-range: high)'), wide = matchMedia('(color-gamut: p3)');
   let headroom = +slider.value;
-  let view = high.matches ? 'screen' : 'exposed';
+  view = high.matches ? 'screen' : 'exposed';
   document.querySelector(`input[name="view"][value="${view}"]`).checked = true;
   function describeScreen() {
     screenLine.textContent = `Screen: dynamic-range ${high.matches ? 'high' : 'standard'}, colour gamut ${wide.matches ? 'p3 or wider' : 'srgb'}. ` +
@@ -243,7 +259,6 @@
   const grey = (v) => `color(display-p3 ${v} ${v} ${v})`;
 
   let sweepStart = -1e9, busy = false, wantProbe = false, paints = 0, readout = 'Press "Read values back" to read float pixels from the canvas.';
-  let map = null, mapAt = 0;
   const SWEEP = 900;
 
   // #region glow
@@ -302,7 +317,7 @@
       // Scale everything so that the headroom value lands on 1.0.
       ctx.globalCompositeOperation = 'multiply';
       ctx.fillStyle = grey(1 / headroom); ctx.fillRect(0, 0, w, h);
-    } else if (view === 'map') {
+    } else if (view === 'map' && !readbackLoses()) {
       // One readback when the view is chosen or the headroom changes, not one per frame.
       if (!map || map.width !== canvas.width) map = falseColour();
       if (map) ctx.putImageData(map, 0, 0);
@@ -338,9 +353,15 @@
 
   // Start: the float canvas, or the 8-bit one if the float context was lost earlier in this tab.
   if (supported) {
-    const lostBefore = recall();
+    let lostBefore = recall();
+    // A loss recorded by the earlier version of this page as following a readback: try the float canvas again, without readback.
+    if (lostBefore && /readback with getImageData|live checks/.test(lostBefore)) {
+      try { localStorage.setItem(READ_KEY, lostBefore); sessionStorage.removeItem(LOST_KEY); } catch { /* private mode */ }
+      lostBefore = null;
+    }
     useCanvas(canvas, !lostBefore);
     if (lostBefore) eightBit(lostBefore);
+    else if (isFloat && readbackLoses()) noReadback(readbackLoses());
     else if (!isFloat) say('This browser did not give the canvas 16-bit float pixels. The panel is drawn, and every value is clamped to 1.0.');
   }
   describeScreen();
@@ -391,8 +412,8 @@
   });
   document.getElementById('views').addEventListener('change', (e) => { view = e.target.value; map = null; canvas.requestPaint?.(); });
   limit.addEventListener('change', () => { canvas.style.setProperty('dynamic-range-limit', limit.value); });
-  readButton.addEventListener('click', () => { wantProbe = true; canvas.requestPaint?.(); });
-  retry.addEventListener('click', () => { try { sessionStorage.removeItem(LOST_KEY); } catch { /* nothing stored */ } location.reload(); });
+  readButton.addEventListener('click', () => { if (!readbackLoses()) { wantProbe = true; canvas.requestPaint?.(); } });
+  retry.addEventListener('click', () => { try { sessionStorage.removeItem(LOST_KEY); localStorage.removeItem(READ_KEY); } catch { /* nothing stored */ } location.reload(); });
 
   // ---------------------------------------------------------------- live checks, on their own fixtures
   const SIZE = 100;
