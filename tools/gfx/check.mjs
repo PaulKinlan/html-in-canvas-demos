@@ -23,6 +23,17 @@
 //                   is written inline around it. (A loop reached through a
 //                   function call is found by check:jank, which counts the
 //                   readbacks a page makes when nobody touches it.)
+//   draw-size       drawElementImage(el, x, y) with no width and height. With no
+//                   size the element is drawn at its layout size times the
+//                   canvas's backing scale, and the context's transform is
+//                   applied on top: under ctx.scale(devicePixelRatio) it is
+//                   devicePixelRatio times too large on a phone and right in a
+//                   test browser at a ratio of 1. Pass the size in the units
+//                   of the context. Not reported where the context is plainly
+//                   unscaled: reset() on the same line or the line above, or
+//                   a call straight on getContext('2d'). A call that spreads
+//                   its arguments is not counted here; the guard measures it
+//                   when the page runs (docs/draw-size.md).
 //
 // An exception is written at the call, on the same line or the line above,
 // with the reason:
@@ -57,6 +68,22 @@ const RULES = [
   { rule: 'webgl-context', re: /getContext\(\s*['"`](?:webgl2?|experimental-webgl)['"`]/g, say: 'Another WebGL context. Draw every element on one canvas with ElementGL from /lib/element-gl.js.' },
   { rule: 'float-readback', re: /pixelFormat\s*:\s*['"`]rgba-float16['"`]/g, say: 'A float readback from a GPU canvas. It matched the losses on /hdr-glow/.' },
 ];
+const DRAW = /([\w$.#\]\[]*(?:getContext\(\s*['"`]2d['"`][^()]*\))?)\s*\.drawElementImage\s*\(/g;
+// How many arguments the call that opens at `open` (the index of its "(") has, or -1 if one of them is spread.
+function countArgs(code, open) {
+  let depth = 0, n = 0, any = false, quote = null;
+  for (let i = open; i < code.length; i++) {
+    const c = code[i];
+    if (quote) { if (c === '\\') i++; else if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'" || c === '`') { quote = c; any = true; continue; }
+    if ('([{'.includes(c)) { depth++; if (depth > 1) any = true; continue; }
+    if (')]}'.includes(c)) { if (--depth === 0) return any ? n + 1 : 0; continue; }
+    if (depth === 1 && c === ',') { n++; continue; }
+    if (depth === 1 && code.startsWith('...', i) && /[(,]\s*$/.test(code.slice(open, i))) return -1;
+    if (!/\s/.test(c)) any = true;
+  }
+  return -1;
+}
 const READ = /\b(getImageData|readPixels|mapAsync)\s*\(/g;
 const LOOP = /\b(setInterval|requestAnimationFrame)\s*\(\s*(?:async\s*)?(?:function\b[^{]*|\([^)]*\)\s*=>|\w+\s*=>)\s*\{/g;
 
@@ -118,6 +145,17 @@ export async function checkGfx(root) {
       (why ? allowed : problems).push({ file: rel, line, rule, say, why, text: lines[line - 1].trim().slice(0, 110) });
     };
     for (const { rule, re, say } of RULES) for (const m of code.matchAll(re)) hit(rule, lineOf(m.index), say);
+    for (const m of code.matchAll(DRAW)) {
+      const n = countArgs(code, m.index + m[0].length - 1);
+      if (n < 0 || n >= 5) continue;
+      const line = lineOf(m.index + m[0].length - 1);
+      // Plainly unscaled: a context taken and used in one expression, or reset() just before with no scale after it.
+      if (/getContext\(\s*['"`]2d['"`][^()]*\)$/.test(m[1])) continue;
+      const before = code.split('\n').slice(Math.max(0, line - 2), line).join('\n');
+      const upTo = before.slice(0, before.lastIndexOf('.drawElementImage')), reset = upTo.lastIndexOf('.reset(');
+      if (reset >= 0 && !/\.(scale|setTransform|transform)\s*\(/.test(upTo.slice(reset))) continue;
+      hit('draw-size', line, 'drawElementImage() with no width and height. Under ctx.scale(devicePixelRatio) it is drawn that many times too large. Pass the size.');
+    }
     for (const m of code.matchAll(LOOP)) {
       const open = m.index + m[0].length - 1, body = code.slice(open, blockEnd(code, open));
       for (const r of body.matchAll(READ)) hit('timed-readback', lineOf(open + r.index), `${r[1]}() inside a ${m[1]}() callback. Read back on a tap, or from a 2D canvas made with willReadFrequently.`);

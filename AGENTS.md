@@ -66,7 +66,7 @@ Stability:
 
 API use:
 
-- Always pass a width and height to `drawElementImage()`.
+- Always pass a width and height to `drawElementImage()`, in the units of the context (`el.offsetWidth, el.offsetHeight` after `ctx.scale(dpr, dpr)`). With no size, a scaled context draws the element `devicePixelRatio` times too large on a phone and correctly in the test browser. `npm run build` fails on a three-argument call (`draw-size`), and `node tools/draw-size/audit.mjs /your-page/` measures the page at device scale 2.625. Details: [docs/draw-size.md](docs/draw-size.md).
 - After a WebGL or WebGPU draw, call `updateElementGeometry()`. After moving a hit box, toggle an attribute on the element to clear Chromium's hit-test cache.
 - Pick WebGPU only through `public/shared/backend.js`. Order: WebGPU, then WebGL, then 2D.
 - Start a page on its lightest drawing route. Open one graphics context per page where possible. Show a message or plain HTML when a canvas is blank or its context is lost.
