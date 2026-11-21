@@ -63,6 +63,7 @@ Every experiment page has an "About this experiment" box with the question it as
 | `/selection/` | `<selection-fx>`: the canvas draws the highlight of selected text (2D and shader effects), plus measurements of what the browser paints for a selection in a canvas |
 | `/tear-off/` | Widgets torn off into popups, Picture-in-Picture, unlinked tabs and other origins, with input sent back |
 | `/transports-2/` | Newer transport APIs for a drawn element: WebRTC sender settings, a data channel in a worker, shared memory under Document-Isolation-Policy, WebTransport, Element Capture, and a tab freeze test |
+| `/iframe-tiles/` | A board of iframe tiles in one canvas: `frame-sizing: content-height`, a focus policy on embedded content, cross-origin iframe prerendering, and what a canvas gets from a cross-origin iframe |
 | `/remote/` | One element streamed to a phone over WebRTC, with taps and typing sent back |
 | `/embed/` | Cross-origin cards the host distorts and restyles without DOM access |
 | `/support/` | Share one region of a page with a support agent or a vision model |

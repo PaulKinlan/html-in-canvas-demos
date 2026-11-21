@@ -901,3 +901,28 @@ Measured in Chromium 157 (headless shell). Not yet run on the test phone.
 | Selection, links and buttons during the effect | work | The quad covers the element's layout box, so `updateElementGeometry()` with an identity matrix is enough. Without that call a WebGL canvas has no hit box for the child and `elementFromPoint()` returns the canvas. |
 | Lost WebGL context | handled | The element is moved out of the canvas and shown as plain HTML with a message. It goes back when the context returns. |
 
+
+## Iframes as tiles (plan demo 22)
+
+Page: `/iframe-tiles/`. Chromium 157 (headless shell) and 153 (full browser with experimental features).
+
+| Question | Result | Notes |
+|---|---|---|
+| `frame-sizing: content-height` on a same-origin iframe | does nothing | The property parses. The iframe stays 150 px tall around a 512 px document. |
+| `window.requestResize()` in the embedded document | throws | `NotAllowedError`, "allowed only from HTML documents with responsive-embedded-sizing meta tags", in a document that has the tag. Same in 153. |
+| Height sent by `postMessage` from a `ResizeObserver` | works | The board uses this, and records per tile which method set the height. |
+| Same-origin iframe drawn with `drawElementImage()` | works | A change inside the iframe raises the canvas's `paint` event without `requestPaint()`. |
+| Cross-origin iframe drawn with `drawElementImage()` | transparent | No exception. Every pixel reads 0,0,0,0. `elementFromPoint()` and a click at the drawn place still reach the iframe. |
+| Sandboxed iframe (`sandbox="allow-scripts"`) | transparent | Same as cross-origin. |
+| Cross-origin iframe with `texElementSubImage2D()` | transparent | No GL error. A shader receives an empty texture. |
+| `allow="focus-without-user-activation 'none'"` | 153: enforced. 157 shell: not enforced | Where enforced, `focus()` on load inside the tile leaves `document.activeElement` on the page. |
+| `Supports-Loading-Mode: prerender-cross-origin-frames` | not measured | The test browsers refuse to prerender under automation (`PrerenderingDisabledByDevTools`, also after `Page.setPrerenderingAllowed`). `/iframe-tiles/prerendered` and `/iframe-tiles/prerendered-plain` report which tiles loaded before activation when a person opens them. |
+
+Consequences for a board:
+
+- A cross-origin tile needs a placeholder drawn by the board, because the person can click a document they cannot see.
+- A shader on another origin's content needs that origin to draw itself, as `/embed/` does.
+
+Browser bug: removing an iframe that is a canvas child from inside the `paint` event, or a microtask of it, crashes the tab. Calling `WEBGL_lose_context.loseContext()` there, with an iframe child in the canvas, crashed it as well. Leaving the event with `setTimeout(0)` first avoids both.
+
+Needs a person: `frame-sizing` and the focus policy on Chrome 159, and the prerender comparison.

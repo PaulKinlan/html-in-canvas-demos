@@ -259,8 +259,10 @@ These depend on a model, a trial, a newer Chrome or a larger build.
 
 #### 22. Iframes as tiles: sizing, prerender and limits
 
+- **Built:** [/iframe-tiles/](https://html-in-canvas.page/iframe-tiles/)
 - **Shows:** Board tiles that take their height from the embedded document, cross-origin tiles that are prerendered, a focus policy on embedded content, and a record of what a shader may do to a cross-origin iframe.
 - **Build:** Additions to the board and to slot-view.
+- **Measured:** In Chromium 157 and 153 frame-sizing: content-height parses and window.requestResize() exists, but the call throws NotAllowedError and the iframe stays 150 px tall, so the board sizes tiles by message. A same-origin iframe is drawn and a change inside it raises paint. A cross-origin or sandboxed iframe is drawn as transparent pixels by drawElementImage() and texElementSubImage2D(), with no error, and is still hit tested. allow="focus-without-user-activation 'none'" is enforced in 153 with experimental features and not in 157. Prerender could not run under automation.
 - **Uncertain:** Cross-origin iframe prerendering ships in Chrome 159 and needs a response header from the embedded origin.
 - **Builds on:** [/board/](https://html-in-canvas.page/board/), [/slot-view/](https://html-in-canvas.page/slot-view/), [/embed/](https://html-in-canvas.page/embed/)
 - **Features (6):** [Disable SVG filters on plugins and iFrames](https://chromestatus.com/feature/5117170452398080) (150), [Responsively-sized &lt;iframe>](https://chromestatus.com/feature/5108373464547328) (154), [Controlled Frame API (available only to IWAs)](https://chromestatus.com/feature/5199572022853632) (140), [Permissions Policy: focus-without-user-activation](https://chromestatus.com/feature/5179186249465856) (158), [Prerendering cross-origin iframes](https://chromestatus.com/feature/5112398709129216) (159), [Opening links in a split tab](https://chromestatus.com/feature/5136319775899648) (160 (origin trial))

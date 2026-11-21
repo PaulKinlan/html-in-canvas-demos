@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Iframes as tiles: sizing, focus, prerender and limits</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  #board { display: block; width: 100%; border-radius: 12px; background: var(--card); border: 1px solid var(--line); touch-action: manipulation; }
+  #board iframe { position: absolute; left: 0; top: 0; border: 0; }
+  /* #region sizing-css */
+  /* Ask for the iframe's height to come from the document inside it. */
+  #board iframe, #fixtures iframe.sized { frame-sizing: content-height; }
+  /* #endregion sizing-css */
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .controls button, #go, #pre-go { min-height: 44px; }
+  #sized-by { font: 13px var(--mono); color: var(--muted); min-height: 1.4em; }
+  /* Fixtures for the measurements: on screen so they paint, out of flow, nearly invisible. */
+  #fixtures { position: fixed; left: 8px; bottom: 8px; width: 420px; max-width: calc(100vw - 16px); height: 200px; overflow: hidden; opacity: 0.02; pointer-events: none; z-index: -1; }
+  #fixtures iframe { border: 0; display: block; width: 200px; }
+  #score { font: 14px var(--mono); }
+  .skip { color: var(--warn); }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Iframes as tiles: sizing, focus, prerender and limits</h1>
+  <p class="lede">
+    An <code>&lt;iframe&gt;</code> can be a child of a drawable canvas, and the canvas draws the whole embedded document. This page asks four things about that:
+    can a tile take its height from the document inside it, can the embedder stop a tile from taking focus, is a cross-origin tile loaded while the page is prerendered, and what does the canvas get from a cross-origin tile.
+  </p>
+
+  <canvas id="board" content="drawable" layoutsubtree aria-label="Three embedded documents drawn as tiles"></canvas>
+  <div class="controls">
+    <button type="button" data-add="a">Add a line to tile A</button>
+    <button type="button" data-add="b">Add a line to tile B</button>
+    <button type="button" data-add="c">Add a line to tile C</button>
+  </div>
+  <p id="sized-by" role="status"></p>
+  <p>Tiles A and B come from this origin. Tile C comes from <span id="c-from">another origin</span>. Each tile's height is the height of its document: press <b>Add a line</b>, here or inside a tile, and the board moves the others. Tile C is drawn as an outline with a note, because a canvas receives no pixels from a cross-origin iframe. It still takes clicks and typing where it is drawn.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>tiles that size themselves</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The tiles are iframes inside the canvas.</b></li>
+      <li data-code="#sizing-css"><b>CSS asks for content sizing.</b> Chromium 157 parses this and does nothing with it, so step 4 does the same job by message.</li>
+      <li data-code="/iframe-tiles/tile.html#meta"><b>The embedded document opts in.</b></li>
+      <li data-code="#sizing"><b>Fallback: the tile reports its height and the board applies it.</b></li>
+      <li data-code="#draw"><b>Lay the tiles out and draw them.</b></li>
+      <li data-code="/iframe-tiles/tile.html#focus"><b>What a tile does to take focus</b>, and <span data-code="#policy">the attribute that is meant to stop it</span>.</li>
+      <li data-code="/iframe-tiles/prerendered.js#tiles"><b>The prerendered page.</b></li>
+    </ol>
+  </details>
+
+  <h2>Measurements</h2>
+  <p>These run on separate fixtures in a corner of the window, not on the board. One of them moves keyboard focus into a fixture and back, so they wait for this button.</p>
+  <p><button id="go" type="button">Run the measurements</button> <span id="score" role="status"></span></p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2 id="prerender">Prerender</h2>
+  <p>
+    When a page is prerendered, its same-origin iframes load with it and its cross-origin iframes wait until the page is shown. From Chrome 159 a page sent with
+    <code>Supports-Loading-Mode: prerender-cross-origin-frames</code> has its cross-origin iframes loaded during prerender too. Two copies of a small board are compared, one sent with the header and one without.
+    Press the button, wait a few seconds, then open each link. Each page reports what had already happened when it was shown.
+  </p>
+  <p><button id="pre-go" type="button">Prerender both pages</button> <span id="pre-state" role="status"></span></p>
+  <ul>
+    <li><a href="/iframe-tiles/prerendered">Board sent with the header</a></li>
+    <li><a href="/iframe-tiles/prerendered-plain">Board sent without the header</a></li>
+  </ul>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong><code>frame-sizing: content-height</code> does not size an iframe in Chromium 157 or 153.</strong> The property parses and <code>window.requestResize()</code> exists, but the call throws <code>NotAllowedError</code> ("allowed only from HTML documents with <code>responsive-embedded-sizing</code> meta tags") in a document that has the tag, and the iframe stays 150 px tall. The board sizes tiles by message. The first two measurements pass on a browser where the CSS works.</li>
+    <li><strong>A same-origin iframe is drawn like any element.</strong> A change inside it raises the canvas's <code>paint</code> event with no <code>requestPaint()</code>.</li>
+    <li><strong>A cross-origin or sandboxed iframe is drawn as nothing.</strong> <code>drawElementImage()</code> does not throw; every pixel is transparent. <code>texElementSubImage2D()</code> gives a WebGL shader the same empty texture. The iframe is still hit tested where it was drawn, so a click reaches a document the person cannot see. A board has to draw something of its own in that place.</li>
+    <li><strong>To put a shader on another origin's content, that origin has to draw itself.</strong> The <a href="/embed/">embeddable cards</a> page does this: the provider draws its own DOM into a canvas the host lent it.</li>
+    <li><strong><code>allow="focus-without-user-activation 'none'"</code> is enforced in Chromium 153 with experimental features on, and not in the 157 test build.</strong> Where it is enforced, <code>focus()</code> on load inside the tile leaves focus with the page. Without it, a tile takes focus as soon as it loads, same-origin or not.</li>
+    <li><strong>The prerender comparison has not been measured.</strong> A browser driven by automation refuses to prerender (<code>PrerenderingDisabledByDevTools</code>), so both linked pages report that they were not prerendered. It needs a person: press the button, wait a few seconds, then open each link. Each page lists which tiles had loaded before it was shown.</li>
+    <li><strong>Removing an iframe during a <code>paint</code> event crashes the tab in Chromium 157.</strong> This includes a microtask of the handler. Losing a WebGL context there, while the canvas holds an iframe, crashed it too. The measurements on this page leave the event with a timer before they remove a fixture.</li>
+  </ul>
+
+  <div id="fixtures" aria-hidden="true"></div>
+</main>
+
+<script type="module">
+  import { banner, nav, supported, withTimeout } from '/shared/support.js';
+  import { otherOrigin } from '/lib/live-origins.js';
+  nav('/iframe-tiles/');
+  banner();
+
+  const REMOTE = otherOrigin();
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const TILE = '/iframe-tiles/tile.html';
+  /** A tile from another origin, or on a host with only one origin a sandboxed frame, which is also cross-origin. */
+  const foreign = (query) => (REMOTE ? { src: REMOTE + TILE + query, sandbox: null, what: 'cross-origin' } : { src: TILE + query, sandbox: 'allow-scripts', what: 'sandboxed' });
+  document.getElementById('c-from').textContent = REMOTE ? new URL(REMOTE).host : 'a sandboxed frame, which the browser treats as another origin (this host has no second origin)';
+
+  // ---------- the board ----------
+  const board = document.getElementById('board');
+  const sizedBy = document.getElementById('sized-by');
+  // #region markup
+  const c = foreign('?id=c&title=Tile%20C&lines=2&bg=%239fd3ff');
+  board.innerHTML = `
+    <iframe drawable id="tile-a" title="Tile A" src="${TILE}?id=a&title=Tile%20A&lines=2"></iframe>
+    <iframe drawable id="tile-b" title="Tile B" src="${TILE}?id=b&title=Tile%20B&lines=5&bg=%23c8f0c0"></iframe>
+    <iframe drawable id="tile-c" title="Tile C" src="${c.src}" ${c.sandbox ? `sandbox="${c.sandbox}"` : ''}></iframe>`;
+  // #endregion markup
+  const tiles = [...board.querySelectorAll('iframe')];
+  const how = {};
+
+  // #region sizing
+  // Each tile posts { type: 'tile', id, height } when its content changes.
+  // If the iframe is already that tall, frame-sizing did the work. If not, set the height here.
+  addEventListener('message', (e) => {
+    const tile = tiles.find((t) => t.contentWindow === e.source);
+    if (!tile || e.data?.type !== 'tile') return;
+    if (Math.abs(tile.offsetHeight - e.data.height) <= 2 && !tile.style.height) how[e.data.id] = 'frame-sizing';
+    else { tile.style.height = e.data.height + 'px'; how[e.data.id] = 'a message from the tile'; }
+    sizedBy.textContent = 'Tile heights set by: ' + Object.entries(how).map(([id, h]) => `${id.toUpperCase()} ${h}`).join(', ');
+    layout();
+  });
+  // #endregion sizing
+
+  // #region draw
+  const GAP = 14;
+  let boxes = [];
+  function layout() {
+    const width = board.clientWidth;
+    const cols = width < 520 ? 1 : width < 820 ? 2 : 3;
+    const w = Math.floor((width - GAP * (cols + 1)) / cols);
+    const tops = new Array(cols).fill(GAP);
+    boxes = tiles.map((tile) => {
+      const col = tops.indexOf(Math.min(...tops));
+      tile.style.width = w + 'px';
+      const box = { tile, x: GAP + col * (w + GAP), y: tops[col], w, h: tile.offsetHeight };
+      tops[col] += box.h + GAP;
+      return box;
+    });
+    const height = Math.max(...tops);
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    board.style.height = height + 'px';
+    if (board.width !== Math.round(width * dpr) || board.height !== Math.round(height * dpr)) { board.width = Math.round(width * dpr); board.height = Math.round(height * dpr); }
+    board.requestPaint?.();
+  }
+  const ctx = supported ? board.getContext('2d') : null;
+  board.addEventListener('paint', () => {
+    const dpr = board.width / board.clientWidth;
+    ctx.reset();
+    ctx.scale(dpr, dpr);
+    for (const { tile, x, y, w, h } of boxes) {
+      ctx.save();
+      ctx.shadowColor = '#0004'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.beginPath(); ctx.roundRect(x, y, w, h, 10); ctx.clip();
+      // Drawing a tile also tells the browser where it is, so taps land on the drawn position.
+      ctx.drawElementImage(tile, x, y, w, h);
+      if (tile.id === 'tile-c') {
+        // Nothing was drawn for this one: say so, in the place where it still takes input.
+        ctx.strokeStyle = '#2a6fb0'; ctx.setLineDash([6, 4]); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.roundRect(x + 1, y + 1, w - 2, h - 2, 10); ctx.stroke();
+        ctx.fillStyle = '#123'; ctx.font = '600 14px system-ui'; ctx.fillText('Tile C: other origin', x + 12, y + 24);
+        ctx.font = '13px system-ui'; ctx.fillText('The canvas gets no pixels from it.', x + 12, y + 44);
+        ctx.fillText('Its button and field are still here.', x + 12, y + 62);
+      }
+      ctx.restore();
+    }
+  });
+  // #endregion draw
+  if (supported) {
+    new ResizeObserver(layout).observe(board);
+    layout();
+  } else {
+    // Without the API the tiles are ordinary iframes in a column.
+    const plain = document.createElement('div');
+    plain.append(...tiles);
+    for (const t of tiles) t.style.cssText = 'position:static;display:block;width:100%;margin:0 0 10px;border-radius:10px';
+    board.replaceWith(plain);
+  }
+  for (const b of document.querySelectorAll('[data-add]')) b.onclick = () => document.getElementById('tile-' + b.dataset.add).contentWindow.postMessage({ type: 'tile-add', n: 1 }, '*');
+
+  // ---------- measurements ----------
+  const fixtures = document.getElementById('fixtures');
+  const skip = (msg) => Object.assign(new Error(msg), { skip: true });
+  /** Add an iframe to the fixture strip and wait for its tile to report. */
+  function frame({ src, sandbox, cls = '', allow, into = fixtures, css = '' }) {
+    const f = document.createElement('iframe');
+    f.title = 'fixture';
+    if (sandbox) f.setAttribute('sandbox', sandbox);
+    if (allow) f.setAttribute('allow', allow);
+    if (cls) f.className = cls;
+    f.style.cssText = css;
+    f.setAttribute('drawable', '');
+    const heard = new Promise((resolve) => addEventListener('message', function on(e) {
+      if (e.source !== f.contentWindow || e.data?.type !== 'tile') return;
+      f.last = e.data;
+      if (e.data.loaded || e.data.tried) { removeEventListener('message', on); resolve(e.data); }
+    }));
+    f.src = src;
+    into.append(f);
+    return { f, ready: withTimeout(heard, 5000) };
+  }
+  const ask = (f) => new Promise((resolve) => {
+    addEventListener('message', function on(e) { if (e.source === f.contentWindow && e.data?.type === 'tile' && 'hasFocus' in e.data) { removeEventListener('message', on); resolve(e.data); } });
+    f.contentWindow.postMessage({ type: 'tile-ask' }, '*');
+    setTimeout(() => resolve(null), 1500);
+  });
+  async function sizing(spec) {
+    const { f, ready } = frame({ ...spec, cls: 'sized' });
+    const tile = await ready;
+    await sleep(300);
+    const before = f.offsetHeight;
+    f.contentWindow.postMessage({ type: 'tile-add', n: 6 }, '*');
+    await sleep(500);
+    const grown = f.last.height;
+    if (Math.abs(before - tile.height) > 2) throw new Error(`the document is ${tile.height} px tall and the iframe stayed ${before} px (the default is 150). getComputedStyle(iframe).frameSizing is "${getComputedStyle(f).frameSizing ?? 'undefined'}"`);
+    if (Math.abs(f.offsetHeight - grown) > 2) throw new Error(`sized on load (${before} px) but did not follow the document when it grew to ${grown} px`);
+    return `iframe is ${before} px for a ${tile.height} px document, and ${f.offsetHeight} px after the document grew`;
+  }
+  /** A drawable 2D canvas holding one iframe; returns the pixel drawn for it and what a click there would hit. */
+  async function drawn(spec) {
+    const cv = document.createElement('canvas');
+    cv.setAttribute('content', 'drawable'); cv.setAttribute('layoutsubtree', '');
+    cv.width = 200; cv.height = 100; cv.style.cssText = 'width:200px;height:100px;display:block';
+    fixtures.append(cv);
+    const { f, ready } = frame({ ...spec, into: cv, css: 'width:200px;height:100px' });
+    const c2 = cv.getContext('2d', { willReadFrequently: true });
+    let paints = 0;
+    cv.addEventListener('paint', () => { paints++; c2.reset(); c2.drawElementImage(f, 0, 0, 200, 100); });
+    await ready;
+    cv.requestPaint();
+    await sleep(400);
+    const px = Array.from(c2.getImageData(190, 8, 1, 1).data);
+    // The strip ignores the pointer so it never blocks the page; switch that off for one hit test.
+    fixtures.style.pointerEvents = 'auto'; fixtures.style.zIndex = '2147483000';
+    const r = cv.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + 100, r.top + 50);
+    fixtures.style.pointerEvents = ''; fixtures.style.zIndex = '';
+    return { cv, f, px, hit: hit === f ? 'the iframe' : hit ? `<${hit.localName}>` : 'nothing', paints: () => paints };
+  }
+  const yellow = (px) => px[0] > 240 && px[1] > 190 && px[2] < 30 && px[3] > 250;
+
+  const tests = [
+    ['frame-sizing: content-height, same-origin document', 'The iframe has no height set. Its height should become the height of the document inside it.', () => sizing({ src: TILE + '?id=m1&lines=8' })],
+    ['frame-sizing: content-height, document from another origin', 'The same, across origins: the embedded document opted in with a meta tag.', () => sizing(foreign('?id=m2&lines=8'))],
+    ['Height by message', 'The fallback the board uses: the tile posts its scrollHeight and the embedder sets it.', async () => {
+      const { f, ready } = frame(foreign('?id=m3&lines=8'));
+      const tile = await ready;
+      f.style.height = tile.height + 'px';
+      await sleep(200);
+      const again = await ask(f);
+      if (Math.abs(f.offsetHeight - again.height) > 2) throw new Error(`set ${tile.height} px, the document then measured ${again.height} px`);
+      return `iframe set to ${f.offsetHeight} px from a posted height; the document has nothing to scroll`;
+    }],
+    ['A same-origin iframe drawn into a canvas', 'drawElementImage(iframe)', async () => {
+      const d = await drawn({ src: TILE + '?id=m4' });
+      if (!yellow(d.px)) throw new Error(`the pixel is ${d.px.join(',')}`);
+      const before = d.paints();
+      d.f.contentWindow.postMessage({ type: 'tile-add', n: 1 }, '*');
+      await sleep(500);
+      return `pixel ${d.px.join(',')}: the tile's background. A change inside the tile raised ${d.paints() - before} paint event(s) with no requestPaint(). A click at its centre goes to ${d.hit}.`;
+    }],
+    ['A cross-origin iframe drawn into a canvas', 'The same call on a tile from another origin. Expected to fail: the canvas could otherwise read another site\'s pixels.', async () => {
+      const spec = foreign('?id=m5');
+      const d = await drawn(spec);
+      if (!yellow(d.px)) throw new Error(`drawElementImage() did not throw, and the pixel is ${d.px.join(',')} (${spec.what} frame). A click at its centre still goes to ${d.hit}.`);
+      return `pixel ${d.px.join(',')}`;
+    }],
+    ['A sandboxed iframe drawn into a canvas', 'Same URL as the same-origin tile, with sandbox="allow-scripts", which gives it an opaque origin. Expected to fail.', async () => {
+      const d = await drawn({ src: TILE + '?id=m6', sandbox: 'allow-scripts' });
+      if (!yellow(d.px)) throw new Error(`the pixel is ${d.px.join(',')}. A click at its centre still goes to ${d.hit}.`);
+      return `pixel ${d.px.join(',')}`;
+    }],
+    ['A cross-origin iframe as a WebGL texture', 'texElementSubImage2D(iframe): what a shader would receive. Expected to fail for the same reason.', async () => {
+      if (!('texElementSubImage2D' in WebGL2RenderingContext.prototype)) throw skip('texElementSubImage2D is not in this browser');
+      const cv = document.createElement('canvas');
+      cv.setAttribute('content', 'drawable'); cv.setAttribute('layoutsubtree', '');
+      cv.width = 200; cv.height = 100; cv.style.cssText = 'width:200px;height:100px;display:block';
+      fixtures.append(cv);
+      const spec = foreign('?id=m7');
+      const { f, ready } = frame({ ...spec, into: cv, css: 'width:200px;height:100px' });
+      const gl = cv.getContext('webgl2');
+      if (!gl) throw skip('no WebGL2 context');
+      try {
+        await ready;
+        await new Promise((r) => { cv.addEventListener('paint', r, { once: true }); cv.requestPaint(); });
+        const tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 200, 100);
+        gl.texElementSubImage2D(gl.TEXTURE_2D, 0, 0, 0, f);
+        const err = gl.getError();
+        const fb = gl.createFramebuffer();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        const px = new Uint8Array(4);
+        gl.readPixels(190, 8, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        if (!yellow(px)) throw new Error(`the texture pixel is ${Array.from(px).join(',')}${err ? `, GL error ${err}` : ', no GL error'} (${spec.what} frame)`);
+        return `texture pixel ${Array.from(px).join(',')}`;
+      } finally {
+        // The context is released when the fixture canvas is removed. Calling loseContext() here, inside the
+        // paint event's microtask with an iframe in the canvas, crashes the tab in Chromium 157.
+      }
+    }],
+    ['allow="focus-without-user-activation \'none\'" keeps focus with the page', 'A tile calls focus() on a field as it loads. First with no policy, then with the policy denied.', async () => {
+      const mine = document.createElement('button');
+      mine.textContent = 'page';
+      mine.style.cssText = 'pointer-events:none';
+      fixtures.append(mine);
+      const had = document.activeElement;
+      const run = async (allow) => {
+        mine.focus({ preventScroll: true });
+        // #region policy
+        const { f, ready } = frame({ ...foreign('?id=m8&focus=1'), allow });
+        // #endregion policy
+        await ready.catch(() => {});
+        await sleep(400);
+        const stolen = document.activeElement === f;
+        f.remove();
+        return stolen;
+      };
+      try {
+        const baseline = await run(null);
+        const denied = await run("focus-without-user-activation 'none'");
+        const listed = document.featurePolicy?.features?.().includes('focus-without-user-activation');
+        if (denied) throw new Error(`the tile took focus with the policy denied${baseline ? ' (and without it)' : ''}. document.featurePolicy ${listed ? 'lists' : 'does not list'} the feature, so this browser does not enforce it`);
+        return `without the attribute the tile ${baseline ? 'took focus' : 'did not take focus'}; with it, focus stayed on the page's own button`;
+      } finally {
+        if (had && had !== document.body && had.isConnected) had.focus({ preventScroll: true }); else mine.blur();
+      }
+    }],
+  ];
+
+  const tbody = document.getElementById('results');
+  const rows = tests.map(([name, why]) => {
+    const tr = tbody.insertRow();
+    tr.innerHTML = '<td class="status pending">not run</td><td><strong></strong><div class="note"></div></td><td class="note detail"></td>';
+    tr.querySelector('strong').textContent = name;
+    tr.querySelector('.note').textContent = why;
+    return tr;
+  });
+  const go = document.getElementById('go');
+  const score = document.getElementById('score');
+  const only = new URLSearchParams(location.search).get('only'); // run one measurement, for debugging
+  async function runAll() {
+    go.disabled = true;
+    window.__checkState = 'running';
+    const results = [];
+    const tally = { pass: 0, fail: 0, skip: 0 };
+    for (const [i, [name, , run]] of tests.entries()) {
+      if (only !== null && Number(only) !== i) continue;
+      rows[i].cells[0].textContent = '… running';
+      let state, detail;
+      try {
+        detail = await withTimeout(run(), 12000);
+        state = 'pass';
+      } catch (err) {
+        state = err.skip ? 'skip' : 'fail';
+        detail = err.skip ? err.message : `${err.name}: ${err.message}`;
+      }
+      // A measurement can end inside a paint event's microtask, and removing an iframe there crashes the tab
+      // in Chromium 157. Leave the microtask first.
+      await sleep(0);
+      fixtures.replaceChildren(); // one fixture at a time
+      tally[state]++;
+      rows[i].cells[0].className = 'status ' + state;
+      rows[i].cells[0].textContent = { pass: '✓ works', fail: '✗ fails', skip: '– n/a' }[state];
+      rows[i].cells[2].textContent = detail;
+      results.push({ name, ok: state !== 'fail', state, detail });
+      score.textContent = `${tally.pass} work · ${tally.fail} fail · ${tally.skip} not testable here`;
+      await sleep(60);
+    }
+    window.__checkState = 'done';
+    window.__results = results;
+    go.textContent = 'Done';
+  }
+  if (!supported) { go.disabled = true; score.textContent = 'HTML-in-canvas is not available, so the drawing measurements cannot run.'; }
+  else {
+    window.__checkState = 'waiting';
+    go.onclick = runAll;
+    if (new URLSearchParams(location.search).get('autochecks') === '1') runAll();
+  }
+
+  // ---------- prerender ----------
+  // #region prerender
+  document.getElementById('pre-go').onclick = (e) => {
+    if (!HTMLScriptElement.supports?.('speculationrules')) return void (document.getElementById('pre-state').textContent = 'This browser has no speculation rules, so nothing can be prerendered.');
+    const rules = document.createElement('script');
+    rules.type = 'speculationrules';
+    rules.textContent = JSON.stringify({ prerender: [{ urls: ['/iframe-tiles/prerendered', '/iframe-tiles/prerendered-plain'], eagerness: 'immediate' }] });
+    document.head.append(rules);
+    e.target.disabled = true;
+    document.getElementById('pre-state').textContent = 'Asked the browser to prerender both. Wait a few seconds, then open the links.';
+  };
+  // #endregion prerender
+</script>
+</body>
+</html>
