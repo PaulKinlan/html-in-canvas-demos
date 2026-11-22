@@ -142,6 +142,7 @@ function start() {
   made.texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, made.texture);
   for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+  made.program = program; made.compile = compile; made.programs = new Map();
   made.uniforms = Object.fromEntries(['uBack', 'uSize', 'uBackRect', 'uRadius', 'uRim', 'uThick', 'uIor', 'uDisp', 'uFrost', 'uSpec', 'uScale', 'uLight', 'uTint'].map((n) => [n, gl.getUniformLocation(program, n)]));
   gl.uniform1i(made.uniforms.uBack, 0);
   return made;
@@ -164,6 +165,7 @@ export function glass(source, copy, panel, settings, scale) {
   if (state.failed || state.lost) return null;
   const { gl, canvas, uniforms: u } = state;
   if (gl.isContextLost()) { state.lost = true; return null; }
+  gl.useProgram(state.program);
   const pw = Math.max(1, Math.round(panel.width * scale)), ph = Math.max(1, Math.round(panel.height * scale));
   if (canvas.width < pw) canvas.width = pw;          // the canvas only grows
   if (canvas.height < ph) canvas.height = ph;
@@ -193,3 +195,88 @@ export function glass(source, copy, panel, settings, scale) {
   return { canvas, sx: 0, sy: 0, sw: pw, sh: ph };
 }
 // #endregion render
+
+// ------------------------------------------------------------------------------------ other shaders
+// #region shade
+// The same context runs any other fragment shader a skin brings, so a page still has one WebGL context.
+// A shader is written as the body of a function `vec4 shade(vec2 p)`: p is in CSS px from the panel's
+// centre, and the answer is a colour with straight alpha. These are declared for it:
+//
+//   uSize (panel size, CSS px), uRadius, uScale (device px per CSS px), uTime (seconds), uSeed (0..1)
+//   uBack + back(p): the picture given as `source`, read at a point in the panel's coordinates
+//   sdBox(p): signed distance to the panel's rounded rectangle, negative inside
+//   hash(vec2), noise(vec2), fbm(vec2): value noise
+//   and one uniform for each entry of `values` (a number is a float, an array of 2 to 4 is a vector)
+const HEAD = `#version 300 es
+precision highp float;
+uniform sampler2D uBack;
+uniform vec2 uSize;
+uniform vec4 uBackRect;
+uniform float uRadius, uScale, uTime, uSeed;
+in vec2 vUv;
+out vec4 outColor;
+float sdBox(vec2 p) { vec2 q = abs(p) - uSize * 0.5 + uRadius; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uRadius; }
+vec4 back(vec2 p) { return texture(uBack, uBackRect.xy + (p + uSize * 0.5) * uBackRect.zw); }
+float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
+float fbm(vec2 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a * noise(p); p = p * 2.03 + 17.0; a *= 0.5; } return s; }
+`;
+const TAIL = `
+void main() { vec4 c = shade((vUv - 0.5) * uSize); outColor = vec4(c.rgb * c.a, c.a); }`;
+
+/**
+ * Run a skin's shader over a panel. name: a key for the compiled program. body: GLSL with `vec4 shade(vec2 p)`.
+ * panel: { width, height, radius } in CSS px, plus x, y when a source is given. values: uniforms by name.
+ * source, copy: as for glass(). Returns { canvas, sx, sy, sw, sh } to draw with drawImage(), or null.
+ */
+export function shade(name, body, panel, scale, values = {}, source = null, copy = null) {
+  if (!state) { try { state = start(); } catch (err) { state = { failed: `The glass shader did not compile: ${err.message}` }; } }
+  if (state.failed || state.lost) return null;
+  const { gl, canvas } = state;
+  if (gl.isContextLost()) { state.lost = true; return null; }
+  let made = state.programs.get(name);
+  if (!made) {
+    made = { failed: null, uniforms: new Map() };
+    state.programs.set(name, made);
+    try {
+      const declared = Object.entries(values).map(([k, v]) => `uniform ${typeof v === 'number' ? 'float' : `vec${v.length}`} ${k};`).join('\n');
+      const program = gl.createProgram();
+      gl.attachShader(program, state.compile(gl.VERTEX_SHADER, VERTEX));
+      gl.attachShader(program, state.compile(gl.FRAGMENT_SHADER, `${HEAD}${declared}\n${body}${TAIL}`));
+      gl.bindAttribLocation(program, 0, 'aPos');
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS) && !gl.isContextLost()) throw new Error(gl.getProgramInfoLog(program));
+      made.program = program;
+    } catch (err) {
+      made.failed = err.message;
+      window.__gfx?.report?.('shader', `canvas-skin shader "${name}" did not compile`, { message: String(err.message).slice(0, 400) });
+    }
+  }
+  if (made.failed) return null;
+  const at = (k) => { if (!made.uniforms.has(k)) made.uniforms.set(k, gl.getUniformLocation(made.program, k)); return made.uniforms.get(k); };
+  const pw = Math.max(1, Math.round(panel.width * scale)), ph = Math.max(1, Math.round(panel.height * scale));
+  if (canvas.width < pw) canvas.width = pw;
+  if (canvas.height < ph) canvas.height = ph;
+  gl.useProgram(made.program);
+  gl.bindTexture(gl.TEXTURE_2D, state.texture);
+  if (source && copy) {
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, copy.sx); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, copy.sy);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, copy.sw, copy.sh, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    gl.uniform4f(at('uBackRect'), ((panel.x ?? 0) - copy.x) / copy.width, ((panel.y ?? 0) - copy.y) / copy.height, 1 / copy.width, 1 / copy.height);
+  }
+  gl.uniform1i(at('uBack'), 0);
+  gl.viewport(0, canvas.height - ph, pw, ph);
+  gl.uniform2f(at('uSize'), panel.width, panel.height);
+  gl.uniform1f(at('uRadius'), Math.max(0, Math.min(panel.radius ?? 0, panel.width / 2, panel.height / 2)));
+  gl.uniform1f(at('uScale'), scale);
+  gl.uniform1f(at('uTime'), (performance.now() / 1000) % 3600);
+  gl.uniform1f(at('uSeed'), panel.seed ?? 0);
+  for (const [k, v] of Object.entries(values)) {
+    if (typeof v === 'number') gl.uniform1f(at(k), v);
+    else gl[`uniform${v.length}f`](at(k), ...v);
+  }
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  return { canvas, sx: 0, sy: 0, sw: pw, sh: ph };
+}
+// #endregion shade

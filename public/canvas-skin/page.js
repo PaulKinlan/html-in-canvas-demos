@@ -95,7 +95,7 @@ function report() {
   if (!supported) { status.textContent = `This browser has no HTML-in-canvas API. The ${all.length} wrapped elements are shown as plain HTML with each skin's font and colours.`; return; }
   const sized = all.filter((w) => w.canvas?.width > 0).length, plain = all.filter((w) => w.plain).length;
   const memory = window.__gfx?.memory?.(), route = CanvasSkin.glassRoute;
-  status.textContent = `Skin: ${CanvasSkin.skins[stage.getAttribute('skin')]?.label}. ${all.length} wrapped elements, ${sized} canvases with pixels now (the rest are off screen), ${memory ? `${(memory.bytes / 1048576).toFixed(1)} MB of canvas memory by the page's estimate` : 'no memory estimate'}. Glass is drawn by ${route === 'webgl' ? 'the shader, in one shared WebGL context' : route === 'not started' ? 'the shader when a glass element is first painted' : `the 2D version: ${route}`}.`
+  status.textContent = `Skin: ${CanvasSkin.skins[stage.getAttribute('skin')]?.label}. ${all.length} wrapped elements, ${sized} canvases with pixels now (the rest are off screen), ${memory ? `${(memory.bytes / 1048576).toFixed(1)} MB of canvas memory by the page's estimate` : 'no memory estimate'}. ${route === 'webgl' ? 'The shader skins (glass, metal, sea, space) run in one shared WebGL context' : route === 'not started' ? 'No shader skin has painted yet, so there is no WebGL context' : `The shader skins are drawn in 2D: ${route}`}.`
     + (plain ? ` ${plain} shown as plain HTML: ${fallen.at(-1) ?? ''}` : '');
 }
 document.addEventListener('canvas-skin-plain', (e) => { fallen.push(e.detail.why); report(); });

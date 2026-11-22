@@ -33,6 +33,8 @@
 // is far from the screen sets its canvas to 0 by 0.
 
 import * as themes from './canvas-skin-themes.js';
+import * as more from './canvas-skin-themes-more.js';
+import * as shaded from './canvas-skin-themes-gl.js';
 import { onGlassLost, glassRoute } from './glass-gl.js';
 
 const SUPPORTED =
@@ -163,7 +165,7 @@ export class CanvasSkin extends HTMLElement {
   #canvas = null; #content = null; #box = null; #ctx = null; #filters = null;
   #near = true; #queued = 0; #retries = 0; #timer = 0;
   #cssW = 0; #cssH = 0;
-  #t0 = -1e9; #old = null; #on = null; #hover = false; #down = false;
+  #t0 = -1e9; #old = null; #on = null; #hover = false; #down = false; #slow = 0;
   #seed = ++count * 7919;
   paints = 0;
   plain = !SUPPORTED;
@@ -218,7 +220,7 @@ export class CanvasSkin extends HTMLElement {
   disconnectedCallback() {
     live.delete(this);
     nearby?.unobserve(this);
-    cancelAnimationFrame(this.#queued); this.#queued = 0;
+    cancelAnimationFrame(this.#queued); this.#queued = 0; clearTimeout(this.#slow); this.#slow = 0;
     clearTimeout(this.#timer);
     this.#freeOld();
   }
@@ -355,6 +357,7 @@ export class CanvasSkin extends HTMLElement {
       },
       draw,
       again: false,
+      wait: 0,
       // Draw the skin root's background where it lies behind this element, enlarged by `scale` about cx, cy.
       backdrop: (scale = 1, cx = w / 2, cy = h / 2) => {
         if (!rootBox) return false;
@@ -403,6 +406,8 @@ export class CanvasSkin extends HTMLElement {
 
     if (missed && this.#retries++ < 60) again = true; else if (!missed) this.#retries = 0;
     if (again && !this.#queued) this.#queued = requestAnimationFrame(() => { this.#queued = 0; this.request(); });
+    // A skin that moves slowly asks for its next paint after a number of milliseconds, not next frame.
+    else if (!again && frame.wait > 0 && !this.#slow) this.#slow = setTimeout(() => { this.#slow = 0; this.request(); }, frame.wait);
   }
   // #endregion paint
 
@@ -418,7 +423,7 @@ export class CanvasSkin extends HTMLElement {
   #toPlain(why) {
     if (this.plain) return;
     this.plain = true;
-    cancelAnimationFrame(this.#queued); this.#queued = 0;
+    cancelAnimationFrame(this.#queued); this.#queued = 0; clearTimeout(this.#slow); this.#slow = 0;
     this.#freeOld();
     this.#box.append(this.#content);            // out of the canvas, still holding the slot
     this.toggleAttribute('plain', true);
@@ -500,7 +505,7 @@ function registerRadius() {
   try { CSS.registerProperty({ name: '--canvas-skin-r', syntax: '<length>', inherits: false, initialValue: '0px' }); } catch { /* registered by another copy of this module */ }
 }
 
-for (const [name, skin] of Object.entries(themes.skins)) skins[name] = skin;
+for (const [name, skin] of Object.entries({ ...themes.skins, ...more.skins, ...shaded.skins })) skins[name] = skin;
 // If the shared WebGL context is lost, the glass elements are painted again and take the 2D route.
 onGlassLost((why) => { CanvasSkin.redraw(); document.dispatchEvent(new CustomEvent('canvas-skin-route', { detail: { why } })); });
 writeSheet();
