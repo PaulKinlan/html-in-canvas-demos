@@ -115,7 +115,7 @@ void main() {
 // The scene plus the blurred light, then the view: 0 as stored, 1 exposed down, 2 a map of values above 1.0.
 const COMPOSITE = `${HEAD}
 uniform sampler2D uBloom;
-uniform float uStrength, uHeadroom, uView;
+uniform float uStrength, uHeadroom, uView, uClip;
 void main() {
   vec4 s = texture(uTex, vUv);
   vec3 b = texture(uBloom, vUv).rgb * uStrength;
@@ -126,6 +126,8 @@ void main() {
     if (v <= 1.004) c = vec4(vec3(0.43 * dot(c.rgb, vec3(0.25, 0.6, 0.15))), c.a);
     else { float t = min(1.0, (v - 1.0) / max(uHeadroom - 1.0, 0.01)); c = vec4(1.0, t < 0.5 ? 0.863 - 1.255 * t : 0.235 - 0.47 * (t - 0.5), t < 0.5 ? 0.0 : 1.57 * (t - 0.5), 1.0); }
   }
+  // An 8-bit drawing buffer would cut each channel off at 1.0 and turn every raised colour white. Scale the pixel instead, which keeps its hue.
+  if (uClip > 0.5 && uView < 0.5) c.rgb /= max(1.0, max(c.r, max(c.g, c.b)));
   outColor = c;
 }`;
 // #endregion bloom-shaders
@@ -180,7 +182,7 @@ export class Bloom {
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
   }
   /** Bright pass, two blurs each way at a quarter of the size, then the scene plus the light on the canvas. */
-  finish({ strength = 1, headroom = 4, view = 0 } = {}) {
+  finish({ strength = 1, headroom = 4, view = 0, clip = false } = {}) {
     const gl = this.#gl, P = this.#programs;
     const pass = (program, source, target, set) => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fbo : null);
@@ -200,7 +202,7 @@ export class Bloom {
     }
     pass(P.composite, this.#scene, null, (u) => {
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.#a.tex); gl.uniform1i(u('uBloom'), 1);
-      gl.uniform1f(u('uStrength'), strength); gl.uniform1f(u('uHeadroom'), headroom); gl.uniform1f(u('uView'), view);
+      gl.uniform1f(u('uStrength'), strength); gl.uniform1f(u('uHeadroom'), headroom); gl.uniform1f(u('uView'), view); gl.uniform1f(u('uClip'), clip ? 1 : 0);
       gl.activeTexture(gl.TEXTURE0);
     });
     gl.enable(gl.BLEND);

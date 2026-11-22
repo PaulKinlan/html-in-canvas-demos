@@ -25,6 +25,14 @@ One page builds the five items of backlog group 26 on one stage. Two canvases ar
 | 26.5 | A registered `<custom-ident>` read with `getComputedStyle()` | the name (measured) | The page looks it up in `{ none, wave, split, lines }` and sets one float uniform. Editing the rule in the shown `<style>` element changes the effect on the next frame. |
 | 26.5 | The same property in a 1 s linear transition | `none` at 0.25 s, `wave` at 0.75 s; a registered number read 0.25 and 0.75 (measured) | So an effect change cannot be cross-faded by the property itself. |
 
+## On the test phone (A159, experimental features flag on), reported 2026-11-22
+
+| Question | Result | Notes |
+|---|---|---|
+| Is a WebGL canvas with an `RGBA16F` drawing buffer shown | yes (reported) | Status line: "Drawing buffer: RGBA16F, display-p3, tone mapping: extended". The page chose it at the start, so `(dynamic-range: high)` matches. |
+| Are the raised parts brighter than white | yes (reported) | "Searing white". At a headroom of 4.0 and a bloom of 1.0 the labels were hard to make out. The page now starts at 2.5 and 0.4. |
+| The same scene with the 8-bit drawing buffer | flat white where raised, labels lost (reported, screenshot) | Each channel was cut off at 1.0, so the button, the badge and their white labels were all 1.0. The composite now divides such a pixel by its largest channel, which keeps the hue. Measured by screenshot in C157 after the change: blue button, red badge, white labels. Not yet seen on the phone. |
+
 ## Things that bit
 
 - Stale click targets when one canvas serves several experiments (row 4 of the table). The first build was clicked through.
@@ -34,7 +42,7 @@ One page builds the five items of backlog group 26 on one stage. Two canvases ar
 
 ## Not verified
 
-- A159 on the test phone, all five. In particular whether the `RGBA16F` WebGL buffer is shown at all, and whether the badge, button, word and bars are brighter than white on its HDR screen. To verify: open `/plan-followups/`, choose "Float buffer", and read the status line under the stage. If the stage is empty, choose "8-bit drawing buffer" and report that.
+- A159 on the test phone: the other four experiments, and the float buffer after the change of 2026-11-22 (are the labels readable at 2.5, and is the word in the strip readable).
 - What `Summarizer` returns for the six tiles, and how long the model download takes. To verify: press "Use the Summarizer API" in a Chrome that has the model.
 - `TextMetrics.getSelectionRects()` in Chrome 160 without a flag.
 - Touch selection of the top line of "Text rectangles" and of the book text.
@@ -53,5 +61,5 @@ One page builds the five items of backlog group 26 on one stage. Two canvases ar
 - Hit testing: `updateElementGeometry(el, { canvasTransform })` takes CSS pixels. `/hdr-glow/` passed device pixels on its WebGPU route and is corrected in the same pull request.
 - Multi-column: one element with `columns: n` is one picture with every column. `::column::scroll-marker` is not in the picture of a drawn scroller.
 - Canvas text: `TextMetrics.getSelectionRects()` (experimental flag in C157) agrees with `Range.getClientRects()` to within half a pixel, including across a change of direction.
-- WebGL and HDR: a drawable WebGL canvas accepts an `RGBA16F` drawing buffer and holds values above 1.0. The software compositor of the test browser does not show it.
+- WebGL and HDR: a drawable WebGL canvas accepts an `RGBA16F` drawing buffer and holds values above 1.0. The software compositor of the test browser does not show it. The test phone shows it brighter than white (reported).
 - CSS: a registered `<custom-ident>` selects a shader effect; it changes at the halfway point of a transition.
