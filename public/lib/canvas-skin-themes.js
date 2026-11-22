@@ -85,6 +85,7 @@ const native = {
 // ------------------------------------------------------------------------------------------- glass
 // #region glass
 const GLASS_TILE = 640;
+const GLASS_LINES = 44;   // diagonal lines this far apart. Straight lines show where the glass bends them
 // Each blob is listed three times, one tile apart, so the background has no seam where a tile ends.
 const GLASS_BLOBS = [
   { x: 0.12, y: 90, r: 270, c: '255 95 162' },
@@ -93,6 +94,44 @@ const GLASS_BLOBS = [
   { x: 0.82, y: 570, r: 250, c: '150 110 255' },
 ].flatMap((b) => [b, { ...b, y: b.y - GLASS_TILE }, { ...b, y: b.y + GLASS_TILE }]);
 const GLASS_TYPE = 'color: #fff; color-scheme: dark; font-family: -apple-system, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;';
+
+// The root background seen through a thick piece of glass with a rounded rim. The flat middle shows
+// what is behind it, slightly enlarged. In the rim the surface slopes, so each ring of it shows the
+// background from further in, and the outermost ring from furthest: the picture is squeezed toward the
+// edge, as at the edge of a lens. The background is drawn once into a shared plain canvas and each
+// ring is a drawImage() of that copy, scaled about the centre and clipped to the ring.
+const RINGS = 12;
+function refract(ctx, f, x, y, w, h, r) {
+  const copy = f.backdropCopy(f.bleed);
+  if (!copy) return false;
+  const cx = x + w / 2, cy = y + h / 2;
+  const put = (kx, ky) => {
+    ctx.save();
+    ctx.translate(cx, cy); ctx.scale(kx, ky); ctx.translate(-cx, -cy);
+    ctx.drawImage(copy.image, copy.sx, copy.sy, copy.sw, copy.sh, copy.x, copy.y, copy.width, copy.height);
+    ctx.restore();
+  };
+  const rim = Math.min(22, w * 0.3, h * 0.45);          // width of the sloping part
+  const bend = Math.min(44, w * 0.4, h * 0.46);         // how far the outermost ring reaches inward, in px
+  ctx.save(); ctx.filter = 'blur(0.8px)'; put(1.1, 1.1); ctx.restore();
+  for (let i = 0; i < RINGS; i++) {
+    const d0 = (rim * i) / RINGS, d1 = (rim * (i + 1)) / RINGS;
+    const u = 1 - (d0 + d1) / 2 / rim;                   // 1 at the edge, 0 where the rim meets the flat middle
+    const shift = bend * (1 - Math.sqrt(1 - u * u));     // a quarter circle profile: steep at the edge
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x + d0, y + d0, w - 2 * d0, h - 2 * d0, Math.max(0, r - d0));
+    ctx.roundRect(x + d1 - 0.3, y + d1 - 0.3, w - 2 * d1 + 0.6, h - 2 * d1 + 0.6, Math.max(0, r - d1));
+    ctx.clip('evenodd');
+    // A point at the edge shows the background `shift` px nearer the centre: the copy is enlarged by that much.
+    put(1 / Math.max(0.12, 1 - (2 * shift) / w), 1 / Math.max(0.12, 1 - (2 * shift) / h));
+    // The slope also darkens toward the edge at the bottom and catches light at the top.
+    ctx.fillStyle = `rgb(255 255 255 / ${0.1 * u})`; ctx.fillRect(x, y, w, h / 2);
+    ctx.fillStyle = `rgb(20 0 60 / ${0.16 * u})`; ctx.fillRect(x, y + h / 2, w, h / 2);
+    ctx.restore();
+  }
+  return true;
+}
 
 function glassPanel(ctx, f, x, y, w, h, r, tint) {
   // The shadow, under an opaque shape that the backdrop then covers.
@@ -103,11 +142,10 @@ function glassPanel(ctx, f, x, y, w, h, r, tint) {
 
   ctx.save();
   rr(ctx, x, y, w, h, r); ctx.clip();
-  // The page background behind this element, enlarged: what a thick piece of glass would show.
-  if (!f.backdrop(1.3, x + w / 2, y + h / 2)) { ctx.fillStyle = '#5b4a9c'; ctx.fillRect(x, y, w, h); }
+  if (!refract(ctx, f, x, y, w, h, r)) { ctx.fillStyle = '#5b4a9c'; ctx.fillRect(x, y, w, h); }
   ctx.fillStyle = tint; ctx.fillRect(x, y, w, h);
   const shine = ctx.createLinearGradient(0, y, 0, y + h);
-  shine.addColorStop(0, 'rgb(255 255 255 / .34)'); shine.addColorStop(0.45, 'rgb(255 255 255 / .03)'); shine.addColorStop(1, 'rgb(255 255 255 / .16)');
+  shine.addColorStop(0, 'rgb(255 255 255 / .2)'); shine.addColorStop(0.4, 'rgb(255 255 255 / 0)'); shine.addColorStop(1, 'rgb(255 255 255 / .08)');
   ctx.fillStyle = shine; ctx.fillRect(x, y, w, h);
   if (f.t < 1) {
     // A band of light crosses the element once after a change of skin.
@@ -134,9 +172,9 @@ function glassKnob(ctx, x, y, r) {
 const glass = {
   label: 'Glass',
   type: GLASS_TYPE,
-  root: `${GLASS_TYPE} background-color: #2a1a5e; background-image: radial-gradient(circle at 11px 11px, rgb(255 255 255 / .3) 1.4px, rgb(255 255 255 / 0) 2px), ${
+  root: `${GLASS_TYPE} background-color: #2a1a5e; background-image: linear-gradient(135deg, rgb(255 255 255 / 0) calc(50% - 1px), rgb(255 255 255 / .2) calc(50% - 1px), rgb(255 255 255 / .2) calc(50% + 1px), rgb(255 255 255 / 0) calc(50% + 1px)), radial-gradient(circle at 11px 11px, rgb(255 255 255 / .3) 1.4px, rgb(255 255 255 / 0) 2px), ${
     GLASS_BLOBS.map((b) => `radial-gradient(circle ${b.r}px at ${b.x * 100}% ${b.y}px, rgb(${b.c} / .85), rgb(${b.c} / 0))`).join(', ')
-  }; background-size: 22px 22px, ${GLASS_BLOBS.map(() => `100% ${GLASS_TILE}px`).join(', ')};`,
+  }; background-size: ${GLASS_LINES}px ${GLASS_LINES}px, 22px 22px, ${GLASS_BLOBS.map(() => `100% ${GLASS_TILE}px`).join(', ')};`,
   css: 'text-shadow: 0 1px 2px rgb(20 0 60 / .35); caret-color: #fff; & ::placeholder { color: rgb(255 255 255 / .6); }',
 
   // The same background as the CSS above, for the canvas.
@@ -160,6 +198,15 @@ const glass = {
     for (let y = Math.floor(region.y / 22) * 22 + 11; y < region.y + region.height; y += 22)
       for (let x = Math.floor(region.x / 22) * 22 + 11; x < region.x + region.width; x += 22) { ctx.moveTo(x + 1.7, y); ctx.arc(x, y, 1.7, 0, TAU); }
     ctx.fill();
+    // The diagonal lines: x + y is a multiple of GLASS_LINES.
+    ctx.save();
+    ctx.beginPath(); ctx.rect(region.x, region.y, region.width, region.height); ctx.clip();
+    ctx.strokeStyle = 'rgb(255 255 255 / .2)'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    const from = Math.floor((region.x + region.y) / GLASS_LINES), to = Math.ceil((region.x + region.width + region.y + region.height) / GLASS_LINES);
+    for (let n = from; n <= to; n++) { const c = n * GLASS_LINES; ctx.moveTo(c - region.y + 2, region.y - 2); ctx.lineTo(c - region.y - region.height - 2, region.y + region.height + 2); }
+    ctx.stroke();
+    ctx.restore();
   },
 
   paint(ctx, f) {
@@ -167,13 +214,13 @@ const glass = {
     if (f.t < 1 && kind !== 'text') { const k = lerp(0.94, 1, outCubic(f.t)); ctx.translate(w / 2, h / 2); ctx.scale(k, k); ctx.translate(-w / 2, -h / 2); }
     switch (kind) {
       case 'button':
-        glassPanel(ctx, f, 0, 0, w, h, h / 2, s.active ? 'rgb(255 255 255 / .34)' : f.primary ? 'rgb(60 140 255 / .5)' : 'rgb(255 255 255 / .14)');
+        glassPanel(ctx, f, 0, 0, w, h, h / 2, s.active ? 'rgb(255 255 255 / .34)' : f.primary ? 'rgb(60 140 255 / .42)' : 'rgb(255 255 255 / .08)');
         f.draw(); ring(ctx, f, h / 2, '#fff'); break;
       case 'field':
-        glassPanel(ctx, f, 0, 0, w, h, 14, 'rgb(20 0 60 / .22)');
-        f.draw(); chevron(ctx, f, '#fff'); ring(ctx, f, 14, '#fff', 0, 2); break;
+        glassPanel(ctx, f, 0, 0, w, h, 16, 'rgb(20 0 60 / .14)');
+        f.draw(); chevron(ctx, f, '#fff'); ring(ctx, f, 16, '#fff', 0, 2); break;
       case 'card':
-        glassPanel(ctx, f, 0, 0, w, h, 20, 'rgb(255 255 255 / .1)');
+        glassPanel(ctx, f, 0, 0, w, h, 24, 'rgb(255 255 255 / .05)');
         f.draw(); break;
       case 'media':
         ctx.save(); rr(ctx, 0, 0, w, h, 18); ctx.clip(); f.draw(); ctx.restore();
@@ -480,7 +527,7 @@ const gel = {
           g.addColorStop(0, '#9bd6ff'); g.addColorStop(0.5, '#1b6fe6'); g.addColorStop(1, '#86dcff');
           ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
           // Slanted lighter stripes. They move while the element changes skin.
-          ctx.fillStyle = 'rgb(255 255 255 / .28)';
+          ctx.fillStyle = 'rgb(255 255 255 / .2)';
           const shift = (1 - f.t) * 60;
           for (let x = -h * 2 + (shift % 16); x < fw + h; x += 16) { ctx.beginPath(); ctx.moveTo(x, h); ctx.lineTo(x + h, 0); ctx.lineTo(x + h + 8, 0); ctx.lineTo(x + 8, h); ctx.fill(); }
           ctx.fillStyle = 'rgb(255 255 255 / .5)'; rr(ctx, 4, 2, fw - 6, h * 0.36, h); ctx.fill();

@@ -125,6 +125,19 @@ const TEMPLATE = `
 <svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs id="filters"></defs></svg>
 <div id="box"><canvas content="drawable" layoutsubtree><div id="content" drawable><slot></slot></div></canvas></div>`;
 
+// Wrappers whose element changed size. All sizes are read, then all are written.
+const dirty = new Set();
+let dirtyFrame = 0;
+function measureDirty() {
+  dirtyFrame = 0;
+  const list = [...dirty].map((el) => [el, el._size()]);
+  dirty.clear();
+  for (const [el, size] of list) if (size) el._measure(size);
+}
+
+// One plain canvas, shared by every wrapper, that holds the root background behind the element being painted.
+let scratch = null;
+
 let count = 0;
 const live = new Set();        // connected wrappers
 const applied = new WeakMap(); // root -> the skin name that apply() set, so the observer does not repeat it
@@ -172,7 +185,10 @@ export class CanvasSkin extends HTMLElement {
     this.#canvas.addEventListener('contextlost', () => this.#toPlain('The canvas lost its drawing context.'));
     // #endregion lost
     root.querySelector('slot').addEventListener('slotchange', () => this.refresh());
-    new ResizeObserver(() => this.#measure()).observe(this.#content);
+    // The size is applied in the next animation frame, for every wrapper at once. Applying it inside the
+    // observer's callback resizes other observed elements (an outer wrapper, a neighbour in a flex row),
+    // and the browser reports "ResizeObserver loop completed with undelivered notifications".
+    new ResizeObserver(() => { dirty.add(this); dirtyFrame ||= requestAnimationFrame(measureDirty); }).observe(this.#content);
 
     // State a skin draws from. None of these listeners changes the element.
     const again = () => this.request();
@@ -227,10 +243,9 @@ export class CanvasSkin extends HTMLElement {
   // #region size
   // The canvas is laid out by the wrapper, and the element is laid out inside the canvas. The box
   // takes the element's measured size, so the wrapper is as large as the element alone would be.
-  #measure() {
-    if (this.plain || !this.#content) return;
-    const content = this.#content, inline = this.hasAttribute('inline');
-    const w = content.offsetWidth, h = content.offsetHeight;
+  _size() { return this.plain || !this.#content ? null : [this.#content.offsetWidth, this.#content.offsetHeight]; }
+  _measure([w, h]) {
+    const inline = this.hasAttribute('inline');
     if (!w || !h) return;
     if (inline) this.#box.style.width = `${w}px`; else this.#box.style.removeProperty('width');
     this.#box.style.height = `${h}px`;
@@ -286,7 +301,7 @@ export class CanvasSkin extends HTMLElement {
   // #region paint
   #paint() {
     const canvas = this.#canvas, ctx = this.#ctx, content = this.#content, el = this.target;
-    if (this.plain || !el || !canvas.width || !canvas.height || ctx.isContextLost?.()) return;
+    if (this.plain || !el || !this.#cssW || !canvas.width || !canvas.height || ctx.isContextLost?.()) return;   // not measured yet
     const w = content.offsetWidth, h = content.offsetHeight;
     if (!w || !h) return;
     this.paints++;
@@ -348,6 +363,20 @@ export class CanvasSkin extends HTMLElement {
         skin.backdrop(ctx, rootBox, { x: rootBox.x - BLEED, y: rootBox.y - BLEED, width: w + 2 * BLEED, height: h + 2 * BLEED });
         ctx.restore();
         return true;
+      },
+      // The same background as an image, for a skin that draws it several times: { image, sx, sy, sw, sh } in
+      // the image's pixels, covering x, y, width, height in the element's CSS pixels. Valid until the next paint.
+      backdropCopy: (pad = BLEED) => {
+        if (!rootBox) return null;
+        const k = canvas.width / this.#cssW, cw = Math.ceil((w + 2 * pad) * k), ch = Math.ceil((h + 2 * pad) * k);
+        scratch ??= document.createElement('canvas');
+        if (scratch.width < cw) scratch.width = cw;      // it only grows
+        if (scratch.height < ch) scratch.height = ch;
+        const c = scratch.getContext('2d');
+        c.setTransform(k, 0, 0, k, 0, 0);
+        c.translate(pad - rootBox.x, pad - rootBox.y);
+        skin.backdrop(c, rootBox, { x: rootBox.x - pad, y: rootBox.y - pad, width: w + 2 * pad, height: h + 2 * pad });
+        return { image: scratch, sx: 0, sy: 0, sw: cw, sh: ch, x: -pad, y: -pad, width: cw / k, height: ch / k };
       },
     };
 
