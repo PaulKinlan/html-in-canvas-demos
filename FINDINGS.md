@@ -78,6 +78,11 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A `drawable` scroll container scrolls natively inside a canvas by touch and wheel and raises `paint` on every scroll step. A `position: sticky` drawable canvas inside a native scroller is scrolled on its drawn content and raises none. | measured | C157 | `/list-table/`, `/structure-depth/` | Lists and tables, second batch; Page structure drawn in depth |
 | `left`, `top` and percentage insets do not position a child of a canvas. Each child is laid out at 0, 0. `max-width: 100%` on a child resolves against the canvas's CSS width. | measured | C157 | `/gpu-video/`, `/text-notes/`, `/share-card/` | A video as a WebGPU external texture under HTML cards; Annotated article; Text selection |
 | `drawable` children can be moved between two canvases with `append()`. | measured | C157 | `/presenter/` | A video presenter over a slide made of DOM |
+| GIF, APNG, WebP and AVIF images, SVG files with stepped SMIL or CSS animation, a CSS background image, `<picture>`, `<object>` and `content: url()` each raise one `paint` per frame when the element is a drawable canvas child. A continuous SVG animation raises one per display frame. A GIF with a loop count of one raises none after its last frame. | measured | C157 | `/animated-images/` | Animated images |
+| An SVG file in an `<img>` stops raising `paint` when the place it is drawn at is outside the window. Raster images, inline SVG and CSS background images do not stop. | measured | C157, headless | `/animated-images/` | Animated images |
+| A drawable `marquee` raises one paint event per step (60 a second with `scrolldelay="16" truespeed`) and none after `stop()`. A marquee nested in a drawable block raises 60 a second naming the block, whatever its `scrolldelay`. | measured | C157 | `/table-data/`, `/odd-elements/` | Table data; Odd elements |
+| `:state()`, `:checked`, `details:open`, `:user-invalid` and `:popover-open` set registered custom properties on a canvas through `:has()`. A transition of such a property raises `transitionrun` and `transitionend` on the canvas and no `paint`. | measured | C157 | `/media-state/` | Media controls and state |
+| A registered `<custom-ident>` property selects a shader effect. It changes at the halfway point of a transition. | measured | C157 | `/plan-followups/` | Follow-ups to the Chrome APIs plan |
 
 ### drawElementImage() in a 2D context
 
@@ -105,6 +110,11 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | 288 letters per frame drawn from a snapshot with `drawImage()` took 49.6 ms. From the live element through a clip, once per letter, it took 442.3 ms. | measured, software rendering | C157 | `/selection-glyphs/` | Text selection |
 | A `<col>` has a box and no picture, and `drawElementImage(col)` throws. A `<figure>` that is not drawable can hold a `drawable` `<img>` and `<figcaption>`. A `<label for>` and its field can be drawn as separate elements, and label activation is unchanged. | measured | C157 | `/list-table/`, `/media-tiles/`, `/form-scenes/` | Lists and tables, second batch; Video, image and chart tiles; Form controls in a drawn setting |
 | `drawImage()` into a second canvas, `toDataURL()` and `toBlob()` work after `drawElementImage()` of same-origin content. Read the copy, not the drawable canvas (see "Phones and lost contexts"). | measured | C157 | `/input-ideas/`, `/select-ideas/`, `/share-card/` | Five more input pickers; Five more select pickers; Text selection |
+| `drawElementImage(el, x, y)` with no size draws at the layout size times the canvas's backing scale, in the units of the context, with the transform on top. Under `ctx.scale(devicePixelRatio)` the element is `devicePixelRatio` times too large, and its hit region with it. Playwright's `deviceScaleFactor` and a ratio of 1 hide this; `--force-device-scale-factor=2.625` shows it. | measured | C157 at device scale 2.625 | `/element-ideas/`, `node tools/draw-size/audit.mjs` | `findings/draw-size.md` |
+| `drawElementImage()` throws `TypeError` for a `CSSPseudoElement` and for a `ShadowRoot`, `InvalidStateError` for an element in a shadow tree that has no `drawable` attribute, and `InvalidStateError` for an open popover child. | measured | C157 | `/media-state/`, `/blocked/` | Media controls and state; Blocked ideas |
+| `ctx.filter` with `brightness(0)` first recolours a clipped piece of an element to one colour. | measured | C157 | `/table-data/` | Table data |
+| Several clipped draws of one element in a frame each rasterise it again in software. One whole draw plus `drawImage()` copies into a plain canvas is cheaper and needs no readback. | measured | C157 | `/odd-elements/` | Odd elements |
+| `drawElementImage()` of a BT.2020 video into a `display-p3` 2D canvas keeps colours outside sRGB, with the same values as `drawImage(video)`. An HDR10 (PQ) video is tone-mapped to at most 1.0 in a `float16` canvas (software decoding). | measured | C157 | `/video-lab/` | Video, second batch |
 
 ### Hit testing and updateElementGeometry()
 
@@ -155,6 +165,19 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `canvasTransform` starts at the canvas origin in CSS pixels. An identity matrix puts the hit box at the origin. | measured | C157 | `/gpu-video/` | A video as a WebGPU external texture under HTML cards |
 | A touch press does not set `:active` on a button drawn in a canvas. A mouse press does. | measured, emulated touch; not verified on A159 | C157 | `/form-state/` | Form effects driven by the paint event |
 | A `draggable` element drawn by a canvas starts a native drag with a mouse, and the canvas and drawn elements take `dragover` and `drop`. A drawn `<input type="file">` opens the file chooser on a tap and takes a drop. | measured | C157 | `/play/`, `/form-scenes/` | Four games made of live elements; Form controls in a drawn setting |
+| `canvasClip` is one `DOMRectInit` in the element's coordinates. An array, a `Path2D`, a `DOMRectList`, a `DOMQuad` and `null` are read as an empty rectangle without a throw, which removes the hit box. Omitting the member keeps the earlier clip. | measured | C157 | `/toolkit-occlusion/` | Occlusion between toolkit windows |
+| Where two hit boxes overlap, the element of the most recent `updateElementGeometry()` call takes the pointer; on a 2D canvas it is the element drawn last. `z-index` and DOM order have no effect. | measured | C157 | `/toolkit-occlusion/`, `/block-play/` | Occlusion between toolkit windows; Block play |
+| CSS `clip-path` on a drawable child cuts its hit area and its texture. CSS `mask` cuts only the texture. `inert` and `pointer-events: none` remove the hit box; only `inert` removes focus and the Tab stop. | measured | C157 | `/toolkit-occlusion/` | Occlusion between toolkit windows |
+| `updateElementGeometry()` accepts a `DOMMatrix` with a perspective row on a 2D canvas. Hit testing, text selection, native video controls and buttons follow it, by mouse and by emulated touch. It throws for a canvas child without `drawable`. | measured | C157 | `/select-selection/`, `/video-lab/`, `/odd-elements/` | Select and selection, second batch; Video, second batch; Odd elements |
+| `canvasTransform` is in CSS pixels. With a transform scaled by the device pixel ratio the element does not answer `elementFromPoint()` at its drawn place. | measured | C157 at device scale 2 | `/hdr-glow/`, `/plan-followups/` | HDR interface |
+| A nine-argument `drawElementImage()` limits the element's hit region to the source rectangle of the last draw, and `updateElementGeometry()` does not undo it. A last draw of the whole element at `globalAlpha` 0 restores the whole region. | measured | C157 | `/motion-capture/`, `/select-selection/` | Transitions and motion; Select and selection, second batch |
+| One `drawable` element has one hit box, so the second of two simultaneous pointers on pieces of it misses (1 of 6 presses reached its pad). One element for each piece, or routing in a capture listener of the canvas, gives 6 of 6. | measured | C157, touches sent through the DevTools protocol | `/motion-capture/` | Transitions and motion |
+| The `click` after a tap is hit tested again and follows a hit box moved during `pointerdown`. | measured | C157 | `/motion-capture/` | Transitions and motion |
+| An element that a paint does not draw keeps the click target of its last draw. Draw it off the canvas with alpha 0, or move it with `updateElementGeometry()`. | measured | C157 | `/plan-followups/` | Follow-ups to the Chrome APIs plan |
+| A `pointerdown` whose target is the canvas is a press where no drawn element is. With a non-passive `touchstart` that cancels, a handle drawn by the canvas can be dragged without scrolling the page. | measured | C157, emulated touch | `/block-play/` | Block play |
+| `touch-action: none` on the canvas did not stop a touch that began on a drawable child from scrolling the page. | measured | C157, emulated touch | `/toolkit-occlusion/` | Occlusion between toolkit windows |
+| Links inside a scrolling drawable marquee are hit tested at their current place. | measured | C157 | `/table-data/` | Table data |
+| Client rectangles of content inside a drawable element follow the last `drawElementImage()` call for it; `offsetLeft` and `offsetTop` do not. A block drawn in several pieces reports rectangles for the last piece. | measured | C157 | `/text-marks/` | Text marks |
 
 ### ElementImage, workers and OffscreenCanvas
 
@@ -197,6 +220,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `texElementSubImage2D()` does not apply the element's own `mix-blend-mode`. `mix-blend-mode` inside the element is kept in its picture. | measured | C157 | `/video-text/` | Video as a material for editable text |
 | Text styled white on clear gives a coverage mask as `min(r, g, b)`. The selection highlight, caret and focus ring are in the same texture as coloured pixels. | measured | C157 | `/video-text/` | Video as a material for editable text |
 | `captureStream()` of a WebGL canvas that draws in `paint` needs `preserveDrawingBuffer: true`, or the frames are black. | measured, software GL | C157 | `/presenter/` | A video presenter over a slide made of DOM |
+| A drawable WebGL canvas accepts an `RGBA16F` drawing buffer and holds values above 1.0. The software compositor of the test browser does not show it. | measured | C157 | `/plan-followups/` | Follow-ups to the Chrome APIs plan |
+| Video clips and HTML cards as shots of one WebGL canvas, joined by shader transitions, export frame by frame with `exportFrames()` driven by a timeline object. | measured | C157 | `/video-lab/` | Video, second batch |
 
 ### WebGPU: drawElementImageToTexture()
 
@@ -218,6 +243,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | One pass samples a video texture and element textures from `drawElementImageToTexture()`. An element that contains a playing video uploads with the frame `requestVideoFrameCallback()` reported. | measured, software adapter | C157 | `/gpu-video/` | A video as a WebGPU external texture under HTML cards |
 | `importExternalTexture()` and `copyExternalImageToTexture(video)` fail on the software adapter. `createImageBitmap(video)` or a 2D canvas in between works. | measured, software adapter | C157 | `/gpu-video/`, `/video-text/` | A video as a WebGPU external texture under HTML cards |
 | On the phone a plain float16 Display P3 2D canvas, a drawable one filled by `drawElementImage()`, and a WebGPU `rgba16float` canvas with tone mapping `extended` each show 4.0 brighter than 1.0. | reported | A159 | `/hdr-glow/repro.html` | HDR interface |
+| The probe-colour measurement of the native video controls works through `copyTextureToBuffer()` when the destination texture of `drawElementImageToTexture()` has `COPY_SRC`. | measured | C157, software adapter | `/video-lab/` | Video, second batch |
 
 ### What is in an element's picture
 
@@ -257,6 +283,14 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | An open popover is not in the picture of the element that contains it. A `<dialog open>` with `position: static` is drawn as a `drawable` child and its buttons work. While a dialog is modal the canvas scene is inert. | measured | C157 | `/top-layer/` | A tooltip, a modal and toasts beside the top layer |
 | Drawing a bar over text in the canvas hides nothing from the DOM: `textContent`, `Range.toString()` and copy still return it. | measured | C157 | `/redact/` | Text selection |
 | The browser's validation message points at the drawn position of a field. An `inert` drawable fieldset is drawn, submitted and validated. | measured; the message was seen in a screenshot | C157 | `/instruments/` | Form controls drawn as instruments |
+| One element with `columns: n` is one picture with every column. `::column::scroll-marker` is not in the picture of a drawn scroller. | measured | C157 | `/plan-followups/` | Follow-ups to the Chrome APIs plan |
+| A `data:` URL frame and a sandboxed `srcdoc` frame are left out of a drawable element's picture (alpha 0) and still take input. `contentDocument` is null for both. | measured | C157 | `/odd-elements/` | Odd elements |
+| A cross-origin image is drawn when it is loaded with `crossorigin` and a CORS header. Which images are left out can be told from the URL and the attribute. | measured | C157, `localhost` and `127.0.0.1` as the two origins | `/blocked/` | Blocked ideas |
+| `HTMLUnknownElement` names (blink, applet, spacer) and obsolete elements (center, font, big, tt, nobr, acronym, marquee, xmp) have boxes and are in the picture. | measured | C157 | `/odd-elements/` | Odd elements |
+| A closed `details` is as tall as its summary and its content is not painted, though the content reports a height. A `template` in a canvas has no box; its clones are separate drawable children. | measured | C157 | `/block-play/` | Block play |
+| `caption` and `tfoot` have offset boxes inside a drawable table with `position: relative`. The `datetime` and `value` attributes and the `title` tooltip of an `abbr` are not in the picture. | measured | C157 | `/table-data/`, `/text-marks/` | Table data; Text marks |
+| `br` has one client rectangle 0 px wide, `wbr` has none, and `q` has a rectangle for each of its two generated marks as well as one per line. | measured | C157 | `/text-marks/` | Text marks |
+| A `<title>` moved into a canvas with `display: block` is drawn and still sets `document.title`. | measured | C157 | `/field-heads/` | Field heads |
 
 ### Slots and shadow DOM
 
@@ -270,6 +304,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `moveBefore()` out of a drawable canvas and back in the same task breaks later draws of that element. | measured | C157 | `/slot/` | Slots |
 | `moveBefore()` into a canvas keeps focus, caret, typed value, scroll offsets and iframes. | measured | C157 | `/capture/` | Capture |
 | A scoped `CustomElementRegistry`, `slotAssignment: 'manual'` and Reference Target each work with a canvas that draws slotted children. | measured | C157 | `/component-kit/` | Newer DOM features in a drawable custom element |
+| An element in an open shadow tree of a canvas child is drawn as its own picture, with its own hit region, when it has `drawable`. | measured | C157 | `/media-state/` | Media controls and state |
 
 ### Across workers, tabs, origins and devices
 
@@ -292,6 +327,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A same-origin iframe drawn rotated and scaled takes taps and typing at the drawn position, and changes in its document raise the canvas's `paint` event. | measured | C157 | `/tab-fan/` | Tab switcher of live pages |
 | One same-origin iframe drawn as nine clipped tiles takes clicks, the wheel and touch scroll on each tile when its hit region is moved under the pointer. Input reaches a control through two nested canvas draws and through a drawn iframe. | measured | C157 | `/play/`, `/nested-frames/` | Four games made of live elements; Frames and nested canvases |
 | A selection sent as two offsets into `textContent` over a `BroadcastChannel` is rebuilt and drawn in another document. | measured | C157 | `/selection-peers/` | Text selection |
+| `captureStream()` of a drawable canvas carries the drawn elements and reaches another page over WebRTC. | measured | C157, one machine | `/media-state/` | Media controls and state |
 
 ### Accessibility, focus and selection
 
@@ -311,6 +347,9 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A Tab order worked out from the DOM matched the real Tab key for canvas children in six arrangements. | measured | C157 | `/focus-path/` | Focus order drawn as a path |
 | Landmark roles of canvas children follow the whole document: a `<header>` drawn in a canvas inside a `<main>` is not a banner. `computedRole` and `computedName` are not available without a flag. | measured through the DevTools protocol | C157 | `/landmark-map/` | Landmark map |
 | Sections that are parked and not drawn stay in the accessibility tree as named regions, and Tab reaches them. | measured | C157 | `/structure-depth/` | Page structure drawn in depth |
+| `TextMetrics.getSelectionRects()` agrees with `Range.getClientRects()` to within half a pixel, including across a change of direction. | measured | C157, experimental flag | `/plan-followups/` | Follow-ups to the Chrome APIs plan |
+| A selection inside `<input>` or `<textarea>` has no rectangles from the browser. It can be measured with `measureText()` or a hidden block. | measured | C157 | `/select-selection/` | Select and selection, second batch |
+| `focusin` between elements of one shadow root is not seen on `window`. A tap past the end of the text in a canvas-drawn `<input>` keeps a full selection, where a plain input clears it; the cause was not identified. | measured | C157 | `/qt-textfield/` | Qt text field |
 
 ### Form controls and pickers
 
@@ -324,6 +363,13 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | Where native popups open for a control that is drawn transformed. | not verified | | `/inputs/`, `/elements/` | Datalist and other inputs; PR #48 |
 | An option drawn twice in one frame is hit where it was drawn last. Options stop painting when the picker closes, so a copy of the picker canvas is the only picture left. A datalist option can be drawn inside the picture of its input. | measured | C157 | `/select-ideas/`, `/input-ideas/` | Five more select pickers; Five more input pickers |
 | `disabled` on a drawn fieldset behaves as outside a canvas. A press on a disabled control still reaches the canvas as `pointerdown`. | measured | C157 | `/form-scenes/` | Form controls in a drawn setting |
+| A canvas inside `<select multiple>` is not laid out. With the select in the canvas each `drawable` option can be drawn. A list box (`size`) is drawn with its rows and hit-tests under a shear. | measured | C157 | `/select-selection/`, `/blocked/` | Select and selection, second batch; Blocked ideas |
+| `showPicker()` works on a customisable select with a hidden button, needs a user activation and takes the focus. | measured | C157 | `/select-selection/` | Select and selection, second batch |
+| `<selectedcontent>` has a box inside the select's picture and can be drawn alone with a clip. | measured | C157 | `/field-heads/` | Field heads |
+| `input.list.options` works for a field in a canvas. A datalist has no box. Removing `list` stops the browser's own list. | measured | C157 | `/field-heads/` | Field heads |
+| The picture of a password field is the same for two values of one length. | measured | C157 | `/field-heads/` | Field heads |
+| A permission element's `isValid` is false when a canvas draws it, true when it is positioned over a canvas, false for about a second after it moves, and true under a small rotation. | measured | C157 | `/blocked/` | Blocked ideas |
+| There is no `overscroll-area` property. Touch events on a drawable scroller continue past its end, which a page can use for a pull. | measured | C157, emulated touch | `/blocked/` | Blocked ideas |
 
 ### Video and sound
 
@@ -342,6 +388,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | The native control panel of `<audio>` accepts a CSS grid, so its parts can be rearranged without script. A source rectangle of the play button copies the browser's own glyph, which follows the element's state. | measured | C157 | `/cassette/` | Cassette deck from audio controls |
 | `recognition.start(track)` accepts the audio track of `video.captureStream()`. A caption element in the canvas is part of `canvas.captureStream()`. | measured (start only) | C157 | `/live-captions/` | Live captions with a second language |
 | Speech synthesis has no voices in the test browser (`synthesis-failed`), and no speech was recognised. | not verified |  | `/speak-words/`, `/live-captions/` | Words highlighted as they are spoken |
+| The box of `::-webkit-media-controls-timeline` is the full width of the player and 24 px high, the track is at its top edge, and the thumb travels between points 22 px inside it. | measured | C157 | `/video-lab/` | Video, second batch |
+| `createMediaElementSource()` of a video that is a canvas child feeds a `PannerNode`. | measured | C157, no sound output | `/video-lab/` | Video, second batch |
 
 ### View transitions
 
@@ -369,6 +417,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `copyElement(el, { html: true })` writes PNG, HTML and text in one `ClipboardItem`. | measured | C157 | `/capture/` | Capture, Clipboard, print margins, folders |
 | Redaction done in the paint handler is in `captureStream()`, `MediaRecorder` and WebRTC output. | measured | C157 | `/telestrator/` | Screen capture with HTML annotation tools |
 | `toBlob()` on a drawable canvas that holds a figure with a nested plain canvas gives one untainted PNG. | measured | C157 | `/media-tiles/` | Video, image and chart tiles |
+| The history of `<dom-rewind>` encodes to WebM through `frames()`, `VideoFrame` and `VideoEncoder` without reading the drawable canvas: 121 frames at 720 by 568 took 5.0 ms each. VP9, VP8, AV1 and H.264 encoders all accept the frames. | measured | C157, software encoders | `/motion-capture/` | Transitions and motion |
 
 ### 3D, XR and native toolkits
 
@@ -390,6 +439,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A Qt Widgets raster window draws DOM fields after each `putImageData()` flush. | measured | C157 | `/qt-widgets-dom/` | Qt Widgets with DOM elements |
 | A stock Godot 4.7.2 web export takes a DOM element as a texture through `texture_get_native_handle()` and Emscripten's `GL.textures`. Godot's `mousedown` handler calls `canvas.focus()`, so events have to be stopped at the element. | measured | C157 | `/godot-dom/` | A DOM form in a Godot 4 web export |
 | The four toolkit pages on a phone: keyboard, IME, native pickers, frame rate. | not verified | | `/imgui-dom/`, `/flutter-dom/`, `/qt-widgets-dom/`, `/godot-dom/` | their files in `findings/` |
+| A QML text field whose text is a real `<input>` drawn with `texElementSubImage2D()` and bound both ways to a QML property works. A scripted composition deleted earlier letters in Qt's own `TextField` and not in the DOM field. | measured | C157 | `/qt-textfield/` | Qt text field |
+| Occlusion by another toolkit window with no script at event time works with an empty drawable blocker element placed last (no repaint), or with `clip-path` on the field (one upload per move). | measured | C157 | `/toolkit-occlusion/` | Occlusion between toolkit windows |
 
 ### Phones and lost contexts
 
@@ -411,6 +462,9 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | With `willReadFrequently` removed from drawable canvases by the guard and reads made from a `drawImage()` copy, the phone ran all 21 trials with both fixes holding. | reported | A159 | `/canvas-loss/` | Which 2D operation loses the canvas |
 | `/instruments/`, `/scoped-transitions/` and the five text pages of PR #80 lost 2D canvases or the tab on the phone with small canvases and no WebGL context. The cause is not identified. | reported | A159 | those pages | Which 2D operation loses the canvas |
 | Crashes, lost contexts and script errors from every copy of the site are stored by `/api/reports` and listed by `npm run reports`. | measured | C157 | `docs/crash-reports.md` | Which 2D operation loses the canvas |
+| The inner canvases of `/nested-frames/` were empty on the owner's phone on 2026-11-21 with no report sent, and drew on 2026-11-22 after the page began to ask each inner canvas for its first paint with `requestPaint()`. Whether that request is what changed it is not known. | reported | A159 | `/nested-frames/` | Frames and nested canvases |
+| `/element-ideas/` drew its elements 2.625 times too large on the phone because of no-size draws under a scaled context. The audit found 2 wrong calls in 402 across 122 pages; both are corrected and `npm run build` now fails on a no-size call. | reported, then measured | A159, C157 at device scale 2.625 | `/element-ideas/` | `findings/draw-size.md` |
+| `/friction/` lists 79 places where the API did not behave as expected, by kind and area, and re-runs 19 of them in the visitor's browser. | measured | C157 | `/friction/` | `findings/friction.md` |
 
 ## Chromium bugs worth filing
 
@@ -470,6 +524,8 @@ Drawing:
 - `texElementSubImage2D()` accepting `RGBA16F` storage, and `drawElementImageToTexture()` keeping values above 1.0 in a float texture, so GPU routes receive HDR CSS colours. (HDR interface)
 - A way to ask for the whole picture of an element whatever is clipped or off screen, or a documented rule for when a paint record is cut. (Live minimap)
 - A way for top-layer content (a popover, a dialog, a select's picker) to be in a canvas's picture, or for a picker's content to keep painting for a moment after it closes. (Customisable select)
+- A no-size `drawElementImage()` that follows the unit of the current transform (CSS pixels after `scale(dpr)`), or an explainer that states the default size in terms of the backing scale. `getElementImageDefaultSize()` returns the size in canvas pixels. (`findings/draw-size.md`)
+- `drawElementImage()` taking a `CSSPseudoElement`. Today it throws `TypeError`. (Media controls and state)
 
 Hit testing and input:
 
@@ -479,6 +535,10 @@ Hit testing and input:
 - `updateElementGeometry()` invalidating cached hit-test results. (Transitions and motion)
 - One documented unit for `canvasTransform`. (UI primitives)
 - `touch-action` taking effect for elements drawn by a canvas in the top layer. (Customisable select)
+- A way to set the hit region of an element without drawing it, including resetting the source rectangle that a nine-argument draw leaves on it. (Select and selection, second batch)
+- A stated hit-test order. Today it is the order of the last `updateElementGeometry()` calls, which a page can only learn by measuring. A `zIndex` or `order` member, or a statement that call order is the order, would let a toolkit hand over its own z-order. (Occlusion between toolkit windows)
+- A `canvasClip` of more than one rectangle (a list or a `Path2D`), and a way to clear it. Until then a list or `null` should throw: both are read as an empty rectangle and remove the hit box. (Occlusion between toolkit windows)
+- A hit-only region that belongs to the canvas itself, with no element, so a blocker does not need a node in the accessibility tree. (Occlusion between toolkit windows)
 
 Accessibility and focus:
 
@@ -496,6 +556,7 @@ Form controls:
 Geometry:
 
 - `getBoxQuads()`, or `Range.getClientRects()` that returns quads, so a selection on a rotated element can be measured. (Text selection)
+- Rectangles for a selection inside a text control. (Select and selection, second batch)
 
 Libraries:
 
