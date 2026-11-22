@@ -150,12 +150,17 @@ function measureDirty() {
 const waiting = new Set();
 const stats = { paints: 0, ms: 0, put: 0, budget: 6, late: 0 };
 let tick = 0, lastTick = 0, frameMs = 16.7, frameId = -1, spent = 0;
+const recent = [];
 function ask(el) { waiting.add(el); tick ||= requestAnimationFrame(run); }
 function run(now) {
   tick = 0;
   const gap = now - lastTick;
   if (gap < 200) {                       // two frames of this loop in a row
-    if (gap < frameMs && gap > 4) frameMs = gap;                 // the shortest gap seen is the screen's frame
+    // The screen's frame time is the middle one of the last 15 gaps, taken as the nearest common rate.
+    // One short gap between two callbacks does not make a 60 Hz screen a faster one.
+    recent.push(gap); if (recent.length > 15) recent.shift();
+    const middle = [...recent].sort((x, y) => x - y)[recent.length >> 1];
+    frameMs = [1000 / 144, 1000 / 120, 1000 / 90, 1000 / 60].find((f) => middle < f * 1.15) ?? 1000 / 60;
     if (gap > frameMs * 1.6) { stats.budget = Math.max(1.5, stats.budget * 0.7); stats.late++; }
     else stats.budget = Math.min(8, stats.budget * 1.06);
   }

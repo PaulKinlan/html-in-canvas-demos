@@ -141,8 +141,8 @@ function measure(from, to, ms) {
     gaps.push(now - last); last = now;
     if (now - t0 < ms + 250) { requestAnimationFrame(step); return; }
     const total = now - t0, stats = CanvasSkin.stats;
-    // The screen's frame time: the shortest gap seen, taken as the nearest common rate.
-    const least = Math.min(...gaps.filter((g) => g > 4)), frame = [1000 / 144, 1000 / 120, 1000 / 90, 1000 / 60].find((f) => least < f * 1.25) ?? 1000 / 60;
+    // The screen's frame time: the middle gap, taken as the nearest common rate.
+    const middle = [...gaps].sort((x, y) => x - y)[gaps.length >> 1], frame = [1000 / 144, 1000 / 120, 1000 / 90, 1000 / 60].find((f) => middle < f * 1.15) ?? 1000 / 60;
     const missed = gaps.reduce((n, g) => n + Math.max(0, Math.round(g / frame) - 1), 0), longest = Math.max(...gaps);
     const worst = longFrames.reduce((a, e) => (e.duration > (a?.duration ?? 0) ? e : a), null);
     const script = worst?.scripts?.reduce((a, s) => (s.duration > (a?.duration ?? 0) ? s : a), null);
