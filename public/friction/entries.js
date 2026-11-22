@@ -4,7 +4,7 @@
 //
 //   kind      'engine'    the browser does something that looks wrong: a candidate for a bug report
 //             'gap'       the API has no call for it: a request for the explainer
-//             'surprise'  the API does what it is built to do, and that was not what we expected
+//             'surprise'  the API does what it is built to do, and that was not what I expected
 //             'mistake'   our code or our test was wrong
 //             'tooling'   a library, a binding or the test browser was the problem
 //             'open'      seen, and the cause was not found
@@ -26,8 +26,8 @@ const C157 = 'C157', A159 = 'A159', C153 = 'C153';
 export const KINDS = {
   engine: ['Browser behaviour that looks wrong', 'Candidates for a Chromium bug report. None has been filed. Some may be intended: the status line says where that is likely.'],
   gap: ['The API has no way to do it', 'What a page needed and could not ask for. These are requests for the explainer.'],
-  surprise: ['The API as built, where it was not what we expected', 'Developer friction. The browser does what the API says or what its design implies. Each of these cost time because nothing said so: no error, no warning, or no line in the explainer.'],
-  mistake: ['Our mistakes', 'Developer friction. The code or the test was wrong. They are listed because the same mistake is easy to make again.'],
+  surprise: ['The API as built, where it was not what I expected', 'Developer friction. The browser does what the API says or what its design implies. Each of these cost time because nothing said so: no error, no warning, or no line in the explainer.'],
+  mistake: ['My mistakes', 'Developer friction. The code or the test was wrong. They are listed because the same mistake is easy to make again.'],
   tooling: ['Libraries, bindings and the test browser', 'Friction from outside the API: a library that calls old names, a binding with no entry for a method, a test browser that hides a result.'],
   open: ['Seen, cause not found', 'Each needs a smaller page or a run on the device that showed it.'],
 };
@@ -665,7 +665,7 @@ export const ENTRIES = [
     browser: A159, how: 'reported',
     where: [['/canvas-loss/', 'the trial page that isolated it'], ['/crashes/#frequent-read-drawable', 'the full record']],
     fix: 'The guard removes the option from a drawable canvas. Checks read from a drawImage() copy in a plain canvas.',
-    status: 'Our choice of option, and a browser bug behind it. Not filed.',
+    status: 'My choice of option, and a browser bug behind it. Not filed.',
     source: 'findings/canvas-loss.md, docs/graphics-rules.md',
   },
   {

@@ -23,7 +23,7 @@ Tear-off (`/tear-off/`, 11 routes, each clicked through with a real popup):
 | `about:blank` popup scripted by the opener | works | No messages: direct calls, ImageBitmaps passed by reference. |
 | Move the real element into the popup (`popup.document.body.append(el)`) | works | Listeners, timers and input values survive. Closing the popup brings it home. Needs a window reference and the same origin. |
 | A moved element painted by a canvas in its new document | works | So the destination can stream it onward. |
-| Document Picture-in-Picture, streamed or with the real DOM | works | `requestWindow()` works in headless. |
+| Document Picture-in-Picture, streamed or with the element moved | works | `requestWindow()` works in headless. |
 | Video Picture-in-Picture | works | View only. Media Session actions are mapped to the widget's buttons; not checked visually. |
 | `noopener` tab over BroadcastChannel | works | ImageBitmaps are cloned. Input comes back on the same channel. |
 | `noopener` tab over a SharedWorker-brokered MessagePort | works | |
