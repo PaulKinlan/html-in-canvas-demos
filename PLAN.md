@@ -1,6 +1,6 @@
 # Plan
 
-The goals of this project, the strands of work and their status, every open idea with its source, and what is still unverified because it needs real hardware. Status is as of 2026-11-21 at 21:15 UTC. Pull requests #1 to #101 had merged and none was open. Results are in [FINDINGS.md](FINDINGS.md). How the code is organised is in [ARCHITECTURE.md](ARCHITECTURE.md).
+The goals of this project, the strands of work and their status, every open idea with its source, and what is still unverified because it needs real hardware. Status is as of 2026-11-22 at 10:00 UTC. Pull requests #1 to #123 had merged except #122 (`/view-source/`), which was open. #124 (`/plan-followups/` after a phone report) merged after this pass was written and is not covered. Results are in [FINDINGS.md](FINDINGS.md). How the code is organised is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 This file has one writer at a time. A pull request that adds or changes a page does not edit it: the page's open ideas and unverified items go in its file in [findings/](findings/), and a planning pass copies them here. The reason is in [ARCHITECTURE.md](ARCHITECTURE.md), "Files that parallel branches share".
 
@@ -50,30 +50,30 @@ The goals below are Paul Kinlan's, quoted or summarised from the project chat wi
 | Workers, tabs, origins | `/offscreen/`, `/cross-tab/`, `/cross-origin/`, `/transports/`, `/transports-2/` | `slot-share.js`, `broker.js`, `freeze-log.js` | #1, #2, #3, #18, #54 | Done. 49 transport routes tested in the first lab. Demo 18 (newer routes) is built as `/transports-2/`. Element Capture, a frozen tab and WebTransport against a real server are not verified. |
 | Cross-context | `/tear-off/`, `/remote/`, `/embed/`, `/support/`, `/slot-view/`, `/pip/`, `/iframe-tiles/` | `live-*.js`, `slot-view.js`, `slot-provider.js`, `element-pip.js`, `src/cross-context.js` | #9, #15, #26, #35, #54 | Built. Not verified between two real networks or with a real cross-site pair. Demo 22 is built as `/iframe-tiles/`. |
 | UI primitives | `/portal/`, `/lens/`, `/shader-css/`, `/slot-effects/`, `/physical/`, `/component-kit/` | `surface.js`, `dom-portal.js`, `dom-lens.js`, `lens-gl.js`, `lens-gpu.js`, `shader-fx.js`, `effects.js`, `slot-effects.js`, `physical-ui.js`, `fx.js` | #6, #12, #17, #19, #28, #32, #33, #42, #44, #53 | Built. Five pages still gate their checks behind a tap. Demo 21 is built as `/component-kit/`. |
-| Form controls | `/select/`, `/datalist/`, `/inputs/`, `/select-ideas/`, `/input-ideas/`, `/instruments/`, `/form-state/`, `/form-scenes/` | `select-picker.js`, `placed-popover.js`, `datalist-picker.js`, `input-pickers.js`, `select-ideas.js`, `input-ideas.js` | #45, #69, #72, #86, #90 | Built, including backlog groups 1, 7, 8, 12 and 13. The first version of `/instruments/` lost its 2D canvases on the phone. Touch `:active` on a drawn button and the native pickers are not verified on the phone. |
-| Transitions and motion | `/transitions/`, `/view-transitions/`, `/scoped-transitions/`, `/time-scrubber/`, `/particles/` | `live-transition.js`, `dom-rewind.js`, `glyph-field.js`, `element-gl.js` | #4, #8, #10, #20, #27, #43, #70, #85, #87 | Built. `/scoped-transitions/` builds backlog group 10 (five view transition experiments). Its 2D canvas of experiment 2 was reported white on the phone; the cause is not known. |
+| Form controls | `/select/`, `/datalist/`, `/inputs/`, `/select-ideas/`, `/input-ideas/`, `/instruments/`, `/form-state/`, `/form-scenes/`, `/select-selection/`, `/field-heads/` | `select-picker.js`, `placed-popover.js`, `datalist-picker.js`, `input-pickers.js`, `select-ideas.js`, `input-ideas.js`, `select-selection.js` | #45, #69, #72, #86, #90, #112, #123 | Built, including backlog groups 1, 7, 8, 12, 13 and 24 and five ideas of group 28 (`/field-heads/`). The first version of `/instruments/` lost its 2D canvases on the phone. Touch `:active` on a drawn button and the native pickers are not verified on the phone. |
+| Transitions and motion | `/transitions/`, `/view-transitions/`, `/scoped-transitions/`, `/time-scrubber/`, `/particles/`, `/motion-capture/` | `live-transition.js`, `dom-rewind.js`, `glyph-field.js`, `element-gl.js` | #4, #8, #10, #20, #27, #43, #70, #85, #87, #109 | Built. `/scoped-transitions/` builds backlog group 10 (five view transition experiments) and `/motion-capture/` builds group 25 (rewind history to a video encoder, two pointers on moving pieces). Its 2D canvas of experiment 2 was reported white on the phone; the cause is not known. |
 | WebGPU across the shader pages | the six shader pages, `/lens/` and `/webgpu-features/` | `shared/backend.js`, `shared/route-switch.js`, `gpu-util.js` | #33, #37, #42, #60, #74 | Built. Confirmed on screen on the phone for `/shader-css/` and `/webgpu-features/`. On `/webgpu-features/` the phone passed 10 of 10 live checks, including `dual-source-blending` and `primitive-index`, which the software adapter cannot compile. |
 | 3D and spatial | `/three-form/`, `/board/`, `/xr/`, `/xr-room/` | `html3d.js`, `check-fixture.js`, `xr-room.js` | #11, #21, #25, #59 | Built. three `WebGPURenderer`, a real headset and Android AR are not verified. Demo 24 is built as `/xr-room/` with a simulated room and a headset emulator. |
-| Native UI toolkits | `/native-ui/`, `/wasm-ui/`, `/imgui-dom/`, `/flutter-dom/`, `/qt-widgets-dom/`, `/godot-dom/`, `/toolkit-aria/` | `native/egui-dom/`, `native/qt-dom/`, `docs/native-frameworks.md` | #47, #55, #71 | Built for egui, Qt Quick, Dear ImGui, Flutter web, Qt Widgets and Godot 4, with an accessibility tree for the ImGui app (backlog group 11). None has been tried on a phone or with a screen reader. |
+| Native UI toolkits | `/native-ui/`, `/wasm-ui/`, `/imgui-dom/`, `/flutter-dom/`, `/qt-widgets-dom/`, `/godot-dom/`, `/toolkit-aria/`, `/qt-textfield/`, `/toolkit-occlusion/` | `native/egui-dom/`, `native/qt-dom/`, `docs/native-frameworks.md` | #47, #55, #71, #114 | Built for egui, Qt Quick, Dear ImGui, Flutter web, Qt Widgets and Godot 4, with an accessibility tree for the ImGui app (backlog group 11), a Qt Quick text field backed by an `<input>` and four occlusion routes (group 27). None has been tried on a phone or with a screen reader. |
 | Devices | `/fold/`, `/hardware-out/`, `/window-chrome/` | `fold-view.js`, `device-out.js` | #57 | Built with simulated devices (demos 23, 25 and 27 of the Chrome APIs plan). No real foldable, peripheral or installed app window has been tried. |
-| Video and sound | `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/`, `/gpu-video/`, `/worker-compositor/`, `/presenter/`, `/telestrator/`, `/video-text/`, `/captions/`, `/timed-comments/`, `/live-captions/`, `/speak-words/`, `/cassette/`, `/media-tiles/` | `video-export.js`, `webm-mux.js`, `cue-layer.js` | #46, #51, #77, #78, #99 | Built, including backlog groups 5, 6 and 15. Hardware decoding, sound, `importExternalTexture()` on a real GPU, a real camera, speech recognition and speech synthesis are not verified. |
+| Video and sound | `/video/`, `/overlay/`, `/audio/`, `/player-parts/`, `/player-fx/`, `/gpu-video/`, `/worker-compositor/`, `/presenter/`, `/telestrator/`, `/video-text/`, `/captions/`, `/timed-comments/`, `/live-captions/`, `/speak-words/`, `/cassette/`, `/media-tiles/`, `/animated-images/`, `/video-lab/`, `/media-state/` | `video-export.js`, `webm-mux.js`, `cue-layer.js` | #46, #51, #77, #78, #99, #107, #113, #115 | Built, including backlog groups 5, 6, 15, 22 and 23. Lottie (part of 22.6) is not built. Casting to a real device is not verified. Hardware decoding, sound, `importExternalTexture()` on a real GPU, a real camera, speech recognition and speech synthesis are not verified. |
 | Accessibility, capture, performance | `/a11y/`, `/capture/`, `/perf/`, `/protected/` | `a11y-audit.js`, `element-capture.js`, `device-tier.js`, `tools/protected/` | #7, #13, #14, #16, #22, #24, #56 | Built. By-hand results (screen reader, IME, flicker, frame rates) are still wanted. Demos 10, 17 and 20 are built as `/protected/`, the latency buttons on `/perf/` and section C of `/capture/`. |
 | Pages that hold still | every page | `tools/jank/`, `shared/support.js`, `shared/nav.js` | #29 and the per-page fixes #23 to #28 | Done. All pages hold still on load. Gated pages carry `<meta name="checks" content="tap">`. |
 | Show the code | every page | `shared/show-code.js`, `shared/source-view.js` | #30, #34 | Done. The two listing components could be unified. |
 | Learning resource | `/start/`, homepage, `shared/learn.js` | | #36, #38, #39, #40, #41 | Done. Open recommendations are listed below. |
-| Element catalogue | `/elements/`, `/element-ideas/`, `/sort-table/`, `/accordion/`, `/minimap/`, `/heat-map/`, `/tab-fan/`, `ELEMENTS.md`, `/list-table/`, `/structure-depth/`, `/top-layer/`, `/paint-clocks/`, `/nested-frames/`, `/play/` | `tools/elements/`, `tools/element-ideas/`, `stage-2d.js`, `effect-frame.js` | #48, #76, #89, #91, #95, #97, #100, #101 | Built. Of 121 ideas, 17 are built on `/element-ideas/` and the rest of the built ones as pages of their own (backlog groups 1 to 4, 6 and 12 to 21). `ELEMENTS.md` marks only the 17, because its `built` field is an anchor on `/element-ideas/`. |
+| Element catalogue | `/elements/`, `/element-ideas/`, `/sort-table/`, `/accordion/`, `/minimap/`, `/heat-map/`, `/tab-fan/`, `ELEMENTS.md`, `/list-table/`, `/structure-depth/`, `/top-layer/`, `/paint-clocks/`, `/nested-frames/`, `/play/`, `/text-marks/`, `/table-data/`, `/block-play/`, `/odd-elements/`, `/field-heads/`, `/blocked/` | `tools/elements/`, `tools/element-ideas/`, `stage-2d.js`, `effect-frame.js` | #48, #76, #89, #91, #95, #97, #100, #101, #102, #104, #115, #117, #118, #119, #120, #121, #123 | Built. Of 121 ideas, 17 are built on `/element-ideas/` and the rest of the built ones as pages of their own (backlog groups 1 to 4, 6, 12 to 21 and 28). `/blocked/` tests the six blocked ideas of group 29 beside the routes that replace them. The inner canvases of `/nested-frames/` were reported empty on the phone on 2026-11-21 and reported drawing on 2026-11-22; the cause was not found. `ELEMENTS.md` marks only the 17, because its `built` field is an anchor on `/element-ideas/`. |
 | Text selection | `/selection/`, `/caret/`, `/selection-peers/`, `/selection-glyphs/`, `/redact/`, `/selection-heat/`, `/share-card/` | `selection-fx.js`, `selection-tools.js` | #49, #52, #73 | Built, including backlog group 9. Demo 9 (carets and highlights) landed in #52 as `/caret/`. Touch selection is not verified. |
-| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `/chrome-apis/plan.md`, `/stream/`, `/carousel/`, `/patch/`, `/popovers/`, `/hdr-glow/`, `/css-uniforms/` | `tools/chrome-apis/`, `element-gl.js`, `css-uniforms.js` | #50, #67, #75, #82, #96 | Plan written, 27 probes recorded. All 29 planned demos are built. Demos 1, 2, 3 and 29 came in #50, and demos 4 and 5 in #67 as `/hdr-glow/` and `/css-uniforms/`. #75, #82 and #96 changed `/hdr-glow/` after its float16 contexts were lost on the phone: a float `getImageData()` is what loses them. `/hdr-glow/repro.html` showed values above 1.0 brighter than white on the phone. |
+| Chrome APIs plan | `/chrome-apis/`, `/chrome-apis/probes.html`, `/chrome-apis/plan.md`, `/stream/`, `/carousel/`, `/patch/`, `/popovers/`, `/hdr-glow/`, `/css-uniforms/`, `/plan-followups/` | `tools/chrome-apis/`, `element-gl.js`, `css-uniforms.js` | #50, #67, #75, #82, #96, #108 | Plan written, 27 probes recorded. All 29 planned demos are built, and the five follow-ups of backlog group 26 are on `/plan-followups/`. Demos 1, 2, 3 and 29 came in #50, and demos 4 and 5 in #67 as `/hdr-glow/` and `/css-uniforms/`. #75, #82 and #96 changed `/hdr-glow/` after its float16 contexts were lost on the phone: a float `getImageData()` is what loses them. `/hdr-glow/repro.html` showed values above 1.0 brighter than white on the phone. |
 | Effects from CSS and sensors (plan demos 6, 7, 8, 11) | `/scroll-fx/`, `/shape-ui/`, `/text-labels/`, `/tilt-card/` | `tilt-light.js`, `char-rects.js`, `shared/fx-route.js` | #62 | Built. The overscroll drawer of demo 6 was not built (no `overscroll-area` in Chromium 157). The real tilt sensor and touch scrolling are not verified. |
 | AI and input (plan demos 12 to 16) | `/translate-lens/`, `/agent-view/`, `/voice/`, `/nav-shader/`, `/focus-nav/` | `text-twin.js` | #61 | Demos 12 to 16 built. No model, WebMCP or microphone in the test browser, so each page runs on a labelled fallback there. |
-| Lost canvases, graphics rules and crash reports | every page, `/canvas-loss/`, `/crashes/` | `shared/context-guard.js`, `shared/backend.js`, `surface.js`, `tools/jank/`, `tools/gfx/`, `docs/graphics-rules.md`, `docs/lost-contexts.md`, `docs/crash-reports.md` | #63, #81, #84, #85, #93, #94 | Built. Two causes were found on the phone with `/canvas-loss/`: a drawable 2D canvas made with `willReadFrequently: true`, and a float16 `getImageData()`. The guard now removes the first, `npm run build` fails on five graphics rules (`npm run check:gfx`), the WebGL limit in `check:jank` is 3, and every copy of the site sends crashes and lost contexts to `/api/reports` (`npm run reports`). The phone ran all 21 trials and both guard fixes held (#94). The losses on `/instruments/`, `/scoped-transitions/` and the text pages of #80 are not explained. |
+| Lost canvases, graphics rules and crash reports | every page, `/canvas-loss/`, `/crashes/`, `/friction/` | `shared/context-guard.js`, `shared/backend.js`, `surface.js`, `tools/jank/`, `tools/gfx/`, `docs/graphics-rules.md`, `docs/lost-contexts.md`, `docs/crash-reports.md`, `tools/draw-size/`, `docs/draw-size.md` | #63, #81, #84, #85, #93, #94, #110, #111, #116 | Built. Two causes were found on the phone with `/canvas-loss/`: a drawable 2D canvas made with `willReadFrequently: true`, and a float16 `getImageData()`. The guard now removes the first, `npm run build` fails on five graphics rules (`npm run check:gfx`), the WebGL limit in `check:jank` is 3, and every copy of the site sends crashes and lost contexts to `/api/reports` (`npm run reports`). The phone ran all 21 trials and both guard fixes held (#94). #111 added a build rule (`draw-size`: a `drawElementImage()` call with no size) after `/element-ideas/` drew its elements 2.625 times too large on the phone, and `/friction/` lists 79 places where the API did not behave as expected, 19 of them re-run in the visitor's browser. The losses on `/instruments/`, `/scoped-transitions/` and the text pages of #80 are not explained. |
 | Text elements | `/mark-pen/`, `/keycaps/`, `/split-flap/`, `/flip-clock/`, `/typed-code/`, `/text-notes/` | `text-canvas.js` | #80, #88, #92 | Built (backlog groups 2 and 14). Lost their canvases or the tab on the phone in the first version. |
 | Developer tools and accessibility views drawn by a canvas | `/focus-path/`, `/layout-debug/`, `/paint-inspector/`, `/hit-regions/`, `/landmark-map/`, `/a11y-views/` | `lib/devtools/` | #79, #98 | Built (backlog groups 4 and 21). No screen reader was used. |
 | Repository layout for parallel branches | every page | `tools/site/`, `public/<name>/page.json`, `findings/` | #64, #65 | Done. Each page registers itself with its own `page.json` and records results in its own findings file. The menu is generated by `npm run build`. |
 
 ## Pull requests
 
-On 2026-11-21 at 21:15 UTC, pull requests #1 to #101 have merged and none is open. Merged since 14:00 UTC that day:
+On 2026-11-22 at 10:00 UTC, pull requests #1 to #123 have merged except #122 (`/view-source/`), which is open. #124 (`/plan-followups/` after a phone report) merged after this pass was written and is not covered below. Merged since 14:00 UTC on 2026-11-21:
 
 | PR | Adds |
 |---|---|
@@ -116,6 +116,20 @@ On 2026-11-21 at 21:15 UTC, pull requests #1 to #101 have merged and none is ope
 | #95, #101 | `/paint-clocks/`, `/top-layer/` |
 | #97, #98 | `/play/`, `/a11y-views/` |
 | #99, #100 | `/media-tiles/`, `/nested-frames/` |
+| #102, #119, #120 | `/nested-frames/`: a second route when the inner canvases are empty, and the phone report that they now draw |
+| #103 | Documentation pass for #77 to #101 |
+| #104, #111 | Element ideas drawn at CSS size on dense screens; the `draw-size` build rule, guard measurement and `tools/draw-size/audit.mjs` |
+| #105, #106 | Homepage changes |
+| #107 | `/animated-images/` |
+| #108 | `/plan-followups/`, and the hit boxes of the WebGPU route of `/hdr-glow/` |
+| #109 | `/motion-capture/` |
+| #110, #116 | `/friction/` |
+| #112 | `/select-selection/` |
+| #113 | `/video-lab/` |
+| #114 | `/qt-textfield/`, `/toolkit-occlusion/` |
+| #115 | `/media-state/`, `/text-marks/` |
+| #117, #118, #121 | `/table-data/`, `/block-play/`, `/odd-elements/` |
+| #123 | `/field-heads/`, `/blocked/` |
 
 ## Planned demos from the Chrome APIs plan
 
@@ -297,7 +311,7 @@ Rank 2 and rank 3 are in `ELEMENTS.md` under "Ideas". Rank 2 includes developer 
 
 Every idea that was listed in this project and was not built on 2026-11-21 at 16:00 UTC, one line each. Sources: the sections above, `public/elements/ideas.js`, the files in `findings/`, `docs/native-frameworks.md` and `tools/chrome-apis/ideas.json`. The list has 170 lines in 30 groups. Of the 121 element catalogue ideas, 17 are built, which is what the project owner pointed at on 2026-11-21 ("we haven't even got half of the demos done").
 
-Rank 1 is being built now, rank 2 follows, rank 3 is small, speculative, blocked, or not a demo. Inside a rank, groups are in build order. The element catalogue comes first because most of the unbuilt ideas are there. Each group is 2 to 7 ideas that share fixtures, is built by one thread on a branch from `main`, and ships as one pull request with its own page folder and its own file in `findings/`. Lines that end with "Built:" were built after the list was written. By 21:15 UTC on 2026-11-21, 106 of the 170 lines are built or covered: groups 1 to 21 except 18.1, which `/popovers/` covers, plus 28.19 and 28.25. Groups 22 to 27, the rest of 28, and groups 29 and 30 are open and stay in the list so the numbering holds. A group does not edit `public/elements/ideas.js` or `/element-ideas/`: it names the ideas it built under "For the index" in its findings file, and a documentation pass marks them here and in the catalogue.
+Rank 1 was built first, then rank 2. Rank 3 is small, speculative, blocked, or not a demo. Inside a rank, groups are in build order. The element catalogue comes first because most of the unbuilt ideas are there. Each group is 2 to 7 ideas that share fixtures, is built by one thread on a branch from `main`, and ships as one pull request with its own page folder and its own file in `findings/`. Lines that end with "Built:" were built after the list was written. By 10:00 UTC on 2026-11-22, 163 of the 170 lines are built, covered or tested: groups 1 to 28 (18.1 is covered by `/popovers/`, and Lottie in 22.6 is not built), and 29.1 to 29.6, which `/blocked/` tests beside the routes that work instead. Open: 29.7 to 29.9, which need a headset, a phone or a second site, and group 30, which is library and site work. Every line stays in the list so the numbering holds. A group does not edit `public/elements/ideas.js` or `/element-ideas/`: it names the ideas it built under "For the index" in its findings file, and a documentation pass marks them here and in the catalogue.
 
 ### Rank 1: built (55 ideas, groups 1 to 11)
 
@@ -389,7 +403,7 @@ Rank 1 is being built now, rank 2 follows, rank 3 is small, speculative, blocked
 - 11.4 (rank 1) Godot or Unity: a DOM chat box and login form on a quad in a 3D scene (`docs/native-frameworks.md`) Built: `/godot-dom/` (Godot only), #71.
 - 11.5 (rank 1) A framework's ARIA tree inside the canvas, positioned with `updateElementGeometry()` (`docs/native-frameworks.md`) Built: `/toolkit-aria/` (Dear ImGui), #71.
 
-### Rank 2: next (74 ideas, groups 12 to 27)
+### Rank 2: built (74 ideas, groups 12 to 27)
 
 #### 12. Forms: effects raised by the control's own state
 
@@ -472,88 +486,88 @@ Rank 1 is being built now, rank 2 follows, rank 3 is small, speculative, blocked
 
 #### 22. Video, second batch
 
-- 22.1 (rank 2) A title editor: clips, HTML title cards, the `/transitions/` shaders between clips, `exportFrames()` (video and sound)
-- 22.2 (rank 2) A cinema screen in the `/three-form/` scene with a `PannerNode` at the screen (video and sound)
-- 22.3 (rank 2) A `display-p3` canvas with HDR or wide-gamut video (video and sound)
-- 22.4 (rank 2) A player skin as a shader on the timeline strip only (video and sound)
-- 22.5 (rank 2) A WebGPU version of the `/player-fx/` shader (video and sound)
-- 22.6 (rank 2) Animated images (GIF, APNG, WebP, AVIF, SVG SMIL, Lottie) as canvas children: does `paint` fire per frame (video and sound)
+- 22.1 (rank 2) A title editor: clips, HTML title cards, the `/transitions/` shaders between clips, `exportFrames()` (video and sound) Built: `/video-lab/`, #113.
+- 22.2 (rank 2) A cinema screen in the `/three-form/` scene with a `PannerNode` at the screen (video and sound) Built: `/video-lab/`, #113.
+- 22.3 (rank 2) A `display-p3` canvas with HDR or wide-gamut video (video and sound) Built: `/video-lab/`, #113.
+- 22.4 (rank 2) A player skin as a shader on the timeline strip only (video and sound) Built: `/video-lab/`, #113.
+- 22.5 (rank 2) A WebGPU version of the `/player-fx/` shader (video and sound) Built: `/video-lab/`, #113.
+- 22.6 (rank 2) Animated images (GIF, APNG, WebP, AVIF, SVG SMIL, Lottie) as canvas children: does `paint` fire per frame (video and sound) Built: `/animated-images/`, #107, apart from Lottie.
 
 #### 23. Media controls and state
 
-- 23.1 (rank 2) Customisable media controls mocked with a custom element (video and sound)
-- 23.2 (rank 2) State pseudo-classes on other elements (`:open`, `:popover-open`, `:user-invalid`, `:checked`) driving `--fx-*` through `:has()` (video and sound)
-- 23.3 (rank 2) A test of the proposal that `drawElementImage()` takes a pseudo-element or a `::part()` (video and sound)
-- 23.4 (rank 2) Casting the composed stream with the Presentation or Remote Playback API (video and sound)
+- 23.1 (rank 2) Customisable media controls mocked with a custom element (video and sound) Built: `/media-state/`, #115.
+- 23.2 (rank 2) State pseudo-classes on other elements (`:open`, `:popover-open`, `:user-invalid`, `:checked`) driving `--fx-*` through `:has()` (video and sound) Built: `/media-state/`, #115.
+- 23.3 (rank 2) A test of the proposal that `drawElementImage()` takes a pseudo-element or a `::part()` (video and sound) Built: `/media-state/`, #115.
+- 23.4 (rank 2) Casting the composed stream with the Presentation or Remote Playback API (video and sound) Built: `/media-state/`, #115.
 
 #### 24. Select, inputs and selection, second batch
 
-- 24.1 (rank 2) `<select multiple>` drawn by a canvas (`/select/` ideas)
-- 24.2 (rank 2) Rich suggestions through a customisable select with no button (`/datalist/` and `/inputs/` ideas)
-- 24.3 (rank 2) Selection in 3D (`/selection/` ideas)
-- 24.4 (rank 2) Translate the selection in place (`/selection/` ideas)
-- 24.5 (rank 2) Haptics on selection change (`/selection/` ideas)
-- 24.6 (rank 2) Selection effects for form controls (`/selection/` ideas)
+- 24.1 (rank 2) `<select multiple>` drawn by a canvas (`/select/` ideas) Built: `/select-selection/`, #112.
+- 24.2 (rank 2) Rich suggestions through a customisable select with no button (`/datalist/` and `/inputs/` ideas) Built: `/select-selection/`, #112.
+- 24.3 (rank 2) Selection in 3D (`/selection/` ideas) Built: `/select-selection/`, #112.
+- 24.4 (rank 2) Translate the selection in place (`/selection/` ideas) Built: `/select-selection/`, #112.
+- 24.5 (rank 2) Haptics on selection change (`/selection/` ideas) Built: `/select-selection/`, #112.
+- 24.6 (rank 2) Selection effects for form controls (`/selection/` ideas) Built: `/select-selection/`, #112.
 
 #### 25. Motion and capture
 
-- 25.1 (rank 2) `<dom-rewind>.frames()` fed to a real video encoder (`findings/motion.md`)
-- 25.2 (rank 2) Hit testing for two pointers at once on shards or glyphs (FINDINGS.md summary)
+- 25.1 (rank 2) `<dom-rewind>.frames()` fed to a real video encoder (`findings/motion.md`) Built: `/motion-capture/`, #109.
+- 25.2 (rank 2) Hit testing for two pointers at once on shards or glyphs (FINDINGS.md summary) Built: `/motion-capture/`, #109.
 
 #### 26. Follow-ups to the Chrome APIs plan
 
-- 26.1 (rank 2) Semantic zoom on `/board/`: a tile too small to read is replaced by a summary from the Summarizer API (`tools/chrome-apis/ideas.json`)
-- 26.2 (rank 2) Multicol `::column` fragments drawn as book pages with a page-turn shader (plan demo 2, second layout)
-- 26.3 (rank 2) Canvas `TextMetrics` selection rectangles (Chrome 160) compared with DOM Range rects (`tools/chrome-apis/ideas.json`)
-- 26.4 (rank 2) A WebGL route for `/hdr-glow/` with an `RGBA16F` drawing buffer and a bloom pass (`findings/hdr-glow.md`)
-- 26.5 (rank 2) The CSS uniform binding moved into `shader-fx.js`, and a registered `<custom-ident>` that selects the effect (`findings/css-uniforms.md`)
+- 26.1 (rank 2) Semantic zoom on `/board/`: a tile too small to read is replaced by a summary from the Summarizer API (`tools/chrome-apis/ideas.json`) Built: `/plan-followups/`, #108.
+- 26.2 (rank 2) Multicol `::column` fragments drawn as book pages with a page-turn shader (plan demo 2, second layout) Built: `/plan-followups/`, #108.
+- 26.3 (rank 2) Canvas `TextMetrics` selection rectangles (Chrome 160) compared with DOM Range rects (`tools/chrome-apis/ideas.json`) Built: `/plan-followups/`, #108.
+- 26.4 (rank 2) A WebGL route for `/hdr-glow/` with an `RGBA16F` drawing buffer and a bloom pass (`findings/hdr-glow.md`) Built: `/plan-followups/`, #108.
+- 26.5 (rank 2) The CSS uniform binding moved into `shader-fx.js`, and a registered `<custom-ident>` that selects the effect (`findings/css-uniforms.md`) Built: `/plan-followups/`, #108, without the move into `shader-fx.js`.
 
 #### 27. Native UI toolkits, second batch
 
-- 27.1 (rank 2) A Qt Quick `TextField` backed by an `<input>`, compared for IME and autofill on Android (`docs/native-frameworks.md`)
-- 27.2 (rank 2) Occlusion without a guard: can `canvasClip` express "this window covers that field" (`docs/native-frameworks.md`)
+- 27.1 (rank 2) A Qt Quick `TextField` backed by an `<input>`, compared for IME and autofill on Android (`docs/native-frameworks.md`) Built: `/qt-textfield/`, #114.
+- 27.2 (rank 2) Occlusion without a guard: can `canvasClip` express "this window covers that field" (`docs/native-frameworks.md`) Built: `/toolkit-occlusion/`, #114.
 
 ### Rank 3: later, blocked, or not a demo (41 lines, groups 28 to 30)
 
 #### 28. Element catalogue, rank 3
 
-- 28.1 (rank 3) Suggestion ring from a datalist (element catalogue, rank 3)
-- 28.2 (rank 3) Password field that can be shared (element catalogue, rank 3)
-- 28.3 (rank 3) Hero picture from selectedcontent (element catalogue, rank 3)
-- 28.4 (rank 3) Folder tabs from legends (element catalogue, rank 3)
-- 28.5 (rank 3) Subscripts that settle (element catalogue, rank 3)
-- 28.6 (rank 3) Bidirectional text explained (element catalogue, rank 3)
-- 28.7 (rank 3) Abbreviations expanded in place (element catalogue, rank 3)
-- 28.8 (rank 3) Quotation marks as ornaments (element catalogue, rank 3)
-- 28.9 (rank 3) Variables that light up together (element catalogue, rank 3)
-- 28.10 (rank 3) Line breaks as cut lines (element catalogue, rank 3)
-- 28.11 (rank 3) Photo gallery with real alt text (element catalogue, rank 3)
-- 28.12 (rank 3) Caption as a rubber stamp (element catalogue, rank 3)
-- 28.13 (rank 3) Footer totals that count up (element catalogue, rank 3)
-- 28.14 (rank 3) Machine values next to shown values (element catalogue, rank 3)
-- 28.15 (rank 3) Document title as a heading (element catalogue, rank 3)
-- 28.16 (rank 3) Address on an envelope (element catalogue, rank 3)
-- 28.17 (rank 3) Footer that is the floor (element catalogue, rank 3)
-- 28.18 (rank 3) Subtitle that types under the title (element catalogue, rank 3)
+- 28.1 (rank 3) Suggestion ring from a datalist (element catalogue, rank 3) Built: `/field-heads/`, #123.
+- 28.2 (rank 3) Password field that can be shared (element catalogue, rank 3) Built: `/field-heads/`, #123.
+- 28.3 (rank 3) Hero picture from selectedcontent (element catalogue, rank 3) Built: `/field-heads/`, #123.
+- 28.4 (rank 3) Folder tabs from legends (element catalogue, rank 3) Built: `/block-play/`, #118.
+- 28.5 (rank 3) Subscripts that settle (element catalogue, rank 3) Built: `/text-marks/`, #115.
+- 28.6 (rank 3) Bidirectional text explained (element catalogue, rank 3) Built: `/text-marks/`, #115.
+- 28.7 (rank 3) Abbreviations expanded in place (element catalogue, rank 3) Built: `/text-marks/`, #115.
+- 28.8 (rank 3) Quotation marks as ornaments (element catalogue, rank 3) Built: `/text-marks/`, #115.
+- 28.9 (rank 3) Variables that light up together (element catalogue, rank 3) Built: `/text-marks/`, #115.
+- 28.10 (rank 3) Line breaks as cut lines (element catalogue, rank 3) Built: `/text-marks/`, #115.
+- 28.11 (rank 3) Photo gallery with real alt text (element catalogue, rank 3) Built: `/block-play/`, #118.
+- 28.12 (rank 3) Caption as a rubber stamp (element catalogue, rank 3) Built: `/table-data/`, #117.
+- 28.13 (rank 3) Footer totals that count up (element catalogue, rank 3) Built: `/table-data/`, #117.
+- 28.14 (rank 3) Machine values next to shown values (element catalogue, rank 3) Built: `/table-data/`, #117.
+- 28.15 (rank 3) Document title as a heading (element catalogue, rank 3) Built: `/field-heads/`, #123.
+- 28.16 (rank 3) Address on an envelope (element catalogue, rank 3) Built: `/table-data/`, #117.
+- 28.17 (rank 3) Footer that is the floor (element catalogue, rank 3) Built: `/odd-elements/`, #121.
+- 28.18 (rank 3) Subtitle that types under the title (element catalogue, rank 3) Built: `/field-heads/`, #123.
 - 28.19 (rank 3) Toast stack in the scene (element catalogue, rank 3) Built: `/top-layer/`, #101.
-- 28.20 (rank 3) Stock ticker with real links (element catalogue, rank 3)
-- 28.21 (rank 3) Warn about invisible frames (element catalogue, rank 3)
-- 28.22 (rank 3) Template stamped many times (element catalogue, rank 3)
-- 28.23 (rank 3) Unknown elements in a design system audit (element catalogue, rank 3)
-- 28.24 (rank 3) xmp as a literal code sample (element catalogue, rank 3)
+- 28.20 (rank 3) Stock ticker with real links (element catalogue, rank 3) Built: `/table-data/`, #117.
+- 28.21 (rank 3) Warn about invisible frames (element catalogue, rank 3) Built: `/odd-elements/`, #121.
+- 28.22 (rank 3) Template stamped many times (element catalogue, rank 3) Built: `/block-play/`, #118.
+- 28.23 (rank 3) Unknown elements in a design system audit (element catalogue, rank 3) Built: `/odd-elements/`, #121.
+- 28.24 (rank 3) xmp as a literal code sample (element catalogue, rank 3) Built: `/odd-elements/`, #121.
 - 28.25 (rank 3) Label coverage check (element catalogue, rank 3) Built: `/a11y-views/`, #98.
-- 28.26 (rank 3) Minesweeper from a table of buttons (element catalogue, rank 3)
-- 28.27 (rank 3) Summary as a lever (element catalogue, rank 3)
-- 28.28 (rank 3) Old web page in a drawn monitor (element catalogue, rank 3)
+- 28.26 (rank 3) Minesweeper from a table of buttons (element catalogue, rank 3) Built: `/block-play/`, #118.
+- 28.27 (rank 3) Summary as a lever (element catalogue, rank 3) Built: `/block-play/`, #118.
+- 28.28 (rank 3) Old web page in a drawn monitor (element catalogue, rank 3) Built: `/odd-elements/`, #121.
 
 #### 29. Blocked by the browser or by hardware
 
-- 29.1 (rank 3) Customisable select with the picker in the scene (element catalogue, rank 3). Blocked today.
-- 29.2 (rank 3) PDF pages as a book (element catalogue, rank 3). Not measured.
-- 29.3 (rank 3) Cross-origin image wall (element catalogue, rank 3). Blocked without CORS.
-- 29.4 (rank 3) Popover drawn into the canvas (element catalogue, rank 3). Blocked today.
-- 29.5 (rank 3) Permission button in a scene (element catalogue, rank 3). Blocked.
-- 29.6 (rank 3) A drawer on the overscroll area (plan demo 6). No `overscroll-area` property in Chromium 157.
+- 29.1 (rank 3) Customisable select with the picker in the scene (element catalogue, rank 3). Blocked today. Tested: `/blocked/`, #123.
+- 29.2 (rank 3) PDF pages as a book (element catalogue, rank 3). Not measured. Tested: `/blocked/`, #123.
+- 29.3 (rank 3) Cross-origin image wall (element catalogue, rank 3). Blocked without CORS. Tested: `/blocked/`, #123.
+- 29.4 (rank 3) Popover drawn into the canvas (element catalogue, rank 3). Blocked today. Tested: `/blocked/`, #123.
+- 29.5 (rank 3) Permission button in a scene (element catalogue, rank 3). Blocked. Tested: `/blocked/`, #123.
+- 29.6 (rank 3) A drawer on the overscroll area (plan demo 6). No `overscroll-area` property in Chromium 157. Tested: `/blocked/`, #123.
 - 29.7 (rank 3) The form as an `XRQuadLayer` (`findings/3d.md`). Written, needs a headset.
 - 29.8 (rank 3) Real-device checks of the native toolkit pages: IME, native pickers, TalkBack (`docs/native-frameworks.md`).
 - 29.9 (rank 3) Safari and Firefox as viewers, and a real cross-site pair of origins (`findings/cross-context.md`). Needs a person and a second site.
@@ -570,7 +584,7 @@ Rank 1 is being built now, rank 2 follows, rank 3 is small, speculative, blocked
 | Item | Source | Notes |
 |---|---|---|
 | Canvases losing their graphics context on the phone | Phone reports 2026-11-21, PRs #63, #81, #84, #93, #94, `findings/canvas-loss.md`, `/crashes/` | Two causes are identified from the phone: a drawable 2D canvas made with `willReadFrequently: true` (every 2D context on the page is lost, again every half second), and `getImageData()` with `pixelFormat: 'rgba-float16'`. Both are now forbidden by the graphics rules in AGENTS.md and checked by `npm run check:gfx`. Open: the 2D-only losses on `/instruments/`, `/scoped-transitions/` and the text pages of #80 have no identified cause. Read `npm run reports` after the owner tests a page. |
-| Pages whose checks wait for a tap | `<meta name="checks" content="tap">` in each page (`grep -l 'name="checks"' public/*/index.html`) | 82 pages on 2026-11-21 at 21:15 UTC. `/portal/`, `/lens/`, `/shader-css/`, `/physical/` shift by 0.25 to 1.03 with checks forced on because `#check-bench` grows and shrinks. `/slot-effects/` shifts by 1.40 and covers over 40% of the screen. `/cross-origin/` scrolls 990 px. `/remote/` moves focus four times. A fixed-size bench would probably fix the bench cases. |
+| Pages whose checks wait for a tap | `<meta name="checks" content="tap">` in each page (`grep -l 'name="checks"' public/*/index.html`) | 97 pages on 2026-11-22 at 10:00 UTC. `/portal/`, `/lens/`, `/shader-css/`, `/physical/` shift by 0.25 to 1.03 with checks forced on because `#check-bench` grows and shrinks. `/slot-effects/` shifts by 1.40 and covers over 40% of the screen. `/cross-origin/` scrolls 990 px. `/remote/` moves focus four times. A fixed-size bench would probably fix the bench cases. |
 | A flaky check | project notes | `/lens/`: "Pinned lens: clicks land on the magnified drawing". |
 | `<dom-portal>` in viewport mode resizes its canvas on every `innerHeight` change | project notes | This clears the canvas when a phone's URL bar moves. |
 | `testStage()` takes taps while checks run | FINDINGS.md, "Video and sound" | The media pages wrap it with `pointer-events: none`. Other pages still have the problem. |
@@ -589,7 +603,7 @@ Rank 1 is being built now, rank 2 follows, rank 3 is small, speculative, blocked
 
 The cloud browser that every result was measured in is headless Chromium 157 (and 153 for some probes) with software rendering, no GPU, no sound card, no native popup windows, no outbound UDP and no immersive WebXR. Everything below is unverified for that reason. Each page has live checks or a button that answers the question on the device that opens it.
 
-Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-20, no pages named), WebGPU on screen on `/shader-css/` ("Drawn with WebGPU (6), WebGL (1)", 2026-11-21), `/webgpu-features/` (10 of 10 live checks pass, drawn with WebGPU), the 21 trials of `/canvas-loss/` (both guard fixes hold), and `/hdr-glow/repro.html` (a float16 2D canvas, a drawable one and a WebGPU `rgba16float` canvas each show 4.0 brighter than 1.0).
+Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-20, no pages named), WebGPU on screen on `/shader-css/` ("Drawn with WebGPU (6), WebGL (1)", 2026-11-21), `/webgpu-features/` (10 of 10 live checks pass, drawn with WebGPU), the 21 trials of `/canvas-loss/` (both guard fixes hold), and `/hdr-glow/repro.html` (a float16 2D canvas, a drawable one and a WebGPU `rgba16float` canvas each show 4.0 brighter than 1.0), and the nested canvases of `/nested-frames/` (reported drawing on 2026-11-22 after being reported empty the day before; the cause was not found).
 
 | Area | What is unverified | How to verify |
 |---|---|---|
@@ -634,6 +648,11 @@ Confirmed on the phone so far: the jank fixes ("I think it all works", 2026-11-2
 | Speech and captions | `SpeechSynthesis` (no voices in the test browser), recognition of the video's audio track on `/live-captions/` (only the start was measured), `Translator` (never settles headless) | `/speak-words/` and `/live-captions/` on a device with voices and a model. |
 | Video compositing | A real camera and background segmentation on `/presenter/`; a real screen capture on a phone on `/telestrator/`; the worker compositor with hardware decoding | The pages on a device with a camera and a GPU. |
 | Developer tools and accessibility views | A screen reader on `/landmark-map/`, `/a11y-views/` and `/structure-depth/` | By hand. |
+| Backlog pages of #107 to #123 on the phone | Every page added by #107 to #123 by touch. `/animated-images/`: the four raster formats and whether images pause off screen. `/video-lab/`: WebGPU on screen, a wide-gamut and an HDR screen, sound. `/plan-followups/`: whether the `RGBA16F` WebGL buffer is shown and brighter than white. `/motion-capture/`: hardware encoders and two real fingers. `/media-state/`: Remote Playback and Presentation with a real device. `/select-selection/`: `<select multiple>` on Android. `/blocked/`: a PDF viewer, the real permission prompt, two real hosts. | Open the page on the phone and run its live checks. Each findings file ends with its own "Not verified" list. |
+| Qt text field | Autofill, one-time codes, which keyboard opens, a real IME, scroll into view, touch selection and fonts for the Qt and DOM fields of `/qt-textfield/` | `/qt-textfield/` on the phone: "Load the Qt app", do the step, "Copy the log". |
+| Occlusion routes | The four routes of `/toolkit-occlusion/` by real touch; whether "the most recent `updateElementGeometry()` call wins" is specified | Pick each route, drag window A over the textarea and tap the covered part. |
+| Draw size | That `/element-ideas/` and `/elements/` now draw at the right size on the phone; draws made only after a tap; draws in a worker | `/element-ideas/#ticker` on the phone, then `npm run reports -- --since 2h --list` for a `draw-size` report. |
+| Friction log | The 19 probes of `/friction/` on Chrome 159; whether any entry is already filed upstream | `/friction/` on the phone: "Run these 19 checks". |
 | Other browsers | Safari and Firefox as viewers of the cross-context pages | By hand. |
 | Chrome version | Chrome 159 against the four probe results that differ between 153 and 157; Chrome 148 as the floor | `/chrome-apis/probes.html` on the phone. |
 | Native UI | Qt Widgets (2D canvas route) | Not built. |
