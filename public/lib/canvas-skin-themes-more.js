@@ -614,30 +614,83 @@ const punch = {
 
 // ------------------------------------------------------------------------------------- oscilloscope
 // #region scope
-const BEAM = '#7dffe0';
-const SCOPE_TYPE = `color: ${BEAM}; color-scheme: dark; font-family: "Helvetica Neue", "DIN Alternate", "Segoe UI", system-ui, sans-serif;`;
-// The current path drawn by the beam: a wide dim line, a narrow bright one.
-function trace(ctx, f, path, bright = 1, width = 1.6) {
-  ctx.save(); ctx.lineCap = ctx.lineJoin = 'round'; path();
-  ctx.strokeStyle = BEAM; ctx.shadowColor = BEAM; ctx.shadowBlur = 7 * f.scale; ctx.globalAlpha *= 0.55 * bright; ctx.lineWidth = width * 2.4; ctx.stroke();
-  ctx.shadowBlur = 0; ctx.globalAlpha /= 0.55; ctx.strokeStyle = '#eafff9'; ctx.lineWidth = width; ctx.stroke();
+// Every shape is a list of points, so that the beam can be placed anywhere along it. An element at rest
+// is a steady trace. The element that has focus (after a tap as well as from the keyboard) has the beam
+// running round it: a bright point with a tail that fades behind it, as the phosphor does. A pressed
+// element is traced twice, a little apart, and brighter.
+const BEAMS = { green: '#7dffe0', amber: '#ffb52e', blue: '#7fb8ff', white: '#f1f4ee' };
+const SCOPE_TYPE = 'color: var(--beam, #7dffe0); color-scheme: dark; font-family: "Helvetica Neue", "DIN Alternate", "Segoe UI", system-ui, sans-serif;';
+const beamColour = () => BEAMS[scope.settings.beam] ?? BEAMS.green;
+const poly = (ctx, pts) => { ctx.beginPath(); for (const [x, y] of pts) ctx.lineTo(x, y); };
+// A list of points drawn by the beam: a wide dim line with a glow, and a narrow bright one.
+function trace(ctx, f, pts, bright = 1, width = 1.6) {
+  const beam = beamColour(), glow = scope.settings.glow;
+  ctx.save(); ctx.lineCap = ctx.lineJoin = 'round'; poly(ctx, pts);
+  ctx.strokeStyle = beam; ctx.shadowColor = beam; ctx.shadowBlur = 7 * glow * f.scale; ctx.globalAlpha *= Math.min(1, 0.55 * bright); ctx.lineWidth = width * 2.4; ctx.stroke();
+  ctx.shadowBlur = 0; ctx.globalAlpha /= Math.min(1, 0.55 * bright); ctx.strokeStyle = '#fff'; ctx.globalAlpha *= Math.min(1, 0.75 * bright); ctx.lineWidth = width; ctx.stroke();
   ctx.restore();
 }
+// The point at the fraction u of the way along the points, by length.
+function along(pts, lengths, total, u) {
+  let d = (((u % 1) + 1) % 1) * total;
+  for (let i = 1; i < pts.length; i++) { if (d <= lengths[i]) { const k = lengths[i] ? d / lengths[i] : 0; return [lerp(pts[i - 1][0], pts[i][0], k), lerp(pts[i - 1][1], pts[i][1], k)]; } d -= lengths[i]; }
+  return pts.at(-1);
+}
+// The beam on its way along the points: the point, and the tail behind it. `closed` is a loop.
+function beamOn(ctx, f, pts, closed = true, speed = 240) {
+  const lengths = pts.map((p, i) => (i ? Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0)), total = lengths.reduce((a, b) => a + b, 0);
+  if (total < 4) return;
+  const beam = beamColour(), lap = total / speed;
+  // On a loop the beam goes round. On an open line it sweeps, and flies back unseen.
+  const u = closed ? (f.time / lap) % 1 : Math.min(1, ((f.time / (lap + 0.25)) % 1) * (lap + 0.25) / lap);
+  const tail = clamp(scope.settings.trail) * (closed ? 0.6 : 1), steps = 22;
+  ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = '#fff'; ctx.shadowColor = beam; ctx.shadowBlur = 8 * f.scale;
+  let from = along(pts, lengths, total, u);
+  for (let i = 1; i <= steps && tail > 0; i++) {
+    const v = u - (tail * i) / steps;
+    if (!closed && v < 0) break;
+    const to = along(pts, lengths, total, v);
+    ctx.globalAlpha = (1 - i / steps) ** 1.6; ctx.lineWidth = lerp(3.4, 1.4, i / steps);
+    ctx.beginPath(); ctx.moveTo(from[0], from[1]); ctx.lineTo(to[0], to[1]); ctx.stroke();
+    from = to;
+  }
+  const [x, y] = along(pts, lengths, total, u);
+  ctx.globalAlpha = 1; ctx.shadowBlur = 14 * f.scale; ctx.fillStyle = '#fff'; circle(ctx, x, y, 3.2); ctx.fill(); ctx.fill();
+  ctx.restore();
+  f.again = true;
+}
+// Point lists. A rounded rectangle starts at the middle of its top edge and goes clockwise.
+function boxPts(x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  const pts = [[x + w / 2, y]];
+  for (const [cx, cy, a0] of [[x + w - r, y + r, -0.25], [x + w - r, y + h - r, 0], [x + r, y + h - r, 0.25], [x + r, y + r, 0.5]]) for (let i = 0; i <= 4; i++) { const a = (a0 + i / 16) * TAU; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  pts.push([x + w / 2, y]);
+  return pts;
+}
+const ringPts = (cx, cy, r) => Array.from({ length: 33 }, (_, i) => [cx + Math.sin((i / 32) * TAU) * r, cy - Math.cos((i / 32) * TAU) * r]);
 // A wave from x0 to x1 about the line y: fn(phase) gives the height, -1 to 1.
-const wave = (ctx, x0, x1, y, amp, period, fn, shift = 0) => { ctx.beginPath(); for (let x = x0; x <= x1; x += 1.5) ctx.lineTo(x, y - amp * fn(((x - x0) / period + shift) * TAU)); };
+const wavePts = (x0, x1, y, amp, period, fn) => { const pts = []; for (let x = x0; x <= x1; x += 1.5) pts.push([x, y - amp * fn(((x - x0) / period) * TAU)]); return pts; };
 
 const scope = {
   label: 'Oscilloscope',
   type: SCOPE_TYPE,
-  root: `${SCOPE_TYPE} background-color: #04100e; background-image: linear-gradient(rgb(125 255 224 / .16) 1px, rgb(125 255 224 / 0) 1px), linear-gradient(90deg, rgb(125 255 224 / .16) 1px, rgb(125 255 224 / 0) 1px), radial-gradient(90% 70% at 50% 40%, rgb(20 80 70 / .5), rgb(0 0 0 / .4)); background-size: 40px 40px, 40px 40px, auto;`,
-  css: `caret-color: ${BEAM}; & ::placeholder { color: rgb(125 255 224 / .5); }`,
+  root: `${SCOPE_TYPE} background-color: #04100e; background-image: linear-gradient(color-mix(in srgb, var(--beam, #7dffe0) 16%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--beam, #7dffe0) 16%, transparent) 1px, transparent 1px), radial-gradient(90% 70% at 50% 40%, rgb(20 80 70 / .5), rgb(0 0 0 / .4)); background-size: 40px 40px, 40px 40px, auto;`,
+  css: 'caret-color: var(--beam, #7dffe0); & ::placeholder { color: color-mix(in srgb, var(--beam, #7dffe0) 50%, transparent); }',
+  settings: { beam: 'green', glow: 1, trail: 0.5 },
+  options: [
+    { key: 'beam', label: 'Beam', choices: { green: 'Green', amber: 'Amber', blue: 'Blue', white: 'White' } },
+    { key: 'glow', label: 'Glow', min: 0, max: 2.5, step: 0.1 },
+    { key: 'trail', label: 'Tail of the beam', min: 0, max: 1, step: 0.05 },
+  ],
+  vars: (settings) => `--beam: ${BEAMS[settings.beam] ?? BEAMS.green};`,
   filters: `
     <filter id="scope-lines" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
       <feColorMatrix in="SourceGraphic" type="saturate" values="0" result="grey"/>
       <feConvolveMatrix in="grey" order="3" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1" preserveAlpha="true" result="edge"/>
-      <feColorMatrix in="edge" type="matrix" values="0 0 0 0 .5  0 0 0 0 1  0 0 0 0 .88  3 3 3 0 0" result="lines"/>
-      <feGaussianBlur in="lines" stdDeviation="2" result="glow"/>
-      <feMerge><feMergeNode in="glow"/><feMergeNode in="lines"/></feMerge>
+      <feColorMatrix in="edge" type="matrix" values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  3 3 3 0 0" result="lines"/>
+      <feFlood style="flood-color: var(--beam, #7dffe0)"/><feComposite in2="lines" operator="in" result="tinted"/>
+      <feGaussianBlur in="tinted" stdDeviation="2" result="glow"/>
+      <feMerge><feMergeNode in="glow"/><feMergeNode in="tinted"/></feMerge>
     </filter>
     <filter id="scope-glow" x="-10%" y="-30%" width="120%" height="160%" color-interpolation-filters="sRGB">
       <feGaussianBlur in="SourceGraphic" stdDeviation="2.2" result="b"/>
@@ -646,27 +699,35 @@ const scope = {
 
   paint(ctx, f) {
     const { width: w, height: h, kind, state: s, bleed: b } = f;
-    // The beam sweeps across once and leaves the element behind it.
-    if (f.t < 1) { const x = lerp(-b, w + b, f.t); ctx.save(); circle(ctx, x, h / 2, 3); ctx.fillStyle = '#fff'; ctx.shadowColor = BEAM; ctx.shadowBlur = 12 * f.scale; ctx.fill(); ctx.restore(); ctx.beginPath(); ctx.rect(-b, -b, x + b, h + 2 * b); ctx.clip(); }
-    const bright = s.active ? 1.5 : s.hover ? 1.2 : 1;
+    // On arrival the beam sweeps across once and leaves the element behind it.
+    if (f.t < 1) { const x = lerp(-b, w + b, f.t); ctx.save(); circle(ctx, x, h / 2, 3); ctx.fillStyle = '#fff'; ctx.shadowColor = beamColour(); ctx.shadowBlur = 12 * f.scale; ctx.fill(); ctx.restore(); ctx.beginPath(); ctx.rect(-b, -b, x + b, h + 2 * b); ctx.clip(); }
+    const held = s.focused || s.focus, bright = s.active ? 1.8 : held ? 1.35 : s.hover ? 1.2 : 1;
+    const glowing = scope.settings.glow > 0.05 ? { filter: 'url(#scope-glow)' } : {};
+    // The lines of this element, and the one the beam runs along while the element has focus.
+    let run = null, closed = true;
+    const draw = (pts, amount = 1, width = 1.6) => {
+      trace(ctx, f, pts, amount * bright, width);
+      if (s.active) { ctx.save(); ctx.translate(0, 2.5); trace(ctx, f, pts, 0.5, 1); ctx.restore(); }      // pressed: a second trace under the first
+    };
     switch (kind) {
-      case 'button': trace(ctx, f, () => rr(ctx, 1, 1, w - 2, h - 2, 6), bright); if (f.primary) trace(ctx, f, () => wave(ctx, 8, w - 8, h - 7, 2.5, 14, Math.sin), 0.8, 1); f.draw({ filter: 'url(#scope-glow)' }); break;
-      case 'field': trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(0, h - 10); ctx.lineTo(0, h - 1); ctx.lineTo(w, h - 1); ctx.lineTo(w, h - 10); }, s.focus ? 1.5 : 1); if (f.el.localName === 'select') trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(w - 28, h / 2 - 3); ctx.lineTo(w - 22, h / 2 + 3); ctx.lineTo(w - 16, h / 2 - 3); }); f.draw({ filter: 'url(#scope-glow)' }); break;
-      case 'card': trace(ctx, f, () => rr(ctx, 1, 1, w - 2, h - 2, 3), 0.5, 1); f.draw({ filter: 'url(#scope-glow)' }); break;
-      case 'media': f.draw({ filter: 'url(#scope-lines)' }); trace(ctx, f, () => rr(ctx, 0, 0, w, h, 2), 0.6, 1); break;
+      case 'button': run = boxPts(1, 1, w - 2, h - 2, 6); draw(run); if (f.primary) trace(ctx, f, wavePts(8, w - 8, h - 7, 2.5, 14, Math.sin), 0.8, 1); f.draw(glowing); break;
+      // A field at rest is a bracket under the text. With focus it is a whole box.
+      case 'field': run = held ? boxPts(0, 0, w, h, 4) : [[0, h - 10], [0, h - 1], [w, h - 1], [w, h - 10]]; draw(run); if (f.el.localName === 'select') trace(ctx, f, [[w - 28, h / 2 - 3], [w - 22, h / 2 + 3], [w - 16, h / 2 - 3]]); f.draw(glowing); break;
+      case 'card': trace(ctx, f, boxPts(1, 1, w - 2, h - 2, 3), 0.5, 1); f.draw(glowing); break;
+      case 'media': f.draw({ filter: 'url(#scope-lines)' }); trace(ctx, f, boxPts(0, 0, w, h, 2), 0.6, 1); break;
       // A check box is one pulse: flat when off, a square pulse when on.
-      case 'check': trace(ctx, f, () => { const up = h * 0.62 * s.on; ctx.beginPath(); ctx.moveTo(0, h - 5); ctx.lineTo(w * 0.28, h - 5); ctx.lineTo(w * 0.28, h - 5 - up); ctx.lineTo(w * 0.72, h - 5 - up); ctx.lineTo(w * 0.72, h - 5); ctx.lineTo(w, h - 5); }, bright); break;
+      case 'check': { const up = h * 0.62 * s.on; run = [[0, h - 5], [w * 0.28, h - 5], [w * 0.28, h - 5 - up], [w * 0.72, h - 5 - up], [w * 0.72, h - 5], [w, h - 5]]; closed = false; draw(run); break; }
       // A radio is a circle, and a figure of eight inside it when it is chosen.
-      case 'radio': trace(ctx, f, () => circle(ctx, w / 2, h / 2, h / 2 - 2), bright); if (s.on > 0.05) trace(ctx, f, () => { ctx.beginPath(); for (let a = 0; a <= TAU + 0.1; a += 0.15) ctx.lineTo(w / 2 + Math.sin(a) * (h / 2 - 6) * s.on, h / 2 + Math.sin(2 * a) * (h / 2 - 8) * s.on); }, 1, 1.3); break;
+      case 'radio': run = ringPts(w / 2, h / 2, h / 2 - 2); draw(run); if (s.on > 0.05) { const eight = []; for (let a = 0; a <= TAU + 0.1; a += 0.15) eight.push([w / 2 + Math.sin(a) * (h / 2 - 6) * s.on, h / 2 + Math.sin(2 * a) * (h / 2 - 8) * s.on]); trace(ctx, f, eight, 1, 1.3); if (held) run = eight; } break;
       // A switch is a step: low on the left of the knob, high on the right when on.
-      case 'switch': { const x = knobX(f, s.on, 12), lift = (h - 12) * s.on; trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(0, h - 5); ctx.lineTo(x, h - 5); ctx.lineTo(x, h - 5 - lift); ctx.lineTo(w, h - 5 - lift); }, bright); ctx.save(); circle(ctx, x, h - 5 - lift / 2, 3); ctx.fillStyle = '#fff'; ctx.fill(); ctx.restore(); break; }
+      case 'switch': { const x = knobX(f, s.on, 12), lift = (h - 12) * s.on; run = [[0, h - 5], [x, h - 5], [x, h - 5 - lift], [w, h - 5 - lift]]; closed = false; draw(run); ctx.save(); circle(ctx, x, h - 5 - lift / 2, 3); ctx.fillStyle = '#fff'; ctx.fill(); ctx.restore(); break; }
       // A range is a sine wave. Its frequency is the value, and the wave ends at the knob.
-      case 'range': { const x = knobX(f, s.value, 12); trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(x, h / 2); ctx.lineTo(w, h / 2); }, 0.35, 1); trace(ctx, f, () => wave(ctx, 0, x, h / 2, h / 2 - 4, lerp(46, 9, s.value), Math.sin), bright); ctx.save(); circle(ctx, x, h / 2, 4.5); ctx.fillStyle = '#fff'; ctx.shadowColor = BEAM; ctx.shadowBlur = 10 * f.scale; ctx.fill(); ctx.restore(); break; }
+      case 'range': { const x = knobX(f, s.value, 12); trace(ctx, f, [[x, h / 2], [w, h / 2]], 0.35, 1); run = wavePts(0, x, h / 2, h / 2 - 4, lerp(46, 9, s.value), Math.sin); closed = false; draw(run); ctx.save(); circle(ctx, x, h / 2, s.active ? 6.5 : 4.5); ctx.fillStyle = '#fff'; ctx.shadowColor = beamColour(); ctx.shadowBlur = 10 * f.scale; ctx.fill(); ctx.restore(); break; }
       // A bar is a square wave up to the value.
-      case 'bar': trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(w * s.value, h / 2); ctx.lineTo(w, h / 2); }, 0.35, 1); trace(ctx, f, () => wave(ctx, 0, w * s.value, h / 2, h / 2 - 2, 16, (p) => (Math.sin(p) >= 0 ? 1 : -1))); break;
-      default: f.draw({ filter: 'url(#scope-glow)' });
+      case 'bar': trace(ctx, f, [[w * s.value, h / 2], [w, h / 2]], 0.35, 1); trace(ctx, f, wavePts(0, w * s.value, h / 2, h / 2 - 2, 16, (p) => (Math.sin(p) >= 0 ? 1 : -1))); break;
+      default: f.draw(glowing);
     }
-    if (s.focus && kind !== 'field') { ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = BEAM; ctx.lineWidth = 1.2; ctx.strokeRect(-4, -4, w + 8, h + 8); ctx.restore(); }
+    if (held && run && f.t >= 1 && !s.disabled) beamOn(ctx, f, run, closed);
   },
 };
 // #endregion scope

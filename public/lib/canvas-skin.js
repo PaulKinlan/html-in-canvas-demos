@@ -35,6 +35,7 @@
 import * as themes from './canvas-skin-themes.js';
 import * as more from './canvas-skin-themes-more.js';
 import * as shaded from './canvas-skin-themes-gl.js';
+import * as printed from './canvas-skin-themes-print.js';
 import { onGlassLost, glassRoute } from './glass-gl.js';
 
 const SUPPORTED =
@@ -105,8 +106,10 @@ function writeSheet() {
   if (!sheet) { sheet = new CSSStyleSheet(); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]; }
   let css = BASE_CSS;
   for (const [name, skin] of Object.entries(skins)) {
-    if (skin.root) css += `[skin="${name}"]:not(canvas-skin) { ${skin.root} }\n`;
-    if (skin.type) css += `canvas-skin[now="${name}"] { ${skin.type} }\n`;
+    // vars(settings): CSS custom properties that follow the skin's options, such as the colour of a beam.
+    const vars = skin.vars ? skin.vars(skin.settings ?? {}) : '';
+    if (skin.root || vars) css += `[skin="${name}"]:not(canvas-skin) { ${vars} ${skin.root ?? ''} }\n`;
+    if (skin.type || vars) css += `canvas-skin[now="${name}"] { ${vars} ${skin.type ?? ''} }\n`;
     if (skin.css) css += `canvas-skin[now="${name}"]:not([plain]) { ${skin.css} }\n`;
   }
   sheet.replaceSync(css);
@@ -138,6 +141,36 @@ function measureDirty() {
   for (const [el, size] of list) if (size) el._measure(size);
 }
 
+// #region budget
+// Paints that follow a paint (an entrance, a control moving to its new state) are asked for here, not
+// by each wrapper. Each frame the wrappers that have waited longest are asked first, until the script
+// time their last paints took adds up to the budget. The rest wait a frame, and a waiting wrapper skips
+// ahead in its animation, which is timed by the clock. The budget falls when a frame arrives late and
+// rises when frames arrive on time, so a slow device draws fewer elements per frame and keeps scrolling.
+const waiting = new Set();
+const stats = { paints: 0, ms: 0, put: 0, budget: 6, late: 0 };
+let tick = 0, lastTick = 0, frameMs = 16.7, frameId = -1, spent = 0;
+function ask(el) { waiting.add(el); tick ||= requestAnimationFrame(run); }
+function run(now) {
+  tick = 0;
+  const gap = now - lastTick;
+  if (gap < 200) {                       // two frames of this loop in a row
+    if (gap < frameMs && gap > 4) frameMs = gap;                 // the shortest gap seen is the screen's frame
+    if (gap > frameMs * 1.6) { stats.budget = Math.max(1.5, stats.budget * 0.7); stats.late++; }
+    else stats.budget = Math.min(8, stats.budget * 1.06);
+  }
+  lastTick = now;
+  let cost = 0, asked = 0;
+  for (const el of waiting) {            // a Set is read in the order things were added
+    if (asked && cost + el._cost > stats.budget) break;
+    waiting.delete(el);
+    cost += el._cost; asked++;
+    el.request();
+  }
+  if (waiting.size) tick = requestAnimationFrame(run);
+}
+// #endregion budget
+
 // One plain canvas, shared by every wrapper, that holds the root background behind the element being painted.
 let scratch = null;
 
@@ -160,14 +193,17 @@ export class CanvasSkin extends HTMLElement {
   static supported = SUPPORTED;
   static skins = skins;
   static bleed = BLEED;
+  /** Counters for a page that measures: paints, their script time in ms, paints put off to a later frame, the frame budget now in ms, late frames. */
+  static stats = stats;
   static observedAttributes = ['skin', 'kind'];
 
   #canvas = null; #content = null; #box = null; #ctx = null; #filters = null;
-  #near = true; #queued = 0; #retries = 0; #timer = 0;
+  #near = true; #retries = 0; #blank = true; #timer = 0;
   #cssW = 0; #cssH = 0;
   #t0 = -1e9; #old = null; #on = null; #hover = false; #down = false; #slow = 0;
   #seed = ++count * 7919;
   paints = 0;
+  _cost = 0.5;           // script time of this wrapper's paints, in ms, smoothed
   plain = !SUPPORTED;
 
   constructor() {
@@ -220,7 +256,7 @@ export class CanvasSkin extends HTMLElement {
   disconnectedCallback() {
     live.delete(this);
     nearby?.unobserve(this);
-    cancelAnimationFrame(this.#queued); this.#queued = 0; clearTimeout(this.#slow); this.#slow = 0;
+    waiting.delete(this); clearTimeout(this.#slow); this.#slow = 0;
     clearTimeout(this.#timer);
     this.#freeOld();
   }
@@ -259,8 +295,8 @@ export class CanvasSkin extends HTMLElement {
     const canvas = this.#canvas;
     const pw = this.#near ? Math.round(this.#cssW * devicePixelRatio) : 0;
     const ph = this.#near ? Math.round(this.#cssH * devicePixelRatio) : 0;
-    if (canvas.width !== pw) canvas.width = pw;       // assigned only when the size changed
-    if (canvas.height !== ph) canvas.height = ph;
+    if (canvas.width !== pw) { canvas.width = pw; this.#blank = true; }       // assigned only when the size changed
+    if (canvas.height !== ph) { canvas.height = ph; this.#blank = true; }
     this.request();
   }
   _near(near) {
@@ -272,14 +308,19 @@ export class CanvasSkin extends HTMLElement {
   // #endregion size
 
   request() { if (!this.plain && this.#near) this.#canvas?.requestPaint?.(); }
+  /** Paint again in a coming frame, within the frame budget. For a skin that follows scrolling or a sensor. */
+  requestSoon() { if (!this.plain && this.#near) ask(this); }
 
   // #region change
   /** Change to a skin after `delay` ms. On screen, the old drawing is kept and faded out over the new one. */
-  change(name, delay = 0) {
+  change(name, delay = 0, seen = true) {
     clearTimeout(this.#timer);
     const go = () => {
       if (this.getAttribute('now') === name) return;
-      const animate = !this.plain && this.#near && this.#canvas.width > 0 && this.paints > 0 && !reduced.matches;
+      // `seen` is false for a wrapper that is not in the window. It has a canvas (it is within one screen),
+      // but it changes with no copy and no entrance.
+      const animate = seen && !this.plain && this.#near && this.#canvas.width > 0 && this.paints > 0 && !reduced.matches;
+      if (!animate) { this.#freeOld(); this.#t0 = -1e9; }
       if (animate) {
         // A copy of the canvas as it is now, in a plain canvas. drawImage() of a drawable canvas is allowed.
         const old = this.#old ??= document.createElement('canvas');
@@ -307,6 +348,13 @@ export class CanvasSkin extends HTMLElement {
     if (this.plain || !el || !this.#cssW || !canvas.width || !canvas.height || ctx.isContextLost?.()) return;   // not measured yet
     const w = content.offsetWidth, h = content.offsetHeight;
     if (!w || !h) return;
+    // The browser also raises paint when the element's own rendering changed, which a change of skin does
+    // for every wrapper at once. When this frame's paints have already taken twice the budget, this one
+    // waits: the canvas keeps the picture it has, and the wrapper is asked again by the loop above.
+    const frame0 = document.timeline.currentTime;
+    if (frame0 !== frameId) { frameId = frame0; spent = 0; }
+    if (spent > stats.budget * 2 && !this.#blank && this.paints > 0) { stats.put++; ask(this); return; }
+    this.#blank = false;
     this.paints++;
     const name = this.getAttribute('now');
     const skin = skins[name] ?? skins.native;
@@ -353,6 +401,7 @@ export class CanvasSkin extends HTMLElement {
       state: {
         checked, on: this.#on, value, disabled: el.matches(':disabled'), open: !!el.open,
         focus: (control || kind === 'button' || kind === 'field') && el.matches(':focus-visible'),
+        focused: el.matches(':focus'),     // also after a tap, which does not show a focus ring
         hover: this.#hover, active: this.#down && !el.matches(':disabled'),
       },
       draw,
@@ -405,9 +454,12 @@ export class CanvasSkin extends HTMLElement {
     }
 
     if (missed && this.#retries++ < 60) again = true; else if (!missed) this.#retries = 0;
-    if (again && !this.#queued) this.#queued = requestAnimationFrame(() => { this.#queued = 0; this.request(); });
+    const took = performance.now() - now;
+    this._cost += (took - this._cost) * 0.3;
+    stats.paints++; stats.ms += took; spent += took;
+    if (again) ask(this);
     // A skin that moves slowly asks for its next paint after a number of milliseconds, not next frame.
-    else if (!again && frame.wait > 0 && !this.#slow) this.#slow = setTimeout(() => { this.#slow = 0; this.request(); }, frame.wait);
+    else if (frame.wait > 0 && !this.#slow) this.#slow = setTimeout(() => { this.#slow = 0; this.request(); }, frame.wait);
   }
   // #endregion paint
 
@@ -423,7 +475,7 @@ export class CanvasSkin extends HTMLElement {
   #toPlain(why) {
     if (this.plain) return;
     this.plain = true;
-    cancelAnimationFrame(this.#queued); this.#queued = 0; clearTimeout(this.#slow); this.#slow = 0;
+    waiting.delete(this); clearTimeout(this.#slow); this.#slow = 0;
     this.#freeOld();
     this.#box.append(this.#content);            // out of the canvas, still holding the slot
     this.toggleAttribute('plain', true);
@@ -432,9 +484,17 @@ export class CanvasSkin extends HTMLElement {
 
   // ------------------------------------------------------------------ static API
 
-  /** Register a skin: { label, type, root, css, filters, backdrop(ctx, root, region), paint(ctx, frame) }. */
+  /** Register a skin: { label, type, root, css, filters, settings, options, vars(settings), backdrop(ctx, root, region), paint(ctx, frame) }. */
   static define(name, skin) { skins[name] = skin; writeSheet(); for (const el of live) el.request(); }
 
+  /** Change a skin's options: { key: value }. Its wrappers are painted again and its CSS variables written. */
+  static set(name, values) {
+    const skin = skins[name];
+    if (!skin) return;
+    Object.assign(skin.settings ??= {}, values);
+    if (skin.vars) writeSheet();
+    for (const el of live) if (el.getAttribute('now') === name) el.request();
+  }
   /** Paint every wrapper again, after a skin's settings changed. */
   static redraw() { for (const el of live) el.request(); }
   /** 'webgl' when the glass skin is drawn by its shader, 'not started' before the first glass element, or the reason it is not. */
@@ -458,54 +518,59 @@ export class CanvasSkin extends HTMLElement {
 
   // #region apply
   /**
-   * Set `root`'s skin. Each wrapper under it changes when a circle growing from the client point
-   * x, y at `speed` px per ms reaches it. The root's old background is kept on a layer whose mask
-   * has a hole growing at the same speed.
+   * Set `root`'s skin. Each wrapper in the window changes when a circle growing from the client point
+   * x, y at `speed` px per ms reaches it, and the others change at once with no animation. The root's
+   * new background is shown through a circle that grows at the same speed.
    */
-  static apply(root, name, { x, y, speed = 0.8, maxDelay = 1200 } = {}) {
+  static apply(root, name, { x, y, speed = 1.2, maxDelay = 800 } = {}) {
     const from = root.getAttribute('skin');
-    if (from === name) return;
+    if (from === name) return 0;
     const box = root.getBoundingClientRect();
     x ??= box.left + box.width / 2;
     y ??= Math.max(box.top, 0);
     const still = reduced.matches;
 
-    if (from && !still && typeof CSS !== 'undefined' && CSS.registerProperty) {
-      registerRadius();
-      root.querySelector(':scope > .canvas-skin-veil')?.remove();
-      const veil = document.createElement('div');
-      veil.className = 'canvas-skin-veil';
-      veil.setAttribute('skin', from);
-      veil.setAttribute('aria-hidden', 'true');
+    if (from && !still) {
+      // Two layers behind the root's content: the old background, and over it the new one, cut to a
+      // circle that grows from the point. A clip-path circle is animated by the browser with no script.
+      for (const old of root.querySelectorAll(':scope > .canvas-skin-veil')) old.remove();
       const ox = x - box.left - root.clientLeft, oy = y - box.top - root.clientTop;
-      veil.style.maskImage = `radial-gradient(circle at ${ox}px ${oy}px, transparent calc(var(--canvas-skin-r) - 70px), #000 var(--canvas-skin-r))`;
-      root.append(veil);
       // Far enough to cover what is on screen. The rest of a tall root is not visible while it runs.
       const reach = Math.min(Math.hypot(Math.max(ox, box.width - ox), Math.max(oy, box.height - oy)), Math.hypot(innerWidth, innerHeight)) + 80;
-      const run = veil.animate({ '--canvas-skin-r': ['0px', `${reach}px`] }, { duration: reach / speed, easing: 'linear', fill: 'forwards' });
-      run.finished.then(() => veil.remove(), () => veil.remove());
+      const veils = [from, name].map((skin) => {
+        const veil = document.createElement('div');
+        veil.className = 'canvas-skin-veil';
+        veil.setAttribute('skin', skin);
+        veil.setAttribute('aria-hidden', 'true');
+        root.append(veil);
+        return veil;
+      });
+      // The old background is needed only where the window shows it.
+      const top = Math.max(0, -box.top - root.clientTop - 100), bottom = Math.max(0, box.bottom - innerHeight - 100);
+      veils[0].style.clipPath = `inset(${top}px 0 ${bottom}px 0)`;
+      const run = veils[1].animate({ clipPath: [`circle(0px at ${ox}px ${oy}px)`, `circle(${reach}px at ${ox}px ${oy}px)`] }, { duration: reach / speed, easing: 'linear', fill: 'forwards' });
+      const done = () => { for (const veil of veils) veil.remove(); };
+      run.finished.then(done, done);
     }
 
     applied.set(root, name);
     root.setAttribute('skin', name);
+    let last = 0;
     for (const el of root.querySelectorAll('canvas-skin')) {
       if (el.closest('[skin]') !== root) continue;          // it has a skin of its own, or a nearer root
       const r = el.getBoundingClientRect();
+      const seen = r.bottom > -40 && r.top < innerHeight + 40 && r.width > 0;
       const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
-      el.change(name, still ? 0 : Math.min(d / speed, maxDelay));
+      const delay = still || !seen ? 0 : Math.min(d / speed, maxDelay);
+      if (seen) last = Math.max(last, delay);
+      el.change(name, delay, seen);
     }
+    return still ? 0 : last + ENTER_MS;      // ms until the last entrance on screen has ended
   }
   // #endregion apply
 }
 
-let radiusRegistered = false;
-function registerRadius() {
-  if (radiusRegistered) return;
-  radiusRegistered = true;
-  try { CSS.registerProperty({ name: '--canvas-skin-r', syntax: '<length>', inherits: false, initialValue: '0px' }); } catch { /* registered by another copy of this module */ }
-}
-
-for (const [name, skin] of Object.entries({ ...themes.skins, ...more.skins, ...shaded.skins })) skins[name] = skin;
+for (const [name, skin] of Object.entries({ ...themes.skins, ...more.skins, ...shaded.skins, ...printed.skins })) skins[name] = skin;
 // If the shared WebGL context is lost, the glass elements are painted again and take the 2D route.
 onGlassLost((why) => { CanvasSkin.redraw(); document.dispatchEvent(new CustomEvent('canvas-skin-route', { detail: { why } })); });
 writeSheet();

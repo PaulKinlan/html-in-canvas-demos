@@ -1,6 +1,5 @@
 import { banner, runTests, supported, testStage, inkFraction, stillDrawn } from '/shared/support.js';
 import { CanvasSkin } from '/lib/canvas-skin.js';
-import { METALS } from '/lib/canvas-skin-themes-gl.js';
 banner();
 
 const stage = document.getElementById('stage');
@@ -13,85 +12,151 @@ const status = document.getElementById('status');
 CanvasSkin.wrap(stage);
 for (const tile of document.querySelectorAll('#tiles > div')) CanvasSkin.wrap(tile);
 
-// One button per registered skin. The tap position is where the change starts.
-for (const [name, skin] of Object.entries(CanvasSkin.skins)) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.textContent = skin.label;
-  button.dataset.skin = name;
-  button.setAttribute('aria-pressed', String(stage.getAttribute('skin') === name));
-  button.addEventListener('click', (event) => {
-    // A click from the keyboard has no position: start from the button.
-    const box = button.getBoundingClientRect();
-    const x = event.clientX || box.left + box.width / 2, y = event.clientY || box.top;
-    CanvasSkin.apply(stage, name, { x, y });
-    CanvasSkin.apply(nestStage, name, { x, y });
-    for (const b of bar.children) b.setAttribute('aria-pressed', String(b === button));
-    showSettings(name);
-    report();
-  });
-  bar.append(button);
+// The picker: four groups, and one button per registered skin in the row of its group. The tap position
+// is where the change starts.
+const GROUPS = {
+  Materials: ['glass', 'metal', 'foil', 'gel', 'clay', 'stained', 'embroidery', 'blocks'],
+  Drawn: ['pencil', 'crayon', 'comic', 'onebit', 'poster', 'blueprint', 'impressionist', 'oldmaster'],
+  Screens: ['terminal', 'ascii', 'led', 'scope', 'thermal', 'xray', 'neon', 'punch'],
+  Scenes: ['sea', 'seaside', 'space', 'christmas', 'native'],
+};
+const listed = new Set(Object.values(GROUPS).flat());
+GROUPS.Scenes.push(...Object.keys(CanvasSkin.skins).filter((name) => !listed.has(name)));   // a skin defined later
+const groups = document.getElementById('skinGroups');
+const cssValue = (text, property) => new RegExp(`(?:^|[;\\s])${property}:\\s*([^;]+)`).exec(text ?? '')?.[1];
+const fallback = (value) => /var\([^,]+,\s*([^)]+)\)/.exec(value ?? '')?.[1] ?? value;     // var(--x, #123) -> #123
+function showGroup(group) {
+  for (const b of groups.children) b.setAttribute('aria-pressed', String(b.textContent === group));
+  for (const row of bar.querySelectorAll('.skin-chips')) row.hidden = row.dataset.group !== group;
 }
+for (const [group, names] of Object.entries(GROUPS)) {
+  const tab = document.createElement('button');
+  tab.type = 'button'; tab.textContent = group;
+  tab.addEventListener('click', () => showGroup(group));
+  groups.append(tab);
+  const row = document.createElement('div');
+  row.className = 'skin-chips'; row.dataset.group = group; row.setAttribute('role', 'group'); row.setAttribute('aria-label', `${group} skins`);
+  for (const name of names) {
+    const skin = CanvasSkin.skins[name];
+    if (!skin) continue;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.skin = name;
+    // A spot in the skin's own background and text colours.
+    const spot = document.createElement('i');
+    spot.style.background = fallback(cssValue(skin.root, 'background-color')) ?? '#fff';
+    spot.style.borderColor = fallback(cssValue(skin.type, 'color')) ?? '#888';
+    button.append(spot, skin.label);
+    button.setAttribute('aria-pressed', String(stage.getAttribute('skin') === name));
+    button.addEventListener('click', (event) => {
+      // A click from the keyboard has no position: start from the button.
+      const box = button.getBoundingClientRect();
+      const x = event.clientX || box.left + box.width / 2, y = event.clientY || box.top;
+      const from = stage.getAttribute('skin');
+      const ms = CanvasSkin.apply(stage, name, { x, y });
+      CanvasSkin.apply(nestStage, name, { x, y });
+      for (const b of bar.querySelectorAll('[data-skin]')) b.setAttribute('aria-pressed', String(b === button));
+      showOptions(name);
+      report();
+      if (ms) measure(from, name, ms);
+    });
+    row.append(button);
+  }
+  bar.append(row);
+}
+showGroup(Object.keys(GROUPS).find((group) => GROUPS[group].includes(stage.getAttribute('skin'))) ?? 'Materials');
 // #endregion wrap
 
-// The glass settings are on the page only while the form is in the glass skin.
-function showSettings(name) {
-  document.getElementById('glassSet').hidden = name !== 'glass';
-  document.getElementById('glassNote').hidden = name !== 'glass';
-  document.getElementById('metalSet').hidden = name !== 'metal';
-  document.getElementById('metalNote').hidden = name !== 'metal';
-}
-showSettings(stage.getAttribute('skin'));
-
-// #region glass-controls
-// The glass shader's inputs. Every glass element reads the same settings object when it paints.
-const glassSettings = CanvasSkin.skins.glass.settings, glassDefaults = { ...glassSettings };
-const glassUnits = { light: '°', rim: ' px', thickness: ' px', frost: ' px' };
-function showGlass() {
-  for (const input of document.querySelectorAll('#glassSet input')) {
-    const key = input.dataset.key;
-    input.value = glassSettings[key];
-    input.nextElementSibling.textContent = `${glassSettings[key]}${glassUnits[key] ?? ''}`;
+// #region options
+// The options of the skin that is showing. A skin lists them as { key, label, min, max, step, unit } for a
+// number and { key, label, choices } for a choice, and may give presets: named sets of values.
+// CanvasSkin.set() writes the values, and every wrapper in that skin reads them when it paints.
+const panel = document.getElementById('skinSet'), optionsButton = document.getElementById('skinOptions');
+const defaults = Object.fromEntries(Object.entries(CanvasSkin.skins).map(([name, skin]) => [name, { ...skin.settings }]));
+const pressed = (b, on) => b.setAttribute('aria-pressed', String(on));
+function showOptions(name) {
+  const skin = CanvasSkin.skins[name], settings = skin.settings ?? {};
+  for (const note of document.querySelectorAll('[data-note]')) note.hidden = note.dataset.note !== name;
+  optionsButton.textContent = skin.options?.length ? `Options (${skin.options.length})` : 'Options';
+  panel.replaceChildren();
+  const legend = document.createElement('legend'); legend.textContent = `${skin.label} options`; panel.append(legend);
+  if (!skin.options?.length) { const p = document.createElement('p'); p.textContent = 'This skin has no options.'; panel.append(p); return; }
+  const choiceRow = (label) => { const row = document.createElement('div'); row.className = 'choice'; row.setAttribute('role', 'group'); row.setAttribute('aria-label', label); const span = document.createElement('span'); span.textContent = label; row.append(span); panel.append(row); return row; };
+  const fresh = () => showOptions(name);
+  if (skin.presets) {
+    const row = choiceRow('Presets');
+    for (const [id, preset] of Object.entries(skin.presets)) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = preset.label;
+      const wanted = { ...defaults[name], ...preset.values };
+      pressed(b, Object.keys(wanted).every((key) => settings[key] === wanted[key]));
+      b.addEventListener('click', () => { CanvasSkin.set(name, wanted); fresh(); });
+      row.append(b);
+    }
   }
+  for (const option of skin.options) {
+    if (option.choices) {
+      const row = choiceRow(option.label);
+      for (const [id, label] of Object.entries(option.choices)) {
+        const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+        pressed(b, String(settings[option.key]) === id);
+        b.addEventListener('click', () => { CanvasSkin.set(name, { [option.key]: typeof defaults[name][option.key] === 'number' ? Number(id) : id }); for (const other of row.querySelectorAll('button')) pressed(other, other === b); });
+        row.append(b);
+      }
+      continue;
+    }
+    const label = document.createElement('label'), input = document.createElement('input'), out = document.createElement('output');
+    input.type = 'range'; input.min = option.min; input.max = option.max; input.step = option.step; input.value = settings[option.key];
+    const show = () => { out.textContent = `${settings[option.key]}${option.unit ?? ''}`; };
+    input.addEventListener('input', () => { CanvasSkin.set(name, { [option.key]: Number(input.value) }); show(); });
+    show();
+    label.append(`${option.label} `, input, out);
+    panel.append(label);
+  }
+  const reset = document.createElement('button'); reset.type = 'button'; reset.textContent = 'Reset';
+  reset.addEventListener('click', () => { CanvasSkin.set(name, { ...defaults[name] }); fresh(); });
+  panel.append(reset);
 }
-document.getElementById('glassSet').addEventListener('input', (event) => {
-  const key = event.target.dataset.key;
-  if (!key) return;
-  glassSettings[key] = Number(event.target.value);
-  showGlass();
-  CanvasSkin.redraw();
-});
-// A mode is a set of values for the same settings.
-const glassModes = {
-  regular: {},
-  clear: { frost: 0, tint: 0.35, specular: 0.8 },
-  frosted: { frost: 6, tint: 1.3, thickness: 14, dispersion: 0.02 },
-  lens: { rim: 26, thickness: 52, ior: 1.7, frost: 0.4, tint: 0.5 },
-  prism: { rim: 20, thickness: 40, ior: 1.6, dispersion: 0.28, frost: 0.3, tint: 0.4, specular: 1.4 },
-};
-function glassMode(name) {
-  Object.assign(glassSettings, glassDefaults, glassModes[name]);
-  for (const b of document.querySelectorAll('#glassModes button')) b.setAttribute('aria-pressed', String(b.dataset.mode === name));
-  showGlass();
-  CanvasSkin.redraw();
-}
-document.getElementById('glassModes').addEventListener('click', (event) => { const mode = event.target.dataset?.mode; if (mode) glassMode(mode); });
-document.getElementById('glassReset').addEventListener('click', () => glassMode('regular'));
-showGlass();
-// #endregion glass-controls
+optionsButton.addEventListener('click', () => { panel.hidden = !panel.hidden; optionsButton.setAttribute('aria-expanded', String(!panel.hidden)); });
+showOptions(stage.getAttribute('skin'));
+// #endregion options
+const glassSettings = CanvasSkin.skins.glass.settings;
 
-// The metals of the metal skin. Every metal element reads the same setting when it paints.
-const metalModes = document.getElementById('metalModes');
-for (const [name, m] of Object.entries(METALS)) {
-  const b = document.createElement('button');
-  b.type = 'button'; b.textContent = m.label; b.setAttribute('aria-pressed', String(name === CanvasSkin.skins.metal.settings.metal));
-  b.addEventListener('click', () => {
-    CanvasSkin.skins.metal.settings.metal = name;
-    for (const other of metalModes.children) other.setAttribute('aria-pressed', String(other === b));
-    CanvasSkin.redraw();
-  });
-  metalModes.append(b);
+// #region meter
+// What a change of skin cost on this device. Frames are counted with requestAnimationFrame from the tap
+// until the last entrance on screen has ended. The browser's own records are added: long animation
+// frames (a frame that took over 50 ms, with the script that ran in it) and the event timing entry of
+// the tap (from the tap to the next frame shown).
+const meter = document.getElementById('meter');
+let longFrames = [], inputs = [];
+const watch = (type, into, more = {}) => { try { new PerformanceObserver((list) => into.push(...list.getEntries())).observe({ type, ...more }); } catch { /* this browser has no such entries */ } };
+watch('long-animation-frame', longFrames);
+watch('event', inputs, { durationThreshold: 16 });
+let measuring = 0;
+function measure(from, to, ms) {
+  const run = ++measuring, t0 = performance.now(), before = { ...CanvasSkin.stats }, gaps = [];
+  let last = t0;
+  longFrames.length = 0;
+  const step = (now) => {
+    if (run !== measuring) return;                 // another skin was chosen before this one ended
+    gaps.push(now - last); last = now;
+    if (now - t0 < ms + 250) { requestAnimationFrame(step); return; }
+    const total = now - t0, stats = CanvasSkin.stats;
+    // The screen's frame time: the shortest gap seen, taken as the nearest common rate.
+    const least = Math.min(...gaps.filter((g) => g > 4)), frame = [1000 / 144, 1000 / 120, 1000 / 90, 1000 / 60].find((f) => least < f * 1.25) ?? 1000 / 60;
+    const missed = gaps.reduce((n, g) => n + Math.max(0, Math.round(g / frame) - 1), 0), longest = Math.max(...gaps);
+    const worst = longFrames.reduce((a, e) => (e.duration > (a?.duration ?? 0) ? e : a), null);
+    const script = worst?.scripts?.reduce((a, s) => (s.duration > (a?.duration ?? 0) ? s : a), null);
+    const tap = inputs.filter((e) => e.startTime >= t0 - 400 && /^(click|pointerup|pointerdown)$/.test(e.name)).reduce((a, e) => Math.max(a, e.duration), 0);
+    const n = { ms: Math.round(total), frames: gaps.length, missed, hz: Math.round(1000 / frame), longest: Math.round(longest), paints: stats.paints - before.paints, paintMs: Math.round(stats.ms - before.ms), putOff: stats.put - before.put, late: stats.late - before.late, budget: Number(stats.budget.toFixed(1)), tap: Math.round(tap), loaf: longFrames.length, loafMax: Math.round(worst?.duration ?? 0), loafWait: Math.round(worst ? worst.renderStart - worst.startTime : 0), loafScript: script ? `${script.invoker.slice(0, 40)} ${Math.round(script.duration)} ms` : '' };
+    const label = (name) => CanvasSkin.skins[name]?.label ?? name;
+    meter.textContent = `Change from ${label(from)} to ${label(to)}: ${n.ms} ms. ${n.frames} frames drawn and ${n.missed} missed at ${n.hz} Hz, longest gap ${n.longest} ms. ${n.paints} element paints took ${n.paintMs} ms of script, ${n.putOff} were put off to a later frame, and the frame budget is now ${n.budget} ms. `
+      + (n.tap ? `Tap to next frame: ${n.tap} ms. ` : '')
+      + (PerformanceObserver.supportedEntryTypes?.includes('long-animation-frame') ? `Long animation frames: ${n.loaf}${n.loaf ? `, longest ${n.loafMax} ms${n.loafScript ? ` (${n.loafScript})` : ''}` : ''}.` : 'This browser has no long-animation-frame entries.');
+    window.__gfx?.report?.('skin-change', `${from} to ${to}: ${n.ms} ms, ${n.frames} frames, ${n.missed} missed at ${n.hz} Hz, longest gap ${n.longest}, ${n.paints} paints ${n.paintMs} ms, put off ${n.putOff}, budget ${n.budget}, tap ${n.tap}, loaf ${n.loaf} max ${n.loafMax} wait ${n.loafWait} ${n.loafScript}`, { ...n, scale: devicePixelRatio, wrappers: document.querySelectorAll('canvas-skin').length });
+  };
+  requestAnimationFrame(step);
 }
+// #endregion meter
 
 // The form does something, to show that the controls are the page's own.
 const people = document.getElementById('fPeople'), peopleOut = document.getElementById('fPeopleOut'), result = document.getElementById('fResult');
@@ -217,6 +282,27 @@ const tests = [
         if (bent === split) throw new Error('dispersion changed nothing');
         return 'drawn by the shader in the shared WebGL context; the pixels differ between index 1, index 1.5, and index 1.5 with dispersion 0.2';
       } finally { Object.assign(glassSettings, keep); CanvasSkin.redraw(); }
+    },
+  },
+  {
+    name: 'CanvasSkin.set() changes an option of a skin, and its wrappers are painted again',
+    why: 'The oscilloscope skin has a beam colour. set() writes the setting, rewrites the skin\'s CSS variable --beam and asks the wrappers in that skin to paint. The check puts the option back when it ends.',
+    timeout: 8000,
+    run: async () => {
+      const keep = CanvasSkin.skins.scope.settings.beam;
+      try {
+        CanvasSkin.set('scope', { beam: 'green' });
+        const { first } = await mount('<button>Save for later</button>', 'scope');
+        await sleep(800);                       // the entrance has ended
+        const green = sum(first), paints = first.paints;
+        CanvasSkin.set('scope', { beam: 'amber' });
+        await sleep(300);
+        const amber = sum(first), value = getComputedStyle(first).getPropertyValue('--beam').trim();
+        if (first.paints === paints) throw new Error('the wrapper was not painted again');
+        if (green === amber) throw new Error('the pixels are the same in green and in amber');
+        if (value !== '#ffb52e') throw new Error(`--beam is "${value}" on the wrapper`);
+        return `painted ${first.paints - paints} more time${first.paints - paints === 1 ? '' : 's'}, the pixels changed, and --beam is ${value} on the wrapper`;
+      } finally { CanvasSkin.set('scope', { beam: keep }); }
     },
   },
   {

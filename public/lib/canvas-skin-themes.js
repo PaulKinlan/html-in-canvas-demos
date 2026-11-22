@@ -17,7 +17,11 @@
 //   frame.width, frame.height     the element's size
 //   frame.kind                    button | field | check | radio | switch | range | bar | media | text | card
 //   frame.el                      the element
-//   frame.state                   { checked, on, value, disabled, open, focus, hover, active }
+//   settings, options, presets, vars(settings)
+//             optional. settings holds values a page may change with CanvasSkin.set(name, { key: value }).
+//             options lists them for a menu: { key, label, min, max, step, unit } or { key, label, choices: { id: label } }.
+//             vars returns CSS custom properties made from the settings
+//   frame.state                   { checked, on, value, disabled, open, focus, focused, hover, active }
 //                                 on is checked eased over a few frames, value is 0..1 for a range, progress or meter
 //   frame.primary, frame.heading  the element has class "primary" or type="submit"; it is h1 to h6
 //   frame.t                       0..1 over the 640 ms after this element changed skin, 1 at rest
@@ -192,6 +196,24 @@ const glassSkin = {
   label: 'Glass',
   // Light angle, rim width, thickness, refractive index, dispersion, frost and highlight strength. See glass-gl.js.
   settings: { ...GLASS_DEFAULTS },
+  // What a page can offer to change. A preset is a set of values for the same options.
+  options: [
+    { key: 'light', label: 'Light from', min: 0, max: 360, step: 1, unit: '°' },
+    { key: 'rim', label: 'Rim width', min: 2, max: 30, step: 1, unit: ' px' },
+    { key: 'thickness', label: 'Thickness', min: 0, max: 60, step: 1, unit: ' px' },
+    { key: 'ior', label: 'Refractive index', min: 1, max: 2.4, step: 0.01 },
+    { key: 'dispersion', label: 'Dispersion', min: 0, max: 0.3, step: 0.01 },
+    { key: 'frost', label: 'Frost', min: 0, max: 8, step: 0.1, unit: ' px' },
+    { key: 'specular', label: 'Highlights', min: 0, max: 2, step: 0.05 },
+    { key: 'tint', label: 'Tint', min: 0, max: 2, step: 0.05 },
+  ],
+  presets: {
+    regular: { label: 'Regular', values: {} },
+    clear: { label: 'Clear', values: { frost: 0, tint: 0.35, specular: 0.8 } },
+    frosted: { label: 'Frosted', values: { frost: 6, tint: 1.3, thickness: 14, dispersion: 0.02 } },
+    lens: { label: 'Thick lens', values: { rim: 26, thickness: 52, ior: 1.7, frost: 0.4, tint: 0.5 } },
+    prism: { label: 'Prism', values: { rim: 20, thickness: 40, ior: 1.6, dispersion: 0.28, frost: 0.3, tint: 0.4, specular: 1.4 } },
+  },
   type: GLASS_TYPE,
   root: `${GLASS_TYPE} background-color: #2a1a5e; background-image: linear-gradient(135deg, rgb(255 255 255 / 0) calc(50% - 1px), rgb(255 255 255 / .2) calc(50% - 1px), rgb(255 255 255 / .2) calc(50% + 1px), rgb(255 255 255 / 0) calc(50% + 1px)), radial-gradient(circle at 11px 11px, rgb(255 255 255 / .3) 1.4px, rgb(255 255 255 / 0) 2px), ${
     GLASS_BLOBS.map((b) => `radial-gradient(circle ${b.r}px at ${b.x * 100}% ${b.y}px, rgb(${b.c} / .85), rgb(${b.c} / 0))`).join(', ')
