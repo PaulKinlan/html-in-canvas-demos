@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peel this page back to read its source</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<script>
+// #region parser-log
+// This runs before the parser reaches <body>. Each time the parser hands over a batch of nodes, the time
+// and the number of nodes are recorded. The page draws them as bars under "What the server sent".
+window.parserLog = [];
+new MutationObserver(function (records, observer) {
+  var added = 0;
+  for (var i = 0; i < records.length; i++) added += records[i].addedNodes.length;
+  window.parserLog.push({ at: performance.now(), added: added });
+  if (document.readyState !== 'loading') observer.disconnect();
+}).observe(document, { childList: true, subtree: true });
+// #endregion parser-log
+</script>
+<style>
+/* #region layout */
+/* The document does not scroll. The page scrolls inside #sheet, which is as tall as the window below the
+   menu bar, so the canvas that draws it is one screen and the corner stays at the top right. */
+html, body { height: 100%; overflow: hidden; }
+#desk { --desk: calc(100svh - 49px); position: relative; height: var(--desk); overflow: clip; background: #14161b; }
+#under { position: absolute; inset: 0; background: #14161b; }
+#sheet { height: var(--desk); overflow-y: auto; overscroll-behavior: contain; background: var(--bg); }
+/* The shader reads --fx-x and --fx-y from #sheet. They are inherited properties, so without this every
+   element of the page would get a new style on every frame of a drag. */
+#sheet > * { --fx-x: 0; --fx-y: 0; }
+/* #endregion layout */
+
+#sheet { --hue: 28; --ink: oklch(50% 0.17 var(--hue)); --wash: oklch(93% 0.05 var(--hue)); --tint: oklch(86% 0.09 var(--hue)); }
+@media (prefers-color-scheme: dark) {
+  #sheet { --ink: oklch(80% 0.13 var(--hue)); --wash: oklch(27% 0.05 var(--hue)); --tint: oklch(38% 0.09 var(--hue)); }
+}
+#sheet main { padding-top: 16px; }
+.hero { margin: 0 -16px; padding: 24px 16px 8px; background: linear-gradient(165deg, var(--wash), transparent 78%); display: grid; gap: 0 32px; }
+.hero .label { margin: 0 0 10px; font: 600 12px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); }
+.hero h1 { font-size: clamp(30px, 6vw, 52px); letter-spacing: -0.03em; line-height: 1.02; text-wrap: balance; padding-right: 44px; }
+.hero h1 em { font-style: normal; color: var(--ink); }
+.hero .row button { min-height: 40px; }
+.hero .row button.main { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
+#peel-status { min-height: 3em; margin: 10px 0 0; }
+#route { min-height: 4.4em; font-size: 14px; color: var(--muted); }
+@media (min-width: 860px) {
+  .hero { grid-template-columns: minmax(0, 1fr) 340px; }
+  .hero .stack { grid-column: 2; grid-row: 1 / span 6; align-self: center; }
+}
+
+/* Four layers drawn as tilted cards. */
+.stack { margin: 8px 0 0; }
+.stack .scene { position: relative; height: 250px; perspective: 1100px; }
+.stack .layer { position: absolute; left: 50%; top: 56%; width: 210px; height: 128px; margin: -64px 0 0 -105px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 13px; line-height: 1.3; transform: rotateX(58deg) rotateZ(-34deg) translateZ(calc(var(--i) * 36px)); }
+.stack .layer b { display: block; }
+.stack .layer span { color: var(--muted); }
+.stack .l-under { --i: 0; background: #14161b repeating-linear-gradient(#14161b 0 9px, #2a3142 9px 11px); color: #e8ecf5; border-color: #2a3142; }
+.stack .l-under b, .stack .l-under span { background: #14161b; color: #e8ecf5; width: max-content; padding-right: 6px; }
+.stack .l-page { --i: 1; background: var(--card); }
+.stack .l-canvas { --i: 2; background: color-mix(in srgb, var(--tint) 45%, transparent); border: 1.5px dashed var(--ink); }
+.stack .l-handle { --i: 3; background: var(--ink); color: var(--bg); border: 0; clip-path: polygon(100% 0, 100% 62%, 46% 0); text-align: right; }
+.stack .l-handle span { color: inherit; }
+.stack figcaption { font-size: 14px; color: var(--muted); text-align: center; }
+
+.receipt dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px 20px; margin: 0 0 16px; }
+.receipt dl > div.wide { grid-column: 1 / -1; }
+.receipt dt { font: 600 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.receipt dd { margin: 2px 0 0; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; min-height: 1.5em; overflow-wrap: anywhere; }
+.receipt dd.small { font-size: 16px; font-weight: 500; }
+.receipt .bars-title { margin: 14px 0 6px; font-size: 14px; font-weight: 600; }
+.receipt .bars-title .note { font-weight: 400; margin-left: 6px; }
+.receipt .chunks { display: flex; gap: 3px; height: 28px; }
+.receipt .chunks span { min-width: 6px; border-radius: 4px; background: var(--ink); color: var(--bg); font: 600 11px/28px var(--mono); text-align: center; overflow: hidden; }
+.receipt .batches { display: flex; gap: 2px; align-items: flex-end; height: 56px; border-bottom: 1px solid var(--line); }
+.receipt .batches span { flex: 1 1 0; max-width: 18px; background: var(--tint); border-radius: 3px 3px 0 0; }
+
+.changes { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 16px; }
+.changes article { background: var(--card); border: 1px solid var(--line); border-top: 4px solid var(--ink); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.changes h3 { margin: 0 0 8px; font-size: 16px; }
+.changes p { margin: 8px 0; }
+.changes .what { font-size: 14px; color: var(--muted); margin-bottom: 0; }
+.changes button, .changes input:not([type]) { min-height: 40px; }
+.changes input:not([type]) { font: inherit; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); width: 11em; max-width: 100%; }
+.changes input[type="checkbox"] { width: 20px; height: 20px; vertical-align: -4px; }
+#clock { font: 650 34px/1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--ink); }
+#count-out { display: inline-block; min-width: 2ch; margin-left: 8px; font: 650 22px var(--mono); }
+#list { margin: 0 0 8px; padding-left: 22px; min-height: 4.7em; }
+#swatches { display: flex; gap: 8px; flex-wrap: wrap; }
+#swatches button { width: 40px; height: 40px; padding: 0; border-radius: 50%; background: oklch(62% 0.17 var(--h)); border: 2px solid var(--card); outline: 1px solid var(--line); }
+#swatches button[aria-pressed="true"] { outline: 3px solid var(--fg); }
+#editable { padding: 8px 10px; border: 1px dashed var(--ink); border-radius: 6px; min-height: 2.6em; }
+/* #region nested-style */
+/* A canvas inside a drawn element needs contain: paint, or its pixels are drawn shifted in the outer picture. */
+#twice { display: block; width: 100%; height: 150px; contain: paint; }
+#twice-block { width: 210px; padding: 10px 12px; border-radius: 10px; background: var(--wash); border: 1px solid var(--tint); text-align: center; }
+/* #endregion nested-style */
+#twice-block b { display: block; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+
+<!-- #region markup -->
+<!-- Two layers in one box. #under is first, so it is below. #sheet holds the whole page and carries fx="page-peel". -->
+<div id="desk" data-peel-desk>
+<section id="under" aria-label="The source of this page"></section>
+<div id="sheet" fx="page-peel">
+<main>
+<!-- #endregion markup -->
+  <div id="support"></div>
+
+  <header class="hero">
+    <p class="label">View source</p>
+    <h1>Peel this page back to read <em>its source</em></h1>
+    <p class="lede">A canvas draws this whole page. Drag the turned corner at the top right towards the bottom left, or press the first button. Under the page is its source in two forms: the HTML as the server sent it, and the DOM as it is now.</p>
+    <div class="row">
+      <button type="button" class="main" id="do-open">Peel the page</button>
+      <button type="button" id="do-away">Take the page off</button>
+    </div>
+    <p class="note" id="peel-status" role="status">The page is flat. Its top right corner is turned over.</p>
+    <div id="route"></div>
+    <figure class="stack">
+      <div class="scene">
+        <div class="layer l-under"><b>Source</b><span>text in a shadow root</span></div>
+        <div class="layer l-page"><b>This page</b><span>a child of the canvas</span></div>
+        <div class="layer l-canvas"><b>Canvas</b><span>draws the page through a shader</span></div>
+        <div class="layer l-handle"><b>Handle</b></div>
+      </div>
+      <figcaption>The four layers of this page, from the bottom.</figcaption>
+    </figure>
+  </header>
+
+  <h2>What the server sent</h2>
+  <p class="note">Measured from a second request for this address, made when the page loaded. The text of that response is under the page, on the tab "Sent by the server".</p>
+  <div class="card receipt">
+    <dl>
+      <div><dt>Response body</dt><dd id="r-bytes">…</dd></div>
+      <div><dt>Lines</dt><dd id="r-lines">…</dd></div>
+      <div><dt>First byte after</dt><dd id="r-first">…</dd></div>
+      <div><dt>Content type</dt><dd class="small" id="r-type">…</dd></div>
+      <div class="wide"><dt>Same length as the response this page was parsed from</dt><dd class="small" id="r-same">…</dd></div>
+    </dl>
+    <p class="bars-title">Chunks of the response, by size <span class="note" id="r-chunk-note">…</span></p>
+    <div class="chunks" id="r-chunks"></div>
+    <p class="bars-title">Nodes added while the document was loading, by batch <span class="note" id="r-parser-note">…</span></p>
+    <div class="batches" id="r-parser"></div>
+  </div>
+
+  <h2>Change the page</h2>
+  <p class="note">Each block changes the DOM in one way. Peel the page, open the tab "Live DOM" and use a block: the changed lines are marked. The tab "Sent by the server" stays as it was.</p>
+  <!-- #region blocks -->
+  <div class="changes">
+    <article>
+      <h3>A clock</h3>
+      <p><time id="clock" datetime="">00:00:00</time></p>
+      <p class="what">Every second: one text node and the <code>datetime</code> attribute.</p>
+    </article>
+    <article>
+      <h3>A counter</h3>
+      <p><button type="button" id="count" data-count="0">Add one</button><output id="count-out" for="count">0</output></p>
+      <p class="what">Each press: the <code>data-count</code> attribute and the text of an <code>&lt;output&gt;</code>.</p>
+    </article>
+    <article>
+      <h3>A list</h3>
+      <ol id="list"><li>Row 1, sent by the server</li><li>Row 2, sent by the server</li></ol>
+      <p><button type="button" id="list-add">Add a row</button> <button type="button" id="list-turn">Reverse</button> <button type="button" id="list-drop">Remove the last</button></p>
+      <p class="what">Elements are added, moved and removed.</p>
+    </article>
+    <article>
+      <h3>A colour</h3>
+      <p id="swatches" role="group" aria-label="Colour of this page">
+        <button type="button" data-hue="28" style="--h: 28" aria-pressed="true" aria-label="Orange"></button>
+        <button type="button" data-hue="145" style="--h: 145" aria-pressed="false" aria-label="Green"></button>
+        <button type="button" data-hue="235" style="--h: 235" aria-pressed="false" aria-label="Blue"></button>
+        <button type="button" data-hue="305" style="--h: 305" aria-pressed="false" aria-label="Purple"></button>
+        <button type="button" data-hue="350" style="--h: 350" aria-pressed="false" aria-label="Pink"></button>
+      </p>
+      <p class="what">One custom property in the <code>style</code> attribute of <code>#sheet</code>. The canvas draws the whole page again.</p>
+    </article>
+    <article>
+      <h3>A <code>&lt;details&gt;</code> element</h3>
+      <details id="more"><summary>Open this</summary><p>The browser adds the <code>open</code> attribute when the element opens and removes it when it closes.</p></details>
+      <p class="what">One attribute, written by the browser.</p>
+    </article>
+    <article>
+      <h3>A text field and a checkbox</h3>
+      <p><label>Name <input id="field" value="as sent" autocomplete="off" enterkeyhint="done"></label></p>
+      <p><label><input type="checkbox" id="tick"> Ticked</label></p>
+      <p><button type="button" id="reflect">Write both to their attributes</button></p>
+      <p class="what">Typing and ticking change properties. The attributes, and so the live DOM text, keep what the server sent until the button copies them.</p>
+    </article>
+    <article>
+      <h3>Editable text</h3>
+      <p id="editable" contenteditable="plaintext-only" enterkeyhint="done" aria-label="Editable sentence">Change this sentence.</p>
+      <p class="what">Each key press changes a text node.</p>
+    </article>
+    <article>
+      <h3>A canvas inside the page</h3>
+      <canvas id="twice" content="drawable" layoutsubtree aria-label="One block of HTML drawn twice">
+        <div id="twice-block" drawable><b>Drawn twice</b><button type="button" id="twice-press">Pressed 0 times</button></div>
+      </canvas>
+      <p class="what">A second drawable canvas, drawn into the picture of the first. Its button changes its own text.</p>
+    </article>
+  </div>
+  <!-- #endregion blocks -->
+
+  <details class="show-code">
+    <summary>Show the code <small>the layers, the shader, the drag, and the two kinds of source</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> The source layer and the page share one box. The page carries <code>fx="page-peel"</code>, so the fx library moves it into a canvas.</li>
+      <li data-code="#layout" data-lang="css"><b>The layout.</b> The page scrolls inside a box one screen tall.</li>
+      <li data-code="#start"><b>The page script.</b> Load the fx library, make the page peel, build the source layer.</li>
+      <li data-code="/lib/page-peel.js#shader" data-lang="glsl"><b>The shader.</b> GLSL for WebGL and the same function in WGSL for WebGPU. Where the paper is gone it writes clear pixels.</li>
+      <li data-code="/lib/page-peel.js#geometry"><b>The same roll as outlines.</b> Script needs to know where the paper is, for input.</li>
+      <li data-code="/lib/page-peel.js#apply"><b>Splitting input along the roll.</b> A <code>clip-path</code> on the canvas host, and two more on the handle.</li>
+      <li data-code="/lib/page-peel.js#drag"><b>The drag.</b></li>
+      <li data-code="/view-source/sources.js#stream"><b>Source 1: the HTML as the server sends it.</b> Read from the response stream, chunk by chunk.</li>
+      <li data-code="/view-source/under.js#sent"><b>Showing the chunks as they arrive.</b></li>
+      <li data-code="#parser-log"><b>What the first response did.</b> It cannot be read again, but a script in <code>&lt;head&gt;</code> can watch the parser work through it.</li>
+      <li data-code="/view-source/sources.js#serialise"><b>Source 2: the DOM as it is now.</b></li>
+      <li data-code="/view-source/sources.js#watch"><b>Knowing when it changed.</b></li>
+      <li data-code="/view-source/under.js#live"><b>Writing it out again, at most four times a second.</b></li>
+      <li data-code="/view-source/markup.js#patch"><b>Replacing only the lines that changed.</b></li>
+      <li data-code="/view-source/widgets.js#changes"><b>The blocks that change the page.</b></li>
+      <li data-code="/view-source/widgets.js#nested"><b>The canvas inside the page.</b></li>
+      <li data-code="#measure"><b>Counting frames on the device.</b></li>
+      <li data-code="/lib/shader-fx.js#render"><b>Inside the fx library: the upload and the draw.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The document does not scroll. <code>#sheet</code> is a scrolling box as tall as the window below the menu bar, and it holds everything from the banner to the findings. The <a href="/shader-css/">fx library</a> wraps it in <code>&lt;fx-surface&gt;</code>, whose shadow root holds a canvas with <code>content="drawable"</code>. The canvas is one screen in size whatever the length of the page.</li>
+    <li>The effect <code>page-peel</code> is one fragment shader. It gets the picture of the page and one point, the position of the paper's corner, from the CSS properties <code>--fx-x</code> and <code>--fx-y</code>. It rolls the paper round a cylinder that lies across the direction the corner has travelled, and draws the peeled paper mirrored and faded on top of the page. Where no paper is left it writes transparent pixels and a shadow.</li>
+    <li>The source layer is ordinary DOM under the canvas. It is seen through the transparent pixels.</li>
+    <li>Transparent pixels still take input. A <code>clip-path</code> polygon on the canvas host, computed in script from the same numbers as the shader, cuts the canvas along the roll. Taps, scrolling and text selection beyond it go to the source layer.</li>
+    <li>The paper lying on the page is pixels. The part of the page under it would take the tap. A handle element with the same outline lies over it and takes the drag instead. A round button on the paper's corner does the same job for a keyboard: Enter peels the page and puts it back, Escape puts it back.</li>
+    <li>"Sent by the server" is a second <code>fetch()</code> of this address with <code>cache: 'no-store'</code>, read from <code>response.body</code> chunk by chunk. The first response, the one the parser read, cannot be read again from script. Its byte count is in <code>performance.getEntriesByType('navigation')</code> and is compared with the second.</li>
+    <li>"Live DOM" is <code>document.documentElement.getHTML()</code> with the shadow root of the canvas host passed in, written again at most four times a second while a <code>MutationObserver</code> reports changes. Lines that are equal at the start and at the end of the old and new text keep their elements. The lines between are replaced and marked.</li>
+    <li>The source layer is built in a shadow root that is not passed to <code>getHTML()</code>. So the live text does not contain the source view, and the observer on the document is not told about the view's own updates.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own fixture in a corner of the window. The page is not peeled or changed by them.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering, 412 px wide, on 2026-11-22. The rows above say what your browser does.</p>
+  <p class="note" id="measured" style="min-height:4.5em">On this device: move the paper and scroll the page, and the number of frames the canvas drew is written here.</p>
+  <ul class="findings" id="findings">
+    <li><strong>Works: one canvas draws a whole scrolling page.</strong> The page is a scrolling box inside the canvas. Scrolling it by touch, by wheel and from script raises a new frame, and elements are found at their scrolled positions. At 412 px wide and scale 2.625 the canvas is 2.24 megapixels and the page holds 28 MB of canvas memory in all, whatever the length of the page.</li>
+    <li><strong>Works: a <code>clip-path</code> on the canvas host splits input along the roll.</strong> A shader can make pixels transparent but the element behind them still takes the tap. With the host clipped, <code>elementFromPoint()</code> gives the layer under the page, and a touch swipe there scrolls the source and not the page.</li>
+    <li><strong>Works: both sources are the real ones.</strong> The second request returned the same number of bytes as the response the parser read (the navigation timing entry). The live text contains <code>&lt;fx-surface&gt;</code>, its canvas with <code>content="drawable"</code>, and the <code>--fx-x</code> and <code>--fx-y</code> values, which change while the paper is dragged.</li>
+    <li><strong>Works: a drawable canvas inside the drawn page.</strong> The inner canvas is in the outer picture and its button takes a tap. It needs <code>contain: paint</code>.</li>
+    <li><strong>Works: the same picture on WebGL and WebGPU.</strong> Drawn into a texture with a software WebGPU adapter, the WGSL differs from the GLSL by 0.08 of 255 per channel on average.</li>
+    <li><strong>Limit: the response that made the page cannot be read again.</strong> Script gets its size and timing, and can watch the parser add nodes, but the text has to come from a second request. If the server answers differently the second time, the tab shows the second answer. The page compares the byte counts and says when they differ.</li>
+    <li><strong>Limit: the live text is attributes and text, not state.</strong> A typed value, a ticked checkbox, a scroll position and the pixels of a canvas are not in it. <code>outerHTML</code> also leaves out every shadow root. <code>getHTML({ shadowRoots })</code> writes the ones it is given.</li>
+    <li><strong>As built: setting <code>textContent</code> is reported as a change to the list of children.</strong> The clock replaces its text node each second, so the count of changes "to text" stays at 0 until the editable sentence is typed in.</li>
+    <li><strong>As built: a view of the DOM that is in the DOM would show itself.</strong> The source layer is in a shadow root, which <code>getHTML()</code> skips unless asked and which a <code>MutationObserver</code> on the document does not report.</li>
+    <li><strong>Not verified here:</strong> the WebGPU route on a screen, and how many frames a second a phone draws while the paper is dragged and while the page scrolls. The line above this list reports both on the device that opens the page. Also open on a phone: text selection handles in the source layer, the on-screen keyboard over a document that does not scroll, and how many chunks the deployed server sends (the test server sent one).</li>
+  </ul>
+</main>
+</div>
+</div>
+
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  import { loadFx, sameOnWebGPU } from '/shared/fx-route.js';
+  import { pagePeel, peelOutline } from '/lib/page-peel.js';
+  import { mountUnder } from '/view-source/under.js';
+  import { startWidgets, showReceipt } from '/view-source/widgets.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const sheet = $('sheet');
+
+  // #region start
+  // The fx library moves #sheet into a canvas: WebGPU when it works here, otherwise a 2D canvas drawn through
+  // one WebGL context. Without HTML-in-canvas the page stays plain HTML and the corner is cut, not rolled.
+  await loadFx({ targets: () => [sheet], mount: supported ? $('route') : null });
+  if (!supported) $('route').textContent = 'HTML-in-canvas is not available here, so this page is plain HTML and its corner is cut along a straight line.';
+  const surface = () => sheet.closest('fx-surface');
+
+  const words = {
+    rest: 'The page is flat. Its top right corner is turned over.',
+    open: (amount) => `${Math.round(amount * 100)}% of the page is peeled back. Drag the paper further, or press it to put the page back.`,
+    away: 'The page is off. "Put the page back" is in the bar above the source.',
+  };
+  let layer = null, moving = null;
+  const peel = pagePeel(sheet, {
+    under: $('under'),
+    label: 'Peel the page back to show its source',
+    onChange({ state, amount }) {
+      // While the corner is held nothing in the page is changed: a change would make the canvas take a new picture of the page on every frame.
+      if (state === 'held') return void (moving ??= { at: performance.now(), frames: surface()?.frames ?? 0 });
+      if (moving) measured('paper', moving);
+      moving = null;
+      const text = typeof words[state] === 'function' ? words[state](amount) : words[state];
+      if ($('peel-status').textContent !== text) $('peel-status').textContent = text;
+      $('do-open').textContent = state === 'rest' ? 'Peel the page' : 'Put the page back';
+      $('under').dataset.state = state;
+      layer?.refresh();
+    },
+  });
+  // The source layer. The live tab writes out the document and the shadow root of the canvas host.
+  layer = mountUnder($('under'), {
+    roots: () => [surface()?.shadowRoot].filter(Boolean),
+    shown: () => peel.state !== 'rest',
+    onBack: () => peel.close(),
+  });
+  $('do-open').onclick = () => (peel.state === 'rest' ? peel.open() : peel.close());
+  $('do-away').onclick = () => peel.away();
+  // #endregion start
+
+  // #region measure
+  // How fast the canvas keeps up on this device, written under "Findings" after each movement of the paper
+  // and each scroll of the page. `frames` is the fx library's count of frames it drew.
+  const rates = {};
+  function measured(what, from) {
+    const frames = (surface()?.frames ?? 0) - from.frames, seconds = (performance.now() - from.at) / 1000;
+    if (!surface() || frames < 2 || seconds < 0.1) return;
+    rates[what] = `${frames} frames in ${seconds.toFixed(2)} s, ${Math.round(frames / seconds)} a second`;
+    const text = `On this device, drawn with ${{ webgpu: 'WebGPU', direct: 'WebGL', shared: 'a 2D canvas and one WebGL context' }[surface().backend] ?? 'no canvas'}. ` +
+      `Last movement of the paper: ${rates.paper ?? 'none yet'}. Last scroll of the page: ${rates.scroll ?? 'none yet'}.`;
+    $('measured').textContent = text;
+  }
+  let scrolling = null;
+  sheet.addEventListener('scroll', () => { scrolling ??= { at: performance.now(), frames: surface()?.frames ?? 0 }; }, { passive: true });
+  sheet.addEventListener('scrollend', () => { if (scrolling) measured('scroll', scrolling); scrolling = null; });
+  // #endregion measure
+
+  startWidgets(sheet);
+  layer.sent.then((result) => showReceipt(result, window.parserLog));
+  window.viewSource = { peel, layer, surface };
+
+  // ---- live checks: every one on its own fixture ----
+  const { readSent, serialise } = await import('/view-source/sources.js');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const W = 300, H = 180;
+
+  /** A small desk on the test stage: a layer with one button under a sheet with tall content. */
+  async function fixture({ drawn = true, extra = '' } = {}) {
+    const desk = document.createElement('div');
+    desk.dataset.peelDesk = '';
+    desk.style.cssText = `position:relative;flex:none;width:${W}px;height:${H}px;overflow:clip;background:#103050`;
+    desk.innerHTML = `<div class="u" style="position:absolute;inset:0"><button type="button" class="ub" style="position:absolute;right:6px;top:6px;width:90px;height:44px">under</button></div>
+      <div class="s" ${drawn ? 'fx="page-peel" fx-backend="shared"' : ''} style="height:${H}px;overflow-y:auto;scrollbar-width:none;background:#fff;color:#000;font:14px system-ui">
+        <button type="button" class="top" style="position:absolute;right:6px;top:6px;width:90px;height:44px">sheet</button>
+        <p style="margin:0;padding:120px 10px 0">Flat part</p>${extra}
+        <button type="button" class="low" style="display:block;margin:110px 0 300px 10px;width:120px;height:40px">lower</button>
+      </div>`;
+    testStage().append(desk);
+    const sheet = desk.querySelector('.s');
+    const peel = pagePeel(sheet, { under: desk.querySelector('.u') });
+    let s = null;
+    if (drawn) {
+      for (let i = 0; i < 200; i++) { s = sheet.closest('fx-surface'); if (s?.ready && s.frames) break; await sleep(25); }
+      if (!s?.ready) throw new Error('the fixture was never drawn');
+    } else await sleep(100);
+    const at = (x, y) => { const r = desk.getBoundingClientRect(); return document.elementFromPoint(r.left + x, r.top + y); };
+    const set = async (x, y) => { peel.set(x, y); await sleep(120); };
+    // Pixels of the surface, read once from a copy, addressed in CSS pixels.
+    const pixels = async () => {
+      const image = await s.readback();
+      const k = image.width / W;
+      return (x, y) => { const i = (Math.round(y * k) * image.width + Math.round(x * k)) * 4; return [...image.data.slice(i, i + 4)]; };
+    };
+    return { desk, sheet, peel, surface: s, at, set, pixels };
+  }
+  const centre = (poly) => [poly.reduce((sum, p) => sum + p[0], 0) / poly.length, poly.reduce((sum, p) => sum + p[1], 0) / poly.length];
+
+  runTests($('results'), [
+    {
+      name: 'The shader writes clear pixels where the paper is gone',
+      why: `A ${W} by ${H} sheet with its corner moved to 150, 90. One pixel is read in the flat part, one on the paper lying on the sheet and one where the paper is gone.`,
+      run: async () => {
+        need();
+        const f = await fixture();
+        await f.set(150, 90);
+        const px = await f.pixels();
+        const flat = px(20, 170), paper = px(...centre(f.peel.outline.flap)), gone = px(290, 8);
+        if (flat[3] < 250) throw new Error(`the flat part has alpha ${flat[3]}`);
+        if (paper[3] < 250) throw new Error(`the paper has alpha ${paper[3]}`);
+        if (gone[3] > 8) throw new Error(`the corner has alpha ${gone[3]}`);
+        return `flat part rgba ${flat.join(' ')}, paper ${paper.join(' ')}, gone ${gone.join(' ')}`;
+      },
+    },
+    {
+      name: 'The outline computed in script agrees with the shader',
+      why: 'peelOutline() repeats the shader\'s arithmetic. A grid of points is sorted by the script into "gone" and "flat", and the alpha of the pixel at each point is compared. Points within 2 px of the roll are left out.',
+      run: async () => {
+        need();
+        const f = await fixture();
+        await f.set(110, 120);
+        const px = await f.pixels();
+        const { D, R, dist } = f.peel.outline;
+        const dx = (110 - W) / dist, dy = 120 / dist;
+        let gone = 0, flat = 0, wrong = 0;
+        for (let y = 5; y < H; y += 10) for (let x = 5; x < W; x += 10) {
+          const along = (x - W) * dx + y * dy;
+          if (along < D - R - 2) { gone++; if (px(x, y)[3] > 128) wrong++; }
+          else if (along > D + 2) { flat++; if (px(x, y)[3] < 250) wrong++; }
+        }
+        if (wrong) throw new Error(`${wrong} of ${gone + flat} points disagree`);
+        return `${gone} points where the paper is gone and ${flat} on the sheet, all as the script says`;
+      },
+    },
+    {
+      name: 'Input goes to the layer under the page where the paper is gone',
+      why: 'The canvas host gets a clip-path polygon along the roll. A button of the page and a button of the layer under it are in the same place, in the corner that is peeled. elementFromPoint() is asked before and after.',
+      run: async () => {
+        need();
+        const f = await fixture();
+        const before = f.at(215, 12);
+        await f.set(150, 90);
+        const after = f.at(215, 12), kept = f.at(40, 150);
+        if (before?.className !== 'top') throw new Error(`before the peel the point gave ${before?.className || before?.localName}`);
+        if (after?.className !== 'ub') throw new Error(`after the peel the point gave ${after?.className || after?.localName}`);
+        if (!f.sheet.contains(kept)) throw new Error(`the flat part gave ${kept?.localName}`);
+        return 'the page\'s button before, the lower layer\'s button after, and the page still answers in its flat part';
+      },
+    },
+    {
+      name: 'The paper lying on the page takes the pointer, not the page under it',
+      why: 'The paper is only pixels. A handle element with the same outline covers it.',
+      run: async () => {
+        need();
+        const f = await fixture();
+        await f.set(60, 150);
+        // The middle of the paper. The round button is on its corner, further than its radius from here.
+        const el = f.at(...centre(f.peel.outline.flap));
+        if (el?.dataset.part !== 'flap') throw new Error(`the point gave ${el?.className || el?.localName}`);
+        return 'the middle of the paper gives the handle';
+      },
+    },
+    {
+      name: 'A scrolling box drawn by the canvas scrolls, and is drawn again',
+      why: 'The whole page is a scrolling box inside the canvas. The fixture is scrolled by 100 px from script. A button 250 px down must be found 100 px higher, and the canvas must have drawn a new frame.',
+      run: async () => {
+        need();
+        const f = await fixture();
+        const frames = f.surface.frames;
+        const top = () => f.sheet.querySelector('.low').getBoundingClientRect().top - f.desk.getBoundingClientRect().top;
+        const y0 = top();
+        f.sheet.scrollTop = 100;
+        await sleep(200);
+        const y1 = top();
+        const hit = f.at(40, y1 + 20);
+        if (Math.abs(y0 - y1 - 100) > 1) throw new Error(`the button moved ${(y0 - y1).toFixed(0)} px`);
+        if (hit?.className !== 'low') throw new Error(`the point gave ${hit?.className || hit?.localName}`);
+        if (f.surface.frames === frames) throw new Error('no new frame was drawn');
+        return `the button moved 100 px, is found there, and ${f.surface.frames - frames} new frames were drawn`;
+      },
+    },
+    {
+      name: 'A canvas inside the drawn page is in the picture',
+      why: 'The fixture holds a second drawable canvas that draws a red block. The outer picture is read where the block is.',
+      run: async () => {
+        need();
+        const f = await fixture({ extra: '<canvas class="in" content="drawable" layoutsubtree width="80" height="40" style="position:absolute;left:10px;top:60px;width:80px;height:40px;contain:paint"><div drawable style="width:80px;height:40px;background:rgb(210,20,20)"></div></canvas>' });
+        const inner = f.sheet.querySelector('.in');
+        const ctx = inner.getContext('2d');
+        const draw = () => { try { ctx.drawElementImage(inner.firstElementChild, 0, 0, 80, 40); } catch {} };
+        inner.addEventListener('paint', draw);
+        inner.requestPaint();
+        await sleep(400);
+        const px = await f.pixels();
+        const c = px(50, 80);
+        if (!(c[0] > 180 && c[1] < 60)) throw new Error(`the pixel is rgba ${c.join(' ')}`);
+        return `the pixel in the inner canvas is rgba ${c.join(' ')}`;
+      },
+    },
+    {
+      name: 'Without a canvas the corner is cut instead of rolled',
+      why: 'The same fixture with no fx attribute, as in a browser without the API or after a lost canvas. The clip-path goes on the page itself.',
+      run: async () => {
+        const f = await fixture({ drawn: false });
+        await f.set(150, 90);
+        const after = f.at(215, 12);
+        if (!f.sheet.style.clipPath.startsWith('polygon')) throw new Error('the sheet has no clip-path');
+        if (after?.className !== 'ub') throw new Error(`the point gave ${after?.className || after?.localName}`);
+        return 'the page is clipped along a straight line and the lower layer\'s button answers';
+      },
+    },
+    sameOnWebGPU(['page-peel'], { vars: '--fx-x:120;--fx-y:60' }),
+    {
+      name: 'The HTML of this page can be read from the server as a stream',
+      why: 'fetch() with cache: "no-store", then response.body.getReader(). The byte count is compared with the navigation timing entry of the response the parser read.',
+      run: async () => {
+        const r = await readSent(location.pathname);
+        if (!/^<!doctype html>/i.test(r.text)) throw new Error(`the text starts with ${JSON.stringify(r.text.slice(0, 20))}`);
+        if (!r.text.includes('<title>Peel this page')) throw new Error('the text is not this page');
+        const parsed = performance.getEntriesByType('navigation')[0]?.decodedBodySize || 0;
+        return `${r.bytes.toLocaleString('en')} bytes in ${r.chunks.length} ${r.chunks.length === 1 ? 'chunk' : 'chunks'} (${r.chunks.map((c) => c.bytes).join(', ')}), first byte after ${r.firstByte.toFixed(0)} ms. The parsed response had ${parsed ? parsed.toLocaleString('en') : 'an unreported number of'} bytes${parsed ? (parsed === r.bytes ? ': the same' : ': different') : ''}.`;
+      },
+    },
+    {
+      name: 'A change to an attribute reaches the live text, and a typed value does not',
+      why: 'A text field on the fixture stage gets a new attribute, then a new value as typing sets it (the property), then the same value as an attribute. The document is written out after each step.',
+      run: async () => {
+        const input = document.createElement('input');
+        input.setAttribute('aria-label', 'check');
+        testStage().append(input);
+        const has = (text) => serialise(document).includes(text);
+        input.setAttribute('data-probe', 'probe-1');
+        const attribute = has('data-probe="probe-1"');
+        // The value is made here, so that the text of this script does not contain it.
+        const typed = `typed-${Date.now()}`;
+        input.value = typed;
+        const property = has(typed);
+        input.setAttribute('value', input.value);
+        const copied = has(`value="${typed}"`);
+        if (!attribute) throw new Error('the new attribute is not in the text');
+        if (property) throw new Error('the typed value is in the text');
+        if (!copied) throw new Error('the copied value is not in the text');
+        return 'the attribute is in the text at once, the value property is not, and it is after setAttribute("value")';
+      },
+    },
+    {
+      name: 'outerHTML leaves the canvas out, and getHTML() with its shadow root writes it',
+      why: 'The canvas that draws a page is in the shadow root of <fx-surface>. The fixture is written both ways.',
+      run: async () => {
+        need();
+        const f = await fixture();
+        const host = f.surface;
+        const outer = host.outerHTML;
+        const full = host.getHTML({ shadowRoots: [host.shadowRoot] });
+        if (/<canvas/.test(outer)) throw new Error('outerHTML contains a canvas');
+        if (!/<template shadowrootmode="open">/.test(full) || !/<canvas[^>]*content="drawable"/.test(full)) throw new Error('getHTML() did not write the canvas');
+        return `outerHTML: ${outer.length} characters and no canvas. getHTML(): ${full.length} characters, with <template shadowrootmode="open"> and <canvas content="drawable">`;
+      },
+    },
+    {
+      name: 'Changes inside a shadow root are not reported to an observer on the document',
+      why: 'The source view is in a shadow root so that it does not report its own updates. A fixture with a shadow root is changed inside and then outside while a MutationObserver watches the document.',
+      run: async () => {
+        const host = document.createElement('div');
+        testStage().append(host);
+        const inside = host.attachShadow({ mode: 'open' });
+        // The page changes on its own account (the clock), so only records about the fixture are counted.
+        let seen = 0;
+        const observer = new MutationObserver((records) => { for (const r of records) if (r.target === host || r.target.getRootNode() === inside) seen++; });
+        observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+        inside.innerHTML = '<p>one</p>';
+        inside.firstChild.setAttribute('data-x', '1');
+        await sleep(30);
+        const fromInside = seen;
+        host.setAttribute('data-y', '1');
+        await sleep(30);
+        observer.disconnect();
+        if (fromInside) throw new Error(`${fromInside} records came from inside the shadow root`);
+        if (seen !== 1) throw new Error(`${seen} records came from the change outside`);
+        return 'no record for two changes inside, one record for the change to the host';
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
