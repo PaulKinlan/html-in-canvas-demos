@@ -88,6 +88,17 @@ What changed in the skins: the oscilloscope's shapes are lists of points, the el
 
 ## Open ideas
 
+For PLAN.md, how the skins could be made faster or better later (owner, 2026-11-22: "put it in the plan about how we might improve these in the future"):
+
+- Speed of a change of skin. On the phone some changes still miss 17 to 28 of about 94 frames (glass to X-ray, comic to 1-bit, default to gravity). To try: compile every shader program when the page is idle, not on a skin's first paint; keep one old-picture canvas per wrapper for its lifetime, not one made per change; fade only the wrappers nearest the tap and switch the rest at once; lower the canvas scale to 2 on a device scale of 3 while a change runs.
+- Shader skins at rest. Every shader pass is followed by a `drawImage()` from the shared WebGL canvas into the wrapper's 2D canvas. To try: give underwater, foil, metal and the painting skins the kept texture that gravity and underwater have; run one pass over an atlas of all visible wrappers and cut it up with `drawImage()`, which is one GPU sync per frame and not one per element.
+- WebGPU. The project order is WebGPU, WebGL, 2D. `shade()` and the glass shader are WebGL only. A WGSL version through `webgpu()` in `shared/backend.js` is not written.
+- Measurement. The `skin-change` report covers the change only. Add a report of frames missed over a few seconds at rest and while a finger moves, per skin, so that a slow skin shows in `npm run reports` without the owner saying so. The frame rate read from the gaps was wrong twice (144 Hz reported on a 60 Hz phone before the middle-gap fix); check it against the next reports.
+- Skins the owner judged weak: clay ("not super excited") and old master were reworked once and have not been judged again. Oscilloscope, stained glass and X-ray likewise.
+- Skins offered and not built: ice, ember, aurora.
+- Options: 14 skins have none (pencil, gel, terminal, blueprint, thermal, neon, embroidery, Christmas, seaside, LED board, punch card, X-ray, crayon, native).
+- 3D blocks: tilt is not verified on a device. A real perspective (the face smaller toward the back, text on the floor of a field) needs more than the 14 px of room round each canvas.
+
 - A skin whose background moves (the glass background drifting) would need every glass wrapper to repaint per frame.
 - A wrapper could take `backdrop` from a second canvas that draws the root, to show arbitrary content through glass.
 - `CanvasSkin.wrap()` could run again from a `MutationObserver` for elements added later.
