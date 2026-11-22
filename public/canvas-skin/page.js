@@ -26,11 +26,19 @@ for (const [name, skin] of Object.entries(CanvasSkin.skins)) {
     CanvasSkin.apply(stage, name, { x, y });
     CanvasSkin.apply(nestStage, name, { x, y });
     for (const b of bar.children) b.setAttribute('aria-pressed', String(b === button));
+    showSettings(name);
     report();
   });
   bar.append(button);
 }
 // #endregion wrap
+
+// The glass settings are on the page only while the form is in the glass skin.
+function showSettings(name) {
+  document.getElementById('glassSet').hidden = name !== 'glass';
+  document.getElementById('glassNote').hidden = name !== 'glass';
+}
+showSettings(stage.getAttribute('skin'));
 
 // #region glass-controls
 // The glass shader's inputs. Every glass element reads the same settings object when it paints.
