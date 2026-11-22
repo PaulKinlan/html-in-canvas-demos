@@ -420,10 +420,11 @@ The order of pages inside a menu group comes from the `order` number in the page
 5. Write the live checks with `runTests()`. Fixtures go in `testStage()`, a bench or a hidden copy. If the checks cannot hold the page still yet, put `<meta name="checks" content="tap">` in the page's `<head>`.
 6. Make it work on a phone: 412 px wide with touch, no sideways scroll, canvas layout taken from `canvas.clientWidth`, `svh` and not `dvh` for a canvas stage, `canvas.width` assigned only when the size changed, `touch-action` set where the demo is dragged.
 7. Start on the lightest drawing route. Open one GPU context per page where possible, pick WebGPU only through `shared/backend.js`, and show a message or plain HTML when a context is lost.
-8. Run `npm run check:jank -- /<name>/`. A known exception goes in the `jank` field of the page's `page.json` with its reason. Run `npm run check:fx` if you touched a file that `fx.js` is built from.
-9. Write the results in a new file, `findings/<name>.md` ([findings/README.md](findings/README.md) says what it holds). Do not edit `FINDINGS.md`, `PLAN.md` or `README.md` in the same pull request.
-10. A helper the page needs goes in a new file. A tool goes in `tools/<name>/` and is run with `node`. If the page needs a change to shared code, make that change in its own pull request first.
-11. Run `npm run check:merge`, merge `main` if the branch is behind, and open the pull request. See [AGENTS.md](AGENTS.md).
+8. Run `npm run build`, then `node tools/social/capture.mjs /<name>/`. The build writes the description, canonical URL, Open Graph, Twitter and schema.org tags into the page's `<head>` from its `page.json`, between `social:start` and `social:end` comments. The capture writes `public/<name>/social.jpg`, the 1200 by 630 picture a shared link shows. Commit both. Look at the picture: if the canvas did not draw in the test browser, run the capture again with `--top` or `--card`. A page without a picture uses the site's. Details: [docs/social-metadata.md](docs/social-metadata.md).
+9. Run `npm run check:jank -- /<name>/`. A known exception goes in the `jank` field of the page's `page.json` with its reason. Run `npm run check:fx` if you touched a file that `fx.js` is built from.
+10. Write the results in a new file, `findings/<name>.md` ([findings/README.md](findings/README.md) says what it holds). Do not edit `FINDINGS.md`, `PLAN.md` or `README.md` in the same pull request.
+11. A helper the page needs goes in a new file. A tool goes in `tools/<name>/` and is run with `node`. If the page needs a change to shared code, make that change in its own pull request first.
+12. Run `npm run check:merge`, merge `main` if the branch is behind, and open the pull request. See [AGENTS.md](AGENTS.md).
 
 ## How to add other things
 
