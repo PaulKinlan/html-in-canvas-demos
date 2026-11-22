@@ -1,0 +1,1621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Origami boarding pass and tear-off stub</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A live HTML boarding pass drawn on one 2D canvas as two sibling drawable sections. Fold it into four sheared origami panels, or drag across the dotted perforation to tear off the stub along a jagged…">
+<link rel="canonical" href="https://html-in-canvas.page/origami-ticket/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Origami boarding pass and tear-off stub">
+<meta property="og:description" content="A live HTML boarding pass drawn on one 2D canvas as two sibling drawable sections. Fold it into four sheared origami panels, or drag across the dotted perforation to tear off the stub along a jagged…">
+<meta property="og:url" content="https://html-in-canvas.page/origami-ticket/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Origami boarding pass and tear-off stub&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Origami boarding pass and tear-off stub">
+<meta name="twitter:description" content="A live HTML boarding pass drawn on one 2D canvas as two sibling drawable sections. Fold it into four sheared origami panels, or drag across the dotted perforation to tear off the stub along a jagged…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Origami boarding pass and tear-off stub&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/origami-ticket/",
+   "url": "https://html-in-canvas.page/origami-ticket/",
+   "mainEntityOfPage": "https://html-in-canvas.page/origami-ticket/",
+   "headline": "Origami boarding pass and tear-off stub",
+   "name": "Origami boarding pass and tear-off stub",
+   "description": "A live HTML boarding pass drawn on one 2D canvas as two sibling drawable sections. Fold it into four sheared origami panels, or drag across the dotted perforation to tear off the stub along a jagged edge while both halves stay clickable and editable.",
+   "abstract": "Can a single live HTML boarding pass fold along scored origami creases and rip cleanly along a serrated perforation into two separate interactive pieces on a 2D canvas?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "drawElementImage, captureElementImage, clip, origami, hit testing, drawElementImage\u0028), captureElementImage\u0028), drawable descendants, paint event",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Origami boarding pass and tear-off stub",
+     "item": "https://html-in-canvas.page/origami-ticket/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 920px; }
+  .stage { padding: 14px; }
+  .ticket-wrap { position: relative; width: 100%; }
+  #stage-canvas {
+    display: block;
+    width: 100%;
+    height: 360px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg) 82%, var(--line));
+    touch-action: pan-y;
+    cursor: grab;
+  }
+  #stage-canvas.dragging { cursor: grabbing; }
+  #stage-canvas.narrow { height: 560px; }
+
+  .seam-handle {
+    position: absolute;
+    z-index: 4;
+    top: 10px;
+    left: 70%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 5px 11px;
+    border-radius: 99px;
+    border: 1px solid var(--accent);
+    background: var(--card);
+    color: var(--fg);
+    font: 600 12px/1 var(--mono);
+    letter-spacing: 0.03em;
+    touch-action: none;
+    user-select: none;
+    cursor: ns-resize;
+  }
+  .seam-handle.horizontal {
+    cursor: ew-resize;
+    transform: translateY(-50%);
+  }
+  .seam-handle[hidden] { display: none; }
+  .seam-handle .grip-dots {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: none;
+  }
+
+  /* #region styles */
+  #ticket {
+    display: flex;
+    flex-direction: row;
+    width: calc(100% - 48px);
+    max-width: 760px;
+    margin: 28px auto 0;
+    font: 14px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color: #18202c;
+  }
+  #ticket.narrow {
+    flex-direction: column;
+    width: calc(100% - 24px);
+    margin: 14px auto 0;
+  }
+
+  .pass-half {
+    position: relative;
+    background: #fffdf8;
+    border: 1px solid #d5cebf;
+    color: #18202c;
+    overflow: hidden;
+  }
+  #pass-main {
+    flex: 1 1 auto;
+    border-radius: 12px 0 0 12px;
+    border-right: 1px dashed #b9b1a0;
+  }
+  #pass-stub {
+    flex: 0 0 212px;
+    border-radius: 0 12px 12px 0;
+    border-left: 1px dashed #b9b1a0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  #ticket.narrow #pass-main {
+    border-radius: 12px 12px 0 0;
+    border-right: 1px solid #d5cebf;
+    border-bottom: 1px dashed #b9b1a0;
+  }
+  #ticket.narrow #pass-stub {
+    flex: 0 0 auto;
+    border-radius: 0 0 12px 12px;
+    border-left: 1px solid #d5cebf;
+    border-top: 1px dashed #b9b1a0;
+  }
+
+  .pass-band {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 14px;
+    background: #1b4965;
+    color: #f8f6f0;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .pass-band strong { font-weight: 700; letter-spacing: 0.08em; }
+  .pass-band.stub-band { background: #d2491f; }
+  .status-pill {
+    padding: 2px 7px;
+    border-radius: 99px;
+    background: rgb(255 255 255 / 0.18);
+    font: 600 11px/1.3 var(--mono);
+  }
+  .status-pill.checked { background: #1f7a3a; color: #fff; }
+
+  .pass-body { padding: 12px 14px 10px; display: grid; gap: 10px; }
+  .route-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .airports {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-weight: 800;
+    font-size: 24px;
+    letter-spacing: -0.02em;
+    color: #102536;
+  }
+  .airports .arrow { font-size: 15px; color: #d2491f; font-weight: 700; }
+  .flight-meta {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: #55606e;
+  }
+  .flight-meta b { display: block; color: #18202c; font: 700 13px/1.2 var(--mono); }
+
+  .pass-fields {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(82px, 0.65fr) auto;
+    gap: 8px;
+    align-items: end;
+  }
+  #ticket.narrow .pass-fields {
+    grid-template-columns: minmax(0, 1fr) 90px;
+  }
+  #ticket.narrow .pass-fields .checkin-cell { grid-column: 1 / -1; }
+  .field-label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font: 600 10px/1.1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #5d6672;
+  }
+  .pass-half input[type="text"],
+  .pass-half select {
+    width: 100%;
+    min-height: 36px;
+    padding: 5px 8px;
+    border: 1px solid #c9c1b0;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #18202c;
+    font: 600 13px/1.2 var(--mono);
+  }
+  .pass-half button {
+    min-height: 36px;
+    padding: 6px 11px;
+    border-radius: 6px;
+    border: 1px solid #1b4965;
+    background: #1b4965;
+    color: #fff;
+    font: 600 13px/1.1 system-ui, sans-serif;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .pass-half button.done { background: #1f7a3a; border-color: #1f7a3a; }
+  .pass-half button:focus-visible,
+  .pass-half input:focus-visible,
+  .pass-half select:focus-visible {
+    outline: 2px solid #d2491f;
+    outline-offset: 2px;
+  }
+
+  .barcode-strip {
+    height: 30px;
+    border-radius: 3px;
+    background: repeating-linear-gradient(
+      90deg,
+      #18202c 0 2px, transparent 2px 4px,
+      #18202c 4px 7px, transparent 7px 9px,
+      #18202c 9px 10px, transparent 10px 13px,
+      #18202c 13px 17px, transparent 17px 19px,
+      #18202c 19px 21px, transparent 21px 25px,
+      #18202c 25px 28px, transparent 28px 30px
+    );
+  }
+  .barcode-code {
+    display: flex;
+    justify-content: space-between;
+    font: 11px/1 var(--mono);
+    color: #5d6672;
+    margin-top: 4px;
+  }
+
+  .stub-body {
+    padding: 12px 14px;
+    display: grid;
+    gap: 8px;
+    position: relative;
+  }
+  #ticket.narrow .stub-body {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px 12px;
+  }
+  .stub-seat-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .seat-badge {
+    font: 800 28px/1 var(--mono);
+    color: #102536;
+  }
+  .group-badge {
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: #f2ece0;
+    border: 1px solid #d5cebf;
+    font: 700 11px/1.2 var(--mono);
+    color: #18202c;
+  }
+  .group-badge.priority { background: #fbe3d9; border-color: #d2491f; color: #8c290c; }
+  .stub-name {
+    font: 600 12px/1.2 var(--mono);
+    color: #46505e;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .priority-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    font: 600 12px/1.2 system-ui, sans-serif;
+    color: #18202c;
+    cursor: pointer;
+  }
+  .priority-toggle input { width: 17px; height: 17px; accent-color: #d2491f; }
+  .stub-scan { width: 100%; background: #d2491f; border-color: #d2491f; }
+  .boarded-stamp {
+    position: absolute;
+    inset: auto 10px 44px auto;
+    padding: 3px 8px;
+    border: 2.5px solid #1f7a3a;
+    border-radius: 4px;
+    color: #1f7a3a;
+    background: rgb(255 253 248 / 0.9);
+    font: 800 14px/1 var(--mono);
+    letter-spacing: 0.1em;
+    transform: rotate(-12deg);
+    pointer-events: none;
+    opacity: 0;
+  }
+  .boarded-stamp.stamped { opacity: 1; }
+  .stub-foot {
+    padding: 0 14px 10px;
+  }
+  .stub-barcode {
+    height: 16px;
+    background: repeating-linear-gradient(
+      90deg,
+      #18202c 0 2px, transparent 2px 5px,
+      #18202c 5px 8px, transparent 8px 10px,
+      #18202c 10px 11px, transparent 11px 15px
+    );
+  }
+  /* #endregion styles */
+
+  .controls-bar {
+    margin-top: 12px;
+    gap: 10px 14px;
+  }
+  .controls-bar button { min-height: 40px; }
+  .sliders {
+    margin-top: 10px;
+    gap: 12px 20px;
+  }
+  .slider-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    flex: 1 1 220px;
+  }
+  .slider-group input[type="range"] {
+    flex: 1 1 120px;
+    min-height: 36px;
+    accent-color: var(--accent);
+  }
+  .slider-group output {
+    min-width: 3.5ch;
+    text-align: right;
+    font: 600 13px var(--mono);
+    color: var(--muted);
+  }
+  #ticket-status {
+    margin: 10px 0 0;
+    min-height: 1.5em;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+
+  .plain-fallback #ticket {
+    width: 100%;
+    margin: 8px 0 0;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+
+  <h1>Origami boarding pass and tear-off stub</h1>
+  <p class="lede">
+    I wanted to know if one live HTML boarding pass can fold into concertina panels and rip along a serrated perforation into two separate interactive pieces on a 2D canvas.
+    This builds directly on the sheared-strip folding in <a href="/accordion/">/accordion/</a> and the paper peel in <a href="/view-source/">/view-source/</a>, paired with the physical tear-off stub pattern from mobile wallet boarding passes.
+    Edit the passenger name, change the seat, drag the paper body to fold it, or drag the <b>Tear here</b> tab to unzip the stub.
+  </p>
+
+  <div class="stage">
+    <!-- #region markup -->
+    <div class="ticket-wrap">
+      <canvas id="stage-canvas" content="drawable" layoutsubtree aria-label="Interactive boarding pass that folds along creases and tears into a main pass and stub">
+        <article id="ticket">
+          <section id="pass-main" class="pass-half" drawable aria-label="Main boarding pass">
+            <header class="pass-band">
+              <strong>Canvas Air</strong>
+              <span>Flight CA 408</span>
+              <span class="status-pill" id="checkin-pill">Ready</span>
+            </header>
+            <div class="pass-body">
+              <div class="route-row">
+                <div class="airports"><span>LHR</span><span class="arrow">-&gt;</span><span>HND</span></div>
+                <div class="flight-meta">
+                  <span>Gate<b>B14</b></span>
+                  <span>Departs<b>09:40</b></span>
+                  <span>Date<b>22 NOV</b></span>
+                </div>
+              </div>
+              <div class="pass-fields">
+                <label class="field-label">
+                  Passenger
+                  <input id="passenger" type="text" value="PAUL KINLAN" autocomplete="off" spellcheck="false" aria-label="Passenger name">
+                </label>
+                <label class="field-label">
+                  Seat
+                  <select id="seat" aria-label="Seat">
+                    <option value="12A" selected>12A</option>
+                    <option value="14F">14F</option>
+                    <option value="03C">03C</option>
+                    <option value="21B">21B</option>
+                  </select>
+                </label>
+                <div class="checkin-cell">
+                  <button type="button" id="checkin-btn">Check in</button>
+                </div>
+              </div>
+              <div>
+                <div class="barcode-strip" aria-hidden="true"></div>
+                <div class="barcode-code"><span>014-8829-408-LHR</span><span id="ticket-seq">SEQ 042</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="pass-stub" class="pass-half" drawable aria-label="Tear-off boarding stub">
+            <header class="pass-band stub-band">
+              <strong>Stub</strong>
+              <span>CA 408</span>
+            </header>
+            <div class="stub-body">
+              <div class="stub-seat-row">
+                <span class="seat-badge" id="stub-seat">12A</span>
+                <span class="group-badge" id="stub-group">Group 2</span>
+              </div>
+              <div class="stub-name" id="stub-name">PAUL KINLAN</div>
+              <label class="priority-toggle">
+                <input type="checkbox" id="priority"> Priority boarding
+              </label>
+              <button type="button" id="scan-btn" class="stub-scan">Scan stub</button>
+              <span class="boarded-stamp" id="boarded-stamp" aria-live="polite">BOARDED</span>
+            </div>
+            <div class="stub-foot">
+              <div class="stub-barcode" aria-hidden="true"></div>
+            </div>
+          </section>
+        </article>
+      </canvas>
+      <button type="button" id="seam-handle" class="seam-handle" aria-label="Drag along the perforation to tear off the stub">
+        <span class="grip-dots" aria-hidden="true"></span>
+        <span class="grip-label">Tear here</span>
+      </button>
+    </div>
+    <!-- #endregion markup -->
+
+    <div class="row controls-bar">
+      <button type="button" id="btn-flat">Fold flat</button>
+      <button type="button" id="btn-half">Half fold</button>
+      <button type="button" id="btn-tear">Tear stub</button>
+      <button type="button" id="btn-rejoin">Rejoin ticket</button>
+    </div>
+
+    <div class="row sliders">
+      <label class="slider-group">
+        Fold
+        <input type="range" id="fold-range" min="0" max="100" value="0" aria-label="Origami fold percentage">
+        <output id="fold-out" for="fold-range">0%</output>
+      </label>
+      <label class="slider-group">
+        Tear progress
+        <input type="range" id="tear-range" min="0" max="100" value="0" aria-label="Tear progress percentage">
+        <output id="tear-out" for="tear-range">0%</output>
+      </label>
+    </div>
+
+    <p class="note" id="ticket-status" role="status">Flat and untorn. Controls use one unclipped five-argument draw per half.</p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>two drawable halves, 4-panel origami fold, serrated tear, and hit-box restore</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> One <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> holding two sibling <code>drawable</code> halves: <code>#pass-main</code> and <code>#pass-stub</code>.</li>
+      <li data-code="#fold"><b>Origami accordion fold.</b> Four hinged panels drawn with nine-argument <code>drawElementImage()</code>, alternating shear, cosine foreshortening, and crease shading.</li>
+      <li data-code="#tear"><b>Serrated tear and fling.</b> Complementary sawtooth clip paths separate the perforation as you drag, then a damped spring flings the detached stub apart.</li>
+      <li data-code="#hit"><b>Restoring hit boxes.</b> After sliced or clipped draws, an empty-clip five-argument draw puts each half's hit region back on its full painted box.</li>
+      <li data-code="#drag"><b>Pointer input.</b> Ignores clicks on form controls so typing and taps keep working, while drags on the handle tear and drags on the paper fold.</li>
+      <li data-code="#styles"><b>Boarding pass layout.</b> Side-by-side on wide screens, stacked with a horizontal perforation below 540 px, plus a CSS barcode.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>I split the boarding pass into two sibling <code>drawable</code> children inside one 2D canvas: <code>#pass-main</code> and <code>#pass-stub</code>. While the pass is flat and untorn, each half takes one unclipped five-argument <code>drawElementImage(el, x, y, w, h)</code> call right beside its neighbour. That keeps every input, select menu, checkbox, and button aligned to its painted pixels.</p>
+  <p>When you fold the pass, I slice the combined width (or height on a narrow phone screen) into four hinged panels using nine-argument <code>drawElementImage(source, sx, sy, sw, sh, dx, dy, dw, dh)</code>, borrowing the alternating shear idea from <a href="/accordion/">/accordion/</a>. Cosine foreshortening narrows each panel as the fold angle grows, alternating affine shear builds the mountain and valley ridges, and linear gradients shade the creases.</p>
+  <p>When you drag the <b>Tear here</b> handle or pull the tear slider, the canvas draws complementary sawtooth clip paths along the perforation seam. Below 75%, the stub pivots away from the remaining uncut hinge like physical ticket paper, inspired by the paper-peel interaction on <a href="/view-source/">/view-source/</a> and wallet pass stubs. Once the rip passes 75%, a damped spring flings <code>#pass-stub</code> clear at a slight angle. At the snap point I take one brief <code>captureElementImage()</code> snapshot of the stub for a faint motion trail and call <code>close()</code> as soon as the spring settles, so zero snapshots stay open at rest.</p>
+  <p>A nine-argument draw shrinks an element's hit region to that slice. After drawing folded panels or serrated clips, I run an empty-clip five-argument <code>drawElementImage()</code> for each half under its current transform (matching the hit-restore pattern in <code>/lib/text-canvas.js</code>) and toggle a <code>data-hit</code> attribute when motion stops so Chromium clears its hit-test cache. Because <code>#pass-main</code> and <code>#pass-stub</code> are separate <code>drawable</code> children, both halves stay interactive after the tear.</p>
+
+  <h2>Live checks</h2>
+  <p>These run on isolated fixtures in the corner of the window and leave the boarding pass above untouched. Pixel checks copy each fixture canvas with <code>drawImage()</code> into a plain 2D canvas before calling <code>getImageData()</code>.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li>Direct inspirations: <a href="/accordion/">/accordion/</a> for sheared-strip folding on a 2D canvas, <a href="/view-source/">/view-source/</a> for tactile paper peeling, and physical tear-off boarding pass stubs from mobile wallet UIs.</li>
+    <li>Putting <code>#pass-main</code> and <code>#pass-stub</code> as two sibling <code>drawable</code> children avoids the single-element hit-box tradeoff: if the whole ticket were one <code>drawable</code> node, tearing it apart into two positions would leave only one half with a live hit box. With two siblings, the detached rotated stub can receive clicks on <b>Scan stub</b> and <b>Priority boarding</b> while <code>#pass-main</code> keeps working separately.</li>
+    <li>At rest (<code>fold &lt;= 0.01</code> and untorn), drawing each half with one unclipped five-argument <code>drawElementImage()</code> avoids any hit-box shrink from nine-argument slices.</li>
+    <li>This page hasn't been run in a live browser yet, so every runtime behaviour below is <b>not verified</b> until the checks run in Chromium 157 and on Chrome 159 for Android (412 px touch, device pixel ratio 2.625).</li>
+    <li>Not verified: real-device frame rate during the 4-panel shear and spring fling, hit accuracy on the rotated detached stub in Chrome 159 on Android, native <code>&lt;select&gt;</code> popup alignment when folded or torn, and TalkBack / VoiceOver focus order across the two halves.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage, nextPaint, stillDrawn } from '/shared/support.js';
+  import { mount, toPlain, clamp, lerp, reducedMotion } from '/lib/stage-2d.js';
+
+  banner();
+
+  const supported =
+    typeof CanvasRenderingContext2D !== 'undefined' &&
+    'drawElementImage' in CanvasRenderingContext2D.prototype;
+
+  const canvas = document.getElementById('stage-canvas');
+  const ticket = document.getElementById('ticket');
+  const passMain = document.getElementById('pass-main');
+  const passStub = document.getElementById('pass-stub');
+  const seamHandle = document.getElementById('seam-handle');
+  const statusEl = document.getElementById('ticket-status');
+
+  const passengerInput = document.getElementById('passenger');
+  const seatSelect = document.getElementById('seat');
+  const checkinBtn = document.getElementById('checkin-btn');
+  const checkinPill = document.getElementById('checkin-pill');
+  const ticketSeq = document.getElementById('ticket-seq');
+  const stubSeat = document.getElementById('stub-seat');
+  const stubGroup = document.getElementById('stub-group');
+  const stubName = document.getElementById('stub-name');
+  const priorityBox = document.getElementById('priority');
+  const scanBtn = document.getElementById('scan-btn');
+  const boardedStamp = document.getElementById('boarded-stamp');
+
+  const foldRange = document.getElementById('fold-range');
+  const tearRange = document.getElementById('tear-range');
+  const foldOut = document.getElementById('fold-out');
+  const tearOut = document.getElementById('tear-out');
+
+  const state = {
+    fold: 0,
+    targetFold: 0,
+    tear: 0,
+    targetTear: 0,
+    torn: false,
+    narrow: false,
+    // Spring state for the detached stub after crossing 75% tear
+    sx: 0, sy: 0, sa: 0,
+    vx: 0, vy: 0, va: 0,
+    trailSnap: null,
+    trailAlpha: 0,
+    lastTime: 0,
+    wasMoving: false,
+    geom: { mx: 0, my: 0, mw: 0, mh: 0, sx: 0, sy: 0, sw: 0, sh: 0, seamX: 0, seamY: 0, seamLen: 0 },
+  };
+
+  function closeTrail() {
+    if (state.trailSnap) {
+      try { state.trailSnap.close(); } catch {}
+      state.trailSnap = null;
+    }
+    state.trailAlpha = 0;
+  }
+
+  function syncControls() {
+    const fp = Math.round(state.targetFold * 100);
+    const tp = Math.round(state.targetTear * 100);
+    foldRange.value = String(fp);
+    foldOut.textContent = `${fp}%`;
+    tearRange.value = String(tp);
+    tearOut.textContent = `${tp}%`;
+  }
+
+  function updateStatus() {
+    if (state.torn) {
+      statusEl.textContent = state.fold > 0.02
+        ? `Stub torn off and main pass folded to ${Math.round(state.fold * 100)}%. Both halves keep live controls.`
+        : 'Stub torn off along the serrated edge. Both halves stay clickable and editable.';
+      return;
+    }
+    if (state.tear > 0.01) {
+      statusEl.textContent = `Unzipping perforation: ${Math.round(state.tear * 100)}%. Pull past 75% to snap the stub off.`;
+      return;
+    }
+    if (state.fold > 0.01) {
+      statusEl.textContent = `Folded to ${Math.round(state.fold * 100)}% across 4 hinged panels with nine-argument drawElementImage().`;
+      return;
+    }
+    statusEl.textContent = 'Flat and untorn. Controls use one unclipped five-argument draw per half.';
+  }
+
+  // Live DOM interactions inside the boarding pass
+  passengerInput.addEventListener('input', () => {
+    stubName.textContent = passengerInput.value.trim().toUpperCase() || 'PASSENGER';
+    stage.request();
+  });
+  seatSelect.addEventListener('change', () => {
+    stubSeat.textContent = seatSelect.value;
+    stage.request();
+  });
+  let checkedIn = false;
+  checkinBtn.addEventListener('click', () => {
+    checkedIn = !checkedIn;
+    checkinBtn.textContent = checkedIn ? 'Checked in' : 'Check in';
+    checkinBtn.classList.toggle('done', checkedIn);
+    checkinPill.textContent = checkedIn ? 'Checked in' : 'Ready';
+    checkinPill.classList.toggle('checked', checkedIn);
+    ticketSeq.textContent = checkedIn ? 'SEQ 042 OK' : 'SEQ 042';
+    stage.request();
+  });
+  priorityBox.addEventListener('change', () => {
+    stubGroup.textContent = priorityBox.checked ? 'Group 1' : 'Group 2';
+    stubGroup.classList.toggle('priority', priorityBox.checked);
+    stage.request();
+  });
+  let boarded = false;
+  scanBtn.addEventListener('click', () => {
+    boarded = !boarded;
+    boardedStamp.classList.toggle('stamped', boarded);
+    scanBtn.textContent = boarded ? 'Boarded' : 'Scan stub';
+    scanBtn.classList.toggle('done', boarded);
+    stage.request();
+  });
+
+  function triggerSnap(fromUser = true) {
+    if (state.torn) return;
+    state.torn = true;
+    state.targetTear = 1;
+    state.tear = Math.max(state.tear, 0.76);
+    seamHandle.hidden = true;
+    closeTrail();
+    if (!reducedMotion() && fromUser && supported) {
+      try {
+        state.trailSnap = canvas.captureElementImage?.(passStub) ?? null;
+        state.trailAlpha = state.trailSnap ? 0.28 : 0;
+      } catch {
+        state.trailSnap = null;
+      }
+      if (state.narrow) {
+        state.vx = 40; state.vy = 220; state.va = -0.55;
+      } else {
+        state.vx = 280; state.vy = 75; state.va = 1.1;
+      }
+    } else {
+      const rest = detachedTarget();
+      state.sx = rest.x; state.sy = rest.y; state.sa = rest.a;
+      state.vx = 0; state.vy = 0; state.va = 0;
+    }
+    syncControls();
+    updateStatus();
+    stage.request();
+  }
+
+  function rejoinTicket() {
+    closeTrail();
+    state.torn = false;
+    state.tear = 0;
+    state.targetTear = 0;
+    state.sx = 0; state.sy = 0; state.sa = 0;
+    state.vx = 0; state.vy = 0; state.va = 0;
+    seamHandle.hidden = false;
+    syncControls();
+    updateStatus();
+    stage.request();
+  }
+
+  function detachedTarget() {
+    if (state.narrow) return { x: 6, y: 34, a: -0.055 };
+    return { x: 34, y: 12, a: 0.13 };
+  }
+
+  // #region hit
+  function drawFull(ctx, el, x, y) {
+    try {
+      ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function drawSlice(ctx, source, sx, sy, sw, sh, dx, dy, dw, dh) {
+    if (sw <= 0.1 || sh <= 0.1 || dw <= 0.1 || dh <= 0.1) return true;
+    try {
+      ctx.drawElementImage(source, sx, sy, sw, sh, dx, dy, dw, dh);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // A 9-argument slice shrinks the element's hit region to that slice.
+  // Draw the full box once inside an empty clip so hit testing covers the whole half again.
+  function restoreHit(ctx, el, x, y, w = el.offsetWidth, h = el.offsetHeight) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, 0, 0);
+    ctx.clip();
+    try { ctx.drawElementImage(el, x, y, w, h); } catch {}
+    ctx.restore();
+  }
+  // #endregion hit
+
+  // #region tear
+  // Build a polygon clip path with sawtooth paper teeth along the ripped portion of one edge.
+  function clipSerrated(ctx, w, h, side, ripLen, tooth = 7, depth = 3.5) {
+    ctx.beginPath();
+    if (side === 'right') {
+      const len = clamp(ripLen, 0, h);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, 0);
+      let y = 0;
+      let i = 0;
+      while (y < len) {
+        const nextY = Math.min(len, y + tooth);
+        const midY = (y + nextY) / 2;
+        ctx.lineTo(w - depth, midY);
+        ctx.lineTo(w, nextY);
+        y = nextY;
+        i++;
+      }
+      ctx.lineTo(w, h);
+      ctx.lineTo(0, h);
+      ctx.closePath();
+    } else if (side === 'left') {
+      const len = clamp(ripLen, 0, h);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, 0);
+      ctx.lineTo(w, h);
+      ctx.lineTo(0, h);
+      ctx.lineTo(0, len);
+      let y = len;
+      while (y > 0) {
+        const prevY = Math.max(0, y - tooth);
+        const midY = (y + prevY) / 2;
+        ctx.lineTo(depth, midY);
+        ctx.lineTo(0, prevY);
+        y = prevY;
+      }
+      ctx.closePath();
+    } else if (side === 'bottom') {
+      const len = clamp(ripLen, 0, w);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, 0);
+      ctx.lineTo(w, h);
+      ctx.lineTo(len, h);
+      let x = len;
+      while (x > 0) {
+        const prevX = Math.max(0, x - tooth);
+        const midX = (x + prevX) / 2;
+        ctx.lineTo(midX, h - depth);
+        ctx.lineTo(prevX, h);
+        x = prevX;
+      }
+      ctx.lineTo(0, h);
+      ctx.closePath();
+    } else {
+      const len = clamp(ripLen, 0, w);
+      ctx.moveTo(0, 0);
+      let x = 0;
+      while (x < len) {
+        const nextX = Math.min(len, x + tooth);
+        const midX = (x + nextX) / 2;
+        ctx.lineTo(midX, depth);
+        ctx.lineTo(nextX, 0);
+        x = nextX;
+      }
+      ctx.lineTo(w, 0);
+      ctx.lineTo(w, h);
+      ctx.lineTo(0, h);
+      ctx.closePath();
+    }
+    ctx.clip();
+  }
+
+  function strokeSawtoothEdge(ctx, w, h, side, ripLen, tooth = 7, depth = 3.5) {
+    if (ripLen <= 1) return;
+    ctx.save();
+    ctx.beginPath();
+    if (side === 'right' || side === 'left') {
+      const len = clamp(ripLen, 0, h);
+      const baseX = side === 'right' ? w : 0;
+      const dir = side === 'right' ? -depth : depth;
+      ctx.moveTo(baseX, 0);
+      for (let y = 0; y < len;) {
+        const nextY = Math.min(len, y + tooth);
+        ctx.lineTo(baseX + dir, (y + nextY) / 2);
+        ctx.lineTo(baseX, nextY);
+        y = nextY;
+      }
+    } else {
+      const len = clamp(ripLen, 0, w);
+      const baseY = side === 'bottom' ? h : 0;
+      const dir = side === 'bottom' ? -depth : depth;
+      ctx.moveTo(0, baseY);
+      for (let x = 0; x < len;) {
+        const nextX = Math.min(len, x + tooth);
+        ctx.lineTo((x + nextX) / 2, baseY + dir);
+        ctx.lineTo(nextX, baseY);
+        x = nextX;
+      }
+    }
+    ctx.strokeStyle = 'rgb(120 105 84 / 0.45)';
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function stepSpring(dt) {
+    const rest = detachedTarget();
+    const k = 150;
+    const damp = 14;
+    state.vx += ((rest.x - state.sx) * k - state.vx * damp) * dt;
+    state.vy += ((rest.y - state.sy) * k - state.vy * damp) * dt;
+    state.va += ((rest.a - state.sa) * k - state.va * damp) * dt;
+    state.sx += state.vx * dt;
+    state.sy += state.vy * dt;
+    state.sa += state.va * dt;
+    if (state.trailAlpha > 0) {
+      state.trailAlpha = Math.max(0, state.trailAlpha - dt * 0.9);
+      if (state.trailAlpha <= 0.01) closeTrail();
+    }
+    const settled =
+      Math.abs(rest.x - state.sx) < 0.25 &&
+      Math.abs(rest.y - state.sy) < 0.25 &&
+      Math.abs(rest.a - state.sa) < 0.003 &&
+      Math.abs(state.vx) < 1 &&
+      Math.abs(state.vy) < 1 &&
+      Math.abs(state.va) < 0.02;
+    if (settled) {
+      state.sx = rest.x; state.sy = rest.y; state.sa = rest.a;
+      state.vx = 0; state.vy = 0; state.va = 0;
+      closeTrail();
+      return false;
+    }
+    return true;
+  }
+  // #endregion tear
+
+  // #region fold
+  function drawFoldedPass(ctx, cw, ch, mw, mh, sw, sh, fold, includeStub) {
+    const panels = includeStub ? 4 : 3;
+    const theta = fold * 0.43 * Math.PI;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+
+    if (!state.narrow) {
+      const totalW = includeStub ? mw + sw : mw;
+      const panelW = totalW / panels;
+      const drawnW = totalW * cosT;
+      const amp = Math.min(26, panelW * 0.17) * sinT;
+      const x0 = includeStub
+        ? (cw - drawnW) / 2
+        : Math.max(16, (cw - (mw * cosT + sw + 44)) / 2);
+      const y0 = Math.max(18, (ch - mh - amp) / 2);
+
+      // Soft shadow under the folded stack
+      ctx.save();
+      ctx.fillStyle = `rgb(15 23 34 / ${0.12 + 0.12 * sinT})`;
+      ctx.beginPath();
+      ctx.roundRect(x0 + 4, y0 + amp + 10, drawnW, mh - 4, 10);
+      ctx.fill();
+      ctx.restore();
+
+      for (let i = 0; i < panels; i++) {
+        const odd = i % 2 === 1;
+        const px0 = i * panelW;
+        const px1 = (i + 1) * panelW;
+        const dx = x0 + px0 * cosT;
+        const dy = y0 + (odd ? amp : 0);
+        const shearY = (odd ? -amp : amp) / panelW;
+
+        ctx.save();
+        ctx.transform(cosT, shearY, 0, 1, dx, dy);
+        ctx.beginPath();
+        ctx.rect(0, 0, panelW + 0.6, mh);
+        ctx.clip();
+
+        // Main pass portion inside this panel
+        const a0 = Math.max(px0, 0);
+        const a1 = Math.min(px1, mw);
+        if (a1 > a0) {
+          drawSlice(ctx, passMain, a0, 0, a1 - a0, mh, a0 - px0, 0, a1 - a0 + 0.6, mh);
+        }
+        // Stub portion inside this panel (when untorn)
+        if (includeStub) {
+          const b0 = Math.max(px0, mw);
+          const b1 = Math.min(px1, mw + sw);
+          if (b1 > b0) {
+            drawSlice(ctx, passStub, b0 - mw, 0, b1 - b0, sh, b0 - px0, 0, b1 - b0 + 0.6, sh);
+          }
+        }
+
+        // Directional crease lighting and shadow
+        const g = ctx.createLinearGradient(0, 0, panelW, 0);
+        if (odd) {
+          g.addColorStop(0, `rgb(0 0 0 / ${0.26 * sinT})`);
+          g.addColorStop(1, `rgb(0 0 0 / ${0.10 * sinT})`);
+        } else {
+          g.addColorStop(0, `rgb(255 255 255 / ${0.16 * sinT})`);
+          g.addColorStop(1, `rgb(0 0 0 / ${0.06 * sinT})`);
+        }
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, panelW + 0.6, mh);
+
+        if (i > 0) {
+          ctx.fillStyle = odd ? `rgb(0 0 0 / ${0.22 * sinT})` : `rgb(255 255 255 / ${0.42 * sinT})`;
+          ctx.fillRect(0, 0, 1.2, mh);
+        }
+        ctx.restore();
+      }
+
+      // Restore hit boxes on the foreshortened footprint
+      ctx.save();
+      ctx.transform(cosT, 0, 0, 1, x0, y0 + amp * 0.5);
+      restoreHit(ctx, passMain, 0, 0, mw, mh);
+      if (includeStub) restoreHit(ctx, passStub, mw, 0, sw, sh);
+      ctx.restore();
+      return { x0, y0, drawnW, amp };
+    }
+
+    // Narrow phone layout: 4 horizontal panels folded vertically
+    const totalH = includeStub ? mh + sh : mh;
+    const panelH = totalH / panels;
+    const drawnH = totalH * cosT;
+    const amp = Math.min(18, panelH * 0.16) * sinT;
+    const x0 = Math.max(12, (cw - mw) / 2);
+    const y0 = includeStub ? Math.max(16, (ch - drawnH) / 2) : 22;
+
+    ctx.save();
+    ctx.fillStyle = `rgb(15 23 34 / ${0.12 + 0.12 * sinT})`;
+    ctx.beginPath();
+    ctx.roundRect(x0 + 4, y0 + 8, mw - 4, drawnH, 10);
+    ctx.fill();
+    ctx.restore();
+
+    for (let i = 0; i < panels; i++) {
+      const odd = i % 2 === 1;
+      const py0 = i * panelH;
+      const py1 = (i + 1) * panelH;
+      const dx = x0 + (odd ? amp : 0) - amp / 2;
+      const dy = y0 + py0 * cosT;
+      const shearX = (odd ? -amp : amp) / panelH;
+
+      ctx.save();
+      ctx.transform(1, 0, shearX, cosT, dx, dy);
+      ctx.beginPath();
+      ctx.rect(0, 0, mw, panelH + 0.6);
+      ctx.clip();
+
+      const a0 = Math.max(py0, 0);
+      const a1 = Math.min(py1, mh);
+      if (a1 > a0) {
+        drawSlice(ctx, passMain, 0, a0, mw, a1 - a0, 0, a0 - py0, mw, a1 - a0 + 0.6);
+      }
+      if (includeStub) {
+        const b0 = Math.max(py0, mh);
+        const b1 = Math.min(py1, mh + sh);
+        if (b1 > b0) {
+          drawSlice(ctx, passStub, 0, b0 - mh, sw, b1 - b0, 0, b0 - py0, sw, b1 - b0 + 0.6);
+        }
+      }
+
+      const g = ctx.createLinearGradient(0, 0, 0, panelH);
+      if (odd) {
+        g.addColorStop(0, `rgb(0 0 0 / ${0.24 * sinT})`);
+        g.addColorStop(1, `rgb(0 0 0 / ${0.09 * sinT})`);
+      } else {
+        g.addColorStop(0, `rgb(255 255 255 / ${0.16 * sinT})`);
+        g.addColorStop(1, `rgb(0 0 0 / ${0.06 * sinT})`);
+      }
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, mw, panelH + 0.6);
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.transform(1, 0, 0, cosT, x0, y0);
+    restoreHit(ctx, passMain, 0, 0, mw, mh);
+    if (includeStub) restoreHit(ctx, passStub, 0, mh, sw, sh);
+    ctx.restore();
+    return { x0, y0, drawnH, amp };
+  }
+  // #endregion fold
+
+  function drawNotches(ctx, x, y, len, vertical) {
+    ctx.save();
+    ctx.fillStyle = getComputedStyle(canvas).backgroundColor;
+    const r = 7;
+    if (vertical) {
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y + len, r, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x + len, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function positionHandle(g) {
+    if (state.torn || state.fold > 0.15) {
+      seamHandle.hidden = true;
+      return;
+    }
+    seamHandle.hidden = false;
+    if (state.narrow) {
+      seamHandle.classList.add('horizontal');
+      const progress = clamp(state.tear / 0.75);
+      seamHandle.style.left = `${Math.round(g.seamX + progress * Math.max(0, g.seamLen - 96))}px`;
+      seamHandle.style.top = `${Math.round(g.seamY)}px`;
+    } else {
+      seamHandle.classList.remove('horizontal');
+      seamHandle.style.left = `${Math.round(g.seamX)}px`;
+      seamHandle.style.top = `${Math.max(6, Math.round(g.seamY - 20))}px`;
+    }
+  }
+
+  function syncOrientation() {
+    const isNarrow = canvas.clientWidth > 0 && canvas.clientWidth <= 540;
+    if (isNarrow !== state.narrow) {
+      state.narrow = isNarrow;
+      canvas.classList.toggle('narrow', isNarrow);
+      ticket.classList.toggle('narrow', isNarrow);
+      if (state.torn) {
+        const rest = detachedTarget();
+        state.sx = rest.x; state.sy = rest.y; state.sa = rest.a;
+      }
+    }
+  }
+
+  const stage = mount(canvas, (ctx, cw, ch, now) => {
+    syncOrientation();
+    const mw = passMain.offsetWidth;
+    const mh = passMain.offsetHeight;
+    const sw = passStub.offsetWidth;
+    const sh = passStub.offsetHeight;
+    if (!mw || !mh || !sw || !sh) return true;
+
+    const dt = state.lastTime ? Math.min(0.05, (now - state.lastTime) / 1000) : 0.016;
+    state.lastTime = now;
+
+    let moving = false;
+    if (reducedMotion()) {
+      state.fold = state.targetFold;
+      state.tear = state.targetTear;
+    } else {
+      const fDiff = state.targetFold - state.fold;
+      if (Math.abs(fDiff) > 0.002) { state.fold += fDiff * Math.min(1, dt * 11); moving = true; }
+      else state.fold = state.targetFold;
+
+      const tDiff = state.targetTear - state.tear;
+      if (Math.abs(tDiff) > 0.002) { state.tear += tDiff * Math.min(1, dt * 13); moving = true; }
+      else state.tear = state.targetTear;
+    }
+
+    if (state.torn && !reducedMotion()) {
+      if (stepSpring(dt)) moving = true;
+    }
+
+    const totalW = state.narrow ? mw : mw + sw;
+    const totalH = state.narrow ? mh + sh : Math.max(mh, sh);
+    const baseX = Math.max(12, Math.round((cw - totalW) / 2));
+    const baseY = state.narrow
+      ? Math.max(14, Math.round((ch - totalH) / 2 - (state.torn ? 14 : 4)))
+      : Math.max(26, Math.round((ch - totalH) / 2));
+
+    const mainX = state.torn && !state.narrow ? Math.max(10, baseX - 14) : baseX;
+    const mainY = state.torn && state.narrow ? Math.max(10, baseY - 6) : baseY;
+    const stubBaseX = state.narrow ? mainX : mainX + mw;
+    const stubBaseY = state.narrow ? mainY + mh : mainY;
+
+    state.geom = {
+      mx: mainX, my: mainY, mw, mh,
+      sx: stubBaseX, sy: stubBaseY, sw, sh,
+      seamX: state.narrow ? mainX : mainX + mw,
+      seamY: state.narrow ? mainY + mh : mainY,
+      seamLen: state.narrow ? mw : mh,
+    };
+    positionHandle(state.geom);
+
+    // Case 1: Flat and untorn -> two unclipped 5-argument draws for exact native hit boxes
+    if (state.fold <= 0.01 && state.tear <= 0.01 && !state.torn) {
+      ctx.save();
+      ctx.fillStyle = 'rgb(15 23 34 / 0.10)';
+      ctx.beginPath();
+      ctx.roundRect(mainX + 3, mainY + 6, totalW, totalH, 12);
+      ctx.fill();
+      ctx.restore();
+
+      drawFull(ctx, passMain, mainX, mainY);
+      drawFull(ctx, passStub, stubBaseX, stubBaseY);
+      drawNotches(ctx, state.geom.seamX, state.geom.seamY, state.geom.seamLen, !state.narrow);
+    } else if (!state.torn && state.tear <= 0.01) {
+      // Case 2: Untorn origami accordion fold across 4 hinged panels
+      drawFoldedPass(ctx, cw, ch, mw, mh, sw, sh, state.fold, true);
+    } else if (!state.torn) {
+      // Case 3: Progressive serrated unzip along the perforation
+      const ripRatio = clamp(state.tear / 0.75);
+      const ripLen = ripRatio * state.geom.seamLen;
+      const tilt = ripRatio * 0.20;
+
+      // Shadow behind main pass
+      ctx.save();
+      ctx.fillStyle = 'rgb(15 23 34 / 0.10)';
+      ctx.beginPath();
+      ctx.roundRect(mainX + 2, mainY + 6, mw, mh, 12);
+      ctx.fill();
+      ctx.restore();
+
+      // Main pass with serrated cut along the ripped segment
+      ctx.save();
+      ctx.translate(mainX, mainY);
+      clipSerrated(ctx, mw, mh, state.narrow ? 'bottom' : 'right', ripLen);
+      drawSlice(ctx, passMain, 0, 0, mw, mh, 0, 0, mw, mh);
+      ctx.restore();
+      ctx.save();
+      ctx.translate(mainX, mainY);
+      strokeSawtoothEdge(ctx, mw, mh, state.narrow ? 'bottom' : 'right', ripLen);
+      ctx.restore();
+      restoreHit(ctx, passMain, mainX, mainY, mw, mh);
+
+      // Stub pivoting around the remaining uncut hinge point
+      ctx.save();
+      if (state.narrow) {
+        const pivotX = stubBaseX + ripLen;
+        const pivotY = stubBaseY;
+        ctx.translate(pivotX, pivotY);
+        ctx.rotate(-tilt * 0.65);
+        ctx.translate(-ripLen, ripRatio * 6);
+      } else {
+        const pivotX = stubBaseX;
+        const pivotY = stubBaseY + ripLen;
+        ctx.translate(pivotX, pivotY);
+        ctx.rotate(tilt);
+        ctx.translate(ripRatio * 8, -ripLen);
+      }
+      ctx.fillStyle = 'rgb(15 23 34 / 0.14)';
+      ctx.beginPath();
+      ctx.roundRect(3, 6, sw, sh, 10);
+      ctx.fill();
+
+      ctx.save();
+      clipSerrated(ctx, sw, sh, state.narrow ? 'top' : 'left', ripLen);
+      drawSlice(ctx, passStub, 0, 0, sw, sh, 0, 0, sw, sh);
+      ctx.restore();
+      strokeSawtoothEdge(ctx, sw, sh, state.narrow ? 'top' : 'left', ripLen);
+      restoreHit(ctx, passStub, 0, 0, sw, sh);
+      ctx.restore();
+    } else {
+      // Case 4: Torn apart! Main pass can still fold while the detached stub sits apart at an angle.
+      let detachedBaseX = stubBaseX;
+      let detachedBaseY = stubBaseY;
+
+      if (state.fold > 0.01) {
+        const info = drawFoldedPass(ctx, cw, ch, mw, mh, sw, sh, state.fold, false);
+        if (!state.narrow) {
+          detachedBaseX = info.x0 + info.drawnW + 8;
+          detachedBaseY = info.y0;
+        } else {
+          detachedBaseX = info.x0;
+          detachedBaseY = info.y0 + info.drawnH + 10;
+        }
+      } else {
+        ctx.save();
+        ctx.fillStyle = 'rgb(15 23 34 / 0.10)';
+        ctx.beginPath();
+        ctx.roundRect(mainX + 2, mainY + 6, mw, mh, 12);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(mainX, mainY);
+        clipSerrated(ctx, mw, mh, state.narrow ? 'bottom' : 'right', state.narrow ? mw : mh);
+        drawSlice(ctx, passMain, 0, 0, mw, mh, 0, 0, mw, mh);
+        ctx.restore();
+        ctx.save();
+        ctx.translate(mainX, mainY);
+        strokeSawtoothEdge(ctx, mw, mh, state.narrow ? 'bottom' : 'right', state.narrow ? mw : mh);
+        ctx.restore();
+        restoreHit(ctx, passMain, mainX, mainY, mw, mh);
+      }
+
+      // Brief motion trail from the captureElementImage() snapshot while the spring is flinging
+      if (state.trailSnap && state.trailAlpha > 0.01) {
+        ctx.save();
+        ctx.globalAlpha = state.trailAlpha;
+        ctx.translate(detachedBaseX + state.sx * 0.45 + sw / 2, detachedBaseY + state.sy * 0.45 + sh / 2);
+        ctx.rotate(state.sa * 0.45);
+        try { ctx.drawElementImage(state.trailSnap, -sw / 2, -sh / 2, sw, sh); } catch {}
+        ctx.restore();
+      }
+
+      // Detached live stub with serrated edge and synced rotated hit box
+      const stubCx = Math.min(cw - sw / 2 - 8, detachedBaseX + state.sx + sw / 2);
+      const stubCy = Math.min(ch - sh / 2 - 8, detachedBaseY + state.sy + sh / 2);
+      ctx.save();
+      ctx.translate(stubCx, stubCy);
+      ctx.rotate(state.sa);
+
+      ctx.fillStyle = 'rgb(15 23 34 / 0.16)';
+      ctx.beginPath();
+      ctx.roundRect(-sw / 2 + 4, -sh / 2 + 8, sw, sh, 10);
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(-sw / 2, -sh / 2);
+      clipSerrated(ctx, sw, sh, state.narrow ? 'top' : 'left', state.narrow ? sw : sh);
+      drawSlice(ctx, passStub, 0, 0, sw, sh, 0, 0, sw, sh);
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(-sw / 2, -sh / 2);
+      strokeSawtoothEdge(ctx, sw, sh, state.narrow ? 'top' : 'left', state.narrow ? sw : sh);
+      ctx.restore();
+
+      restoreHit(ctx, passStub, -sw / 2, -sh / 2, sw, sh);
+      ctx.restore();
+    }
+
+    if (state.wasMoving && !moving) {
+      // Clear Chromium's hit-test cache once a piece settles in a new spot
+      passMain.toggleAttribute('data-hit');
+      passStub.toggleAttribute('data-hit');
+      updateStatus();
+    }
+    state.wasMoving = moving;
+    return moving;
+  }, { onLost: () => { closeTrail(); seamHandle.hidden = true; } });
+  if (stage.plain) seamHandle.hidden = true;
+
+  // #region drag
+  let drag = null;
+
+  seamHandle.addEventListener('pointerdown', (e) => {
+    if (state.torn) return;
+    e.preventDefault();
+    seamHandle.setPointerCapture(e.pointerId);
+    drag = { kind: 'tear', id: e.pointerId, startX: e.clientX, startY: e.clientY, startTear: state.targetTear };
+  });
+
+  seamHandle.addEventListener('pointermove', (e) => {
+    if (!drag || drag.kind !== 'tear' || drag.id !== e.pointerId) return;
+    const span = Math.max(120, state.geom.seamLen * 0.78);
+    const delta = state.narrow ? (e.clientX - drag.startX) : (e.clientY - drag.startY);
+    const next = clamp(drag.startTear + delta / span, 0, 1);
+    state.targetFold = 0;
+    state.targetTear = next;
+    state.tear = next;
+    syncControls();
+    if (next >= 0.75) {
+      drag = null;
+      triggerSnap(true);
+      return;
+    }
+    updateStatus();
+    stage.request();
+  });
+
+  const endSeamDrag = (e) => {
+    if (!drag || drag.kind !== 'tear' || drag.id !== e.pointerId) return;
+    drag = null;
+    if (!state.torn && state.targetTear < 0.75) {
+      updateStatus();
+      stage.request();
+    }
+  };
+  seamHandle.addEventListener('pointerup', endSeamDrag);
+  seamHandle.addEventListener('pointercancel', endSeamDrag);
+
+  canvas.addEventListener('pointerdown', (e) => {
+    // Let taps and typing reach form controls inside the boarding pass directly
+    if (e.target.closest('input, select, button, label, option')) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const nearSeam = !state.torn && state.fold < 0.1 && (
+      state.narrow ? Math.abs(y - state.geom.seamY) <= 26 : Math.abs(x - state.geom.seamX) <= 26
+    );
+    drag = {
+      kind: nearSeam ? 'tear-canvas' : 'fold',
+      id: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startFold: state.targetFold,
+      startTear: state.targetTear,
+    };
+    canvas.classList.add('dragging');
+    try { canvas.setPointerCapture(e.pointerId); } catch {}
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!drag || drag.id !== e.pointerId || drag.kind === 'tear') return;
+    if (drag.kind === 'tear-canvas') {
+      const span = Math.max(120, state.geom.seamLen * 0.78);
+      const delta = state.narrow ? (e.clientX - drag.startX) : (e.clientY - drag.startY);
+      const next = clamp(drag.startTear + delta / span, 0, 1);
+      state.targetTear = next;
+      state.tear = next;
+      syncControls();
+      if (next >= 0.75) {
+        drag = null;
+        canvas.classList.remove('dragging');
+        triggerSnap(true);
+        return;
+      }
+      updateStatus();
+      stage.request();
+      return;
+    }
+    const delta = state.narrow ? (drag.startY - e.clientY) : (drag.startX - e.clientX);
+    const span = state.narrow ? 220 : 260;
+    const nextFold = clamp(drag.startFold + delta / span, 0, 1);
+    if (!state.torn) { state.targetTear = 0; state.tear = 0; }
+    state.targetFold = nextFold;
+    syncControls();
+    updateStatus();
+    stage.request();
+  });
+
+  const endCanvasDrag = (e) => {
+    if (!drag || drag.id !== e.pointerId) return;
+    drag = null;
+    canvas.classList.remove('dragging');
+    passMain.toggleAttribute('data-hit');
+    passStub.toggleAttribute('data-hit');
+  };
+  canvas.addEventListener('pointerup', endCanvasDrag);
+  canvas.addEventListener('pointercancel', endCanvasDrag);
+  // #endregion drag
+
+  // Buttons and range sliders
+  foldRange.addEventListener('input', () => {
+    const v = Number(foldRange.value) / 100;
+    if (!state.torn && v > 0.02) { state.targetTear = 0; state.tear = 0; }
+    state.targetFold = v;
+    syncControls();
+    updateStatus();
+    stage.request();
+  });
+  tearRange.addEventListener('input', () => {
+    const v = Number(tearRange.value) / 100;
+    if (v >= 0.75) {
+      triggerSnap(true);
+      return;
+    }
+    if (state.torn && v < 0.75) {
+      closeTrail();
+      state.torn = false;
+      state.sx = 0; state.sy = 0; state.sa = 0;
+      seamHandle.hidden = false;
+    }
+    state.targetFold = 0;
+    state.targetTear = v;
+    syncControls();
+    updateStatus();
+    stage.request();
+  });
+
+  document.getElementById('btn-flat').addEventListener('click', () => {
+    state.targetFold = 0;
+    if (!state.torn) state.targetTear = 0;
+    syncControls();
+    updateStatus();
+    stage.request();
+  });
+  document.getElementById('btn-half').addEventListener('click', () => {
+    if (!state.torn) { state.targetTear = 0; state.tear = 0; }
+    state.targetFold = 0.55;
+    syncControls();
+    updateStatus();
+    stage.request();
+  });
+  document.getElementById('btn-tear').addEventListener('click', () => {
+    state.targetFold = 0;
+    triggerSnap(true);
+  });
+  document.getElementById('btn-rejoin').addEventListener('click', () => {
+    state.targetFold = 0;
+    rejoinTicket();
+  });
+
+  addEventListener('pagehide', closeTrail);
+
+  // ------------------------------------------------------------------ live checks on isolated fixtures
+  // Always copy a drawable canvas into a plain 2D canvas before reading pixels.
+  function sampleInk(sourceCanvas, x = 0, y = 0, w = sourceCanvas.clientWidth || sourceCanvas.width, h = sourceCanvas.clientHeight || sourceCanvas.height) {
+    const cw = sourceCanvas.width;
+    const ch = sourceCanvas.height;
+    if (!cw || !ch) return 0;
+    const copy = document.createElement('canvas');
+    copy.width = cw;
+    copy.height = ch;
+    const copyCtx = copy.getContext('2d', { willReadFrequently: true });
+    copyCtx.drawImage(sourceCanvas, 0, 0);
+    const scaleX = cw / (sourceCanvas.clientWidth || cw);
+    const scaleY = ch / (sourceCanvas.clientHeight || ch);
+    const rx = Math.max(0, Math.min(cw - 1, Math.round(x * scaleX)));
+    const ry = Math.max(0, Math.min(ch - 1, Math.round(y * scaleY)));
+    const rw = Math.max(1, Math.min(cw - rx, Math.round(w * scaleX)));
+    const rh = Math.max(1, Math.min(ch - ry, Math.round(h * scaleY)));
+    const data = copyCtx.getImageData(rx, ry, rw, rh).data;
+    let lit = 0;
+    const step = Math.max(1, Math.floor(data.length / 4 / 20000));
+    let seen = 0;
+    for (let i = 3; i < data.length; i += 4 * step) {
+      seen++;
+      if (data[i] > 8) lit++;
+    }
+    window.__gfx?.retire(copy);
+    copy.width = 0;
+    copy.height = 0;
+    return seen ? lit / seen : 0;
+  }
+
+  async function makeFixture(html, width = 320, height = 180) {
+    const cv = document.createElement('canvas');
+    cv.setAttribute('content', 'drawable');
+    cv.setAttribute('layoutsubtree', '');
+    cv.width = width;
+    cv.height = height;
+    cv.style.cssText = `width:${width}px;height:${height}px;flex:none;display:block`;
+    cv.innerHTML = html;
+    testStage().append(cv);
+    const ctx = cv.getContext('2d');
+    await nextPaint(cv);
+    return { cv, ctx };
+  }
+
+  const need = (ok, msg) => { if (!ok) throw new Error(msg); return msg; };
+
+  const tests = [
+    {
+      name: 'Four sheared nine-argument strips fold an element into half its width',
+      expect: 'pass',
+      why: 'Draw a 240x100 drawable element as 4 sheared 9-argument slices at cos(60deg) = 0.5, then sample ink on a plain drawImage() copy.',
+      run: async () => {
+        const { cv, ctx } = await makeFixture('<div drawable style="width:240px;height:100px;background:#1b4965;color:#fff">PASS</div>', 280, 140);
+        const el = cv.firstElementChild;
+        ctx.reset();
+        const panels = 4, pw = 60, cosT = 0.5, amp = 12;
+        for (let i = 0; i < panels; i++) {
+          const odd = i % 2 === 1;
+          ctx.save();
+          ctx.transform(cosT, (odd ? -amp : amp) / pw, 0, 1, 10 + i * pw * cosT, 14 + (odd ? amp : 0));
+          ctx.drawElementImage(el, i * pw, 0, pw, 100, 0, 0, pw, 100);
+          ctx.restore();
+        }
+        const folded = sampleInk(cv, 14, 24, 110, 80);
+        const vacated = sampleInk(cv, 145, 24, 110, 80);
+        return need(folded > 0.7 && vacated < 0.05, `${Math.round(folded * 100)}% ink in the folded half, ${Math.round(vacated * 100)}% past it.`);
+      },
+    },
+    {
+      name: 'Two sibling drawable halves keep separate hit targets after tearing apart',
+      expect: 'pass',
+      why: 'Draw #fm at (8, 20) and #fs displaced and tilted at (190, 36), toggle data-hit, and check elementFromPoint() on both buttons.',
+      run: async () => {
+        const { cv, ctx } = await makeFixture(
+          '<section id="fm" drawable style="width:130px;height:80px;background:#fff"><button id="bm" style="width:110px;height:50px;margin:10px">Main</button></section>' +
+          '<section id="fs" drawable style="width:100px;height:80px;background:#fbe3d9"><button id="bs" style="width:80px;height:50px;margin:10px">Stub</button></section>',
+          320, 160
+        );
+        const fm = cv.querySelector('#fm'), fs = cv.querySelector('#fs');
+        const bm = cv.querySelector('#bm'), bs = cv.querySelector('#bs');
+        ctx.reset();
+        ctx.drawElementImage(fm, 8, 20, fm.offsetWidth, fm.offsetHeight);
+        ctx.save();
+        ctx.translate(240, 76);
+        ctx.rotate(0.14);
+        ctx.drawElementImage(fs, -fs.offsetWidth / 2, -fs.offsetHeight / 2, fs.offsetWidth, fs.offsetHeight);
+        ctx.restore();
+        fm.toggleAttribute('data-hit');
+        fs.toggleAttribute('data-hit');
+        const r = cv.getBoundingClientRect();
+        const hitMain = document.elementFromPoint(r.left + 64, r.top + 55);
+        const hitStub = document.elementFromPoint(r.left + 240, r.top + 76);
+        return need(hitMain === bm && hitStub === bs, `Main hit: ${hitMain?.id ?? hitMain?.localName ?? 'none'}, stub hit: ${hitStub?.id ?? hitStub?.localName ?? 'none'}.`);
+      },
+    },
+    {
+      name: 'An empty-clip full draw restores the hit box after a nine-argument slice',
+      expect: 'pass',
+      why: 'Draw only the left 70 px slice with 9-arg drawElementImage(), then draw the full 220x90 box inside an empty clip and hit-test the right button.',
+      run: async () => {
+        const { cv, ctx } = await makeFixture(
+          '<div drawable style="position:relative;width:220px;height:90px;background:#eee"><button id="rb" style="position:absolute;left:130px;top:20px;width:75px;height:50px">Right</button></div>',
+          260, 120
+        );
+        const el = cv.firstElementChild;
+        const rb = el.querySelector('#rb');
+        ctx.reset();
+        ctx.drawElementImage(el, 0, 0, 70, 90, 10, 10, 70, 90);
+        restoreHit(ctx, el, 10, 10, 220, 90);
+        el.toggleAttribute('data-hit');
+        const r = cv.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + 175, r.top + 55);
+        return need(hit === rb, `elementFromPoint() returned ${hit?.id ?? hit?.localName ?? 'nothing'}.`);
+      },
+    },
+    {
+      name: 'A jagged sawtooth clip cuts cleanly across a nine-argument draw',
+      expect: 'pass',
+      why: 'Clip a solid 220x100 element with a sawtooth right edge at x = 110 and verify ink on the kept left side vs the cut right side.',
+      run: async () => {
+        const { cv, ctx } = await makeFixture('<div drawable style="width:220px;height:100px;background:#d2491f"></div>', 250, 120);
+        const el = cv.firstElementChild;
+        ctx.reset();
+        ctx.save();
+        ctx.translate(10, 10);
+        clipSerrated(ctx, 110, 100, 'right', 100);
+        ctx.drawElementImage(el, 0, 0, 220, 100, 0, 0, 220, 100);
+        ctx.restore();
+        const kept = sampleInk(cv, 20, 20, 80, 80);
+        const cut = sampleInk(cv, 130, 20, 80, 80);
+        return need(kept > 0.85 && cut < 0.05, `${Math.round(kept * 100)}% ink left of the teeth, ${Math.round(cut * 100)}% to the right.`);
+      },
+    },
+    {
+      name: 'A captureElementImage() snapshot draws before close() and throws after close()',
+      expect: 'pass',
+      why: 'Capture a snapshot of a stub fixture, verify it draws ink, call snap.close() in try/finally, and verify a second draw throws.',
+      run: async () => {
+        const { cv, ctx } = await makeFixture('<div drawable style="width:160px;height:80px;background:#1b4965;color:#fff">STUB</div>', 200, 110);
+        const el = cv.firstElementChild;
+        let snap = null;
+        try {
+          snap = cv.captureElementImage(el);
+          ctx.reset();
+          ctx.drawElementImage(snap, 10, 10, 160, 80);
+          const before = sampleInk(cv, 20, 20, 140, 60);
+          snap.close();
+          let threw = false;
+          try { ctx.drawElementImage(snap, 10, 10, 160, 80); } catch { threw = true; }
+          return need(before > 0.8 && threw, `${Math.round(before * 100)}% ink drawn before close(); drawing after close() ${threw ? 'threw as expected' : 'did not throw'}.`);
+        } finally {
+          try { snap?.close(); } catch {}
+        }
+      },
+    },
+    stillDrawn(() => [{
+      name: 'Origami boarding pass',
+      ink: async () => {
+        if (stage.plain || canvas.dataset.plain) return null;
+        return sampleInk(canvas, 0, 0, canvas.clientWidth, canvas.clientHeight);
+      },
+      rescue: () => toPlain(canvas, 'The canvas ended up blank, so the boarding pass is shown as plain HTML.'),
+    }]),
+  ];
+
+  runTests(document.getElementById('tests'), supported ? tests : []);
+</script>
+</body>
+</html>

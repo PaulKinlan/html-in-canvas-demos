@@ -1,0 +1,1636 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>3D relief map with live DOM pins and weather cards</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A procedural WebGL 2 relief island with real-time sun hillshading and contour lines, carrying four live HTML weather cards in 3D space.">
+<link rel="canonical" href="https://html-in-canvas.page/relief-map/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="3D relief map with live DOM pins and weather cards">
+<meta property="og:description" content="A procedural WebGL 2 relief island with real-time sun hillshading and contour lines, carrying four live HTML weather cards in 3D space.">
+<meta property="og:url" content="https://html-in-canvas.page/relief-map/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;3D relief map with live DOM pins and weather cards&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="3D relief map with live DOM pins and weather cards">
+<meta name="twitter:description" content="A procedural WebGL 2 relief island with real-time sun hillshading and contour lines, carrying four live HTML weather cards in 3D space.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;3D relief map with live DOM pins and weather cards&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/relief-map/",
+   "url": "https://html-in-canvas.page/relief-map/",
+   "mainEntityOfPage": "https://html-in-canvas.page/relief-map/",
+   "headline": "3D relief map with live DOM pins and weather cards",
+   "name": "3D relief map with live DOM pins and weather cards",
+   "description": "A procedural WebGL 2 relief island with real-time sun hillshading and contour lines, carrying four live HTML weather cards in 3D space. Orbit the map, move the sun, switch between billboard and flat cards, and click or type inside each card.",
+   "abstract": "Can a procedural WebGL 2 relief terrain map with real-time sun shading anchor live interactive HTML weather and waypoint cards in 3D space so they project, depth-scale, cast shadows on the terrain, and still take clicks and typing?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "WebGL 2, texElementSubImage2D, updateElementGeometry, ElementGL, texElementSubImage2D\u0028), updateElementGeometry\u0028), drawElementImage\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "3D relief map with live DOM pins and weather cards",
+     "item": "https://html-in-canvas.page/relief-map/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 960px; }
+  .map-stage {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+    height: min(520px, 68svh);
+    min-height: 320px;
+    background: #0d1620;
+    touch-action: none;
+  }
+  .map-stage canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: grab;
+  }
+  .map-stage canvas.dragging { cursor: grabbing; }
+  .map-stage.fallback {
+    height: auto;
+    min-height: 0;
+    padding: 12px;
+    background: var(--card);
+    touch-action: auto;
+  }
+  .map-stage.fallback canvas {
+    height: min(320px, 46svh);
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+  .fallback-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+  }
+  .fallback-grid[hidden] { display: none; }
+
+  /* Live drawable station cards: fixed palette so textures look identical in light and dark mode. */
+  .pin-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 184px;
+    padding: 9px 10px 10px;
+    border-radius: 10px;
+    border: 1.5px solid #9cc2d9;
+    background: linear-gradient(165deg, #132230f2 0%, #0c1722f5 100%);
+    color: #eef5fa;
+    font: 12px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    box-sizing: border-box;
+    user-select: text;
+  }
+  .pin-card.active {
+    border-color: #ff8c5a;
+    background: linear-gradient(165deg, #1b2b3bf7 0%, #101d2af8 100%);
+  }
+  .fallback-grid .pin-card {
+    position: static;
+    width: auto;
+  }
+  .pin-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .pin-name {
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+  .pin-elev {
+    font: 600 10.5px var(--mono);
+    color: #93d5c8;
+    white-space: nowrap;
+  }
+  .pin-metrics {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    background: #ffffff14;
+    font: 600 11.5px var(--mono);
+  }
+  .pin-temp { color: #ffd485; font-size: 13px; }
+  .pin-wind { color: #c7dfee; font-size: 11px; }
+  .pin-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .pin-card button,
+  .pin-card select {
+    font: 600 11px system-ui, -apple-system, sans-serif;
+    padding: 3px 6px;
+    border-radius: 5px;
+    border: 1px solid #6b8ba3;
+    background: #1d3245;
+    color: #f3f8fc;
+    min-height: 26px;
+    cursor: pointer;
+  }
+  .pin-card button:hover,
+  .pin-card select:hover { border-color: #ff9c6e; background: #26425b; }
+  .pin-card .focus-btn { flex: 1 1 auto; }
+  .pin-card .log-btn { flex: 1 1 auto; }
+  .pin-card .unit-sel { flex: 0 0 auto; padding: 2px 4px; }
+  .pin-note-wrap { display: block; }
+  .pin-note-wrap span {
+    display: block;
+    font: 600 10px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9bb7ca;
+    margin-bottom: 2px;
+  }
+  .pin-note {
+    width: 100%;
+    font: 11.5px/1.3 system-ui, -apple-system, sans-serif;
+    padding: 4px 6px;
+    border-radius: 5px;
+    border: 1px solid #537188;
+    background: #0a121b;
+    color: #f3f8fc;
+    min-height: 26px;
+  }
+  .pin-note:focus { outline: 2px solid #ff7a4d; outline-offset: 1px; border-color: #ff7a4d; }
+  .pin-foot {
+    margin-top: 4px;
+    font: 10px var(--mono);
+    color: #90aec2;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .controls { margin: 12px 0 8px; }
+  .controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+  }
+  .controls input[type="range"] { width: 120px; accent-color: var(--accent); }
+  .controls select {
+    font: inherit;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--card);
+    color: var(--fg);
+    min-height: 36px;
+  }
+  .jump-group { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .jump-group button { min-height: 36px; }
+  .jump-group button[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .map-hud {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #0c141dd9;
+    border: 1px solid #ffffff26;
+    color: #d8e6f0;
+    font: 11px var(--mono);
+    pointer-events: none;
+  }
+  #notice {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+  }
+  #notice[hidden] { display: none; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; margin: 6px 0 12px; }
+  @media (max-width: 520px) {
+    .controls input[type="range"] { width: 96px; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>3D relief map with live DOM pins and weather cards</h1>
+  <p class="lede">
+    I wanted to know if a procedural WebGL 2 relief map with real-time sun shading could hold live HTML weather cards in 3D space without breaking clicks or typing.
+    Drag to orbit the island, pinch or scroll to zoom, sweep the sun azimuth to shift shadows across the ridges, or edit the field note and temperature units directly inside any card.
+  </p>
+
+  <div class="stage map-stage" id="stage">
+    <!-- #region markup -->
+    <canvas id="map" content="drawable" layoutsubtree aria-label="3D procedural relief island with four live HTML weather station cards">
+      <article class="pin-card active" id="card-summit" data-station="summit" drawable>
+        <div class="pin-head"><span class="pin-name">Ben Cairn Summit</span><span class="pin-elev">1,420 m</span></div>
+        <div class="pin-metrics"><span class="pin-temp" data-c="-3">-3 °C</span><span class="pin-wind">48 km/h NW</span></div>
+        <div class="pin-actions">
+          <button type="button" class="focus-btn" data-jump="summit">Focus peak</button>
+          <button type="button" class="log-btn">Log (0)</button>
+          <select class="unit-sel" aria-label="Ben Cairn Summit temperature unit">
+            <option value="C" selected>°C</option>
+            <option value="F">°F</option>
+          </select>
+        </div>
+        <label class="pin-note-wrap"><span>Field note</span><input type="text" class="pin-note" value="Rime ice on cairn" aria-label="Ben Cairn Summit field note"></label>
+        <div class="pin-foot"><span class="pin-status">Gale watch</span><span class="pin-log-time">No log yet</span></div>
+      </article>
+
+      <article class="pin-card" id="card-ridge" data-station="ridge" drawable>
+        <div class="pin-head"><span class="pin-name">North Ridge Hut</span><span class="pin-elev">980 m</span></div>
+        <div class="pin-metrics"><span class="pin-temp" data-c="2">2 °C</span><span class="pin-wind">31 km/h W</span></div>
+        <div class="pin-actions">
+          <button type="button" class="focus-btn" data-jump="ridge">Focus peak</button>
+          <button type="button" class="log-btn">Log (0)</button>
+          <select class="unit-sel" aria-label="North Ridge Hut temperature unit">
+            <option value="C" selected>°C</option>
+            <option value="F">°F</option>
+          </select>
+        </div>
+        <label class="pin-note-wrap"><span>Field note</span><input type="text" class="pin-note" value="Cloud base lifting" aria-label="North Ridge Hut field note"></label>
+        <div class="pin-foot"><span class="pin-status">Broken cloud</span><span class="pin-log-time">No log yet</span></div>
+      </article>
+
+      <article class="pin-card" id="card-harbour" data-station="harbour" drawable>
+        <div class="pin-head"><span class="pin-name">West Harbour</span><span class="pin-elev">12 m</span></div>
+        <div class="pin-metrics"><span class="pin-temp" data-c="11">11 °C</span><span class="pin-wind">14 km/h SW</span></div>
+        <div class="pin-actions">
+          <button type="button" class="focus-btn" data-jump="harbour">Focus peak</button>
+          <button type="button" class="log-btn">Log (0)</button>
+          <select class="unit-sel" aria-label="West Harbour temperature unit">
+            <option value="C" selected>°C</option>
+            <option value="F">°F</option>
+          </select>
+        </div>
+        <label class="pin-note-wrap"><span>Field note</span><input type="text" class="pin-note" value="Calm mooring water" aria-label="West Harbour field note"></label>
+        <div class="pin-foot"><span class="pin-status">Clear bay</span><span class="pin-log-time">No log yet</span></div>
+      </article>
+
+      <article class="pin-card" id="card-cove" data-station="cove" drawable>
+        <div class="pin-head"><span class="pin-name">South Cove Beacon</span><span class="pin-elev">45 m</span></div>
+        <div class="pin-metrics"><span class="pin-temp" data-c="9">9 °C</span><span class="pin-wind">22 km/h S</span></div>
+        <div class="pin-actions">
+          <button type="button" class="focus-btn" data-jump="cove">Focus peak</button>
+          <button type="button" class="log-btn">Log (0)</button>
+          <select class="unit-sel" aria-label="South Cove Beacon temperature unit">
+            <option value="C" selected>°C</option>
+            <option value="F">°F</option>
+          </select>
+        </div>
+        <label class="pin-note-wrap"><span>Field note</span><input type="text" class="pin-note" value="Light sea spray" aria-label="South Cove Beacon field note"></label>
+        <div class="pin-foot"><span class="pin-status">Coastal mist</span><span class="pin-log-time">No log yet</span></div>
+      </article>
+    </canvas>
+    <!-- #endregion markup -->
+    <div class="map-hud" id="hud">WebGL 2 relief</div>
+    <div class="fallback-grid" id="fallback-grid" hidden></div>
+  </div>
+
+  <div class="row controls">
+    <span class="jump-group" role="group" aria-label="Camera presets">
+      <button type="button" data-preset="overview" aria-pressed="true">Overview</button>
+      <button type="button" data-preset="summit" aria-pressed="false">Summit</button>
+      <button type="button" data-preset="ridge" aria-pressed="false">Ridge</button>
+      <button type="button" data-preset="harbour" aria-pressed="false">Harbour</button>
+    </span>
+    <label>Sun azimuth <input id="sun-azimuth" type="range" min="0" max="360" value="52"><output id="sun-out">52°</output></label>
+    <label>Elevation scale <input id="elev-scale" type="range" min="40" max="170" value="105"><output id="elev-out">1.05x</output></label>
+    <label>Card mode
+      <select id="card-mode">
+        <option value="billboard" selected>Billboard</option>
+        <option value="flat">Flat on map</option>
+      </select>
+    </label>
+  </div>
+
+  <p id="notice" hidden role="status"></p>
+  <p id="status" role="status">Drag to orbit, wheel or pinch to zoom. Tap any button, select or field note inside a station card.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>procedural relief terrain, single-context ElementGL, 3D card projection and hit boxes</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Four station cards inside the canvas.</b> Each weather card is a <code>drawable</code> child of <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> with buttons, a unit <code>&lt;select&gt;</code> and an editable text <code>&lt;input&gt;</code>.</li>
+      <li data-code="#terrain"><b>Procedural alpine-and-coast heightfield.</b> Deterministic five-octave noise with ridged peaks builds a 64 by 64 grid plus a plinth skirt with no network map tiles.</li>
+      <li data-code="#shaders"><b>Relief hillshading and card shaders.</b> One shader colours elevation bands, anti-aliased contours, water glint and directional sun shading. The card fragment shader smooths tilted quad edges and adds depth haze.</li>
+      <li data-code="#project"><b>3D quad projection and hit-test matrix.</b> Both billboard and flat-on-map cards share one world-to-clip matrix for drawing and one element-to-canvas matrix for <code>updateElementGeometry()</code>.</li>
+      <li data-code="#paint"><b>One WebGL 2 context for terrain and DOM.</b> The <code>paint</code> handler uploads changed cards through <code>ElementGL</code>, draws the relief mesh, terrain-conformed ground shadows and pin stems on <code>stage.gl</code>, then restores <code>ElementGL</code>'s shader state to draw depth-sorted cards.</li>
+      <li data-code="/lib/element-gl.js#upload"><b>Texture upload in <code>element-gl.js</code>.</b> <code>texElementSubImage2D()</code> copies each card into a texture sized to <code>getElementImageDefaultSize()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    I took the idea from shader-driven relief maps like Mapbox GL and Tangram terrain hillshading, and from Three.js procedural topography experiments, then combined it with the 3D <code>updateElementGeometry()</code> hit-test pattern from <a href="/three-form/">/three-form/</a>.
+    Instead of loading external map tiles or a 3D engine, a deterministic noise function generates a 64 by 64 island heightfield with a central peak, an eastern granite ridge, a western harbour bay and a southern headland.
+  </p>
+  <p>
+    Everything renders on one WebGL 2 context created by <code>new ElementGL(canvas, ...)</code>. On each <code>paint</code> event, the terrain mesh draws first with depth testing on. The vertex shader stores raw height and unscaled slope gradients once in the buffer, so dragging the elevation scale slider updates peaks and surface normals on the GPU without rebuilding geometry.
+    Next, soft drop-shadow ellipses conformed to the local terrain height and screen-aligned pin stems draw over the slopes, shifting direction as you drag the sun azimuth slider.
+  </p>
+  <p>
+    After restoring <code>ElementGL</code>'s shader program and vertex array object, the four station cards are sorted back-to-front by camera distance and drawn with <code>stage.quad()</code>.
+    Each card's element-to-canvas projective matrix goes to <code>canvas.updateElementGeometry()</code>, scaled by <code>geometryUnit()</code> for high-DPI screens, and its <code>data-hit-tick</code> attribute toggles whenever the matrix changes to clear Chromium's hit-test cache.
+    If WebGL 2 HTML-in-canvas isn't available, the page falls back to a 2D isometric relief projection with five-argument <code>drawElementImage()</code>, or to plain HTML cards below the 2D relief canvas when HTML-in-canvas is disabled.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These checks run on isolated fixtures in a hidden corner stage and retire their canvases after each row, leaving the map above untouched.</p>
+  <table class="results">
+    <thead><tr><th>Result</th><th>Check</th><th>Detail</th></tr></thead>
+    <tbody id="tests"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Drawing custom 3D WebGL 2 geometry and live DOM textures inside one <code>ElementGL</code> context works by saving <code>CURRENT_PROGRAM</code> and <code>VERTEX_ARRAY_BINDING</code> after <code>stage.begin()</code>, rendering the terrain, conformed ground shadows and stems on <code>stage.gl</code>, and restoring both bindings before calling <code>stage.quad()</code>. This keeps the page to one WebGL context without modifying <code>element-gl.js</code>.</li>
+    <li>Sorting cards back-to-front by view-space depth and matching each card's <code>zIndex</code> only when the sort order flips aligns visual occlusion with DOM pointer hit-testing where two cards overlap.</li>
+    <li>In flat-on-map mode, keeping the camera pitch above 18 degrees keeps the top face of every horizontal card front-facing from all 360 degrees of camera yaw, so the cards stay readable and interactive as you orbit around them.</li>
+    <li>Credits: terrain hillshading and hypsometric contour bands follow shader-driven relief map techniques from Mapbox GL, Tangram and Three.js procedural topography work; the projective <code>updateElementGeometry()</code> pattern builds on <a href="/three-form/">/three-form/</a>.</li>
+    <li>Not verified yet: live browser runs in headless Chromium 157 and on Chrome 159 for Android (412 px touch orbit, pinch zoom, native <code>&lt;select&gt;</code> picker over a 3D card, and on-screen keyboard typing into a projected <code>&lt;input&gt;</code>). Running the live checks above and testing touch input on a device will verify those paths.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+  import { geometryUnit, program as compileProgram } from '/lib/surface.js';
+  import { banner, supported as canvas2dSupported, runTests, testStage, nextPaint } from '/shared/support.js';
+
+  banner();
+
+  const stageBox = document.getElementById('stage');
+  const canvas = document.getElementById('map');
+  const hud = document.getElementById('hud');
+  const notice = document.getElementById('notice');
+  const statusEl = document.getElementById('status');
+  const fallbackGrid = document.getElementById('fallback-grid');
+  const sunSlider = document.getElementById('sun-azimuth');
+  const sunOut = document.getElementById('sun-out');
+  const elevSlider = document.getElementById('elev-scale');
+  const elevOut = document.getElementById('elev-out');
+  const modeSelect = document.getElementById('card-mode');
+  const presetBtns = [...document.querySelectorAll('[data-preset]')];
+
+  const STATIONS = [
+    { id: 'summit',  el: document.getElementById('card-summit'),  x: -0.18, z: -0.22, name: 'Ben Cairn Summit',  preset: { yaw: 0.56, pitch: 0.52, dist: 3.15, tx: -0.18, ty: 0.92, tz: -0.22 } },
+    { id: 'ridge',   el: document.getElementById('card-ridge'),   x:  1.06, z: -0.58, name: 'North Ridge Hut',   preset: { yaw: -0.45, pitch: 0.54, dist: 3.25, tx: 1.06, ty: 0.68, tz: -0.58 } },
+    { id: 'harbour', el: document.getElementById('card-harbour'), x: -1.26, z:  0.36, name: 'West Harbour',      preset: { yaw: 1.18, pitch: 0.48, dist: 3.10, tx: -1.26, ty: 0.25, tz: 0.36 } },
+    { id: 'cove',    el: document.getElementById('card-cove'),    x:  0.82, z:  1.16, name: 'South Cove Beacon', preset: { yaw: -0.78, pitch: 0.50, dist: 3.20, tx: 0.82, ty: 0.30, tz: 1.16 } },
+  ];
+  const OVERVIEW = { yaw: 0.54, pitch: 0.66, dist: 5.55, tx: 0.0, ty: 0.26, tz: 0.08 };
+
+  // #region terrain
+  const MAP_HALF = 2.6;
+  const GRID = 64;
+
+  function hash2(ix, iz) {
+    const s = Math.sin(ix * 127.1 + iz * 311.7) * 43758.5453123;
+    return s - Math.floor(s);
+  }
+
+  function valueNoise(x, z) {
+    const ix = Math.floor(x), iz = Math.floor(z);
+    const fx = x - ix, fz = z - iz;
+    const ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+    const a = hash2(ix, iz), b = hash2(ix + 1, iz);
+    const c = hash2(ix, iz + 1), d = hash2(ix + 1, iz + 1);
+    return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+  }
+
+  function fbm(x, z) {
+    let v = 0, amp = 0.5, freq = 1.0;
+    for (let i = 0; i < 5; i++) {
+      v += amp * valueNoise(x * freq + 17.3 * i, z * freq - 11.7 * i);
+      freq *= 2.04;
+      amp *= 0.48;
+    }
+    return v;
+  }
+
+  function ridged(x, z) {
+    let v = 0, amp = 0.55, freq = 1.15;
+    for (let i = 0; i < 4; i++) {
+      const n = 1.0 - Math.abs(2.0 * valueNoise(x * freq - 5.1 * i, z * freq + 9.4 * i) - 1.0);
+      v += amp * n * n;
+      freq *= 2.1;
+      amp *= 0.46;
+    }
+    return v;
+  }
+
+  const gauss = (x, z, cx, cz, rx, rz) => {
+    const dx = (x - cx) / rx, dz = (z - cz) / rz;
+    return Math.exp(-(dx * dx + dz * dz));
+  };
+
+  /** Deterministic island heightfield: > 0 is land, <= 0 is ocean depth. */
+  function terrainHeight(x, z) {
+    const r = Math.hypot(x * 0.92, z * 0.98) / 2.22;
+    const islandMask = Math.max(0, 1.0 - Math.pow(r, 2.35));
+    const base = 0.52 * fbm(x * 0.85, z * 0.85) + 0.46 * ridged(x * 0.78 + 1.4, z * 0.78 - 0.8);
+    // Shape four distinct landmarks: central alpine summit, eastern ridge, carved western harbour, southern headland.
+    const summit = 0.76 * gauss(x, z, -0.18, -0.22, 0.82, 0.78);
+    const eastRidge = 0.46 * gauss(x, z, 1.06, -0.58, 0.72, 0.58);
+    const southHeadland = 0.24 * gauss(x, z, 0.82, 1.16, 0.76, 0.58);
+    const harbourBay = 0.58 * gauss(x, z, -1.68, 0.88, 0.72, 0.62);
+    const northPass = 0.18 * gauss(x, z, 0.42, -1.35, 0.65, 0.45);
+    const raw = (base * 0.68 + summit + eastRidge + southHeadland - harbourBay - northPass) * islandMask - 0.16;
+    return Math.max(-0.24, raw);
+  }
+
+  function terrainGrad(x, z) {
+    const e = 0.04;
+    const hL = Math.max(0, terrainHeight(x - e, z));
+    const hR = Math.max(0, terrainHeight(x + e, z));
+    const hD = Math.max(0, terrainHeight(x, z - e));
+    const hU = Math.max(0, terrainHeight(x, z + e));
+    return [(hR - hL) / (2 * e), (hU - hD) / (2 * e)];
+  }
+
+  function buildTerrainMesh() {
+    const verts = [];
+    const idx = [];
+    const stride = GRID + 1;
+    const pushVert = (x, h, z, gx, gz, skirt) => {
+      verts.push(x, h, z, gx, gz, skirt);
+      return verts.length / 6 - 1;
+    };
+    for (let iz = 0; iz <= GRID; iz++) {
+      const z = -MAP_HALF + (iz / GRID) * (MAP_HALF * 2);
+      for (let ix = 0; ix <= GRID; ix++) {
+        const x = -MAP_HALF + (ix / GRID) * (MAP_HALF * 2);
+        const h = terrainHeight(x, z);
+        const [gx, gz] = terrainGrad(x, z);
+        pushVert(x, h, z, gx, gz, 0);
+      }
+    }
+    for (let iz = 0; iz < GRID; iz++) {
+      for (let ix = 0; ix < GRID; ix++) {
+        const a = iz * stride + ix, b = a + 1, c = a + stride, d = c + 1;
+        idx.push(a, c, b, b, c, d);
+      }
+    }
+    // Add a thin diorama skirt around the four borders so the relief slab reads as a solid block.
+    const addEdgeSkirt = (edgeIndices, nx, nz) => {
+      const top = [], bot = [];
+      for (const i of edgeIndices) {
+        const x = verts[i * 6], h = verts[i * 6 + 1], z = verts[i * 6 + 2];
+        top.push(pushVert(x, h, z, nx, nz, 1));
+        bot.push(pushVert(x, -0.28, z, nx, nz, 2));
+      }
+      for (let k = 0; k < top.length - 1; k++) {
+        idx.push(top[k], bot[k], top[k + 1], top[k + 1], bot[k], bot[k + 1]);
+      }
+    };
+    const north = [], south = [], west = [], east = [];
+    for (let i = 0; i <= GRID; i++) {
+      north.push(i);
+      south.push(GRID * stride + (GRID - i));
+      west.push((GRID - i) * stride);
+      east.push(i * stride + GRID);
+    }
+    addEdgeSkirt(north, 0, -1);
+    addEdgeSkirt(east, 1, 0);
+    addEdgeSkirt(south, 0, 1);
+    addEdgeSkirt(west, -1, 0);
+    return { vertices: new Float32Array(verts), indices: new Uint16Array(idx) };
+  }
+  // #endregion terrain
+
+  // #region shaders
+  const CARD_FRAGMENT = `#version 300 es
+  precision mediump float;
+  uniform sampler2D uTex;
+  uniform float uShade, uActive, uFog;
+  in vec2 vUv;
+  out vec4 outColor;
+  void main() {
+    vec4 c = texture(uTex, vUv);
+    vec2 e = min(vUv, 1.0 - vUv) / max(fwidth(vUv), vec2(1e-5));
+    float edge = clamp(min(e.x, e.y), 0.0, 1.0);
+    vec3 haze = vec3(0.08, 0.14, 0.21) * c.a;
+    vec3 lit = c.rgb * uShade;
+    float rim = (1.0 - smoothstep(0.0, 0.06, min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y)))) * uActive * 0.26 * c.a;
+    vec3 col = mix(lit + vec3(1.0, 0.52, 0.30) * rim, haze, clamp(uFog, 0.0, 0.26));
+    outColor = vec4(col, c.a) * edge;
+  }`;
+
+  const TERRAIN_VS = `#version 300 es
+  layout(location = 0) in vec3 aPos;
+  layout(location = 1) in vec3 aMeta;
+  uniform mat4 uVP;
+  uniform float uElevScale;
+  out vec3 vWorld;
+  out float vRawH;
+  out vec2 vGrad;
+  out float vSkirt;
+  void main() {
+    float rawH = aPos.y;
+    float y = aMeta.z > 1.5 ? -0.28 : max(rawH, 0.0) * uElevScale;
+    vWorld = vec3(aPos.x, y, aPos.z);
+    vRawH = rawH;
+    vGrad = aMeta.xy;
+    vSkirt = aMeta.z;
+    gl_Position = uVP * vec4(vWorld, 1.0);
+  }`;
+
+  const TERRAIN_FS = `#version 300 es
+  precision highp float;
+  uniform float uElevScale;
+  uniform vec3 uSunDir;
+  uniform vec3 uCamPos;
+  in vec3 vWorld;
+  in float vRawH;
+  in vec2 vGrad;
+  in float vSkirt;
+  out vec4 outColor;
+  void main() {
+    if (vSkirt > 0.5) {
+      vec3 sn = normalize(vec3(vGrad.x, 0.18, vGrad.y));
+      float d = 0.42 + 0.58 * max(dot(sn, uSunDir), 0.0);
+      float grad = mix(0.68, 1.0, clamp((vWorld.y + 0.28) / 0.34, 0.0, 1.0));
+      outColor = vec4(vec3(0.11, 0.14, 0.18) * d * grad, 1.0);
+      return;
+    }
+    vec3 viewDir = normalize(uCamPos - vWorld);
+    if (vRawH <= 0.002) {
+      float depth = clamp(-vRawH / 0.22, 0.0, 1.0);
+      vec3 shallow = vec3(0.18, 0.53, 0.58);
+      vec3 deep = vec3(0.06, 0.18, 0.30);
+      vec3 water = mix(shallow, deep, pow(depth, 0.65));
+      // Subtle directional ripple normal for sun specular glint on the harbour and sea.
+      float r1 = sin(vWorld.x * 16.0 + vWorld.z * 9.0) * 0.018;
+      float r2 = cos(vWorld.x * 11.0 - vWorld.z * 19.0) * 0.016;
+      vec3 wn = normalize(vec3(r1, 1.0, r2));
+      vec3 H = normalize(uSunDir + viewDir);
+      float spec = pow(max(dot(wn, H), 0.0), 72.0) * 0.85;
+      float fres = pow(1.0 - max(dot(wn, viewDir), 0.0), 3.0) * 0.22;
+      float foam = smoothstep(-0.022, 0.002, vRawH) * 0.36;
+      vec3 col = water * (0.68 + 0.36 * max(dot(wn, uSunDir), 0.0)) + vec3(0.96, 0.94, 0.86) * spec + vec3(0.45, 0.72, 0.82) * fres + vec3(0.84, 0.92, 0.94) * foam;
+      outColor = vec4(col, 1.0);
+      return;
+    }
+    vec3 N = normalize(vec3(-vGrad.x * uElevScale, 1.0, -vGrad.y * uElevScale));
+    float slope = 1.0 - N.y;
+    float h = vRawH;
+    vec3 sand = vec3(0.76, 0.70, 0.52);
+    vec3 meadow = vec3(0.36, 0.53, 0.33);
+    vec3 pine = vec3(0.24, 0.40, 0.27);
+    vec3 rock = vec3(0.48, 0.45, 0.42);
+    vec3 slate = vec3(0.34, 0.35, 0.38);
+    vec3 snow = vec3(0.92, 0.95, 0.98);
+
+    vec3 albedo = mix(sand, meadow, smoothstep(0.01, 0.09, h));
+    albedo = mix(albedo, pine, smoothstep(0.10, 0.30, h));
+    albedo = mix(albedo, rock, smoothstep(0.30, 0.56, h));
+    albedo = mix(albedo, slate, smoothstep(0.24, 0.62, slope));
+    float snowMask = smoothstep(0.56, 0.76, h - slope * 0.34);
+    albedo = mix(albedo, snow, snowMask);
+
+    // Anti-aliased topographic contour lines via screen-space derivatives.
+    float fw = max(fwidth(h), 0.0008);
+    float minorDist = abs(fract(h / 0.075 + 0.5) - 0.5) * 0.075;
+    float majorDist = abs(fract(h / 0.300 + 0.5) - 0.5) * 0.300;
+    float minorLine = (1.0 - smoothstep(0.0, fw * 1.4, minorDist)) * 0.18;
+    float majorLine = (1.0 - smoothstep(0.0, fw * 1.9, majorDist)) * 0.34;
+    albedo *= 1.0 - max(minorLine, majorLine);
+
+    float ndotl = max(dot(N, uSunDir), 0.0);
+    float hemi = 0.5 + 0.5 * N.y;
+    vec3 sunLight = vec3(1.08, 1.01, 0.90) * ndotl * 0.94;
+    vec3 skyFill = mix(vec3(0.18, 0.24, 0.34), vec3(0.38, 0.47, 0.58), hemi) * 0.66;
+    vec3 col = albedo * (sunLight + skyFill);
+    float dist = length(uCamPos - vWorld);
+    float fog = smoothstep(6.2, 13.5, dist) * 0.32;
+    col = mix(col, vec3(0.09, 0.15, 0.22), fog);
+    outColor = vec4(col, 1.0);
+  }`;
+
+  const OVERLAY_VS = `#version 300 es
+  layout(location = 0) in vec3 aPos;
+  layout(location = 1) in vec4 aColor;
+  layout(location = 2) in vec2 aLocal;
+  layout(location = 3) in float aMode;
+  uniform mat4 uVP;
+  out vec4 vColor;
+  out vec2 vLocal;
+  out float vMode;
+  void main() {
+    vColor = aColor;
+    vLocal = aLocal;
+    vMode = aMode;
+    gl_Position = uVP * vec4(aPos, 1.0);
+  }`;
+
+  const OVERLAY_FS = `#version 300 es
+  precision mediump float;
+  in vec4 vColor;
+  in vec2 vLocal;
+  in float vMode;
+  out vec4 outColor;
+  void main() {
+    float a = vColor.a;
+    if (vMode < 0.5) {
+      float r = length(vLocal);
+      a *= exp(-2.9 * r * r) * smoothstep(1.0, 0.18, r);
+    } else if (vMode < 1.5) {
+      float r = length(vLocal);
+      float w = max(fwidth(r), 0.04);
+      float dotMask = 1.0 - smoothstep(0.40 - w, 0.40 + w, r);
+      float ringMask = (1.0 - smoothstep(0.86 - w, 0.86 + w, r)) * smoothstep(0.62 - w, 0.62 + w, r);
+      a *= max(dotMask, ringMask * 0.85);
+    } else {
+      a *= 1.0 - smoothstep(0.55, 1.0, abs(vLocal.x));
+    }
+    if (a < 0.004) discard;
+    outColor = vec4(vColor.rgb * a, a);
+  }`;
+  // #endregion shaders
+
+  // ------------------------------------------------------------------ 3D math
+  function sub3(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+  function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+  function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+  function norm3(v) { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
+
+  function mat4Mul(a, b) {
+    const o = new Float32Array(16);
+    for (let c = 0; c < 4; c++) {
+      const b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
+      o[c * 4]     = a[0] * b0 + a[4] * b1 + a[8]  * b2 + a[12] * b3;
+      o[c * 4 + 1] = a[1] * b0 + a[5] * b1 + a[9]  * b2 + a[13] * b3;
+      o[c * 4 + 2] = a[2] * b0 + a[6] * b1 + a[10] * b2 + a[14] * b3;
+      o[c * 4 + 3] = a[3] * b0 + a[7] * b1 + a[11] * b2 + a[15] * b3;
+    }
+    return o;
+  }
+
+  function mat4Perspective(fovy, aspect, near, far) {
+    const t = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return new Float32Array([
+      t / aspect, 0, 0, 0,
+      0, t, 0, 0,
+      0, 0, (far + near) * nf, -1,
+      0, 0, 2 * far * near * nf, 0,
+    ]);
+  }
+
+  function mat4LookAt(eye, target) {
+    const f = norm3(sub3(target, eye));
+    const r = norm3(cross3(f, [0, 1, 0]));
+    const u = cross3(r, f);
+    const view = new Float32Array([
+      r[0], u[0], -f[0], 0,
+      r[1], u[1], -f[1], 0,
+      r[2], u[2], -f[2], 0,
+      -dot3(r, eye), -dot3(u, eye), dot3(f, eye), 1,
+    ]);
+    return { view, right: r, up: u, forward: f };
+  }
+
+  // #region project
+  function sunVector(azimuthDeg) {
+    const az = azimuthDeg * Math.PI / 180;
+    const el = 30 * Math.PI / 180;
+    return [Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)];
+  }
+
+  function computeCardPlacement(station, cam, vp, cw, ch, elevScale, cardMode) {
+    const w = station.el.offsetWidth || 184;
+    const h = station.el.offsetHeight || 138;
+    const groundY = Math.max(0, terrainHeight(station.x, station.z)) * elevScale;
+    const compact = cw < 520;
+    const worldW = cardMode === 'flat' ? (compact ? 1.18 : 1.04) : (compact ? 1.14 : 0.96);
+    const worldH = worldW * (h / w);
+    const stemH = cardMode === 'flat' ? 0.16 : 0.42;
+    const anchor = [station.x, groundY + stemH, station.z];
+
+    let o, xAxis, yAxis, nAxis;
+    if (cardMode === 'flat') {
+      xAxis = [worldW, 0, 0];
+      yAxis = [0, 0, worldH];
+      nAxis = [0, 1, 0];
+      o = [anchor[0] - worldW * 0.5, anchor[1], anchor[2] - worldH * 0.5];
+    } else {
+      xAxis = [cam.right[0] * worldW, cam.right[1] * worldW, cam.right[2] * worldW];
+      yAxis = [-cam.up[0] * worldH, -cam.up[1] * worldH, -cam.up[2] * worldH];
+      nAxis = [-cam.forward[0], -cam.forward[1], -cam.forward[2]];
+      o = [
+        anchor[0] - xAxis[0] * 0.5 - yAxis[0],
+        anchor[1] - xAxis[1] * 0.5 - yAxis[1],
+        anchor[2] - xAxis[2] * 0.5 - yAxis[2],
+      ];
+    }
+
+    const uvToWorld = new Float32Array([
+      xAxis[0], xAxis[1], xAxis[2], 0,
+      yAxis[0], yAxis[1], yAxis[2], 0,
+      nAxis[0], nAxis[1], nAxis[2], 0,
+      o[0],     o[1],     o[2],     1,
+    ]);
+    const clipMat = mat4Mul(vp, uvToWorld);
+
+    // Element CSS px (0..w, 0..h) -> world -> clip -> canvas CSS px (0..cw, 0..ch).
+    const elemToWorld = new Float32Array([
+      xAxis[0] / w, xAxis[1] / w, xAxis[2] / w, 0,
+      yAxis[0] / h, yAxis[1] / h, yAxis[2] / h, 0,
+      nAxis[0],     nAxis[1],     nAxis[2],     0,
+      o[0],         o[1],         o[2],         1,
+    ]);
+    const ndcToCanvas = new Float32Array([
+      cw / 2, 0, 0, 0,
+      0, -ch / 2, 0, 0,
+      0, 0, 1, 0,
+      cw / 2, ch / 2, 0, 1,
+    ]);
+    const canvasMat = mat4Mul(ndcToCanvas, mat4Mul(vp, elemToWorld));
+
+    const centre = [o[0] + 0.5 * (xAxis[0] + yAxis[0]), o[1] + 0.5 * (xAxis[1] + yAxis[1]), o[2] + 0.5 * (xAxis[2] + yAxis[2])];
+    const depth = dot3(sub3(centre, cam.eye), cam.forward);
+    return { station, groundY, anchor, centre, depth, clipMat, canvasMat, w, h };
+  }
+  // #endregion project
+
+  // -------------------------------------------------------------- state & UI
+  const cam = { ...OVERVIEW };
+  let camGoal = null;
+  let activeStationId = 'summit';
+  let activePreset = 'overview';
+  let mode = 'webgl'; // 'webgl' | '2d' | 'plain'
+  let stage = null;
+  let ctx2d = null;
+  let cardProg = null;
+  let cardVao = null;
+  let terrainRes = null;
+  let overlayRes = null;
+  let paints = 0;
+  let uploads = 0;
+  let lastOrderKey = '';
+  const lastGeom = new Map();
+  const lastPlaced = new Map();
+  const meshData = buildTerrainMesh();
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function setNotice(msg) {
+    notice.hidden = !msg;
+    notice.textContent = msg || '';
+  }
+
+  function setActiveStation(id) {
+    activeStationId = id;
+    for (const s of STATIONS) s.el.classList.toggle('active', s.id === id);
+  }
+
+  function setActivePresetButton(name) {
+    activePreset = name;
+    for (const b of presetBtns) b.setAttribute('aria-pressed', String(b.dataset.preset === name));
+  }
+
+  function jumpTo(name) {
+    const target = name === 'overview' ? OVERVIEW : STATIONS.find((s) => s.id === name)?.preset;
+    if (!target) return;
+    setActivePresetButton(name);
+    if (name !== 'overview') setActiveStation(name);
+    if (reducedMotion) {
+      Object.assign(cam, target);
+      camGoal = null;
+      requestDraw();
+      return;
+    }
+    camGoal = { ...target };
+    startCameraTween();
+  }
+
+  let tweenRaf = 0;
+  function startCameraTween() {
+    if (tweenRaf) return;
+    const step = () => {
+      tweenRaf = 0;
+      if (!camGoal) return;
+      let delta = 0;
+      const shortestAngle = (from, to) => {
+        let d = ((to - from + Math.PI) % (2 * Math.PI)) - Math.PI;
+        if (d < -Math.PI) d += 2 * Math.PI;
+        return d;
+      };
+      const dyaw = shortestAngle(cam.yaw, camGoal.yaw);
+      cam.yaw += dyaw * 0.16;
+      delta = Math.max(delta, Math.abs(dyaw));
+      for (const k of ['pitch', 'dist', 'tx', 'ty', 'tz']) {
+        const d = camGoal[k] - cam[k];
+        cam[k] += d * 0.16;
+        delta = Math.max(delta, Math.abs(d));
+      }
+      requestDraw();
+      if (delta > 0.002) tweenRaf = requestAnimationFrame(step);
+      else { Object.assign(cam, camGoal); camGoal = null; requestDraw(); }
+    };
+    tweenRaf = requestAnimationFrame(step);
+  }
+
+  // Wire live controls inside each weather card (event delegation on stage handles both canvas and fallback modes).
+  stageBox.addEventListener('click', (e) => {
+    const focusBtn = e.target.closest('.focus-btn');
+    if (focusBtn) {
+      const id = focusBtn.dataset.jump;
+      setActiveStation(id);
+      jumpTo(id);
+      statusEl.textContent = `Focused ${STATIONS.find((s) => s.id === id)?.name ?? id}.`;
+      return;
+    }
+    const logBtn = e.target.closest('.log-btn');
+    if (logBtn) {
+      const card = logBtn.closest('.pin-card');
+      const count = Number(logBtn.dataset.count || 0) + 1;
+      logBtn.dataset.count = String(count);
+      logBtn.textContent = `Log (${count})`;
+      const now = new Date();
+      const stamp = now.toTimeString().slice(0, 8);
+      card.querySelector('.pin-log-time').textContent = `Logged ${stamp}`;
+      setActiveStation(card.dataset.station);
+      statusEl.textContent = `Logged reading #${count} at ${card.querySelector('.pin-name').textContent} (${stamp}).`;
+      requestDraw();
+    }
+  });
+
+  stageBox.addEventListener('change', (e) => {
+    const sel = e.target.closest('.unit-sel');
+    if (!sel) return;
+    const card = sel.closest('.pin-card');
+    const tempEl = card.querySelector('.pin-temp');
+    const c = Number(tempEl.dataset.c);
+    tempEl.textContent = sel.value === 'F' ? `${Math.round(c * 9 / 5 + 32)} °F` : `${c} °C`;
+    setActiveStation(card.dataset.station);
+    statusEl.textContent = `${card.querySelector('.pin-name').textContent} switched to °${sel.value}.`;
+    requestDraw();
+  });
+
+  stageBox.addEventListener('input', (e) => {
+    const inp = e.target.closest('.pin-note');
+    if (!inp) return;
+    const card = inp.closest('.pin-card');
+    setActiveStation(card.dataset.station);
+    statusEl.textContent = `Updated note on ${card.querySelector('.pin-name').textContent}: "${inp.value}".`;
+    requestDraw();
+  });
+
+  stageBox.addEventListener('focusin', (e) => {
+    const card = e.target.closest('.pin-card');
+    if (card) { setActiveStation(card.dataset.station); requestDraw(); }
+  });
+
+  for (const b of presetBtns) b.addEventListener('click', () => jumpTo(b.dataset.preset));
+  sunSlider.addEventListener('input', () => { sunOut.textContent = `${sunSlider.value}°`; requestDraw(); });
+  elevSlider.addEventListener('input', () => { elevOut.textContent = `${(Number(elevSlider.value) / 100).toFixed(2)}x`; requestDraw(); });
+  modeSelect.addEventListener('change', () => { requestDraw(); });
+
+  // Pointer orbit & pinch-zoom on the canvas (never steals taps from card buttons, selects or inputs).
+  const pointers = new Map();
+  let dragLast = null;
+  let pinchDist = 0;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button, input, select, option, label, a')) return;
+    camGoal = null;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    canvas.setPointerCapture?.(e.pointerId);
+    canvas.classList.add('dragging');
+    if (pointers.size === 1) dragLast = { x: e.clientX, y: e.clientY };
+    else if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      pinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    }
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      const d = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      if (pinchDist > 0) {
+        cam.dist = Math.max(2.4, Math.min(9.5, cam.dist * (pinchDist / Math.max(10, d))));
+        requestDraw();
+      }
+      pinchDist = d;
+    } else if (dragLast) {
+      const dx = e.clientX - dragLast.x, dy = e.clientY - dragLast.y;
+      dragLast = { x: e.clientX, y: e.clientY };
+      cam.yaw -= dx * 0.0085;
+      cam.pitch = Math.max(0.32, Math.min(1.36, cam.pitch + dy * 0.0075));
+      setActivePresetButton('');
+      requestDraw();
+    }
+  });
+
+  const endPointer = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 1) {
+      const [only] = pointers.values();
+      dragLast = { x: only.x, y: only.y };
+    } else if (pointers.size === 0) {
+      dragLast = null;
+      canvas.classList.remove('dragging');
+    }
+  };
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    camGoal = null;
+    cam.dist = Math.max(2.4, Math.min(9.5, cam.dist * (1 + Math.sign(e.deltaY) * 0.08)));
+    requestDraw();
+  }, { passive: false });
+
+  // ----------------------------------------------------------- WebGL resources
+  function buildSceneResources(gl) {
+    const tProg = compileProgram(gl, TERRAIN_VS, TERRAIN_FS);
+    const tVao = gl.createVertexArray();
+    gl.bindVertexArray(tVao);
+    const tVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, tVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, meshData.vertices, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+    const tIbo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tIbo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, meshData.indices, gl.STATIC_DRAW);
+    terrainRes = {
+      prog: tProg, vao: tVao, count: meshData.indices.length,
+      uVP: gl.getUniformLocation(tProg, 'uVP'),
+      uElevScale: gl.getUniformLocation(tProg, 'uElevScale'),
+      uSunDir: gl.getUniformLocation(tProg, 'uSunDir'),
+      uCamPos: gl.getUniformLocation(tProg, 'uCamPos'),
+    };
+
+    const oProg = compileProgram(gl, OVERLAY_VS, OVERLAY_FS);
+    const oVao = gl.createVertexArray();
+    gl.bindVertexArray(oVao);
+    const oVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, oVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 40, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 40, 12);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 40, 28);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 40, 36);
+    overlayRes = {
+      prog: oProg, vao: oVao, vbo: oVbo,
+      uVP: gl.getUniformLocation(oProg, 'uVP'),
+    };
+  }
+
+  function buildOverlayVertices(placements, camBasis, sunDir, elevScale, cardMode) {
+    const out = [];
+    const pushV = (x, y, z, r, g, b, a, lx, ly, kind) => out.push(x, y, z, r, g, b, a, lx, ly, kind);
+    const segs = 16;
+
+    for (const p of placements) {
+      const s = p.station;
+      const isAct = s.id === activeStationId;
+      // 1. Ground drop-shadow ellipse conformed to terrain height and offset away from the sun.
+      const shift = (cardMode === 'flat' ? 0.14 : 0.30);
+      const sx = s.x - sunDir[0] * shift;
+      const sz = s.z - sunDir[2] * shift;
+      const radX = cardMode === 'flat' ? 0.56 : 0.42;
+      const radZ = cardMode === 'flat' ? 0.44 : 0.34;
+      const cy = Math.max(0, terrainHeight(sx, sz)) * elevScale + 0.014;
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * Math.PI * 2, a1 = ((i + 1) / segs) * Math.PI * 2;
+        const x0 = sx + Math.cos(a0) * radX, z0 = sz + Math.sin(a0) * radZ;
+        const x1 = sx + Math.cos(a1) * radX, z1 = sz + Math.sin(a1) * radZ;
+        const y0 = Math.max(0, terrainHeight(x0, z0)) * elevScale + 0.014;
+        const y1 = Math.max(0, terrainHeight(x1, z1)) * elevScale + 0.014;
+        pushV(sx, cy, sz, 0.02, 0.04, 0.08, 0.54, 0, 0, 0);
+        pushV(x0, y0, z0, 0.02, 0.04, 0.08, 0.54, Math.cos(a0), Math.sin(a0), 0);
+        pushV(x1, y1, z1, 0.02, 0.04, 0.08, 0.54, Math.cos(a1), Math.sin(a1), 0);
+      }
+
+      // 2. Ground anchor ring on the landmark peak or harbour spot.
+      const ringR = isAct ? 0.12 : 0.095;
+      const rc = isAct ? [1.0, 0.52, 0.28, 0.95] : [0.58, 0.86, 0.96, 0.90];
+      const gy = p.groundY + 0.018;
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * Math.PI * 2, a1 = ((i + 1) / segs) * Math.PI * 2;
+        const x0 = s.x + Math.cos(a0) * ringR, z0 = s.z + Math.sin(a0) * ringR;
+        const x1 = s.x + Math.cos(a1) * ringR, z1 = s.z + Math.sin(a1) * ringR;
+        const y0 = Math.max(0, terrainHeight(x0, z0)) * elevScale + 0.018;
+        const y1 = Math.max(0, terrainHeight(x1, z1)) * elevScale + 0.018;
+        pushV(s.x, gy, s.z, rc[0], rc[1], rc[2], rc[3], 0, 0, 1);
+        pushV(x0, y0, z0, rc[0], rc[1], rc[2], rc[3], Math.cos(a0), Math.sin(a0), 1);
+        pushV(x1, y1, z1, rc[0], rc[1], rc[2], rc[3], Math.cos(a1), Math.sin(a1), 1);
+      }
+
+      // 3. Camera-aligned vertical pin stem connecting the terrain anchor to the card.
+      const halfW = isAct ? 0.016 : 0.012;
+      const rx = camBasis.right[0] * halfW, ry = camBasis.right[1] * halfW, rz = camBasis.right[2] * halfW;
+      const b0 = [s.x - rx, p.groundY + 0.012 - ry, s.z - rz];
+      const b1 = [s.x + rx, p.groundY + 0.012 + ry, s.z + rz];
+      const t0 = [p.anchor[0] - rx, p.anchor[1] - ry, p.anchor[2] - rz];
+      const t1 = [p.anchor[0] + rx, p.anchor[1] + ry, p.anchor[2] + rz];
+      const sc = isAct ? [1.0, 0.62, 0.42, 0.92] : [0.76, 0.90, 0.98, 0.80];
+      pushV(b0[0], b0[1], b0[2], sc[0], sc[1], sc[2], sc[3], -1, 0, 2);
+      pushV(b1[0], b1[1], b1[2], sc[0], sc[1], sc[2], sc[3],  1, 0, 2);
+      pushV(t0[0], t0[1], t0[2], sc[0], sc[1], sc[2], sc[3], -1, 1, 2);
+      pushV(t0[0], t0[1], t0[2], sc[0], sc[1], sc[2], sc[3], -1, 1, 2);
+      pushV(b1[0], b1[1], b1[2], sc[0], sc[1], sc[2], sc[3],  1, 0, 2);
+      pushV(t1[0], t1[1], t1[2], sc[0], sc[1], sc[2], sc[3],  1, 1, 2);
+    }
+    return new Float32Array(out);
+  }
+
+  function applyHitGeometry(el, canvasMat, cssWidth) {
+    if (!('updateElementGeometry' in canvas)) return;
+    const unit = geometryUnit(canvas, el, cssWidth);
+    const m = new DOMMatrix().scale(unit, unit, 1).multiply(new DOMMatrix(Array.from(canvasMat)));
+    const key = m.toFloat32Array();
+    const prev = lastGeom.get(el);
+    if (prev && key.every((v, i) => Math.abs(v - prev[i]) < 1e-4)) return;
+    lastGeom.set(el, key);
+    canvas.updateElementGeometry(el, { canvasTransform: m });
+    el.dataset.hitTick = el.dataset.hitTick === '1' ? '0' : '1';
+  }
+
+  function showPlainFallback(reason) {
+    mode = 'plain';
+    stageBox.classList.add('fallback');
+    fallbackGrid.hidden = false;
+    for (const s of STATIONS) fallbackGrid.append(s.el);
+    setNotice(reason);
+    hud.textContent = '2D relief + plain HTML fallback';
+    draw2D(false);
+  }
+
+  function restoreCanvasCards() {
+    stageBox.classList.remove('fallback');
+    fallbackGrid.hidden = true;
+    for (const s of STATIONS) canvas.append(s.el);
+    setNotice('');
+  }
+
+  // #region paint
+  function drawWebGL() {
+    if (!stage || !stage.begin([0.05, 0.09, 0.14, 1.0])) return;
+    const gl = stage.gl;
+    if (!cardProg) {
+      cardProg = gl.getParameter(gl.CURRENT_PROGRAM);
+      cardVao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+    }
+    if (!terrainRes) buildSceneResources(gl);
+
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    const elevScale = Number(elevSlider.value) / 100;
+    const sunDir = sunVector(Number(sunSlider.value));
+    const cardMode = modeSelect.value;
+
+    const eye = [
+      cam.tx + cam.dist * Math.cos(cam.pitch) * Math.sin(cam.yaw),
+      cam.ty + cam.dist * Math.sin(cam.pitch),
+      cam.tz + cam.dist * Math.cos(cam.pitch) * Math.cos(cam.yaw),
+    ];
+    const look = mat4LookAt(eye, [cam.tx, cam.ty, cam.tz]);
+    const proj = mat4Perspective(42 * Math.PI / 180, cw / ch, 0.15, 40.0);
+    const vp = mat4Mul(proj, look.view);
+    const camBasis = { eye, ...look };
+
+    // 1. Draw the 3D relief island mesh with depth testing.
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.useProgram(terrainRes.prog);
+    gl.bindVertexArray(terrainRes.vao);
+    gl.uniformMatrix4fv(terrainRes.uVP, false, vp);
+    gl.uniform1f(terrainRes.uElevScale, elevScale);
+    gl.uniform3fv(terrainRes.uSunDir, sunDir);
+    gl.uniform3fv(terrainRes.uCamPos, eye);
+    gl.drawElements(gl.TRIANGLES, terrainRes.count, gl.UNSIGNED_SHORT, 0);
+
+    // 2. Project and depth-sort the four live HTML station cards back-to-front.
+    const placements = STATIONS.map((s) => computeCardPlacement(s, camBasis, vp, cw, ch, elevScale, cardMode));
+    placements.sort((a, b) => b.depth - a.depth);
+
+    // 3. Draw terrain-conformed ground drop shadows, anchor rings and stems.
+    const overlayData = buildOverlayVertices(placements, camBasis, sunDir, elevScale, cardMode);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    gl.useProgram(overlayRes.prog);
+    gl.bindVertexArray(overlayRes.vao);
+    gl.uniformMatrix4fv(overlayRes.uVP, false, vp);
+    gl.bindBuffer(gl.ARRAY_BUFFER, overlayRes.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, overlayData, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.TRIANGLES, 0, overlayData.length / 10);
+
+    // 4. Restore ElementGL's shader and VAO, then draw depth-sorted DOM cards.
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    gl.useProgram(cardProg);
+    gl.bindVertexArray(cardVao);
+
+    const orderKey = placements.map((p) => p.station.id).join(',');
+    const orderChanged = orderKey !== lastOrderKey;
+    if (orderChanged) lastOrderKey = orderKey;
+
+    placements.forEach((p, idx) => {
+      if (orderChanged) p.station.el.style.zIndex = String(idx + 1);
+      const sunTint = cardMode === 'flat' ? 0.92 + 0.14 * sunDir[1] : 0.96 + 0.08 * Math.max(0, dot3(sunDir, [-look.forward[0], 0.25, -look.forward[2]]));
+      const fog = Math.max(0, (p.depth - 4.6) / 7.5);
+      const active = p.station.id === activeStationId ? 1.0 : 0.0;
+      stage.quad(p.station.el, p.clipMat, (g, u) => {
+        g.uniform1f(u('uShade'), sunTint);
+        g.uniform1f(u('uActive'), active);
+        g.uniform1f(u('uFog'), fog);
+      });
+      applyHitGeometry(p.station.el, p.canvasMat, p.w);
+      lastPlaced.set(p.station.id, p);
+    });
+
+    hud.textContent = `WebGL 2 relief · ${paints} paints · ${uploads} uploads · ${cardMode}`;
+  }
+  // #endregion paint
+
+  // --------------------------------------------------- 2D isometric fallback
+  function draw2D(withElements) {
+    if (!ctx2d) ctx2d = canvas.getContext('2d');
+    if (!ctx2d) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    const bw = Math.max(1, Math.round(cw * dpr)), bh = Math.max(1, Math.round(ch * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+
+    ctx2d.save();
+    ctx2d.scale(dpr, dpr);
+    ctx2d.fillStyle = '#0d1722';
+    ctx2d.fillRect(0, 0, cw, ch);
+
+    const elevScale = Number(elevSlider.value) / 100;
+    const sunDir = sunVector(Number(sunSlider.value));
+    const cosY = Math.cos(cam.yaw), sinY = Math.sin(cam.yaw);
+    const scale = Math.min(cw, ch) * (0.92 / Math.max(2.6, cam.dist));
+    const proj2d = (x, y, z) => {
+      const rx = x * cosY - z * sinY;
+      const rz = x * sinY + z * cosY;
+      const sx = cw * 0.5 + rx * scale;
+      const sy = ch * 0.58 + rz * scale * Math.sin(cam.pitch) - y * scale * 0.92;
+      return [sx, sy, rz];
+    };
+
+    // Painter's algorithm isometric relief tiles.
+    const step = 28;
+    const cells = [];
+    for (let iz = 0; iz < step; iz++) {
+      for (let ix = 0; ix < step; ix++) {
+        const x0 = -MAP_HALF + (ix / step) * (MAP_HALF * 2);
+        const z0 = -MAP_HALF + (iz / step) * (MAP_HALF * 2);
+        const x1 = -MAP_HALF + ((ix + 1) / step) * (MAP_HALF * 2);
+        const z1 = -MAP_HALF + ((iz + 1) / step) * (MAP_HALF * 2);
+        const xm = (x0 + x1) * 0.5, zm = (z0 + z1) * 0.5;
+        const hm = terrainHeight(xm, zm);
+        const [, , depth] = proj2d(xm, Math.max(0, hm) * elevScale, zm);
+        cells.push({ x0, z0, x1, z1, xm, zm, hm, depth });
+      }
+    }
+    cells.sort((a, b) => a.depth - b.depth);
+    for (const c of cells) {
+      const p00 = proj2d(c.x0, Math.max(0, terrainHeight(c.x0, c.z0)) * elevScale, c.z0);
+      const p10 = proj2d(c.x1, Math.max(0, terrainHeight(c.x1, c.z0)) * elevScale, c.z0);
+      const p11 = proj2d(c.x1, Math.max(0, terrainHeight(c.x1, c.z1)) * elevScale, c.z1);
+      const p01 = proj2d(c.x0, Math.max(0, terrainHeight(c.x0, c.z1)) * elevScale, c.z1);
+      if (c.hm <= 0.002) {
+        ctx2d.fillStyle = c.hm > -0.05 ? '#266b78' : '#12324d';
+      } else {
+        const [gx, gz] = terrainGrad(c.xm, c.zm);
+        const n = norm3([-gx * elevScale, 1, -gz * elevScale]);
+        const shade = 0.45 + 0.65 * Math.max(0, dot3(n, sunDir));
+        const base = c.hm > 0.62 ? [230, 238, 245] : c.hm > 0.34 ? [132, 124, 116] : c.hm > 0.08 ? [88, 134, 84] : [188, 174, 132];
+        ctx2d.fillStyle = `rgb(${Math.min(255, Math.round(base[0] * shade))},${Math.min(255, Math.round(base[1] * shade))},${Math.min(255, Math.round(base[2] * shade))})`;
+      }
+      ctx2d.beginPath();
+      ctx2d.moveTo(p00[0], p00[1]);
+      ctx2d.lineTo(p10[0], p10[1]);
+      ctx2d.lineTo(p11[0], p11[1]);
+      ctx2d.lineTo(p01[0], p01[1]);
+      ctx2d.closePath();
+      ctx2d.fill();
+    }
+
+    if (withElements) {
+      const items = STATIONS.map((s) => {
+        const gy = Math.max(0, terrainHeight(s.x, s.z)) * elevScale;
+        const [bx, by, depth] = proj2d(s.x, gy, s.z);
+        const [tx, ty] = proj2d(s.x, gy + 0.42, s.z);
+        return { s, bx, by, tx, ty, depth };
+      }).sort((a, b) => a.depth - b.depth);
+
+      for (const it of items) {
+        ctx2d.fillStyle = 'rgba(5, 10, 18, 0.42)';
+        ctx2d.beginPath();
+        ctx2d.ellipse(it.bx - sunDir[0] * 18, it.by - sunDir[2] * 10, 24, 10, 0, 0, Math.PI * 2);
+        ctx2d.fill();
+        ctx2d.strokeStyle = it.s.id === activeStationId ? '#ff8c5a' : '#8ed0ea';
+        ctx2d.lineWidth = 2;
+        ctx2d.beginPath();
+        ctx2d.moveTo(it.bx, it.by);
+        ctx2d.lineTo(it.tx, it.ty);
+        ctx2d.stroke();
+
+        const w = it.s.el.offsetWidth || 184;
+        const h = it.s.el.offsetHeight || 138;
+        const k = Math.max(0.62, Math.min(0.95, 0.78 + it.depth * 0.04));
+        const dw = w * k, dh = h * k;
+        const x = Math.max(4, Math.min(cw - dw - 4, it.tx - dw * 0.5));
+        const y = Math.max(4, Math.min(ch - dh - 4, it.ty - dh));
+        ctx2d.drawElementImage(it.s.el, x, y, dw, dh);
+        const m = new DOMMatrix().translate(x, y).scale(k, k);
+        applyHitGeometry(it.s.el, m.toFloat32Array(), w);
+      }
+      hud.textContent = `2D isometric fallback · ${paints} paints`;
+    }
+    ctx2d.restore();
+  }
+
+  function requestDraw() {
+    if (mode === 'webgl' || mode === '2d') canvas.requestPaint?.();
+    else draw2D(false);
+  }
+
+  // ------------------------------------------------------------------ startup
+  if (glSupported) {
+    try {
+      stage = new ElementGL(canvas, {
+        fragment: CARD_FRAGMENT,
+        attributes: { depth: true, antialias: true },
+        onLost: () => {
+          cardProg = null;
+          cardVao = null;
+          terrainRes = null;
+          overlayRes = null;
+          showPlainFallback('The browser took the WebGL 2 context away. The station cards are shown as plain HTML until it returns.');
+        },
+        onRestored: () => {
+          mode = 'webgl';
+          cardProg = null;
+          cardVao = null;
+          terrainRes = null;
+          overlayRes = null;
+          lastGeom.clear();
+          restoreCanvasCards();
+          canvas.requestPaint?.();
+        },
+      });
+      mode = 'webgl';
+    } catch (err) {
+      if (canvas2dSupported) {
+        mode = '2d';
+        setNotice(`WebGL 2 could not start (${err.message}). Drawing the relief map with the 2D isometric fallback.`);
+      } else {
+        showPlainFallback(`WebGL 2 could not start (${err.message}), and 2D drawElementImage() is unavailable.`);
+      }
+    }
+  } else if (canvas2dSupported) {
+    mode = '2d';
+    setNotice('WebGL 2 texElementSubImage2D() is not available here. Running the 2D isometric relief fallback with drawElementImage().');
+  } else {
+    showPlainFallback('HTML-in-canvas is not enabled in this browser. The relief terrain draws in 2D and the live weather cards sit below as plain HTML.');
+  }
+
+  canvas.addEventListener('paint', (e) => {
+    paints++;
+    if (mode === 'webgl' && stage && !stage.lost) {
+      const changed = new Set(e.changedElements ?? []);
+      for (const s of STATIONS) {
+        if (changed.has(s.el) || !stage.has(s.el)) {
+          stage.upload(s.el);
+          uploads++;
+        }
+      }
+      drawWebGL();
+    } else if (mode === '2d') {
+      draw2D(true);
+    }
+  });
+
+  const ro = new ResizeObserver(() => requestDraw());
+  ro.observe(canvas);
+  requestDraw();
+
+  // ------------------------------------------------------------- live checks
+  function readCanvasViaCopy(srcCanvas) {
+    const copy = document.createElement('canvas');
+    copy.width = srcCanvas.width;
+    copy.height = srcCanvas.height;
+    const c = copy.getContext('2d', { willReadFrequently: true });
+    c.drawImage(srcCanvas, 0, 0);
+    return { copy, data: c.getImageData(0, 0, copy.width, copy.height).data };
+  }
+
+  function makeFixtureCanvas(w = 240, h = 160) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = `display:block;width:${w}px;height:${h}px;`;
+    testStage().append(c);
+    return c;
+  }
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'ElementGL uploads a drawable weather card via texElementSubImage2D()',
+      why: 'Confirms a station card inside an isolated drawable WebGL 2 canvas uploads and draws non-transparent pixels.',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(220, 140);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:140px;height:80px;background:#d2491f;color:#fff;padding:8px;font:700 14px system-ui';
+        card.textContent = 'Summit 1,420 m';
+        c.append(card);
+        const fx = new ElementGL(c, {
+          fragment: CARD_FRAGMENT,
+          attributes: { preserveDrawingBuffer: true },
+        });
+        try {
+          let drawn = 0;
+          c.addEventListener('paint', () => {
+            fx.upload(card);
+            fx.begin([0, 0, 0, 0]);
+            fx.quad(card, ElementGL.rect(c, 20, 20, 140, 80), (g, u) => {
+              g.uniform1f(u('uShade'), 1.0);
+              g.uniform1f(u('uActive'), 0.0);
+              g.uniform1f(u('uFog'), 0.0);
+            });
+            const { data } = readCanvasViaCopy(c);
+            for (let i = 3; i < data.length; i += 16) if (data[i] > 20) drawn++;
+          }, { once: true });
+          await nextPaint(c);
+          if (!fx.has(card)) throw new Error('ElementGL did not record an uploaded texture');
+          if (!drawn) throw new Error('Readback copy found zero non-transparent pixels');
+          return `Uploaded texture for card and measured ${drawn} sampled non-transparent pixels.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Back-to-front depth sorting occludes the farther card',
+      why: 'Draws a far blue card then a near red card at the same centre pixel and checks the closer card wins.',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(200, 140);
+        const farCard = document.createElement('div');
+        farCard.setAttribute('drawable', '');
+        farCard.style.cssText = 'position:absolute;left:0;top:0;width:100px;height:70px;background:#1d4ed8';
+        const nearCard = document.createElement('div');
+        nearCard.setAttribute('drawable', '');
+        nearCard.style.cssText = 'position:absolute;left:0;top:0;width:100px;height:70px;background:#dc2626';
+        c.append(farCard, nearCard);
+        const fx = new ElementGL(c, {
+          fragment: CARD_FRAGMENT,
+          attributes: { preserveDrawingBuffer: true },
+        });
+        try {
+          let centre = [0, 0, 0, 0];
+          c.addEventListener('paint', () => {
+            fx.upload(farCard);
+            fx.upload(nearCard);
+            fx.begin([0, 0, 0, 0]);
+            const cards = [
+              { el: nearCard, depth: 3.0 },
+              { el: farCard, depth: 6.5 },
+            ].sort((a, b) => b.depth - a.depth);
+            for (const item of cards) {
+              fx.quad(item.el, ElementGL.rect(c, 50, 35, 100, 70), (g, u) => {
+                g.uniform1f(u('uShade'), 1.0);
+                g.uniform1f(u('uActive'), 0.0);
+                g.uniform1f(u('uFog'), 0.0);
+              });
+            }
+            const { copy, data } = readCanvasViaCopy(c);
+            const idx = (Math.floor(copy.height / 2) * copy.width + Math.floor(copy.width / 2)) * 4;
+            centre = [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]];
+          }, { once: true });
+          await nextPaint(c);
+          if (!(centre[0] > 170 && centre[2] < 80)) {
+            throw new Error(`Expected near red card at centre, got rgba(${centre.join(',')})`);
+          }
+          return `Centre pixel rgba(${centre.join(',')}) matches the closer card.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Projective updateElementGeometry() maps clicks to a 3D-placed button',
+      why: 'Projects a card with the page 3D camera math, updates its hit box and toggles data-hit-tick, then checks elementFromPoint().',
+      run: async () => {
+        if (!canvas2dSupported || !('updateElementGeometry' in HTMLCanvasElement.prototype)) {
+          throw new Error('updateElementGeometry() is not available');
+        }
+        const c = makeFixtureCanvas(240, 160);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:120px;height:64px;background:#132230;display:flex;align-items:center;justify-content:center';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Peak';
+        btn.style.cssText = 'width:80px;height:36px';
+        card.append(btn);
+        c.append(card);
+        try {
+          const ctx = c.getContext('2d');
+          c.addEventListener('paint', () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 3);
+            c.width = Math.round(240 * dpr);
+            c.height = Math.round(160 * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.drawElementImage(card, 70, 48, 120, 64);
+            const unit = geometryUnit(c, card, 120);
+            const m = new DOMMatrix().scale(unit, unit, 1).translate(70, 48);
+            c.updateElementGeometry(card, { canvasTransform: m });
+            card.dataset.hitTick = card.dataset.hitTick === '1' ? '0' : '1';
+          }, { once: true });
+          await nextPaint(c);
+          const rect = c.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.left + 70 + 60, rect.top + 48 + 32);
+          if (hit !== btn) throw new Error(`elementFromPoint returned <${hit?.tagName?.toLowerCase() ?? 'null'}> instead of <button>`);
+          return `Hit test at projected button centre resolved to <button> "Peak".`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Editing a station card input triggers a paint event with changedElements',
+      why: 'Confirms typing or mutating a field note marks the drawable card dirty for re-upload.',
+      run: async () => {
+        if (!canvas2dSupported) throw new Error('HTML-in-canvas is not available');
+        const c = makeFixtureCanvas(220, 120);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:160px;height:60px;padding:8px;background:#101d2a;color:#fff';
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.value = 'Clear';
+        inp.setAttribute('inputmode', 'none');
+        card.append(inp);
+        c.append(card);
+        try {
+          const ctx = c.getContext('2d');
+          c.addEventListener('paint', () => {
+            c.width = 220;
+            c.height = 120;
+            ctx.drawElementImage(card, 10, 10, 160, 60);
+          });
+          await nextPaint(c);
+          const changedPromise = new Promise((resolve) => {
+            c.addEventListener('paint', (e) => resolve(new Set(e.changedElements ?? [])), { once: true });
+          });
+          inp.value = 'Snow squall';
+          card.style.borderColor = '#ff7a4d';
+          const changed = await changedPromise;
+          if (!changed.has(card)) throw new Error('paint fired without listing the mutated card in changedElements');
+          return `Mutating the card input raised paint with changedElements containing the station card.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Procedural heightfield ranks landmarks and responds to sun azimuth',
+      why: 'Verifies deterministic terrain elevations and opposite sun azimuth hillshading with no network tiles.',
+      run: async () => {
+        const hs = Object.fromEntries(STATIONS.map((s) => [s.id, terrainHeight(s.x, s.z)]));
+        if (!(hs.summit > hs.ridge && hs.ridge > hs.cove && hs.cove > hs.harbour && hs.harbour > 0)) {
+          throw new Error(`Unexpected elevation order: ${JSON.stringify(hs)}`);
+        }
+        const [gx, gz] = terrainGrad(0.45, -0.35);
+        const n = norm3([-gx, 1, -gz]);
+        const eastSun = dot3(n, sunVector(60));
+        const westSun = dot3(n, sunVector(240));
+        if (Math.abs(eastSun - westSun) < 0.08) {
+          throw new Error(`Sun azimuth barely changed hillshade (${eastSun.toFixed(3)} vs ${westSun.toFixed(3)})`);
+        }
+        return `Heights: summit ${hs.summit.toFixed(2)}, ridge ${hs.ridge.toFixed(2)}, cove ${hs.cove.toFixed(2)}, harbour ${hs.harbour.toFixed(2)}. Slope shade 60°=${eastSun.toFixed(2)} vs 240°=${westSun.toFixed(2)}.`;
+      },
+    },
+    {
+      name: '2D fallback draws a live card with five-argument drawElementImage()',
+      why: 'Confirms the scaled 2D fallback draws non-transparent pixels without setting willReadFrequently on the drawable canvas.',
+      run: async () => {
+        if (!canvas2dSupported) throw new Error('2D drawElementImage() is not available');
+        const c = makeFixtureCanvas(200, 120);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:140px;height:70px;background:#1f7a3a;color:#fff;padding:8px';
+        card.textContent = 'West Harbour 12 m';
+        c.append(card);
+        try {
+          const ctx = c.getContext('2d');
+          let ink = 0;
+          c.addEventListener('paint', () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 3);
+            c.width = Math.round(200 * dpr);
+            c.height = Math.round(120 * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.drawElementImage(card, 16, 16, card.offsetWidth, card.offsetHeight);
+            const { data } = readCanvasViaCopy(c);
+            for (let i = 3; i < data.length; i += 16) if (data[i] > 20) ink++;
+          }, { once: true });
+          await nextPaint(c);
+          if (!ink) throw new Error('2D fallback readback copy had zero non-transparent pixels');
+          return `2D drawElementImage() painted ${ink} sampled non-transparent pixels.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

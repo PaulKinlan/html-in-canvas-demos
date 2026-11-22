@@ -1,0 +1,1909 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Temporal display shaders: E-Ink, Playdate crank and Game Boy LCD</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A live scrolling HTML reader drawn through one WebGL 2 canvas with ping-pong feedback framebuffers.">
+<link rel="canonical" href="https://html-in-canvas.page/retro-display/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Temporal display shaders: E-Ink, Playdate crank and Game Boy LCD">
+<meta property="og:description" content="A live scrolling HTML reader drawn through one WebGL 2 canvas with ping-pong feedback framebuffers.">
+<meta property="og:url" content="https://html-in-canvas.page/retro-display/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Temporal display shaders: E-Ink, Playdate crank and Game Boy LCD&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Temporal display shaders: E-Ink, Playdate crank and Game Boy LCD">
+<meta name="twitter:description" content="A live scrolling HTML reader drawn through one WebGL 2 canvas with ping-pong feedback framebuffers.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Temporal display shaders: E-Ink, Playdate crank and Game Boy LCD&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/retro-display/",
+   "url": "https://html-in-canvas.page/retro-display/",
+   "mainEntityOfPage": "https://html-in-canvas.page/retro-display/",
+   "headline": "Temporal display shaders: E-Ink, Playdate crank and Game Boy LCD",
+   "name": "Temporal display shaders: E-Ink, Playdate crank and Game Boy LCD",
+   "description": "A live scrolling HTML reader drawn through one WebGL 2 canvas with ping-pong feedback framebuffers. Switch between E-Ink Carta partial-refresh ghosting with a full black flash, a 1-bit Playdate screen with a draggable rotary crank, and a 4-shade olive Game Boy DMG-01 LCD with slow pixel persistence.",
+   "abstract": "Can a WebGL 2 ping-pong feedback shader give live interactive HTML real temporal hardware screen behaviour \u0028E-Ink partial-refresh ghosting and full black flash, 1-bit Playdate crank scrolling, and 4-shade Game Boy DMG persistence) that stateless CSS filters cannot express?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "WebGL, texElementSubImage2D, feedback, dithering, E-Ink, Playdate, Game Boy, texElementSubImage2D\u0028), updateElementGeometry\u0028), requestPaint\u0028), getElementImageDefaultSize\u0028), drawElementImage\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Temporal display shaders: E-Ink, Playdate crank and Game Boy LCD",
+     "item": "https://html-in-canvas.page/retro-display/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .rd-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 680px;
+    margin: 0 auto;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  #rd-canvas {
+    display: block;
+    width: 100%;
+    height: 420px;
+    background: var(--card);
+    border-radius: 12px;
+  }
+  @media (min-width: 640px) {
+    #rd-canvas { height: 460px; }
+  }
+  .rd-wrap.plain #rd-canvas { display: none; }
+  .rd-wrap.plain #rd-screen {
+    width: 100% !important;
+    height: 400px !important;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  /* Live scrollable HTML reader hosted inside the drawable canvas */
+  #rd-screen {
+    box-sizing: border-box;
+    width: 320px;
+    height: 360px;
+    margin: 0;
+    padding: 14px 16px 24px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    background: #ffffff;
+    color: #111111;
+    font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    scrollbar-width: thin;
+    scrollbar-color: #333 #e5e5e5;
+  }
+  #rd-screen h2 {
+    margin: 0 0 6px;
+    font-size: 20px;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: #000000;
+  }
+  #rd-screen h3 {
+    margin: 14px 0 6px;
+    font-size: 15px;
+    line-height: 1.25;
+    color: #000000;
+    border-bottom: 2px solid #111111;
+    padding-bottom: 3px;
+  }
+  #rd-screen p {
+    margin: 0 0 10px;
+    color: #141414;
+  }
+  .rd-hero {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    margin: 0 0 12px;
+    border: 2px solid #111111;
+    border-radius: 6px;
+    background: linear-gradient(125deg, #f7f7f7 0%, #d2d2d2 55%, #8a8a8a 100%);
+    color: #000000;
+  }
+  .rd-hero.inverted {
+    background: linear-gradient(125deg, #101010 0%, #2c2c2c 60%, #525252 100%);
+    color: #ffffff;
+  }
+  .rd-hero.inverted h2,
+  .rd-hero.inverted .rd-meta {
+    color: #ffffff;
+  }
+  .rd-hero svg {
+    flex: none;
+    width: 56px;
+    height: 56px;
+    border: 2px solid currentColor;
+    border-radius: 6px;
+    background: #ffffff;
+  }
+  .rd-meta {
+    font: 600 11px/1.3 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #222222;
+    margin-bottom: 3px;
+  }
+  .rd-tool-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin: 0 0 10px;
+  }
+  #rd-screen input[type="search"] {
+    flex: 1 1 150px;
+    min-width: 0;
+    min-height: 36px;
+    padding: 6px 10px;
+    border: 2px solid #111111;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #000000;
+    font: 14px system-ui, sans-serif;
+  }
+  #rd-screen button {
+    min-height: 36px;
+    padding: 6px 11px;
+    border: 2px solid #111111;
+    border-radius: 5px;
+    background: #111111;
+    color: #ffffff;
+    font: 600 13px system-ui, sans-serif;
+    cursor: pointer;
+  }
+  #rd-screen button.ghost-btn {
+    background: #ffffff;
+    color: #111111;
+  }
+  .rd-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin: 0 0 10px;
+    padding: 8px 10px;
+    border: 1.5px solid #222222;
+    border-radius: 5px;
+    background: #f2f2f2;
+    font-size: 13px;
+  }
+  .rd-checks label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    cursor: pointer;
+    color: #111111;
+  }
+  .rd-counter-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 12px;
+    margin: 10px 0;
+    border: 2px solid #111111;
+    border-radius: 6px;
+    background: #e9e9e9;
+  }
+  .rd-big-num {
+    font: 700 34px/1 var(--mono);
+    letter-spacing: -0.03em;
+    color: #000000;
+  }
+  .rd-ramp {
+    height: 22px;
+    margin: 8px 0 4px;
+    border: 2px solid #111111;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #000000 0%, #555555 35%, #aaaaaa 70%, #ffffff 100%);
+  }
+  .rd-ramp-caption {
+    font: 11px/1.3 var(--mono);
+    color: #222222;
+    margin-bottom: 10px;
+  }
+  .rd-diagram {
+    padding: 10px;
+    margin: 10px 0;
+    border: 2px dashed #222222;
+    border-radius: 6px;
+    background: #fafafa;
+  }
+  .rd-diagram[hidden] { display: none; }
+  #rd-note-echo {
+    display: block;
+    min-height: 1.4em;
+    margin: 0 0 8px;
+    font: 600 12.5px/1.35 var(--mono);
+    color: #111111;
+  }
+  #rd-screen.high-contrast {
+    background: #ffffff;
+    font-weight: 600;
+  }
+  #rd-screen.high-contrast .rd-checks,
+  #rd-screen.high-contrast .rd-counter-box {
+    background: #ffffff;
+  }
+
+  /* Playdate rotary crank interactive hit target positioned over the right bezel */
+  #crank-pad {
+    position: absolute;
+    touch-action: none;
+    cursor: grab;
+    border-radius: 14px;
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+  #crank-pad:active { cursor: grabbing; }
+  #crank-pad:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+  #crank-pad[hidden] { display: none; }
+
+  /* Controls beneath the stage */
+  .rd-controls {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .rd-modes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .rd-modes button {
+    min-height: 40px;
+    padding: 6px 13px;
+    font-weight: 600;
+    touch-action: manipulation;
+  }
+  .rd-modes button[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .rd-action-btn {
+    min-height: 40px;
+    padding: 6px 13px;
+    touch-action: manipulation;
+  }
+  .rd-sliders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 18px;
+    align-items: center;
+  }
+  .rd-slider {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    font-size: 14px;
+  }
+  .rd-slider input[type="range"] {
+    width: 124px;
+    height: 28px;
+    margin: 0;
+  }
+  .rd-slider output {
+    min-width: 3.2em;
+    font: 13px var(--mono);
+    color: var(--muted);
+  }
+  .rd-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .rd-crank-btns {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .rd-crank-btns[hidden] { display: none; }
+  .rd-status {
+    display: block;
+    margin-top: 10px;
+    min-height: 2.8em;
+    font: 13px/1.45 var(--mono);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .rd-notice {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+  }
+  .rd-notice[hidden] { display: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Temporal display shaders: E-Ink, Playdate crank and Game Boy LCD</h1>
+  <p class="lede">
+    I wanted to know if a WebGL 2 ping-pong feedback shader could give live interactive HTML the temporal behaviour of hardware screens that stateless CSS filters can't express.
+    Scroll, type, tick the boxes or press the buttons inside the screen below, then switch between E-Ink Carta partial-refresh ghosting with a full black flash, a 1-bit Playdate LCD driven by a draggable rotary crank, and a 4-shade olive Game Boy DMG-01 LCD with slow pixel persistence.
+  </p>
+
+  <div class="stage">
+    <!-- #region stage-markup -->
+    <div id="rd-wrap" class="rd-wrap">
+      <canvas id="rd-canvas" content="drawable" layoutsubtree>
+        <div id="rd-screen" drawable>
+          <div id="rd-hero" class="rd-hero">
+            <svg viewBox="0 0 64 64" width="56" height="56" aria-hidden="true">
+              <defs>
+                <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#333333"/>
+                  <stop offset="60%" stop-color="#aaaaaa"/>
+                  <stop offset="100%" stop-color="#f2f2f2"/>
+                </linearGradient>
+              </defs>
+              <rect x="0" y="0" width="64" height="64" fill="url(#skyGrad)"/>
+              <circle cx="48" cy="15" r="8" fill="#ffffff" stroke="#111111" stroke-width="2"/>
+              <path d="M24 54 L28 22 L36 22 L40 54 Z" fill="#ffffff" stroke="#111111" stroke-width="2.5"/>
+              <rect x="26" y="15" width="12" height="7" fill="#111111"/>
+              <path d="M24 15 L32 8 L40 15 Z" fill="#111111"/>
+              <path d="M4 54 Q18 48 32 54 T60 54 L64 64 L0 64 Z" fill="#222222"/>
+            </svg>
+            <div>
+              <div id="rd-chapter-label" class="rd-meta">Chapter 1 of 3 &middot; Hardware field notes</div>
+              <h2 id="rd-title">Electrophoretic ink and partial refresh</h2>
+            </div>
+          </div>
+
+          <div class="rd-tool-row">
+            <input type="search" id="rd-note" placeholder="Type a note to leave ghosting..." aria-label="Note inside the hardware screen">
+            <button type="button" id="rd-next-ch">Next chapter</button>
+            <button type="button" id="rd-count-btn" class="ghost-btn">Counter: 0</button>
+          </div>
+          <output id="rd-note-echo" aria-live="polite">Typed notes appear here so you can watch old letters linger on the panel.</output>
+
+          <div class="rd-checks">
+            <label><input type="checkbox" id="rd-invert-hero"> Invert header band</label>
+            <label><input type="checkbox" id="rd-show-diagram" checked> Show halftone ramp</label>
+            <label><input type="checkbox" id="rd-bold-print"> Bold ink</label>
+          </div>
+
+          <div class="rd-counter-box">
+            <div>
+              <div class="rd-meta">Live DOM counter</div>
+              <div>Tap Counter or Next chapter to layer ghosting over previous digits.</div>
+            </div>
+            <div id="rd-big-num" class="rd-big-num">00</div>
+          </div>
+
+          <div id="rd-diagram" class="rd-diagram">
+            <div class="rd-meta">0% to 100% luminance ramp (4x4 Bayer check)</div>
+            <div class="rd-ramp"></div>
+            <div class="rd-ramp-caption">E-Ink quantises to 16 warm greys; Playdate thresholds to 1-bit dots; DMG-01 maps to 4 olive steps.</div>
+          </div>
+
+          <div id="rd-body">
+            <h3>Why partial refresh leaves ghosts</h3>
+            <p>
+              E-Ink Pearl and Carta panels hold black and white pigment capsules suspended in microcapsules.
+              A fast partial refresh pulses only the pixels that changed, so you can turn a page or type without a full-screen blink.
+              Some dark pigment stays near the top of the capsule, leaving a faint outline of the old headline until a full black-to-white waveform resets the layer.
+            </p>
+            <h3>Stateful pixels from live HTML</h3>
+            <p>
+              A stateless CSS filter only sees the current frame.
+              Here the browser paints this scrolling article into a WebGL 2 texture with <code>texElementSubImage2D()</code>, and a ping-pong framebuffer mixes it with the display state left behind by earlier frames.
+            </p>
+            <h3>Select text or scroll further</h3>
+            <p>
+              Every button, checkbox, search field and paragraph inside this panel is interactive HTML.
+              Try highlighting a sentence, typing in the field above, or switching to Playdate mode and turning the rotary crank on the right bezel to scroll down to the end of this note.
+            </p>
+            <h3>Bottom of the field note</h3>
+            <p>
+              Once you reach the bottom, scroll back up quickly in E-Ink mode to inspect the ghosted horizontal rules, or switch to Game Boy DMG mode to watch the dark borders trail behind as olive smears.
+            </p>
+          </div>
+        </div>
+      </canvas>
+      <div id="crank-pad" role="slider" tabindex="0" aria-label="Playdate rotary crank" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden></div>
+    </div>
+    <!-- #endregion stage-markup -->
+
+    <div class="rd-controls">
+      <div class="row">
+        <div class="rd-modes" role="group" aria-label="Display hardware mode">
+          <button type="button" data-mode="0" aria-pressed="true">E-Ink Carta</button>
+          <button type="button" data-mode="1" aria-pressed="false">Playdate + Crank</button>
+          <button type="button" data-mode="2" aria-pressed="false">Game Boy DMG</button>
+        </div>
+        <button type="button" id="btn-flash" class="rd-action-btn">Full E-Ink flash</button>
+        <div id="crank-btns" class="rd-crank-btns" hidden>
+          <button type="button" id="btn-crank-ccw" class="rd-action-btn">Crank -45 deg</button>
+          <button type="button" id="btn-crank-cw" class="rd-action-btn">Crank +45 deg</button>
+        </div>
+      </div>
+
+      <div class="row rd-sliders">
+        <label class="rd-slider">
+          Ghosting / persistence
+          <input type="range" id="ctl-ghost" min="0" max="90" value="52">
+          <output id="out-ghost">52%</output>
+        </label>
+        <label class="rd-slider">
+          Pixel scale
+          <input type="range" id="ctl-scale" min="1" max="4" step="0.25" value="1">
+          <output id="out-scale">1.0x</output>
+        </label>
+        <label class="rd-check">
+          <input type="checkbox" id="ctl-autoflash">
+          Auto flash every 8 updates
+        </label>
+      </div>
+    </div>
+
+    <output id="rd-status" class="rd-status" aria-live="polite">Starting display shader...</output>
+    <p id="rd-notice" class="rd-notice" hidden></p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>ping-pong WebGL 2 feedback, Bayer dithering, rotary crank and hit sync</small></summary>
+    <ol>
+      <li data-code="#stage-markup"><b>The drawable canvas and live scrollable reader.</b> One <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> wraps <code>#rd-screen</code>, with an accessible crank pad overlaid on the right bezel in Playdate mode.</li>
+      <li data-code="#feedback-shader"><b>The ping-pong feedback fragment shader.</b> Keeps E-Ink pigment ghosting across partial updates, runs the 220 ms black-to-white clearing waveform, and simulates slow passive-matrix LCD decay for Game Boy DMG.</li>
+      <li data-code="#display-shader"><b>The display and hardware bezel shader.</b> Applies 4x4 ordered Bayer dithering, Playdate 1-bit Sharp Memory LCD grid, Game Boy 4-shade olive dot matrix, and SDF rendering for the bezel and Playdate rotary crank.</li>
+      <li data-code="#ping-pong"><b>Two RGBA8 framebuffers on one <code>ElementGL</code> context.</b> Uploads the element once via <code>gl.texElementSubImage2D()</code>, runs the feedback pass off screen, and draws the full shell on screen.</li>
+      <li data-code="#hit-sync"><b>Syncing hit boxes after drawing.</b> Updates <code>updateElementGeometry()</code> and toggles <code>dataset.hitTick</code> so taps, typing and text selection hit the rendered screen rectangle.</li>
+      <li data-code="#crank-input"><b>Playdate rotary crank input.</b> Tracks circular pointer drags with <code>setPointerCapture()</code>, wheel ticks and keyboard arrows to drive <code>#rd-screen.scrollTop</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    This experiment builds on <a href="/canvas-skin/">/canvas-skin/</a> (styling live controls through shaders) and <a href="/time-scrubber/">/time-scrubber/</a> (keeping temporal history across frames), and draws directly from three hardware screens: E-Ink Pearl and Carta partial-refresh panels, Panic's Playdate handheld (1-bit Sharp Memory LCD with a physical rotary crank), and Nintendo's Game Boy DMG-01 4-shade passive-matrix LCD.
+  </p>
+  <p>
+    CSS filters and SVG filter chains are stateless: they transform the current frame's pixels and forget every frame before it.
+    To model real E-Ink ghosting or passive-matrix LCD trails, the renderer has to remember what was on screen on the previous update.
+    I used one WebGL 2 context created with <code>new ElementGL(canvas, ...)</code> from <code>/lib/element-gl.js</code> and allocated two small RGBA8 ping-pong framebuffers on <code>stage.gl</code>.
+  </p>
+  <p>
+    Each time <code>#rd-screen</code> paints, scrolls or changes, <code>ElementGL.upload()</code> copies its picture into a WebGL texture via <code>gl.texElementSubImage2D()</code>.
+    Pass 1 runs the feedback shader into the back framebuffer, reading both the live texture and the previous state texture.
+    In E-Ink mode it deposits lingering dark ghosting in the green channel whenever a dark pixel clears to white, holds that ghost while the panel is idle, and wipes it to zero during the 220 ms black-to-white full refresh waveform.
+    In Game Boy DMG mode it blends the live luminance toward the previous state with an asymmetric decay factor over a short settling loop, then stops requesting animation frames once the trail settles.
+  </p>
+  <p>
+    Pass 2 draws the entire handheld shell and screen in one quad using <code>ElementGL.quad()</code>: 4x4 ordered Bayer dithering, a 16-level warm paper ramp for E-Ink, razor-sharp 1-bit monochrome (<code>#c7c3b8</code> and <code>#2c2b28</code>) with a pixel grid and SDF rotary crank for Playdate, and the 4-shade olive palette (<code>#9bbc0f</code>, <code>#8bac0f</code>, <code>#306230</code>, <code>#0f380f</code>) with subpixel gaps and cast pixel shadow for Game Boy DMG-01.
+    After sizing or switching modes, the page calls <code>canvas.updateElementGeometry(screen, { canvasTransform })</code> and increments <code>screen.dataset.hitTick</code> so clicks, focus, typing and scrolling land inside the rendered screen box.
+  </p>
+  <p>
+    If WebGL 2 isn't available, the page falls back to a 2D canvas drawing <code>#rd-screen</code> with 5-argument <code>drawElementImage()</code> and copying into a plain non-drawable <code>willReadFrequently: true</code> scratch canvas for ordered Bayer dithering on each paint.
+    If the HTML-in-canvas API isn't enabled or the WebGL context is lost, <code>#rd-screen</code> moves out of the canvas so the reader stays usable as plain HTML until the context returns.
+  </p>
+
+  <h2>Live checks</h2>
+  <p>These checks build their own small fixtures on the test stage and retire every canvas afterwards. Tap the button below to run them in this browser.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Not verified yet in a live browser: none of the checks or visual modes have been run in Chromium 157 or on Chrome 159 for Android yet. Open the page in a browser with HTML-in-canvas enabled and run the live checks above to record measured results.</li>
+    <li>Credits and inspirations: E-Ink Pearl and Carta partial-refresh waveforms, Panic's Playdate handheld (1-bit Sharp Memory LCD and physical rotary crank), Nintendo's Game Boy DMG-01 4-shade passive-matrix LCD, plus <a href="/canvas-skin/">/canvas-skin/</a> and <a href="/time-scrubber/">/time-scrubber/</a> on this site.</li>
+    <li>One <code>ElementGL</code> context is enough for both element uploads and off-screen ping-pong framebuffers. Reusing <code>stage.gl</code> avoids opening a second WebGL context and keeps total GPU memory well under the mobile budget.</li>
+    <li>Mounting the Playdate crank hit target (<code>#crank-pad</code>) as a sibling element over the right bezel with <code>touch-action: none</code> lets circular touch drags spin <code>#rd-screen.scrollTop</code> without blocking native touch scrolling or text selection inside the screen.</li>
+    <li>Because E-Ink ghosting only steps when the DOM updates and Game Boy DMG stops its settling loop after trails fade out, the canvas draws zero frames at rest.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint } from '/shared/support.js';
+  import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+  banner();
+
+  const wrap = document.getElementById('rd-wrap');
+  const canvas = document.getElementById('rd-canvas');
+  const screen = document.getElementById('rd-screen');
+  const crankPad = document.getElementById('crank-pad');
+  const statusEl = document.getElementById('rd-status');
+  const noticeEl = document.getElementById('rd-notice');
+
+  const modeButtons = [...document.querySelectorAll('.rd-modes button')];
+  const btnFlash = document.getElementById('btn-flash');
+  const crankBtns = document.getElementById('crank-btns');
+  const btnCrankCcw = document.getElementById('btn-crank-ccw');
+  const btnCrankCw = document.getElementById('btn-crank-cw');
+  const ctlGhost = document.getElementById('ctl-ghost');
+  const outGhost = document.getElementById('out-ghost');
+  const ctlScale = document.getElementById('ctl-scale');
+  const outScale = document.getElementById('out-scale');
+  const ctlAutoFlash = document.getElementById('ctl-autoflash');
+
+  // Interactive reader content inside #rd-screen
+  const heroEl = document.getElementById('rd-hero');
+  const chapterLabel = document.getElementById('rd-chapter-label');
+  const titleEl = document.getElementById('rd-title');
+  const bodyEl = document.getElementById('rd-body');
+  const noteInput = document.getElementById('rd-note');
+  const noteEcho = document.getElementById('rd-note-echo');
+  const nextChBtn = document.getElementById('rd-next-ch');
+  const countBtn = document.getElementById('rd-count-btn');
+  const bigNum = document.getElementById('rd-big-num');
+  const invertHero = document.getElementById('rd-invert-hero');
+  const showDiagram = document.getElementById('rd-show-diagram');
+  const diagramEl = document.getElementById('rd-diagram');
+  const boldPrint = document.getElementById('rd-bold-print');
+
+  const CHAPTERS = [
+    {
+      label: 'Chapter 1 of 3 \u00b7 E-Ink Carta notes',
+      title: 'Electrophoretic ink and partial refresh',
+      html: `
+        <h3>Why partial refresh leaves ghosts</h3>
+        <p>E-Ink Pearl and Carta panels hold black and white pigment particles inside microcapsules. A fast partial refresh pulses only the changed cells, so you can scroll or type without a full-screen blink. Residual dark pigment stays near the viewing surface, leaving faint ghosts of old lines until a full black-to-white waveform clears the panel.</p>
+        <h3>Stateful pixels from live HTML</h3>
+        <p>A stateless CSS filter only sees the current frame. Here the browser paints this scrolling article into a WebGL 2 texture with <code>texElementSubImage2D()</code>, and a ping-pong framebuffer blends it with the state left behind by earlier updates.</p>
+        <h3>Try scrolling and typing</h3>
+        <p>Every button, checkbox, input field and paragraph inside this box is interactive HTML. Type in the field above, toggle Invert header band, or press Counter to stamp new digits on top of lingering ink ghosts.</p>
+        <h3>Bottom of chapter 1</h3>
+        <p>Scroll back up quickly in E-Ink mode to inspect the ghosted borders, then press Full E-Ink flash to watch the 220 ms clearing waveform wipe them clean.</p>
+      `,
+    },
+    {
+      label: 'Chapter 2 of 3 \u00b7 Playdate 1-bit notes',
+      title: 'Sharp Memory LCD and rotary crank',
+      html: `
+        <h3>One bit per pixel, zero backlight</h3>
+        <p>Panic's Playdate uses a reflective 1-bit Sharp Memory LCD. Every pixel is strictly on or off, so photos, gradients and anti-aliased type rely on ordered Bayer dithering to read as mid-tones without muddy grey.</p>
+        <h3>Dragging the right-bezel crank</h3>
+        <p>Switch to Playdate + Crank mode and drag in circles over the metallic crank on the yellow bezel. Pointer capture converts your circular motion into signed angle steps and writes directly to <code>#rd-screen.scrollTop</code>.</p>
+        <h3>Live controls keep working</h3>
+        <p>Even under hard 1-bit dithering and custom pixel scaling, <code>updateElementGeometry()</code> keeps the hit box aligned with the recessed screen. You can still select these lines, tick checkboxes or press Next chapter.</p>
+        <h3>Bottom of chapter 2</h3>
+        <p>Try spinning the crank backwards to rewind smoothly to the header, or turn up the Ghosting slider to exaggerate temporal trails on the 1-bit surface.</p>
+      `,
+    },
+    {
+      label: 'Chapter 3 of 3 \u00b7 Game Boy DMG-01 notes',
+      title: 'Four olive shades and STN persistence',
+      html: `
+        <h3>Passive-matrix liquid crystal smear</h3>
+        <p>Nintendo's 1989 Game Boy DMG-01 used a reflective supertwisted nematic (STN) LCD with four olive-green shades. Its liquid crystals switched slowly enough that moving sprites and scrolling text left dark trails across several frames.</p>
+        <h3>Asymmetric rise and fall</h3>
+        <p>In Game Boy DMG mode the feedback pass blends each live pixel against the previous framebuffer state with a slower fall time than rise time, so dark ink lingers as it fades back toward <code>#9bbc0f</code>.</p>
+        <h3>Subpixel gaps and glass shadow</h3>
+        <p>Raise the Pixel scale slider to 2.5x or 3.5x to see the dot-matrix gaps between liquid crystal cells and the faint offset shadow cast onto the reflective backing plate behind the glass.</p>
+        <h3>Bottom of chapter 3</h3>
+        <p>Tap Counter several times in a row to see each numeral dissolve through the four olive shades as the settling loop runs down to rest.</p>
+      `,
+    },
+  ];
+
+  let chapterIdx = 0;
+  let counterVal = 0;
+
+  // #region feedback-shader
+  const FEEDBACK_VERT = `#version 300 es
+  in vec2 aPos;
+  out vec2 vUv;
+  void main() {
+    vUv = aPos;
+    gl_Position = vec4(aPos * 2.0 - 1.0, 0.0, 1.0);
+  }`;
+
+  const FEEDBACK_FRAG = `#version 300 es
+  precision highp float;
+  uniform sampler2D uLive;
+  uniform sampler2D uPrev;
+  uniform int uMode;
+  uniform float uGhost;
+  uniform float uDt;
+  uniform int uFirst;
+  uniform int uDomChanged;
+  uniform float uFlash;
+  in vec2 vUv;
+  out vec4 outColor;
+
+  float luma(vec4 c) {
+    vec3 rgb = c.rgb + vec3(1.0 - c.a);
+    return clamp(dot(rgb, vec3(0.299, 0.587, 0.114)), 0.0, 1.0);
+  }
+
+  void main() {
+    float live = luma(texture(uLive, vUv));
+    if (uFirst == 1) {
+      outColor = vec4(live, 0.0, live, 1.0);
+      return;
+    }
+    vec4 prev = texture(uPrev, vUv);
+    float prevDisp = prev.r;
+    float prevGhost = prev.g;
+    float prevLive = prev.b;
+
+    if (uMode == 0) {
+      // E-Ink Carta partial-refresh ghosting and 220 ms full black flash waveform
+      if (uFlash > 0.0) {
+        float disp = live;
+        if (uFlash < 0.36) {
+          disp = mix(1.0 - prevDisp, 0.03, smoothstep(0.06, 0.30, uFlash));
+        } else if (uFlash < 0.68) {
+          disp = mix(0.03, 0.99, smoothstep(0.36, 0.52, uFlash));
+        } else {
+          disp = mix(0.99, live, smoothstep(0.68, 0.96, uFlash));
+        }
+        outColor = vec4(disp, 0.0, live, 1.0);
+        return;
+      }
+      float ghost = prevGhost;
+      if (uDomChanged == 1) {
+        float delta = live - prevLive;
+        if (delta > 0.05) {
+          float deposit = delta * (0.14 + uGhost * 0.72);
+          ghost = clamp(ghost * 0.92 + deposit, 0.0, 0.82);
+        } else if (delta < -0.05) {
+          ghost = ghost * 0.72;
+        } else {
+          ghost = ghost * 0.99;
+        }
+      }
+      float disp = clamp(live - ghost * 0.54, 0.0, 1.0);
+      outColor = vec4(disp, ghost, live, 1.0);
+    } else if (uMode == 1) {
+      // Playdate Sharp Memory LCD: fast 1-bit response with optional trail
+      float rate = clamp(uGhost * 0.85, 0.0, 0.92);
+      float keep = pow(rate, clamp(uDt * 60.0, 0.25, 4.0));
+      float disp = mix(live, prevDisp, keep);
+      outColor = vec4(disp, 0.0, live, 1.0);
+    } else {
+      // Game Boy DMG-01 passive-matrix STN LCD: slow asymmetric persistence
+      float baseKeep = mix(0.45, 0.95, uGhost);
+      float keep = pow(baseKeep, clamp(uDt * 60.0, 0.25, 4.0));
+      float k = live < prevDisp ? keep * 0.82 : keep;
+      float disp = mix(live, prevDisp, k);
+      outColor = vec4(disp, 0.0, live, 1.0);
+    }
+  }`;
+  // #endregion feedback-shader
+
+  // #region display-shader
+  const DISPLAY_FRAG = `#version 300 es
+  precision highp float;
+  uniform sampler2D uTex;
+  uniform sampler2D uState;
+  uniform vec2 uSize;
+  uniform float uTime;
+  uniform vec2 uCanvasSize;
+  uniform vec4 uScreenRect;
+  uniform int uMode;
+  uniform float uPixelScale;
+  uniform float uCrankAngle;
+  uniform float uCrankActive;
+  uniform vec2 uCrankCenter;
+  uniform float uCrankRadius;
+  uniform float uFlash;
+  uniform float uScrollFrac;
+  in vec2 vUv;
+  out vec4 outColor;
+
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  float bayer4(vec2 c) {
+    int x = int(mod(floor(c.x), 4.0));
+    int y = int(mod(floor(c.y), 4.0));
+    int idx = y * 4 + x;
+    const float m[16] = float[16](
+       0.0,  8.0,  2.0, 10.0,
+      12.0,  4.0, 14.0,  6.0,
+       3.0, 11.0,  1.0,  9.0,
+      15.0,  7.0, 13.0,  5.0
+    );
+    return (m[idx] + 0.5) / 16.0;
+  }
+
+  float sdRoundBox(vec2 p, vec2 b, float r) {
+    vec2 q = abs(p) - b + vec2(r);
+    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+  }
+
+  float sdSegment(vec2 p, vec2 a, vec2 b) {
+    vec2 pa = p - a, ba = b - a;
+    float h = clamp(dot(pa, ba) / max(dot(ba, ba), 0.0001), 0.0, 1.0);
+    return length(pa - ba * h);
+  }
+
+  vec3 dmgPalette(float level) {
+    if (level < 0.5) return vec3(0.059, 0.220, 0.059); // #0f380f
+    if (level < 1.5) return vec3(0.188, 0.384, 0.188); // #306230
+    if (level < 2.5) return vec3(0.545, 0.675, 0.059); // #8bac0f
+    return vec3(0.608, 0.737, 0.059);                  // #9bbc0f
+  }
+
+  vec3 shadeScreen(vec2 sp, vec2 sSize) {
+    float stepPx = max(1.0, uPixelScale);
+    vec2 cell = floor(sp / stepPx);
+    vec2 cellUv = ((cell + 0.5) * stepPx) / max(sSize, vec2(1.0));
+    vec2 cellFrac = fract(sp / stepPx);
+    float lum = texture(uState, clamp(cellUv, 0.0, 1.0)).r;
+    float bayer = bayer4(cell);
+    float edge = min(min(sp.x, sp.y), min(sSize.x - sp.x, sSize.y - sp.y));
+    float bezelShadow = mix(0.86, 1.0, smoothstep(0.0, 9.0, edge));
+
+    if (uMode == 0) {
+      // E-Ink Carta warm paper greyscale + ordered 4x4 dithering + micro-grain
+      float grain = (hash(floor(sp)) - 0.5) * 0.026;
+      float q = floor(clamp(lum + (bayer - 0.5) / 15.0, 0.0, 1.0) * 15.0 + 0.5) / 15.0;
+      vec3 ink = vec3(0.110, 0.110, 0.102);   // #1c1c1a
+      vec3 paper = vec3(0.918, 0.902, 0.859); // #eae6db
+      vec3 col = mix(ink, paper, q) + vec3(grain);
+      return clamp(col * bezelShadow, 0.0, 1.0);
+    }
+
+    if (uMode == 1) {
+      // Playdate 1-bit Sharp Memory LCD: crisp Bayer threshold + reflective grid
+      float bit = step(bayer, lum);
+      vec3 dark = vec3(0.173, 0.169, 0.157);  // #2c2b28
+      vec3 light = vec3(0.780, 0.765, 0.722); // #c7c3b8
+      vec3 col = mix(dark, light, bit);
+      if (stepPx >= 1.5) {
+        float grid = (cellFrac.x < 0.10 || cellFrac.y < 0.10) ? 0.93 : 1.0;
+        col *= grid;
+      }
+      float sheen = 0.03 * smoothstep(0.35, 0.65, (sp.x + sp.y * 0.6) / (sSize.x + sSize.y));
+      return clamp((col + vec3(sheen)) * bezelShadow, 0.0, 1.0);
+    }
+
+    // Game Boy DMG-01: 4 olive shades + dot-matrix gaps + glass drop shadow
+    float q = floor(clamp(lum + (bayer - 0.5) * 0.16, 0.0, 1.0) * 3.0 + 0.5);
+    vec3 col = dmgPalette(q);
+    vec2 shadowUv = clamp(cellUv - vec2(stepPx * 1.15) / max(sSize, vec2(1.0)), 0.0, 1.0);
+    float shadowLum = texture(uState, shadowUv).r;
+    if (q > 1.5 && shadowLum < 0.45) {
+      col *= 0.88;
+    }
+    if (stepPx >= 1.75) {
+      float gap = step(0.86, cellFrac.x) + step(0.86, cellFrac.y);
+      col = mix(col, vec3(0.576, 0.698, 0.086), clamp(gap, 0.0, 1.0) * 0.42);
+    }
+    return clamp(col * bezelShadow, 0.0, 1.0);
+  }
+
+  vec3 shadeBezel(vec2 p) {
+    vec2 sMin = uScreenRect.xy;
+    vec2 sMax = uScreenRect.xy + uScreenRect.zw;
+    vec2 sMid = sMin + uScreenRect.zw * 0.5;
+    float dScreen = sdRoundBox(p - sMid, uScreenRect.zw * 0.5 + vec2(3.0), 5.0);
+    float grad = p.y / max(uCanvasSize.y, 1.0);
+
+    if (uMode == 0) {
+      // Matte charcoal E-Ink reader frame with bottom status indicator
+      vec3 body = mix(vec3(0.185, 0.182, 0.172), vec3(0.135, 0.132, 0.124), grad);
+      body += (hash(floor(p * 0.5)) - 0.5) * 0.012;
+      float lip = smoothstep(5.0, 0.0, dScreen);
+      body = mix(body, vec3(0.08, 0.08, 0.075), lip * 0.7);
+      // Scroll progress track on bottom chin
+      vec2 barCenter = vec2(sMid.x, sMax.y + 18.0);
+      float barHalfW = min(uScreenRect.z * 0.28, 90.0);
+      float dTrack = sdRoundBox(p - barCenter, vec2(barHalfW, 2.5), 2.5);
+      if (dTrack < 0.0) {
+        float frac = (p.x - (barCenter.x - barHalfW)) / max(barHalfW * 2.0, 1.0);
+        body = frac <= uScrollFrac ? vec3(0.86, 0.83, 0.76) : vec3(0.28, 0.27, 0.25);
+      }
+      // Refresh LED dot on chin right
+      vec2 ledPos = vec2(sMax.x - 14.0, sMax.y + 18.0);
+      float dLed = length(p - ledPos);
+      vec3 ledCol = uFlash > 0.0 ? vec3(0.95, 0.62, 0.16) : vec3(0.32, 0.62, 0.38);
+      body = mix(body, ledCol, smoothstep(4.2, 2.4, dLed));
+      return body;
+    }
+
+    if (uMode == 1) {
+      // Panic Playdate yellow handheld shell + right-bezel rotary crank
+      vec3 yellow = mix(vec3(1.0, 0.805, 0.04), vec3(0.92, 0.70, 0.0), grad);
+      float bezel = smoothstep(8.0, 4.0, dScreen);
+      vec3 col = mix(yellow, vec3(0.15, 0.145, 0.135), bezel);
+      // Corner screw holes on the left edge
+      vec2 s1 = vec2(10.0, 12.0), s2 = vec2(10.0, uCanvasSize.y - 12.0);
+      col = mix(col, vec3(0.45, 0.36, 0.05), smoothstep(4.2, 2.6, min(length(p - s1), length(p - s2))));
+
+      // Rotary crank dock & articulated metallic arm + knob
+      vec2 cp = p - uCrankCenter;
+      float r = uCrankRadius;
+      float distC = length(cp);
+      // Recessed circular dial well
+      float ring = smoothstep(r + 5.0, r + 2.0, distC);
+      col = mix(col, vec3(0.82, 0.62, 0.02), ring * 0.55);
+      col = mix(col, vec3(0.20, 0.19, 0.17), smoothstep(r + 2.0, r, distC));
+      col = mix(col, vec3(0.30, 0.29, 0.27), smoothstep(r - 2.5, r - 4.5, distC));
+
+      // 12 radial tick marks around the dial
+      float ang = atan(cp.y, cp.x);
+      float tick = abs(sin(ang * 6.0));
+      if (distC > r - 7.5 && distC < r - 2.0 && tick < 0.16) {
+        col = mix(col, vec3(0.86, 0.84, 0.78), 0.75);
+      }
+
+      // Metallic crank arm from centre to handle tip
+      vec2 dir = vec2(cos(uCrankAngle), sin(uCrankAngle));
+      vec2 tip = uCrankCenter + dir * (r * 0.76);
+      float dArm = sdSegment(p, uCrankCenter, tip);
+      float armMask = smoothstep(6.0, 4.2, dArm);
+      vec3 steel = mix(vec3(0.62, 0.64, 0.66), vec3(0.90, 0.91, 0.93), 0.5 + 0.5 * sin((p.x - p.y) * 0.12));
+      col = mix(col, vec3(0.10, 0.10, 0.10), smoothstep(7.8, 5.5, dArm) * 0.45);
+      col = mix(col, steel, armMask);
+
+      // Centre pivot screw
+      float dPivot = length(cp);
+      col = mix(col, vec3(0.42, 0.43, 0.45), smoothstep(7.0, 5.5, dPivot));
+      col = mix(col, vec3(0.85, 0.86, 0.88), smoothstep(4.0, 2.5, dPivot));
+
+      // Rotating crank handle knob
+      float dKnob = length(p - tip);
+      vec3 knobOuter = uCrankActive > 0.5 ? vec3(0.98, 0.42, 0.15) : vec3(0.14, 0.14, 0.13);
+      col = mix(col, vec3(0.08, 0.08, 0.08), smoothstep(12.0, 9.5, dKnob) * 0.45);
+      col = mix(col, knobOuter, smoothstep(10.0, 8.2, dKnob));
+      col = mix(col, vec3(1.0, 0.82, 0.12), smoothstep(6.2, 4.6, dKnob));
+      col = mix(col, vec3(1.0, 0.96, 0.78), smoothstep(3.2, 1.4, length(p - (tip - vec2(2.0, 2.0)))));
+
+      // Scroll gauge below crank
+      vec2 gCenter = vec2(uCrankCenter.x, uCrankCenter.y + r + 24.0);
+      float gHalf = r * 0.85;
+      float dGauge = sdRoundBox(p - gCenter, vec2(gHalf, 3.0), 3.0);
+      if (dGauge < 0.0) {
+        float gf = (p.x - (gCenter.x - gHalf)) / max(gHalf * 2.0, 1.0);
+        col = gf <= uScrollFrac ? vec3(0.16, 0.15, 0.14) : vec3(0.75, 0.58, 0.02);
+      }
+      return col;
+    }
+
+    // Game Boy DMG-01 putty shell + dark-grey lens frame + magenta/navy stripes + red BATTERY LED
+    vec3 shell = mix(vec3(0.80, 0.79, 0.75), vec3(0.73, 0.72, 0.68), grad);
+    float dLens = sdRoundBox(p - sMid, uScreenRect.zw * 0.5 + vec2(24.0, 18.0), 10.0);
+    vec3 lens = mix(vec3(0.39, 0.395, 0.435), vec3(0.32, 0.325, 0.365), grad);
+    vec3 col = mix(shell, lens, smoothstep(1.5, -1.0, dLens));
+    col = mix(col, vec3(0.18, 0.21, 0.16), smoothstep(4.5, 0.0, dScreen) * 0.65);
+
+    // Classic magenta and navy double stripe across the top of the DMG lens
+    if (p.x > sMin.x - 16.0 && p.x < sMax.x + 16.0) {
+      float yTop = sMin.y - 12.0;
+      if (abs(p.y - yTop) < 1.4) col = vec3(0.55, 0.14, 0.35);
+      if (abs(p.y - (yTop + 4.5)) < 1.4) col = vec3(0.16, 0.19, 0.46);
+    }
+
+    // Glowing red BATTERY LED on left lens frame
+    vec2 batPos = vec2(sMin.x - 12.0, sMin.y + uScreenRect.w * 0.36);
+    float dBat = length(p - batPos);
+    col += vec3(0.85, 0.14, 0.10) * exp(-dBat * 0.24) * 0.55;
+    col = mix(col, vec3(0.95, 0.22, 0.18), smoothstep(4.0, 2.3, dBat));
+    return clamp(col, 0.0, 1.0);
+  }
+
+  void main() {
+    vec2 p = vUv * uCanvasSize;
+    vec2 sMin = uScreenRect.xy;
+    vec2 sMax = uScreenRect.xy + uScreenRect.zw;
+    vec3 col;
+    if (p.x >= sMin.x && p.x <= sMax.x && p.y >= sMin.y && p.y <= sMax.y) {
+      col = shadeScreen(p - sMin, uScreenRect.zw);
+    } else {
+      col = shadeBezel(p);
+    }
+    outColor = vec4(col, 1.0);
+  }`;
+  // #endregion display-shader
+
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const MODE_NAMES = ['E-Ink Carta', 'Playdate + Crank', 'Game Boy DMG-01'];
+  const MODE_DEFAULTS = [
+    { ghost: 52, scale: 1.0 },
+    { ghost: 14, scale: 2.0 },
+    { ghost: 72, scale: 2.5 },
+  ];
+
+  let mode = 0;
+  let ghostPct = MODE_DEFAULTS[0].ghost;
+  let pixelScale = MODE_DEFAULTS[0].scale;
+  let crankAngle = -0.6;
+  let crankActive = false;
+  let updatesSinceFlash = 0;
+  let domDirty = true;
+  let needReset = true;
+  let flashStart = 0;
+  let dmgSettleUntil = 0;
+  let lastStepMs = performance.now();
+  let hitTick = 0;
+  let lastHitKey = '';
+  let lastLayoutKey = '';
+  let onScreen = true;
+  let rafId = 0;
+  let backend = 'starting';
+
+  // WebGL 2 state (all on ElementGL's single context)
+  let stage = null;
+  let fbProg = null;
+  let fbVao = null;
+  let fbUniforms = null;
+  let fbos = [null, null];
+  let fbTex = [null, null];
+  let fbW = 0, fbH = 0;
+  let fbIdx = 0;
+  let lastLiveTex = null;
+
+  // 2D fallback state (only used when WebGL 2 is absent)
+  let ctx2d = null;
+  let scratchCanvas = null;
+  let scratchCtx = null;
+  let prevLuma2d = null;
+
+  const showNotice = (msg) => {
+    if (!msg) { noticeEl.hidden = true; noticeEl.textContent = ''; return; }
+    noticeEl.hidden = false;
+    noticeEl.textContent = msg;
+  };
+
+  function computeLayout() {
+    const cw = Math.max(240, canvas.clientWidth || 340);
+    const ch = Math.max(300, canvas.clientHeight || 420);
+    let sx, sy, sw, sh, cx = 0, cy = 0, cr = 0;
+    if (mode === 0) {
+      sx = 16; sy = 18; sw = cw - 32; sh = ch - 52;
+    } else if (mode === 1) {
+      const crankBay = cw < 440 ? 74 : 96;
+      sx = 14; sy = 18; sw = Math.max(170, cw - 28 - crankBay); sh = ch - 36;
+      cx = sx + sw + crankBay * 0.54;
+      cy = ch * 0.46;
+      cr = Math.min(34, crankBay * 0.36);
+    } else {
+      const side = cw < 420 ? 28 : 36;
+      sx = side; sy = 32; sw = cw - side * 2; sh = ch - 56;
+    }
+    return { cw, ch, sx: Math.round(sx), sy: Math.round(sy), sw: Math.round(sw), sh: Math.round(sh), cx, cy, cr };
+  }
+
+  // #region hit-sync
+  function syncScreenBox(layout, forceHit = false) {
+    const sizeKey = `${layout.sw}x${layout.sh}`;
+    if (lastLayoutKey !== sizeKey) {
+      lastLayoutKey = sizeKey;
+      screen.style.width = `${layout.sw}px`;
+      screen.style.height = `${layout.sh}px`;
+    }
+    const hitKey = `${layout.sx},${layout.sy},${layout.sw},${layout.sh},${mode}`;
+    if ((forceHit || lastHitKey !== hitKey) && typeof canvas.updateElementGeometry === 'function') {
+      lastHitKey = hitKey;
+      canvas.updateElementGeometry(screen, {
+        canvasTransform: new DOMMatrix().translate(layout.sx, layout.sy),
+      });
+      screen.dataset.hitTick = String(++hitTick);
+    }
+    if (mode === 1 && !wrap.classList.contains('plain')) {
+      const padR = layout.cr + 14;
+      const left = Math.max(0, Math.min(layout.cw - padR * 2, layout.cx - padR));
+      const top = Math.max(0, Math.min(layout.ch - padR * 2, layout.cy - padR));
+      crankPad.hidden = false;
+      crankPad.style.left = `${left}px`;
+      crankPad.style.top = `${top}px`;
+      crankPad.style.width = `${padR * 2}px`;
+      crankPad.style.height = `${padR * 2}px`;
+    } else {
+      crankPad.hidden = true;
+    }
+  }
+  // #endregion hit-sync
+
+  function scrollFraction() {
+    const maxScroll = Math.max(1, screen.scrollHeight - screen.clientHeight);
+    return Math.max(0, Math.min(1, screen.scrollTop / maxScroll));
+  }
+
+  function updateStatus() {
+    const modeLabel = MODE_NAMES[mode];
+    const extra = mode === 0
+      ? `partial updates since flash: ${updatesSinceFlash}`
+      : mode === 1
+        ? `crank: ${Math.round(((crankAngle * 180 / Math.PI) % 360 + 360) % 360)} deg, scroll: ${Math.round(scrollFraction() * 100)}%`
+        : `STN persistence: ${ghostPct}%, pixel scale: ${pixelScale.toFixed(2)}x`;
+    const sizeTxt = canvas.width ? `${canvas.width}x${canvas.height} px` : 'plain HTML';
+    statusEl.textContent = `Backend: ${backend} | Mode: ${modeLabel} | ${extra} | Buffer: ${sizeTxt}`;
+  }
+
+  // #region ping-pong
+  function compileFeedback(gl) {
+    const compile = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && !gl.isContextLost()) {
+        throw new Error(gl.getShaderInfoLog(s));
+      }
+      return s;
+    };
+    const p = gl.createProgram();
+    gl.attachShader(p, compile(gl.VERTEX_SHADER, FEEDBACK_VERT));
+    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, FEEDBACK_FRAG));
+    gl.bindAttribLocation(p, 0, 'aPos');
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) {
+      throw new Error(gl.getProgramInfoLog(p));
+    }
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    const names = ['uLive', 'uPrev', 'uMode', 'uGhost', 'uDt', 'uFirst', 'uDomChanged', 'uFlash'];
+    const locs = {};
+    for (const n of names) locs[n] = gl.getUniformLocation(p, n);
+    fbProg = p;
+    fbVao = vao;
+    fbUniforms = locs;
+  }
+
+  function ensurePingPong(gl, w, h) {
+    const tw = Math.max(16, Math.min(w, 720));
+    const th = Math.max(16, Math.min(h, 720));
+    if (fbTex[0] && fbW === tw && fbH === th) return;
+    for (let i = 0; i < 2; i++) {
+      if (fbos[i]) gl.deleteFramebuffer(fbos[i]);
+      if (fbTex[i]) gl.deleteTexture(fbTex[i]);
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, tw, th, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      const fbo = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      fbTex[i] = tex;
+      fbos[i] = fbo;
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    fbW = tw;
+    fbH = th;
+    fbIdx = 0;
+    needReset = true;
+  }
+
+  function renderWebGL(e) {
+    if (!stage || stage.lost) return;
+    const gl = stage.gl;
+    const layout = computeLayout();
+    syncScreenBox(layout);
+
+    const changed = new Set(e?.changedElements ?? []);
+    const domChanged = domDirty || changed.has(screen);
+    const shouldUpload = domChanged || !stage.has(screen) || !lastLiveTex;
+    if (shouldUpload) {
+      lastLiveTex = stage.upload(screen);
+      if (domChanged && !needReset && mode === 0 && flashStart === 0) {
+        updatesSinceFlash++;
+        if (ctlAutoFlash.checked && updatesSinceFlash >= 8) triggerFlash();
+      }
+    }
+    const liveTex = lastLiveTex;
+    if (!liveTex) return;
+
+    ensurePingPong(gl, liveTex.w, liveTex.h);
+    const now = performance.now();
+    const dt = Math.max(0.004, Math.min(0.1, (now - lastStepMs) / 1000));
+    lastStepMs = now;
+
+    let flashPhase = 0;
+    if (flashStart > 0) {
+      const elapsed = now - flashStart;
+      if (elapsed >= 220) {
+        flashStart = 0;
+        flashPhase = 0;
+        updatesSinceFlash = 0;
+        needReset = true;
+      } else {
+        flashPhase = Math.max(0.01, elapsed / 220);
+      }
+    }
+
+    // Pass 1: update temporal persistence state into off-screen ping-pong FBO
+    const writeIdx = 1 - fbIdx;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbos[writeIdx]);
+    gl.viewport(0, 0, fbW, fbH);
+    gl.disable(gl.BLEND);
+    gl.useProgram(fbProg);
+    gl.bindVertexArray(fbVao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, liveTex.tex);
+    gl.uniform1i(fbUniforms.uLive, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, fbTex[fbIdx]);
+    gl.uniform1i(fbUniforms.uPrev, 1);
+    gl.uniform1i(fbUniforms.uMode, mode);
+    gl.uniform1f(fbUniforms.uGhost, ghostPct / 100);
+    gl.uniform1f(fbUniforms.uDt, dt);
+    gl.uniform1i(fbUniforms.uFirst, needReset ? 1 : 0);
+    gl.uniform1i(fbUniforms.uDomChanged, domChanged ? 1 : 0);
+    gl.uniform1f(fbUniforms.uFlash, flashPhase);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.enable(gl.BLEND);
+
+    fbIdx = writeIdx;
+    needReset = false;
+    domDirty = false;
+
+    // Pass 2: composite hardware bezel, dithered screen and rotary crank
+    if (!stage.begin([0, 0, 0, 0])) return;
+    stage.quad(screen, ElementGL.rect(canvas, 0, 0, layout.cw, layout.ch), (g, loc) => {
+      g.activeTexture(g.TEXTURE1);
+      g.bindTexture(g.TEXTURE_2D, fbTex[fbIdx]);
+      g.uniform1i(loc('uState'), 1);
+      g.uniform2f(loc('uCanvasSize'), layout.cw, layout.ch);
+      g.uniform4f(loc('uScreenRect'), layout.sx, layout.sy, layout.sw, layout.sh);
+      g.uniform1i(loc('uMode'), mode);
+      g.uniform1f(loc('uPixelScale'), pixelScale);
+      g.uniform1f(loc('uCrankAngle'), crankAngle);
+      g.uniform1f(loc('uCrankActive'), crankActive ? 1 : 0);
+      g.uniform2f(loc('uCrankCenter'), layout.cx, layout.cy);
+      g.uniform1f(loc('uCrankRadius'), layout.cr);
+      g.uniform1f(loc('uFlash'), flashPhase);
+      g.uniform1f(loc('uScrollFrac'), scrollFraction());
+    });
+    updateStatus();
+  }
+  // #endregion ping-pong
+
+  // 2D ordered-Bayer fallback if WebGL 2 is unavailable
+  const BAYER_4 = [
+     0,  8,  2, 10,
+    12,  4, 14,  6,
+     3, 11,  1,  9,
+    15,  7, 13,  5,
+  ];
+  const DMG_RGB = [
+    [15, 56, 15],
+    [48, 98, 48],
+    [139, 172, 15],
+    [155, 188, 15],
+  ];
+
+  function render2DFallback() {
+    if (!ctx2d) return;
+    const layout = computeLayout();
+    syncScreenBox(layout);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const bw = Math.round(layout.cw * dpr);
+    const bh = Math.round(layout.ch * dpr);
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+    ctx2d.save();
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2d.fillStyle = mode === 0 ? '#2b2a27' : mode === 1 ? '#ffc800' : '#c6c4ba';
+    ctx2d.fillRect(0, 0, layout.cw, layout.ch);
+    ctx2d.drawElementImage(screen, layout.sx, layout.sy, layout.sw, layout.sh);
+
+    // Copy into a plain non-drawable willReadFrequently canvas for Bayer dithering
+    const pw = Math.max(16, Math.round(layout.sw / Math.max(1, pixelScale)));
+    const ph = Math.max(16, Math.round(layout.sh / Math.max(1, pixelScale)));
+    if (!scratchCanvas) {
+      scratchCanvas = document.createElement('canvas');
+      scratchCtx = scratchCanvas.getContext('2d', { willReadFrequently: true });
+    }
+    if (scratchCanvas.width !== pw || scratchCanvas.height !== ph) {
+      scratchCanvas.width = pw;
+      scratchCanvas.height = ph;
+      prevLuma2d = new Float32Array(pw * ph).fill(1);
+    }
+    scratchCtx.drawImage(canvas, layout.sx * dpr, layout.sy * dpr, layout.sw * dpr, layout.sh * dpr, 0, 0, pw, ph);
+    const img = scratchCtx.getImageData(0, 0, pw, ph);
+    const data = img.data;
+    const keep = (ghostPct / 100) * (mode === 0 ? 0.35 : 0.65);
+    for (let y = 0; y < ph; y++) {
+      for (let x = 0; x < pw; x++) {
+        const i = y * pw + x;
+        const p = i * 4;
+        const live = (0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2]) / 255;
+        const lum = needReset ? live : Math.max(0, Math.min(1, live * (1 - keep) + prevLuma2d[i] * keep));
+        prevLuma2d[i] = lum;
+        const b = (BAYER_4[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
+        if (mode === 0) {
+          const q = Math.round(Math.max(0, Math.min(1, lum + (b - 0.5) / 15)) * 15) / 15;
+          data[p] = Math.round(28 + q * 206);
+          data[p + 1] = Math.round(28 + q * 202);
+          data[p + 2] = Math.round(26 + q * 193);
+        } else if (mode === 1) {
+          const on = lum >= b;
+          data[p] = on ? 199 : 44;
+          data[p + 1] = on ? 195 : 43;
+          data[p + 2] = on ? 184 : 40;
+        } else {
+          const q = Math.max(0, Math.min(3, Math.round((lum + (b - 0.5) * 0.16) * 3)));
+          const c = DMG_RGB[q];
+          data[p] = c[0]; data[p + 1] = c[1]; data[p + 2] = c[2];
+        }
+        data[p + 3] = 255;
+      }
+    }
+    scratchCtx.putImageData(img, 0, 0);
+    ctx2d.imageSmoothingEnabled = false;
+    ctx2d.drawImage(scratchCanvas, 0, 0, pw, ph, layout.sx, layout.sy, layout.sw, layout.sh);
+    if (mode === 1) {
+      ctx2d.strokeStyle = '#2b2926';
+      ctx2d.lineWidth = 4;
+      ctx2d.beginPath();
+      ctx2d.arc(layout.cx, layout.cy, layout.cr, 0, Math.PI * 2);
+      ctx2d.stroke();
+      ctx2d.beginPath();
+      ctx2d.moveTo(layout.cx, layout.cy);
+      ctx2d.lineTo(layout.cx + Math.cos(crankAngle) * layout.cr * 0.8, layout.cy + Math.sin(crankAngle) * layout.cr * 0.8);
+      ctx2d.stroke();
+    }
+    ctx2d.restore();
+    needReset = false;
+    domDirty = false;
+    updateStatus();
+  }
+
+  function enterPlainFallback(reason) {
+    wrap.classList.add('plain');
+    crankPad.hidden = true;
+    if (screen.parentElement !== wrap) wrap.append(screen);
+    backend = 'plain HTML';
+    showNotice(reason);
+    updateStatus();
+  }
+
+  function restoreCanvasFromPlain() {
+    wrap.classList.remove('plain');
+    if (screen.parentElement !== canvas) canvas.append(screen);
+    showNotice('');
+    needReset = true;
+    domDirty = true;
+    syncScreenBox(computeLayout(), true);
+    requestDraw();
+  }
+
+  function scheduleLoop() {
+    if (rafId || !onScreen || document.hidden) return;
+    const active = flashStart > 0 || (mode === 2 && performance.now() < dmgSettleUntil);
+    if (!active) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      canvas.requestPaint?.();
+      scheduleLoop();
+    });
+  }
+
+  function wakeMotion() {
+    if (mode === 2 && !reducedMotion.matches) {
+      dmgSettleUntil = performance.now() + 850;
+      scheduleLoop();
+    } else if (flashStart > 0) {
+      scheduleLoop();
+    }
+  }
+
+  function requestDraw(markDirty = true) {
+    if (markDirty) domDirty = true;
+    if (wrap.classList.contains('plain')) { updateStatus(); return; }
+    canvas.requestPaint?.();
+    wakeMotion();
+  }
+
+  function triggerFlash() {
+    updatesSinceFlash = 0;
+    if (mode === 0 && !reducedMotion.matches && stage && !stage.lost) {
+      flashStart = performance.now();
+      domDirty = true;
+      canvas.requestPaint?.();
+      scheduleLoop();
+    } else {
+      needReset = true;
+      domDirty = true;
+      canvas.requestPaint?.();
+    }
+  }
+
+  // Initialise rendering backend: WebGL 2 via ElementGL first, then 2D fallback, else plain HTML
+  if (supported && glSupported) {
+    try {
+      stage = new ElementGL(canvas, {
+        fragment: DISPLAY_FRAG,
+        onLost: () => {
+          fbProg = null; fbVao = null; fbTex = [null, null]; fbos = [null, null]; fbW = 0; fbH = 0; lastLiveTex = null;
+          enterPlainFallback('The WebGL 2 context was lost. Showing the reader as plain HTML until the browser restores it.');
+        },
+        onRestored: () => {
+          compileFeedback(stage.gl);
+          backend = 'WebGL 2 ping-pong';
+          restoreCanvasFromPlain();
+        },
+      });
+      compileFeedback(stage.gl);
+      backend = 'WebGL 2 ping-pong';
+    } catch (err) {
+      stage = null;
+      showNotice(`WebGL 2 could not start (${err.message}). Using the 2D Bayer fallback.`);
+    }
+  }
+
+  if (!stage && supported) {
+    ctx2d = canvas.getContext('2d');
+    if (ctx2d) {
+      backend = '2D Bayer fallback';
+      if (noticeEl.hidden) showNotice('WebGL 2 texElementSubImage2D() is unavailable here; using the 2D ordered-Bayer fallback.');
+    }
+  }
+
+  if (!stage && !ctx2d) {
+    enterPlainFallback('HTML-in-canvas is not available in this browser, so the reader is shown as plain HTML.');
+  }
+
+  canvas.addEventListener('paint', (e) => {
+    if (stage && !stage.lost) renderWebGL(e);
+    else if (ctx2d) render2DFallback();
+  });
+
+  // Pause active loops when off-screen or hidden
+  new IntersectionObserver(([entry]) => {
+    onScreen = entry.isIntersecting;
+    if (onScreen) requestDraw(false);
+  }).observe(wrap);
+
+  new ResizeObserver(() => {
+    if (!wrap.classList.contains('plain')) {
+      syncScreenBox(computeLayout(), true);
+      requestDraw(false);
+    }
+  }).observe(canvas);
+
+  // Interactive HTML events inside #rd-screen
+  screen.addEventListener('scroll', () => {
+    crankPad.setAttribute('aria-valuenow', String(Math.round(scrollFraction() * 100)));
+    requestDraw(true);
+  }, { passive: true });
+
+  noteInput.addEventListener('input', () => {
+    const v = noteInput.value.trim();
+    noteEcho.textContent = v ? `Note: "${v}" (${v.length} chars)` : 'Typed notes appear here so you can watch old letters linger on the panel.';
+    requestDraw(true);
+  });
+
+  nextChBtn.addEventListener('click', () => {
+    chapterIdx = (chapterIdx + 1) % CHAPTERS.length;
+    const ch = CHAPTERS[chapterIdx];
+    chapterLabel.textContent = ch.label;
+    titleEl.textContent = ch.title;
+    bodyEl.innerHTML = ch.html;
+    screen.scrollTop = 0;
+    requestDraw(true);
+  });
+
+  countBtn.addEventListener('click', () => {
+    counterVal++;
+    countBtn.textContent = `Counter: ${counterVal}`;
+    bigNum.textContent = String(counterVal).padStart(2, '0');
+    requestDraw(true);
+  });
+
+  invertHero.addEventListener('change', () => {
+    heroEl.classList.toggle('inverted', invertHero.checked);
+    requestDraw(true);
+  });
+
+  showDiagram.addEventListener('change', () => {
+    diagramEl.hidden = !showDiagram.checked;
+    requestDraw(true);
+  });
+
+  boldPrint.addEventListener('change', () => {
+    screen.classList.toggle('high-contrast', boldPrint.checked);
+    requestDraw(true);
+  });
+
+  // Mode and parameter controls
+  function setMode(nextMode) {
+    mode = nextMode;
+    for (const b of modeButtons) {
+      b.setAttribute('aria-pressed', String(Number(b.dataset.mode) === mode));
+    }
+    const preset = MODE_DEFAULTS[mode];
+    ghostPct = preset.ghost;
+    pixelScale = preset.scale;
+    ctlGhost.value = String(ghostPct);
+    outGhost.textContent = `${ghostPct}%`;
+    ctlScale.value = String(pixelScale);
+    outScale.textContent = `${pixelScale.toFixed(1)}x`;
+    btnFlash.textContent = mode === 0 ? 'Full E-Ink flash' : 'Clear persistence buffer';
+    crankBtns.hidden = mode !== 1;
+    updatesSinceFlash = 0;
+    needReset = true;
+    flashStart = 0;
+    syncScreenBox(computeLayout(), true);
+    requestDraw(true);
+  }
+
+  for (const b of modeButtons) {
+    b.addEventListener('click', () => setMode(Number(b.dataset.mode)));
+  }
+
+  btnFlash.addEventListener('click', triggerFlash);
+
+  ctlGhost.addEventListener('input', () => {
+    ghostPct = Number(ctlGhost.value);
+    outGhost.textContent = `${ghostPct}%`;
+    requestDraw(false);
+  });
+
+  ctlScale.addEventListener('input', () => {
+    pixelScale = Number(ctlScale.value);
+    outScale.textContent = `${pixelScale.toFixed(1)}x`;
+    requestDraw(false);
+  });
+
+  // #region crank-input
+  let dragPrevAngle = 0;
+
+  function stepCrank(dAngle) {
+    crankAngle += dAngle;
+    const maxScroll = Math.max(0, screen.scrollHeight - screen.clientHeight);
+    screen.scrollTop = Math.max(0, Math.min(maxScroll, screen.scrollTop + dAngle * 145));
+    crankPad.setAttribute('aria-valuenow', String(Math.round(scrollFraction() * 100)));
+    requestDraw(true);
+  }
+
+  function pointerAngle(e) {
+    const rect = canvas.getBoundingClientRect();
+    const layout = computeLayout();
+    return Math.atan2(e.clientY - rect.top - layout.cy, e.clientX - rect.left - layout.cx);
+  }
+
+  crankPad.addEventListener('pointerdown', (e) => {
+    if (mode !== 1) return;
+    e.preventDefault();
+    crankActive = true;
+    dragPrevAngle = pointerAngle(e);
+    crankPad.setPointerCapture(e.pointerId);
+    requestDraw(false);
+  });
+
+  crankPad.addEventListener('pointermove', (e) => {
+    if (!crankActive) return;
+    const next = pointerAngle(e);
+    const delta = Math.atan2(Math.sin(next - dragPrevAngle), Math.cos(next - dragPrevAngle));
+    dragPrevAngle = next;
+    stepCrank(delta);
+  });
+
+  const endCrank = () => {
+    if (!crankActive) return;
+    crankActive = false;
+    requestDraw(false);
+  };
+  crankPad.addEventListener('pointerup', endCrank);
+  crankPad.addEventListener('pointercancel', endCrank);
+
+  crankPad.addEventListener('wheel', (e) => {
+    if (mode !== 1) return;
+    e.preventDefault();
+    stepCrank(Math.sign(e.deltaY) * 0.42);
+  }, { passive: false });
+
+  crankPad.addEventListener('keydown', (e) => {
+    if (mode !== 1) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); stepCrank(0.55); }
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); stepCrank(-0.55); }
+  });
+
+  btnCrankCcw.addEventListener('click', () => stepCrank(-Math.PI / 4));
+  btnCrankCw.addEventListener('click', () => stepCrank(Math.PI / 4));
+  // #endregion crank-input
+
+  // Initial sync and first paint
+  syncScreenBox(computeLayout(), true);
+  requestDraw(true);
+
+  // ---------------------------------------------------------------- live checks (isolated fixtures on testStage)
+  const need = (ok, text) => { if (!ok) throw new Error(text); return text; };
+
+  const PASS_FRAG = `#version 300 es
+  precision highp float;
+  uniform sampler2D uTex;
+  in vec2 vUv;
+  out vec4 outColor;
+  void main() { outColor = texture(uTex, vUv); }`;
+
+  function buildCheckFeedback(gl, w, h) {
+    const compile = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+      return s;
+    };
+    const p = gl.createProgram();
+    gl.attachShader(p, compile(gl.VERTEX_SHADER, FEEDBACK_VERT));
+    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, FEEDBACK_FRAG));
+    gl.bindAttribLocation(p, 0, 'aPos');
+    gl.linkProgram(p);
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const tex = [], fbo = [];
+    for (let i = 0; i < 2; i++) {
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      const f = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+      tex.push(t);
+      fbo.push(f);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    let idx = 0;
+    const step = (liveTex, opts) => {
+      const next = 1 - idx;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo[next]);
+      gl.viewport(0, 0, w, h);
+      gl.disable(gl.BLEND);
+      gl.useProgram(p);
+      gl.bindVertexArray(vao);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, liveTex);
+      gl.uniform1i(gl.getUniformLocation(p, 'uLive'), 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, tex[idx]);
+      gl.uniform1i(gl.getUniformLocation(p, 'uPrev'), 1);
+      gl.uniform1i(gl.getUniformLocation(p, 'uMode'), opts.mode);
+      gl.uniform1f(gl.getUniformLocation(p, 'uGhost'), opts.ghost);
+      gl.uniform1f(gl.getUniformLocation(p, 'uDt'), opts.dt ?? 0.016);
+      gl.uniform1i(gl.getUniformLocation(p, 'uFirst'), opts.first ? 1 : 0);
+      gl.uniform1i(gl.getUniformLocation(p, 'uDomChanged'), opts.changed ? 1 : 0);
+      gl.uniform1f(gl.getUniformLocation(p, 'uFlash'), opts.flash ?? 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      const px = new Uint8Array(4);
+      gl.readPixels(Math.floor(w / 2), Math.floor(h / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.enable(gl.BLEND);
+      idx = next;
+      return px;
+    };
+    const dispose = () => {
+      for (const f of fbo) gl.deleteFramebuffer(f);
+      for (const t of tex) gl.deleteTexture(t);
+      gl.deleteBuffer(vbo);
+      gl.deleteVertexArray(vao);
+      gl.deleteProgram(p);
+    };
+    return { step, dispose, get tex() { return tex[idx]; } };
+  }
+
+  const tests = [
+    {
+      name: 'ElementGL uploads a drawable child with texElementSubImage2D()',
+      expect: 'pass',
+      why: 'Creates an isolated ElementGL canvas on the test stage, uploads a dark child and reads back one centre pixel.',
+      run: async () => {
+        if (!supported || !glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.style.cssText = 'width:80px;height:60px;display:block';
+        const child = document.createElement('div');
+        child.setAttribute('drawable', '');
+        child.style.cssText = 'width:80px;height:60px;background:#1e3a8a';
+        cv.append(child);
+        testStage().append(cv);
+        const g = new ElementGL(cv, { fragment: PASS_FRAG, attributes: { preserveDrawingBuffer: true } });
+        await nextPaint(cv);
+        const uploaded = g.upload(child);
+        g.begin([0, 0, 0, 0]);
+        g.quad(child, ElementGL.rect(cv, 0, 0, 80, 60));
+        const px = new Uint8Array(4);
+        g.gl.readPixels(Math.floor(cv.width / 2), Math.floor(cv.height / 2), 1, 1, g.gl.RGBA, g.gl.UNSIGNED_BYTE, px);
+        window.__gfx?.retire(cv);
+        return need(uploaded && px[2] > 100 && px[0] < 60, `Uploaded ${uploaded?.w}x${uploaded?.h}, centre pixel rgb(${px[0]}, ${px[1]}, ${px[2]}).`);
+      },
+    },
+    {
+      name: 'E-Ink ping-pong feedback keeps ghosting after black clears to white, and full flash wipes it',
+      expect: 'pass',
+      why: 'Draws a black block, changes it to white, checks the ping-pong FBO retains dark ghosting, then runs the flash waveform.',
+      run: async () => {
+        if (!supported || !glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.style.cssText = 'width:64px;height:64px;display:block';
+        const child = document.createElement('div');
+        child.setAttribute('drawable', '');
+        child.style.cssText = 'width:64px;height:64px;background:#000000';
+        cv.append(child);
+        testStage().append(cv);
+        const g = new ElementGL(cv, { fragment: PASS_FRAG, attributes: { preserveDrawingBuffer: true } });
+        const fb = buildCheckFeedback(g.gl, 64, 64);
+        await nextPaint(cv);
+        let t = g.upload(child);
+        fb.step(t.tex, { mode: 0, ghost: 0.7, first: true, changed: true });
+
+        child.style.background = '#ffffff';
+        await nextPaint(cv);
+        t = g.upload(child);
+        const ghosted = fb.step(t.tex, { mode: 0, ghost: 0.7, first: false, changed: true });
+        const cleared = fb.step(t.tex, { mode: 0, ghost: 0.7, first: false, changed: false, flash: 0.99 });
+        fb.dispose();
+        window.__gfx?.retire(cv);
+        return need(
+          ghosted[0] < 230 && ghosted[1] > 30 && cleared[0] > 240 && cleared[1] === 0,
+          `After clearing to white: disp=${ghosted[0]}, ghost=${ghosted[1]}. After full flash: disp=${cleared[0]}, ghost=${cleared[1]}.`
+        );
+      },
+    },
+    {
+      name: 'Playdate 1-bit Bayer shader outputs two monochrome tones from 50% grey DOM',
+      expect: 'pass',
+      why: 'Uploads a mid-grey child, runs DISPLAY_FRAG in Playdate mode and checks a 16x16 patch contains both #c7c3b8 and #2c2b28.',
+      run: async () => {
+        if (!supported || !glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.style.cssText = 'width:96px;height:96px;display:block';
+        const child = document.createElement('div');
+        child.setAttribute('drawable', '');
+        child.style.cssText = 'width:96px;height:96px;background:#808080';
+        cv.append(child);
+        testStage().append(cv);
+        const g = new ElementGL(cv, { fragment: DISPLAY_FRAG, attributes: { preserveDrawingBuffer: true } });
+        const fb = buildCheckFeedback(g.gl, 64, 64);
+        await nextPaint(cv);
+        const t = g.upload(child);
+        fb.step(t.tex, { mode: 1, ghost: 0.1, first: true, changed: true });
+        g.begin([0, 0, 0, 0]);
+        g.quad(child, ElementGL.rect(cv, 0, 0, 96, 96), (gl, loc) => {
+          gl.activeTexture(gl.TEXTURE1);
+          gl.bindTexture(gl.TEXTURE_2D, fb.tex);
+          gl.uniform1i(loc('uState'), 1);
+          gl.uniform2f(loc('uCanvasSize'), 96, 96);
+          gl.uniform4f(loc('uScreenRect'), 0, 0, 96, 96);
+          gl.uniform1i(loc('uMode'), 1);
+          gl.uniform1f(loc('uPixelScale'), 2);
+          gl.uniform1f(loc('uCrankAngle'), 0);
+          gl.uniform1f(loc('uCrankActive'), 0);
+          gl.uniform2f(loc('uCrankCenter'), 80, 48);
+          gl.uniform1f(loc('uCrankRadius'), 12);
+          gl.uniform1f(loc('uFlash'), 0);
+          gl.uniform1f(loc('uScrollFrac'), 0);
+        });
+        const patch = new Uint8Array(16 * 16 * 4);
+        g.gl.readPixels(Math.floor(cv.width / 2) - 8, Math.floor(cv.height / 2) - 8, 16, 16, g.gl.RGBA, g.gl.UNSIGNED_BYTE, patch);
+        let darkCount = 0, lightCount = 0;
+        for (let i = 0; i < patch.length; i += 4) {
+          if (patch[i] < 80) darkCount++;
+          else if (patch[i] > 160) lightCount++;
+        }
+        fb.dispose();
+        window.__gfx?.retire(cv);
+        return need(darkCount > 20 && lightCount > 20, `16x16 mid-grey patch: ${darkCount} dark pixels, ${lightCount} light pixels.`);
+      },
+    },
+    {
+      name: 'Game Boy DMG-01 feedback retains a decaying olive trail across frames',
+      expect: 'pass',
+      why: 'Switches black to white in DMG mode, checks frame 1 holds an intermediate persistence value and frame 30 settles back to white.',
+      run: async () => {
+        if (!supported || !glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.style.cssText = 'width:64px;height:64px;display:block';
+        const child = document.createElement('div');
+        child.setAttribute('drawable', '');
+        child.style.cssText = 'width:64px;height:64px;background:#000000';
+        cv.append(child);
+        testStage().append(cv);
+        const g = new ElementGL(cv, { fragment: PASS_FRAG, attributes: { preserveDrawingBuffer: true } });
+        const fb = buildCheckFeedback(g.gl, 64, 64);
+        await nextPaint(cv);
+        let t = g.upload(child);
+        fb.step(t.tex, { mode: 2, ghost: 0.78, first: true, changed: true });
+
+        child.style.background = '#ffffff';
+        await nextPaint(cv);
+        t = g.upload(child);
+        const frame1 = fb.step(t.tex, { mode: 2, ghost: 0.78, dt: 0.016, first: false, changed: true });
+        let settled = frame1;
+        for (let k = 0; k < 32; k++) settled = fb.step(t.tex, { mode: 2, ghost: 0.78, dt: 0.025, first: false, changed: false });
+        fb.dispose();
+        window.__gfx?.retire(cv);
+        return need(
+          frame1[0] > 15 && frame1[0] < 160 && settled[0] > 230,
+          `Frame 1 luma=${frame1[0]}/255 (trailing), after 32 frames luma=${settled[0]}/255 (settled).`
+        );
+      },
+    },
+    {
+      name: 'updateElementGeometry() aligns hit testing with a translated child',
+      expect: 'pass',
+      why: 'Translates a drawable button to (44, 26) via updateElementGeometry(), toggles dataset.hitTick, and checks elementFromPoint().',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas is not available');
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.width = 160; cv.height = 100;
+        cv.style.cssText = 'width:160px;height:100px;display:block';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('drawable', '');
+        btn.textContent = 'Hit';
+        btn.style.cssText = 'width:70px;height:36px;margin:0;display:block';
+        cv.append(btn);
+        testStage().append(cv);
+        const ctx = cv.getContext('2d');
+        cv.addEventListener('paint', () => {
+          ctx.clearRect(0, 0, 160, 100);
+          ctx.drawElementImage(btn, 44, 26, 70, 36);
+        });
+        await nextPaint(cv);
+        cv.updateElementGeometry?.(btn, { canvasTransform: new DOMMatrix().translate(44, 26) });
+        btn.dataset.hitTick = '1';
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const r = cv.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + 79, r.top + 44);
+        window.__gfx?.retire(cv);
+        return need(hit === btn, `elementFromPoint() at shifted centre returned <${hit?.tagName?.toLowerCase() ?? 'null'}>.`);
+      },
+    },
+    {
+      name: '2D fallback draws with 5-arg drawElementImage() and reads from a plain copy',
+      expect: 'pass',
+      why: 'Verifies the 2D fallback path draws without setting willReadFrequently on the drawable canvas.',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas is not available');
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.width = 100; cv.height = 50;
+        cv.style.cssText = 'width:100px;height:50px;display:block';
+        const box = document.createElement('div');
+        box.setAttribute('drawable', '');
+        box.style.cssText = 'width:100px;height:50px;background:#222222';
+        cv.append(box);
+        testStage().append(cv);
+        const ctx = cv.getContext('2d');
+        cv.addEventListener('paint', () => {
+          ctx.clearRect(0, 0, 100, 50);
+          ctx.drawElementImage(box, 0, 0, 100, 50);
+        });
+        await nextPaint(cv);
+        const plain = document.createElement('canvas');
+        plain.width = 100; plain.height = 50;
+        const pctx = plain.getContext('2d', { willReadFrequently: true });
+        pctx.drawImage(cv, 0, 0);
+        const d = pctx.getImageData(50, 25, 1, 1).data;
+        window.__gfx?.retire(cv);
+        return need(d[3] > 200 && d[0] < 60, `Plain copy centre pixel rgba(${d[0]}, ${d[1]}, ${d[2]}, ${d[3]}).`);
+      },
+    },
+    {
+      name: 'Dispatched webglcontextlost event switches to plain HTML without calling loseContext()',
+      expect: 'pass',
+      why: 'Tests the context-loss handler safely using a synthetic cancelable Event.',
+      run: async () => {
+        const box = document.createElement('div');
+        const cv = document.createElement('canvas');
+        const child = document.createElement('div');
+        cv.append(child);
+        box.append(cv);
+        testStage().append(box);
+        let fellBack = false;
+        cv.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault();
+          fellBack = true;
+          box.append(child);
+        });
+        const ev = new Event('webglcontextlost', { cancelable: true });
+        cv.dispatchEvent(ev);
+        const ok = ev.defaultPrevented && fellBack && child.parentElement === box;
+        window.__gfx?.retire(cv);
+        return need(ok, `defaultPrevented=${ev.defaultPrevented}, child moved to plain wrapper=${child.parentElement === box}.`);
+      },
+    },
+  ];
+
+  runTests(document.getElementById('tests'), tests);
+</script>
+</body>
+</html>

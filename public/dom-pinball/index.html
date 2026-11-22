@@ -1,0 +1,1619 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DOM pinball made from live form controls</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A 2D physics pinball table built from live HTML controls inside one drawable canvas. Bumpers are buttons that flash on impact, ramps are rotated range sliders you can tilt mid-flight, the diverter…">
+<link rel="canonical" href="https://html-in-canvas.page/dom-pinball/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="DOM pinball made from live form controls">
+<meta property="og:description" content="A 2D physics pinball table built from live HTML controls inside one drawable canvas. Bumpers are buttons that flash on impact, ramps are rotated range sliders you can tilt mid-flight, the diverter…">
+<meta property="og:url" content="https://html-in-canvas.page/dom-pinball/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;DOM pinball made from live form controls&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="DOM pinball made from live form controls">
+<meta name="twitter:description" content="A 2D physics pinball table built from live HTML controls inside one drawable canvas. Bumpers are buttons that flash on impact, ramps are rotated range sliders you can tilt mid-flight, the diverter…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;DOM pinball made from live form controls&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/dom-pinball/",
+   "url": "https://html-in-canvas.page/dom-pinball/",
+   "mainEntityOfPage": "https://html-in-canvas.page/dom-pinball/",
+   "headline": "DOM pinball made from live form controls",
+   "name": "DOM pinball made from live form controls",
+   "description": "A 2D physics pinball table built from live HTML controls inside one drawable canvas. Bumpers are buttons that flash on impact, ramps are rotated range sliders you can tilt mid-flight, the diverter gate is a checkbox, the bonus trap is a \u003cdetails> element, and the flippers are live buttons.",
+   "abstract": "Can a 2D physics pinball table use real HTML form controls as its bumpers, tiltable ramps, gates, scoreboards and ball traps so collisions mutate the DOM and user taps on the controls change the physics mid-flight?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "drawElementImage, physics, forms, range, details, checkbox, hit testing, drawElementImage\u0028), paint, requestPaint\u0028), changedElements, layoutsubtree",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "DOM pinball made from live form controls",
+     "item": "https://html-in-canvas.page/dom-pinball/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .pinball-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  #pinball-canvas {
+    display: block;
+    width: min(100%, 380px);
+    aspect-ratio: 380 / 560;
+    height: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #0f1624;
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #pinball-canvas[hidden] { display: none; }
+  .pinball-controls {
+    width: min(100%, 560px);
+    justify-content: center;
+  }
+  .pinball-controls button { min-height: 40px; }
+  .pinball-controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #table-status {
+    display: block;
+    min-height: 1.5em;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .keys-hint {
+    margin: 0;
+    text-align: center;
+  }
+  .plain-fallback {
+    width: min(100%, 420px);
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .plain-fallback .plain-note {
+    margin: 0;
+    flex-basis: 100%;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .plain-fallback button.retry-canvas { min-height: 40px; }
+
+  /* #region table-css */
+  /* Drawable HTML controls painted onto the playfield. Fixed arcade colours keep
+     them readable against the dark table in both light and dark browser themes. */
+  .scoreboard {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 344px;
+    height: 34px;
+    margin: 0;
+    padding: 0 12px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    background: #090e1a;
+    color: #f8fafc;
+    font: 700 13px/1 var(--mono);
+    letter-spacing: 0.03em;
+  }
+  .bumper {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 58px;
+    height: 58px;
+    margin: 0;
+    padding: 0;
+    border: 3px solid #fb7185;
+    border-radius: 50%;
+    background: radial-gradient(circle at 34% 30%, #fb7185, #be123c 72%);
+    color: #ffffff;
+    font: 700 12px/1 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: transform 90ms ease-out, background 90ms ease-out, border-color 90ms ease-out;
+  }
+  .bumper[data-bumper="1"] {
+    border-color: #38bdf8;
+    background: radial-gradient(circle at 34% 30%, #38bdf8, #0369a1 72%);
+  }
+  .bumper[data-bumper="2"] {
+    border-color: #fbbf24;
+    background: radial-gradient(circle at 34% 30%, #fbbf24, #b45309 72%);
+  }
+  .bumper small {
+    font: 600 11px/1 var(--mono);
+    color: #fef3c7;
+  }
+  .bumper.hit {
+    transform: scale(1.08);
+    border-color: #fef08a;
+    background: radial-gradient(circle at 35% 30%, #fef08a, #f97316 74%);
+    color: #1c1917;
+  }
+  .bumper.hit small { color: #1c1917; }
+  .bumper:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 3px #fef08a;
+  }
+
+  .ramp-slider {
+    box-sizing: border-box;
+    width: 112px;
+    height: 28px;
+    margin: 0;
+    padding: 0 4px;
+    border: 1px solid #38bdf8;
+    border-radius: 14px;
+    background: #172554;
+    accent-color: #38bdf8;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+  .ramp-slider:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px #fef08a;
+  }
+
+  .gate-label {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 78px;
+    height: 34px;
+    margin: 0;
+    padding: 0 8px;
+    border: 2px solid #22c55e;
+    border-radius: 8px;
+    background: #052e16;
+    color: #dcfce7;
+    font: 700 12px/1 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .gate-label.open-lane {
+    border-color: #64748b;
+    background: #1e293b;
+    color: #cbd5e1;
+  }
+  .gate-label input {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    accent-color: #22c55e;
+  }
+
+  .saucer {
+    box-sizing: border-box;
+    width: 76px;
+    margin: 0;
+    padding: 0;
+    border: 2px solid #a78bfa;
+    border-radius: 10px;
+    background: #1e1b4b;
+    color: #ede9fe;
+    font: 700 12px/1.2 system-ui, sans-serif;
+    touch-action: manipulation;
+  }
+  .saucer[open] {
+    border-color: #fde047;
+    background: #312e81;
+  }
+  .saucer summary {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 30px;
+    padding: 4px 6px;
+    cursor: pointer;
+    list-style: none;
+  }
+  .saucer summary::-webkit-details-marker { display: none; }
+  .saucer p {
+    margin: 0;
+    padding: 4px 6px 6px;
+    border-top: 1px solid #6366f1;
+    text-align: center;
+    font: 700 12px/1 var(--mono);
+    color: #fde047;
+  }
+
+  .flipper {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 76px;
+    height: 28px;
+    margin: 0;
+    padding: 0;
+    border: 2px solid #fdba74;
+    background: linear-gradient(180deg, #f97316, #c2410c);
+    color: #fff7ed;
+    font: 800 13px/1 var(--mono);
+    cursor: pointer;
+    touch-action: none;
+  }
+  .flipper-left { border-radius: 14px 8px 8px 14px; }
+  .flipper-right { border-radius: 8px 14px 14px 8px; }
+  .flipper.active {
+    border-color: #fef08a;
+    background: linear-gradient(180deg, #facc15, #ea580c);
+    color: #1c1917;
+  }
+  .flipper:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 3px #fef08a;
+  }
+  /* #endregion table-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>DOM pinball made from live form controls</h1>
+  <p class="lede">
+    After building the four element games on <a href="/play/">/play/</a>, I wanted to push live controls inside a 2D physics loop.
+    Older DOM physics toys like Google Gravity and Matter.js DOM experiments sync CSS transforms onto elements and fight stacking order when adding trails or shadows.
+    Here every bumper, tiltable ramp, diverter gate, bonus trap, scoreboard and flipper is a real HTML control inside one drawable canvas, so ball impacts mutate the DOM and your taps alter the physics mid-flight.
+  </p>
+
+  <div class="stage pinball-stage">
+    <canvas id="pinball-canvas" content="drawable" layoutsubtree aria-label="Pinball playfield made from live form controls">
+      <!-- #region table-html -->
+      <output id="scoreboard" class="scoreboard" drawable aria-live="polite">Score 0 · Balls 1 · 1x</output>
+
+      <button type="button" class="bumper" data-bumper="0" drawable aria-label="Left bumper, 100 points">
+        <span>+100</span><small>0</small>
+      </button>
+      <button type="button" class="bumper" data-bumper="1" drawable aria-label="Right bumper, 100 points">
+        <span>+100</span><small>0</small>
+      </button>
+      <button type="button" class="bumper" data-bumper="2" drawable aria-label="Centre bumper, 150 points">
+        <span>+150</span><small>0</small>
+      </button>
+
+      <details id="saucer" class="saucer" drawable>
+        <summary>Trap</summary>
+        <p>+250</p>
+      </details>
+
+      <label id="gate-label" class="gate-label" drawable>
+        <input type="checkbox" id="gate-toggle" checked>
+        <span>Gate</span>
+      </label>
+
+      <input type="range" id="ramp-left" class="ramp-slider" drawable min="-28" max="28" value="18" aria-label="Left ramp tilt">
+      <input type="range" id="ramp-right" class="ramp-slider" drawable min="-28" max="28" value="-18" aria-label="Right ramp tilt">
+
+      <button type="button" id="flip-left" class="flipper flipper-left" drawable aria-label="Left flipper">L</button>
+      <button type="button" id="flip-right" class="flipper flipper-right" drawable aria-label="Right flipper">R</button>
+      <!-- #endregion table-html -->
+    </canvas>
+
+    <div class="row pinball-controls">
+      <button type="button" id="btn-launch">Launch ball</button>
+      <button type="button" id="btn-multiball">Add multi-ball</button>
+      <button type="button" id="btn-pause">Pause</button>
+      <button type="button" id="btn-reset">Reset score</button>
+      <label><input type="checkbox" id="sound-toggle"> Sound</label>
+    </div>
+    <output id="table-status" class="note" aria-live="polite">Ready in the shooter lane.</output>
+    <p class="note keys-hint">Tap controls on the table directly, or use <code>Z</code> / <code>ArrowLeft</code> and <code>/</code> / <code>ArrowRight</code> for the flippers and <code>Space</code> to launch.</p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>controls, rotated drawing, physics collisions and fallback</small></summary>
+    <ol>
+      <li data-code="#table-html"><b>Ten live HTML controls inside one drawable canvas.</b></li>
+      <li data-code="#table-draw"><b>Draw shadows, trails and rotated elements with five-argument <code>drawElementImage()</code>.</b></li>
+      <li data-code="#table-physics"><b>Sub-stepped ball physics that mutate bumper classes, <code>&lt;details open&gt;</code> and ramp slopes.</b></li>
+      <li data-code="#table-fallback"><b>Context loss and restoration with a plain HTML fallback.</b></li>
+      <li data-code="#table-css"><b>Arcade control styles and focus rings.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="how">How it works</h2>
+  <p>
+    Every obstacle on the playfield is a real child element of <code>&lt;canvas id="pinball-canvas" content="drawable" layoutsubtree&gt;</code>.
+    One 2D canvas paints the table background, rail shadows, velocity trails, shockwave rings and the ten controls in a single pass.
+    On each frame, the paint handler resets the transform, scales to the backing store via a <code>device-pixel-content-box</code> <code>ResizeObserver</code>, and calls five-argument <code>drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight)</code> so high-DPI phones draw every element at its exact CSS size.
+  </p>
+  <p>
+    The two ramps are <code>&lt;input type="range"&gt;</code> controls drawn inside <code>ctx.translate()</code> and <code>ctx.rotate()</code>.
+    Because <code>drawElementImage()</code> transforms the hit box along with the pixels, dragging either slider thumb changes its value and rotates both the drawn ramp and the physics segment in real time.
+    Whenever a ramp angle or flipper angle changes, the script toggles a <code>data-moved</code> attribute on that control to clear Chromium's cached hit-test region.
+  </p>
+  <p>
+    Collisions write back to the DOM.
+    A bumper hit increments its counter, toggles a <code>.hit</code> CSS class and updates the <code>&lt;output&gt;</code> scoreboard.
+    Rolling into the saucer sets <code>open = true</code> on the <code>&lt;details&gt;</code> element, expanding its laid-out height to reveal <code>+250</code> before ejecting the ball.
+    Unticking the gate checkbox retracts the right-lane diverter bar so balls drop straight through the express lane.
+    Because those mutations change the elements' paint records, they raise real <code>paint</code> events even while the physics loop is paused.
+  </p>
+  <p>
+    The animation loop runs only while the table is in view (tracked with <code>IntersectionObserver</code>) and starts paused if <code>prefers-reduced-motion: reduce</code> is set, so you can launch on tap.
+    If the canvas fires <code>contextlost</code> (or the API isn't available), the page moves the controls into a plain HTML container beside the hidden canvas, and puts them back if <code>contextrestored</code> fires.
+  </p>
+
+  <h2 id="checks">Live checks</h2>
+  <p>
+    The checks wait for a tap so the playfield starts with nothing else running.
+    Each check builds its own small fixture on the test stage, copies pixels into a plain 2D canvas with <code>drawImage()</code> before reading them, retires its fixture canvas via <code>window.__gfx?.retire()</code>, and leaves the table above untouched.
+  </p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>
+    Not verified in Chromium or on an Android phone yet.
+    I built this experiment on 2026-11-22 following the hit-testing work on <a href="/play/">/play/</a> and older DOM-physics toys (Google Gravity, Matter.js DOM wrappers) to see how far one drawable 2D canvas can carry live form controls inside a moving game.
+  </p>
+  <ul class="findings">
+    <li><b>Single-canvas layering avoids CSS transform and z-index workarounds.</b> Ball trails, bumper shockwaves, drop shadows and rotated form controls share one 2D paint pass, while the controls keep native keyboard focus and form state.</li>
+    <li><b>Bumper hits and saucer traps are live DOM mutations.</b> Adding <code>.hit</code> to a bumper button or setting <code>details.open = true</code> changes the element's CSS or height and triggers a real <code>paint</code> event. Run check 1 and check 4 above to measure this in your browser.</li>
+    <li><b>Rotated range sliders and pivoted flippers depend on transformed hit boxes.</b> Check 2 and check 5 verify with <code>elementFromPoint()</code> whether Chromium routes pointer input onto the rotated track and flipper blade after toggling <code>data-moved</code>.</li>
+    <li><b>Touch separation relies on per-element <code>touch-action</code>.</b> The canvas sets <code>touch-action: pan-y</code> so swiping empty playfield scrolls the page on a phone, while the ramp sliders and flippers set <code>touch-action: none</code>. Not verified on real touch hardware.</li>
+    <li><b>Not verified:</b> Chromium 157 headless pass rates, Chrome on Android touch dragging on rotated <code>&lt;input type="range"&gt;</code> tracks, frame rate during three-ball multi-ball with shockwaves, screen reader announcements for the live <code>&lt;output&gt;</code> scoreboard, and Web Audio latency on a phone.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, inkFraction, runTests, stillDrawn, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const LOGICAL_W = 380;
+  const LOGICAL_H = 560;
+  const BALL_R = 9;
+  const GRAVITY = 680;
+  const MAX_SPEED = 1080;
+  const SUBSTEPS = 4;
+
+  const canvas = document.getElementById('pinball-canvas');
+  const stage = canvas.parentElement;
+  const statusEl = document.getElementById('table-status');
+  const scoreboardEl = document.getElementById('scoreboard');
+  const bumperEls = [...canvas.querySelectorAll('.bumper')];
+  const saucerEl = document.getElementById('saucer');
+  const gateLabelEl = document.getElementById('gate-label');
+  const gateToggleEl = document.getElementById('gate-toggle');
+  const rampLeftEl = document.getElementById('ramp-left');
+  const rampRightEl = document.getElementById('ramp-right');
+  const flipLeftEl = document.getElementById('flip-left');
+  const flipRightEl = document.getElementById('flip-right');
+
+  const btnLaunch = document.getElementById('btn-launch');
+  const btnMultiball = document.getElementById('btn-multiball');
+  const btnPause = document.getElementById('btn-pause');
+  const btnReset = document.getElementById('btn-reset');
+  const soundToggle = document.getElementById('sound-toggle');
+
+  const drawableChildren = [
+    scoreboardEl,
+    ...bumperEls,
+    saucerEl,
+    gateLabelEl,
+    rampLeftEl,
+    rampRightEl,
+    flipLeftEl,
+    flipRightEl,
+  ];
+
+  // Static table walls (logical 380 x 560 coordinates).
+  const archPoints = [];
+  for (let i = 0; i <= 18; i++) {
+    const t = Math.PI + (Math.PI * i) / 18;
+    archPoints.push({ x: 190 + 174 * Math.cos(t), y: 128 + 72 * Math.sin(t) });
+  }
+  const walls = [];
+  for (let i = 0; i < archPoints.length - 1; i++) {
+    walls.push({ ax: archPoints[i].x, ay: archPoints[i].y, bx: archPoints[i + 1].x, by: archPoints[i + 1].y, bounce: 0.72 });
+  }
+  walls.push(
+    { ax: 16, ay: 128, bx: 16, by: 404, bounce: 0.72 },
+    { ax: 16, ay: 274, bx: 30, by: 290, bounce: 0.78 },
+    { ax: 16, ay: 404, bx: 88, by: 468, bounce: 0.55 },
+    { ax: 334, ay: 152, bx: 334, by: 502, bounce: 0.72 },
+    { ax: 334, ay: 404, bx: 262, by: 468, bounce: 0.55 },
+    { ax: 364, ay: 128, bx: 364, by: 502, bounce: 0.72 },
+    { ax: 334, ay: 502, bx: 364, by: 502, bounce: 0.4 }
+  );
+  const oneWayGateWall = { ax: 334, ay: 88, bx: 334, by: 152, bounce: 0.75 };
+  const gateBarrier = { ax: 334, ay: 258, bx: 252, by: 286, bounce: 0.85 };
+
+  const bumpers = [
+    { el: bumperEls[0], cx: 114, cy: 146, r: 29, pts: 100, hits: 0, timer: 0, colour: '#fb7185' },
+    { el: bumperEls[1], cx: 236, cy: 146, r: 29, pts: 100, hits: 0, timer: 0, colour: '#38bdf8' },
+    { el: bumperEls[2], cx: 175, cy: 214, r: 29, pts: 150, hits: 0, timer: 0, colour: '#fbbf24' },
+  ];
+
+  const saucer = {
+    el: saucerEl,
+    x: 22,
+    y: 212,
+    cx: 60,
+    cy: 232,
+    captureR: 22,
+    trapped: null,
+    holdTime: 0,
+    cooldown: 0,
+  };
+
+  const ramps = [
+    { el: rampLeftEl, cx: 92, cy: 338, halfLen: 56, halfThick: 8, angle: (18 * Math.PI) / 180, prevAngle: (18 * Math.PI) / 180, name: 'Left ramp' },
+    { el: rampRightEl, cx: 258, cy: 338, halfLen: 56, halfThick: 8, angle: (-18 * Math.PI) / 180, prevAngle: (-18 * Math.PI) / 180, name: 'Right ramp' },
+  ];
+
+  const flippers = {
+    left: {
+      el: flipLeftEl,
+      px: 88,
+      py: 468,
+      len: 64,
+      pivotOffX: 11,
+      pivotOffY: 14,
+      rest: (24 * Math.PI) / 180,
+      up: (-28 * Math.PI) / 180,
+      angle: (24 * Math.PI) / 180,
+      omega: 0,
+      pressed: false,
+      pulseUntil: 0,
+    },
+    right: {
+      el: flipRightEl,
+      px: 262,
+      py: 468,
+      len: 64,
+      pivotOffX: 65,
+      pivotOffY: 14,
+      rest: (-24 * Math.PI) / 180,
+      up: (28 * Math.PI) / 180,
+      angle: (-24 * Math.PI) / 180,
+      omega: 0,
+      pressed: false,
+      pulseUntil: 0,
+    },
+  };
+
+  let score = 0;
+  let multiplier = 1;
+  let balls = [];
+  let rings = [];
+  let flashes = [];
+  let visible = false;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let paused = reducedMotion;
+  let autoLaunched = false;
+  let contextLost = false;
+  let fallbackBox = null;
+  let rafId = 0;
+  let lastTime = 0;
+  let missedDraw = false;
+  let audioCtx = null;
+
+  // Optional subtle Web Audio tones (off by default until ticked).
+  function beep(freq, dur = 0.06, type = 'triangle', gain = 0.07) {
+    if (!soundToggle.checked) return;
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const now = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const amp = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      amp.gain.setValueAtTime(gain, now);
+      amp.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      osc.connect(amp).connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + dur + 0.01);
+    } catch {}
+  }
+
+  function say(text) {
+    statusEl.textContent = text;
+  }
+
+  function updateScoreboard() {
+    scoreboardEl.textContent = `Score ${score} · Balls ${balls.length} · ${multiplier}x`;
+  }
+
+  function addScore(points) {
+    score += points * multiplier;
+    updateScoreboard();
+  }
+
+  function makeBall(launchNow = false) {
+    const b = {
+      x: 349,
+      y: 486,
+      vx: launchNow ? -12 - Math.random() * 14 : 0,
+      vy: launchNow ? -(810 + Math.random() * 85) : 0,
+      inPlay: false,
+      saveTime: 3.0,
+      stuckTime: 0,
+      gatePassed: false,
+      trail: [],
+    };
+    balls.push(b);
+    updateScoreboard();
+    if (launchNow) {
+      beep(240, 0.09, 'sine', 0.06);
+      say(balls.length > 1 ? `Multi-ball active (${balls.length} balls).` : 'Ball launched.');
+    }
+    return b;
+  }
+
+  function launchOrAdd(allowMulti = false) {
+    if (paused) {
+      paused = false;
+      btnPause.textContent = 'Pause';
+    }
+    const waiting = balls.find((b) => !b.inPlay && b.y > 420 && Math.abs(b.vy) < 45);
+    if (waiting) {
+      waiting.vx = -12 - Math.random() * 14;
+      waiting.vy = -(810 + Math.random() * 85);
+      waiting.saveTime = 3.0;
+      beep(240, 0.09, 'sine', 0.06);
+      say('Ball launched.');
+    } else if (balls.length === 0 || (allowMulti && balls.length < 3)) {
+      makeBall(true);
+    } else if (!allowMulti) {
+      say('Ball already in play. Use Add multi-ball to launch another.');
+    } else {
+      say('3 balls are already in play.');
+    }
+    startLoop();
+    requestTablePaint();
+  }
+
+  function triggerBumper(b, fromTap = false) {
+    b.hits++;
+    b.el.querySelector('small').textContent = String(b.hits);
+    b.el.classList.add('hit');
+    clearTimeout(b.timer);
+    b.timer = setTimeout(() => {
+      b.el.classList.remove('hit');
+      requestTablePaint();
+    }, 150);
+    addScore(b.pts);
+    rings.push({ x: b.cx, y: b.cy, r: b.r, maxR: b.r + 34, alpha: 0.9, colour: b.colour });
+    beep(420 + bumpers.indexOf(b) * 110, 0.07, 'triangle', 0.07);
+    if (fromTap) {
+      // Tapping a bumper directly pulses it and pushes any nearby ball away.
+      for (const ball of balls) {
+        const dx = ball.x - b.cx;
+        const dy = ball.y - b.cy;
+        const d = Math.hypot(dx, dy);
+        if (d > 0.1 && d < b.r + 58) {
+          ball.vx += (dx / d) * 320;
+          ball.vy += (dy / d) * 320;
+        }
+      }
+      say(`Bumper tapped (+${b.pts * multiplier}).`);
+      requestTablePaint();
+    }
+  }
+
+  // #region table-physics
+  // Resolve a ball against a line segment (with optional surface velocity from a swinging flipper or ramp).
+  function collideSegment(ball, ax, ay, bx, by, radius, bounce, surfVx = 0, surfVy = 0) {
+    const abx = bx - ax;
+    const aby = by - ay;
+    const lenSq = abx * abx + aby * aby || 1;
+    const t = Math.max(0, Math.min(1, ((ball.x - ax) * abx + (ball.y - ay) * aby) / lenSq));
+    const cx = ax + abx * t;
+    const cy = ay + aby * t;
+    const dx = ball.x - cx;
+    const dy = ball.y - cy;
+    const dist = Math.hypot(dx, dy);
+    const minDist = BALL_R + radius;
+    if (dist >= minDist || dist < 0.0001) return false;
+
+    const nx = dx / dist;
+    const ny = dy / dist;
+    ball.x = cx + nx * minDist;
+    ball.y = cy + ny * minDist;
+
+    const rvx = ball.vx - surfVx;
+    const rvy = ball.vy - surfVy;
+    const vn = rvx * nx + rvy * ny;
+    if (vn < 0) {
+      const imp = -(1 + bounce) * vn;
+      ball.vx += imp * nx;
+      ball.vy += imp * ny;
+    }
+    return { t, nx, ny };
+  }
+
+  function stepFlipper(f, dt, now) {
+    const active = f.pressed || now < f.pulseUntil;
+    const target = active ? f.up : f.rest;
+    const prev = f.angle;
+    const speed = active ? 22 : 12;
+    const diff = target - f.angle;
+    const step = Math.sign(diff) * Math.min(Math.abs(diff), speed * dt);
+    f.angle += step;
+    f.omega = (f.angle - prev) / (dt || 0.001);
+    const changed = Math.abs(f.angle - prev) > 0.002;
+    if (changed) f.el.toggleAttribute('data-moved');
+    f.el.classList.toggle('active', active);
+  }
+
+  function stepPhysics(dt, now) {
+    const subDt = dt / SUBSTEPS;
+    if (saucer.cooldown > 0) saucer.cooldown = Math.max(0, saucer.cooldown - dt);
+
+    // Release a trapped ball from the <details> saucer after its bonus swirl.
+    if (saucer.trapped) {
+      saucer.holdTime -= dt;
+      const b = saucer.trapped;
+      b.x = saucer.cx + Math.cos(now * 0.02) * 5;
+      b.y = saucer.cy + Math.sin(now * 0.02) * 5;
+      b.vx = 0;
+      b.vy = 0;
+      if (saucer.holdTime <= 0) ejectSaucer();
+    }
+
+    // Track ramp angular speed if the player drags a slider mid-flight.
+    const rampOmegas = ramps.map((r) => {
+      const w = (r.angle - r.prevAngle) / (dt || 0.016);
+      r.prevAngle = r.angle;
+      return w;
+    });
+
+    for (let s = 0; s < SUBSTEPS; s++) {
+      stepFlipper(flippers.left, subDt, now);
+      stepFlipper(flippers.right, subDt, now);
+
+      for (const ball of balls) {
+        if (ball === saucer.trapped) continue;
+        ball.vy += GRAVITY * subDt;
+        ball.x += ball.vx * subDt;
+        ball.y += ball.vy * subDt;
+
+        if (!ball.inPlay && ball.x < 322) ball.inPlay = true;
+        if (ball.saveTime > 0) ball.saveTime = Math.max(0, ball.saveTime - subDt);
+
+        for (const w of walls) {
+          collideSegment(ball, w.ax, w.ay, w.bx, w.by, 1.5, w.bounce);
+        }
+        if (ball.inPlay) {
+          collideSegment(ball, oneWayGateWall.ax, oneWayGateWall.ay, oneWayGateWall.bx, oneWayGateWall.by, 1.5, oneWayGateWall.bounce);
+        }
+
+        // Checkbox diverter gate: closed blocks the right lane, open grants a lane bonus.
+        if (gateToggleEl.checked) {
+          if (collideSegment(ball, gateBarrier.ax, gateBarrier.ay, gateBarrier.bx, gateBarrier.by, 3, gateBarrier.bounce)) {
+            beep(310, 0.04, 'square', 0.03);
+            flashes.push({ x: 292, y: 272, alpha: 0.9, text: 'Diverted' });
+          }
+        } else if (ball.inPlay && !ball.gatePassed && ball.x > 256 && ball.x < 332 && ball.y > 264 && ball.y < 292) {
+          ball.gatePassed = true;
+          addScore(75);
+          beep(640, 0.06, 'sine', 0.05);
+          flashes.push({ x: 292, y: 272, alpha: 1, text: '+75' });
+        } else if (ball.y < 210 || ball.y > 340) {
+          ball.gatePassed = false;
+        }
+
+        // Round <button> bumpers.
+        for (const bmp of bumpers) {
+          const dx = ball.x - bmp.cx;
+          const dy = ball.y - bmp.cy;
+          const dist = Math.hypot(dx, dy);
+          const minDist = BALL_R + bmp.r;
+          if (dist < minDist && dist > 0.0001) {
+            const nx = dx / dist;
+            const ny = dy / dist;
+            ball.x = bmp.cx + nx * minDist;
+            ball.y = bmp.cy + ny * minDist;
+            const speed = Math.max(430, Math.hypot(ball.vx, ball.vy) * 1.12);
+            const jitter = (Math.random() - 0.5) * 0.14;
+            const c = Math.cos(jitter);
+            const sn = Math.sin(jitter);
+            ball.vx = (nx * c - ny * sn) * speed;
+            ball.vy = (nx * sn + ny * c) * speed;
+            triggerBumper(bmp, false);
+          }
+        }
+
+        // Tiltable <input type="range"> ramps.
+        for (let i = 0; i < ramps.length; i++) {
+          const r = ramps[i];
+          const cos = Math.cos(r.angle);
+          const sin = Math.sin(r.angle);
+          const ax = r.cx - cos * r.halfLen;
+          const ay = r.cy - sin * r.halfLen;
+          const bx = r.cx + cos * r.halfLen;
+          const by = r.cy + sin * r.halfLen;
+          const hit = collideSegment(ball, ax, ay, bx, by, r.halfThick, 0.45);
+          if (hit && Math.abs(rampOmegas[i]) > 0.2) {
+            const lever = (hit.t - 0.5) * r.halfLen * 2;
+            ball.vx += -sin * rampOmegas[i] * lever * 0.55;
+            ball.vy += cos * rampOmegas[i] * lever * 0.55;
+          }
+        }
+
+        // Pivoted <button> flippers.
+        for (const [side, fl] of [['left', flippers.left], ['right', flippers.right]]) {
+          const dir = side === 'left' ? 1 : -1;
+          const cos = Math.cos(fl.angle);
+          const sin = Math.sin(fl.angle);
+          const tipX = fl.px + dir * cos * fl.len;
+          const tipY = fl.py + dir * sin * fl.len;
+          const abx = tipX - fl.px;
+          const aby = tipY - fl.py;
+          const t = Math.max(0, Math.min(1, ((ball.x - fl.px) * abx + (ball.y - fl.py) * aby) / (fl.len * fl.len)));
+          const distFromPivot = t * fl.len;
+          const surfVx = -dir * sin * fl.omega * distFromPivot;
+          const surfVy = dir * cos * fl.omega * distFromPivot;
+          const hit = collideSegment(ball, fl.px, fl.py, tipX, tipY, 9, 0.52, surfVx, surfVy);
+          if (hit && Math.abs(fl.omega) > 2) {
+            ball.vy = Math.min(ball.vy, -420 - distFromPivot * 4.5);
+            beep(210, 0.04, 'triangle', 0.05);
+          }
+        }
+
+        // <details> saucer trap capture.
+        if (!saucer.trapped && saucer.cooldown <= 0 && ball.inPlay) {
+          if (Math.hypot(ball.x - saucer.cx, ball.y - saucer.cy) < saucer.captureR) {
+            saucer.trapped = ball;
+            saucer.holdTime = 0.72;
+            saucerEl.open = true;
+            multiplier = Math.min(5, multiplier + 1);
+            addScore(250);
+            rings.push({ x: saucer.cx, y: saucer.cy, r: 16, maxR: 54, alpha: 1, colour: '#fde047' });
+            flashes.push({ x: saucer.cx, y: saucer.cy - 18, alpha: 1, text: `+${250 * multiplier}` });
+            beep(520, 0.08, 'sine', 0.07);
+            setTimeout(() => beep(780, 0.1, 'sine', 0.06), 75);
+            say(`Saucer trap opened: +${250 * multiplier}, multiplier ${multiplier}x.`);
+          }
+        }
+
+        // Clamp top speed so a ball cannot tunnel through a 9 px rail.
+        const spd = Math.hypot(ball.vx, ball.vy);
+        if (spd > MAX_SPEED) {
+          const scale = MAX_SPEED / spd;
+          ball.vx *= scale;
+          ball.vy *= scale;
+        }
+      }
+
+      // Ball-to-ball collisions during multi-ball.
+      for (let i = 0; i < balls.length; i++) {
+        for (let j = i + 1; j < balls.length; j++) {
+          const a = balls[i];
+          const b = balls[j];
+          if (a === saucer.trapped || b === saucer.trapped) continue;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const d = Math.hypot(dx, dy);
+          const minD = BALL_R * 2;
+          if (d < minD && d > 0.0001) {
+            const nx = dx / d;
+            const ny = dy / d;
+            const overlap = (minD - d) * 0.5;
+            a.x -= nx * overlap; a.y -= ny * overlap;
+            b.x += nx * overlap; b.y += ny * overlap;
+            const dvx = b.vx - a.vx;
+            const dvy = b.vy - a.vy;
+            const vn = dvx * nx + dvy * ny;
+            if (vn < 0) {
+              const imp = -0.92 * vn;
+              a.vx -= imp * nx; a.vy -= imp * ny;
+              b.vx += imp * nx; b.vy += imp * ny;
+            }
+          }
+        }
+      }
+    }
+
+    // Trails, anti-stall nudge and drain handling.
+    for (let i = balls.length - 1; i >= 0; i--) {
+      const ball = balls[i];
+      ball.trail.push({ x: ball.x, y: ball.y });
+      if (ball.trail.length > 10) ball.trail.shift();
+
+      if (ball.inPlay && ball !== saucer.trapped && Math.hypot(ball.vx, ball.vy) < 16) {
+        ball.stuckTime += dt;
+        if (ball.stuckTime > 1.1) {
+          ball.vx += (ball.x < 175 ? 1 : -1) * 140;
+          ball.vy -= 180;
+          ball.stuckTime = 0;
+        }
+      } else {
+        ball.stuckTime = 0;
+      }
+
+      if (ball.y > LOGICAL_H + 14) {
+        if (ball.saveTime > 0) {
+          ball.x = 349; ball.y = 486; ball.vx = -14; ball.vy = -830; ball.inPlay = false; ball.trail.length = 0;
+          say('Ball saved and relaunched.');
+        } else {
+          balls.splice(i, 1);
+          if (balls.length === 0) {
+            multiplier = 1;
+            makeBall(false);
+            say('Ball drained. Tap Launch ball or press Space.');
+          } else {
+            updateScoreboard();
+          }
+        }
+      }
+    }
+
+    for (let i = rings.length - 1; i >= 0; i--) {
+      rings[i].r += 140 * dt;
+      rings[i].alpha -= 2.4 * dt;
+      if (rings[i].alpha <= 0) rings.splice(i, 1);
+    }
+    for (let i = flashes.length - 1; i >= 0; i--) {
+      flashes[i].y -= 28 * dt;
+      flashes[i].alpha -= 1.3 * dt;
+      if (flashes[i].alpha <= 0) flashes.splice(i, 1);
+    }
+  }
+  // #endregion table-physics
+
+  function ejectSaucer() {
+    if (!saucer.trapped) return;
+    const b = saucer.trapped;
+    saucer.trapped = null;
+    saucer.cooldown = 1.6;
+    saucerEl.open = false;
+    b.x = saucer.cx + 22;
+    b.y = saucer.cy - 6;
+    b.vx = 270 + Math.random() * 80;
+    b.vy = -(440 + Math.random() * 80);
+    beep(680, 0.08, 'triangle', 0.06);
+    requestTablePaint();
+  }
+
+  // #region table-draw
+  function putElement(ctx, el, x, y) {
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    if (!w || !h) { missedDraw = true; return; }
+    try {
+      ctx.drawElementImage(el, x, y, w, h);
+    } catch {
+      missedDraw = true;
+    }
+  }
+
+  function drawTable(ctx) {
+    const scaleX = canvas.width / LOGICAL_W;
+    const scaleY = canvas.height / LOGICAL_H;
+    ctx.reset();
+    ctx.scale(scaleX, scaleY);
+    missedDraw = false;
+
+    // Playfield cabinet background.
+    const bg = ctx.createLinearGradient(0, 0, 0, LOGICAL_H);
+    bg.addColorStop(0, '#0b1220');
+    bg.addColorStop(0.55, '#131d33');
+    bg.addColorStop(1, '#0c1322');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+    // Subtle arcade lane stripes.
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(175, 195, 118, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Shooter lane bed.
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.72)';
+    ctx.fillRect(334, 152, 30, 350);
+
+    // Cabinet rails and curved top dome.
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(archPoints[0].x, archPoints[0].y);
+    for (let i = 1; i < archPoints.length; i++) ctx.lineTo(archPoints[i].x, archPoints[i].y);
+    ctx.stroke();
+
+    ctx.beginPath();
+    for (const w of walls.slice(archPoints.length - 1)) {
+      ctx.moveTo(w.ax, w.ay);
+      ctx.lineTo(w.bx, w.by);
+    }
+    ctx.stroke();
+
+    // Diverter gate barrier controlled by the real checkbox.
+    ctx.save();
+    if (gateToggleEl.checked) {
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(gateBarrier.ax, gateBarrier.ay);
+      ctx.lineTo(gateBarrier.bx, gateBarrier.by);
+      ctx.stroke();
+    } else {
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(gateBarrier.ax, gateBarrier.ay);
+      ctx.lineTo(gateBarrier.bx, gateBarrier.by);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Saucer capture pocket glow behind the <details> control.
+    ctx.save();
+    ctx.strokeStyle = saucer.trapped ? '#fde047' : 'rgba(167, 139, 250, 0.55)';
+    ctx.lineWidth = saucer.trapped ? 3 : 2;
+    ctx.beginPath();
+    ctx.arc(saucer.cx, saucer.cy, saucer.captureR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Bumper shockwaves.
+    for (const ring of rings) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, ring.alpha);
+      ctx.strokeStyle = ring.colour;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, ring.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Live <output> scoreboard.
+    putElement(ctx, scoreboardEl, 18, 12);
+
+    // Three <button> bumpers with soft drop shadows.
+    for (const bmp of bumpers) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+      ctx.beginPath();
+      ctx.arc(bmp.cx, bmp.cy + 5, bmp.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      putElement(ctx, bmp.el, bmp.cx - bmp.el.offsetWidth / 2, bmp.cy - bmp.el.offsetHeight / 2);
+    }
+
+    // Live <details> saucer trap and <label><input type="checkbox"> gate.
+    putElement(ctx, saucerEl, saucer.x, saucer.y);
+    putElement(ctx, gateLabelEl, 248, 214);
+
+    // Two rotated <input type="range"> ramp sliders.
+    for (const r of ramps) {
+      ctx.save();
+      ctx.translate(r.cx, r.cy);
+      ctx.rotate(r.angle);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.36)';
+      ctx.fillRect(-r.el.offsetWidth / 2, -r.el.offsetHeight / 2 + 5, r.el.offsetWidth, r.el.offsetHeight);
+      putElement(ctx, r.el, -r.el.offsetWidth / 2, -r.el.offsetHeight / 2);
+      ctx.restore();
+    }
+
+    // Two pivoted <button> flippers.
+    for (const fl of [flippers.left, flippers.right]) {
+      ctx.save();
+      ctx.translate(fl.px, fl.py);
+      ctx.rotate(fl.angle);
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+      ctx.fillRect(-fl.pivotOffX, -fl.pivotOffY + 5, fl.el.offsetWidth, fl.el.offsetHeight);
+      putElement(ctx, fl.el, -fl.pivotOffX, -fl.pivotOffY);
+      ctx.fillStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.arc(0, 0, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Steel balls and velocity trails.
+    for (const ball of balls) {
+      for (let i = 0; i < ball.trail.length; i++) {
+        const pt = ball.trail[i];
+        const frac = (i + 1) / ball.trail.length;
+        ctx.fillStyle = `rgba(56, 189, 248, ${frac * 0.28})`;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, BALL_R * frac * 0.85, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+      ctx.beginPath();
+      ctx.arc(ball.x + 2, ball.y + 4, BALL_R, 0, Math.PI * 2);
+      ctx.fill();
+
+      const grad = ctx.createRadialGradient(ball.x - 3, ball.y - 3, 1.5, ball.x, ball.y, BALL_R);
+      grad.addColorStop(0, '#ffffff');
+      grad.addColorStop(0.45, '#cbd5e1');
+      grad.addColorStop(1, '#475569');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Floating lane/saucer callouts.
+    ctx.font = '700 12px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    for (const f of flashes) {
+      ctx.fillStyle = `rgba(253, 224, 71, ${Math.max(0, f.alpha)})`;
+      ctx.fillText(f.text, f.x, f.y);
+    }
+  }
+  // #endregion table-draw
+
+  // #region table-fallback
+  function showPlainFallback(reason) {
+    contextLost = true;
+    stopLoop();
+    if (fallbackBox) return;
+    fallbackBox = document.createElement('div');
+    fallbackBox.className = 'plain-fallback';
+    const note = document.createElement('p');
+    note.className = 'plain-note';
+    note.textContent = `The pinball canvas ${reason}, so the live controls are shown below as plain HTML.`;
+    fallbackBox.append(note, ...drawableChildren);
+    if (supported) {
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'retry-canvas';
+      retry.textContent = 'Draw in the canvas again';
+      retry.addEventListener('click', restoreCanvasFromFallback);
+      fallbackBox.append(retry);
+    }
+    canvas.hidden = true;
+    canvas.after(fallbackBox);
+  }
+
+  function restoreCanvasFromFallback() {
+    if (!fallbackBox) return;
+    canvas.append(...drawableChildren);
+    fallbackBox.remove();
+    fallbackBox = null;
+    canvas.hidden = false;
+    contextLost = false;
+    syncCanvasSize();
+    requestTablePaint();
+    if (visible && !paused) startLoop();
+  }
+  // #endregion table-fallback
+
+  const ctx = supported ? canvas.getContext('2d') : null;
+
+  function requestTablePaint() {
+    if (!supported || contextLost || !ctx || ctx.isContextLost?.()) return;
+    canvas.requestPaint?.();
+  }
+
+  function syncCanvasSize(entry) {
+    if (contextLost || canvas.hidden) return;
+    const box = entry?.devicePixelContentBoxSize?.[0];
+    const w = Math.round(box ? box.inlineSize : canvas.clientWidth * devicePixelRatio);
+    const h = Math.round(box ? box.blockSize : canvas.clientHeight * devicePixelRatio);
+    if (w > 0 && h > 0) {
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+    }
+  }
+
+  function tick(now) {
+    rafId = 0;
+    if (!visible || paused || contextLost || !supported) return;
+    const dt = lastTime ? Math.min(0.033, (now - lastTime) / 1000) : 0.016;
+    lastTime = now;
+    stepPhysics(dt, now);
+    requestTablePaint();
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function startLoop() {
+    if (rafId || !visible || paused || contextLost || !supported) return;
+    lastTime = 0;
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function stopLoop() {
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+    lastTime = 0;
+  }
+
+  // Wire up live control listeners.
+  for (const bmp of bumpers) {
+    bmp.el.addEventListener('click', () => triggerBumper(bmp, true));
+  }
+
+  for (const r of ramps) {
+    r.el.addEventListener('input', () => {
+      const deg = Number(r.el.value);
+      r.angle = (deg * Math.PI) / 180;
+      r.el.toggleAttribute('data-moved');
+      say(`${r.name} tilted to ${deg} deg.`);
+      requestTablePaint();
+    });
+  }
+
+  gateToggleEl.addEventListener('change', () => {
+    gateLabelEl.classList.toggle('open-lane', !gateToggleEl.checked);
+    say(gateToggleEl.checked ? 'Diverter gate closed: balls bounce back.' : 'Diverter gate open: express lane active.');
+    beep(gateToggleEl.checked ? 360 : 520, 0.05, 'sine', 0.05);
+    requestTablePaint();
+  });
+
+  saucerEl.addEventListener('toggle', () => {
+    if (!saucerEl.open && saucer.trapped) ejectSaucer();
+    requestTablePaint();
+  });
+
+  function wireFlipper(el, fl, name) {
+    let pointerActive = false;
+    el.addEventListener('pointerdown', (e) => {
+      pointerActive = true;
+      fl.pressed = true;
+      fl.el.classList.add('active');
+      beep(170, 0.03, 'square', 0.03);
+      requestTablePaint();
+      const release = () => {
+        fl.pressed = false;
+        fl.el.classList.remove('active');
+        removeEventListener('pointerup', release);
+        removeEventListener('pointercancel', release);
+        requestTablePaint();
+      };
+      addEventListener('pointerup', release);
+      addEventListener('pointercancel', release);
+    });
+    el.addEventListener('click', () => {
+      if (pointerActive) { pointerActive = false; return; }
+      fl.pulseUntil = performance.now() + 180;
+      beep(170, 0.03, 'square', 0.03);
+      say(`${name} pulsed.`);
+      requestTablePaint();
+    });
+  }
+  wireFlipper(flipLeftEl, flippers.left, 'Left flipper');
+  wireFlipper(flipRightEl, flippers.right, 'Right flipper');
+
+  // Tapping the empty lower corners of the canvas also actuates the nearest flipper on a phone.
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.target !== canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const lx = ((e.clientX - rect.left) / rect.width) * LOGICAL_W;
+    const ly = ((e.clientY - rect.top) / rect.height) * LOGICAL_H;
+    if (ly < 390) return;
+    const fl = lx < 175 ? flippers.left : flippers.right;
+    fl.pressed = true;
+    beep(170, 0.03, 'square', 0.03);
+    requestTablePaint();
+    const release = () => {
+      fl.pressed = false;
+      removeEventListener('pointerup', release);
+      removeEventListener('pointercancel', release);
+      requestTablePaint();
+    };
+    addEventListener('pointerup', release);
+    addEventListener('pointercancel', release);
+  });
+
+  addEventListener('keydown', (e) => {
+    const active = document.activeElement;
+    if (active && (active.tagName === 'TEXTAREA' || (active.tagName === 'INPUT' && active.type !== 'range' && active.type !== 'checkbox'))) return;
+    const inStage = stage.contains(active) || active === document.body;
+    if (e.code === 'KeyZ' || (e.code === 'ArrowLeft' && inStage && visible)) {
+      if (e.code === 'ArrowLeft') e.preventDefault();
+      if (!flippers.left.pressed) beep(170, 0.03, 'square', 0.03);
+      flippers.left.pressed = true;
+      requestTablePaint();
+    } else if (e.code === 'Slash' || (e.code === 'ArrowRight' && inStage && visible)) {
+      if (e.code === 'ArrowRight') e.preventDefault();
+      if (!flippers.right.pressed) beep(170, 0.03, 'square', 0.03);
+      flippers.right.pressed = true;
+      requestTablePaint();
+    } else if (e.code === 'Space' && inStage && visible && active === document.body) {
+      e.preventDefault();
+      launchOrAdd(false);
+    }
+  });
+
+  addEventListener('keyup', (e) => {
+    if (e.code === 'KeyZ' || e.code === 'ArrowLeft') { flippers.left.pressed = false; requestTablePaint(); }
+    if (e.code === 'Slash' || e.code === 'ArrowRight') { flippers.right.pressed = false; requestTablePaint(); }
+  });
+
+  btnLaunch.addEventListener('click', () => launchOrAdd(false));
+  btnMultiball.addEventListener('click', () => launchOrAdd(true));
+  btnPause.addEventListener('click', () => {
+    paused = !paused;
+    btnPause.textContent = paused ? 'Resume' : 'Pause';
+    say(paused ? 'Physics paused. Tapping controls still raises paint.' : 'Physics resumed.');
+    if (paused) stopLoop(); else startLoop();
+  });
+  btnReset.addEventListener('click', () => {
+    score = 0;
+    multiplier = 1;
+    balls = [];
+    rings = [];
+    flashes = [];
+    saucer.trapped = null;
+    saucer.cooldown = 0;
+    saucerEl.open = false;
+    for (const bmp of bumpers) {
+      bmp.hits = 0;
+      bmp.el.classList.remove('hit');
+      bmp.el.querySelector('small').textContent = '0';
+    }
+    makeBall(!paused);
+    if (paused) say('Score reset. Tap Launch ball to start.');
+    requestTablePaint();
+  });
+
+  if (supported && ctx) {
+    let retries = 0;
+    canvas.addEventListener('paint', () => {
+      if (contextLost || ctx.isContextLost?.()) return;
+      drawTable(ctx);
+      if (missedDraw && retries++ < 40) requestAnimationFrame(requestTablePaint);
+      else if (!missedDraw) retries = 0;
+    });
+
+    canvas.addEventListener('contextlost', (e) => {
+      e.preventDefault();
+      showPlainFallback('lost its 2D context');
+    });
+
+    canvas.addEventListener('contextrestored', () => {
+      restoreCanvasFromFallback();
+      say('Canvas context restored.');
+    });
+
+    new ResizeObserver(([entry]) => {
+      syncCanvasSize(entry);
+      requestTablePaint();
+    }).observe(canvas);
+
+    makeBall(false);
+    if (reducedMotion) {
+      btnPause.textContent = 'Resume';
+      say('Reduced motion is on. Tap Launch ball to start.');
+    }
+
+    new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      if (visible) {
+        syncCanvasSize();
+        requestTablePaint();
+        if (!paused && !autoLaunched && !reducedMotion) {
+          autoLaunched = true;
+          setTimeout(() => { if (visible && !paused) launchOrAdd(false); }, 140);
+        }
+        startLoop();
+      } else {
+        stopLoop();
+      }
+    }, { rootMargin: '80px 0px' }).observe(canvas);
+  } else {
+    showPlainFallback('cannot draw because HTML-in-canvas is not available in this browser');
+    say('Plain HTML controls active.');
+  }
+
+  // ---- Live checks (isolated fixtures on testStage()) ----
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const needApi = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+
+  async function makeFixture(html, paintFn, w = 240, h = 140) {
+    needApi();
+    const fc = document.createElement('canvas');
+    fc.setAttribute('content', 'drawable');
+    fc.setAttribute('layoutsubtree', '');
+    fc.width = w;
+    fc.height = h;
+    fc.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    fc.innerHTML = html;
+    testStage().append(fc);
+    const fctx = fc.getContext('2d');
+    const st = { canvas: fc, ctx: fctx, paints: 0, changed: [], error: null };
+    st.draw = () => {
+      fctx.reset();
+      try { paintFn(fctx, fc); st.error = null; } catch (err) { st.error = err; }
+    };
+    fc.addEventListener('paint', (ev) => {
+      st.paints++;
+      st.changed.push([...(ev.changedElements ?? [])]);
+      st.draw();
+    });
+    st.frame = async () => {
+      const n = st.paints;
+      fc.requestPaint();
+      for (let i = 0; i < 60 && st.paints === n; i++) await sleep(20);
+      await sleep(30);
+    };
+    for (let i = 0; i < 10; i++) {
+      await st.frame();
+      if (st.paints && !st.error) break;
+    }
+    if (st.error) throw st.error;
+    await sleep(60);
+    return st;
+  }
+
+  // Copy pixels into a plain (non-drawable) 2D canvas with willReadFrequently before reading.
+  function readCopyPixel(sourceCanvas, x, y) {
+    const copy = document.createElement('canvas');
+    copy.width = 1;
+    copy.height = 1;
+    const cctx = copy.getContext('2d', { willReadFrequently: true });
+    cctx.drawImage(sourceCanvas, Math.round(x), Math.round(y), 1, 1, 0, 0, 1, 1);
+    const px = cctx.getImageData(0, 0, 1, 1).data;
+    window.__gfx?.retire?.(copy);
+    return [px[0], px[1], px[2], px[3]];
+  }
+
+  function pointOnFixture(st, x, y) {
+    const r = st.canvas.getBoundingClientRect();
+    return document.elementFromPoint(r.left + x, r.top + y);
+  }
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'Bumper DOM mutation raises paint and changes drawn pixels',
+      why: 'When a ball strikes a bumper, adding the .hit class and incrementing its count must trigger a paint event and re-colour the button without a manual requestPaint().',
+      run: async () => {
+        const html = '<style>.tb{width:60px;height:60px;margin:0;border:0;border-radius:50%;background:#1d4ed8;color:#fff}.tb.hit{background:#f97316}</style><button type="button" class="tb" drawable>0</button>';
+        const st = await makeFixture(html, (c, el) => {
+          const btn = el.querySelector('button');
+          c.drawElementImage(btn, 20, 20, btn.offsetWidth, btn.offsetHeight);
+        }, 120, 100);
+        try {
+          const btn = st.canvas.querySelector('button');
+          const before = readCopyPixel(st.canvas, 32, 50);
+          const n0 = st.paints;
+          btn.classList.add('hit');
+          btn.textContent = '1';
+          for (let i = 0; i < 30 && st.paints === n0; i++) await sleep(20);
+          await sleep(40);
+          const after = readCopyPixel(st.canvas, 32, 50);
+          const count = st.paints - n0;
+          if (!count) throw new Error('no paint event after bumper class and text changed');
+          if (before[2] < 150 || after[0] < 200 || after[2] > 80) {
+            throw new Error(`bumper pixel ${before.slice(0, 3)} before, ${after.slice(0, 3)} after`);
+          }
+          return `${count} paint event(s). Bumper pixel moved from rgb(${before.slice(0, 3)}) to rgb(${after.slice(0, 3)}).`;
+        } finally {
+          window.__gfx?.retire?.(st.canvas);
+        }
+      },
+    },
+    {
+      name: 'Rotated <input type="range"> hit box follows ctx.rotate()',
+      why: 'Tilting a ramp slider must rotate its pointer hit box along with its pixels so drags stay on the drawn track.',
+      run: async () => {
+        const rad = (25 * Math.PI) / 180;
+        const html = '<input type="range" drawable min="-28" max="28" value="25" style="width:120px;height:28px;margin:0">';
+        const st = await makeFixture(html, (c, el) => {
+          const inp = el.querySelector('input');
+          c.save();
+          c.translate(120, 70);
+          c.rotate(rad);
+          c.drawElementImage(inp, -inp.offsetWidth / 2, -inp.offsetHeight / 2, inp.offsetWidth, inp.offsetHeight);
+          c.restore();
+          inp.toggleAttribute('data-moved');
+        }, 240, 140);
+        try {
+          const inp = st.canvas.querySelector('input');
+          const hitX = 120 + 48 * Math.cos(rad);
+          const hitY = 70 + 48 * Math.sin(rad);
+          const onTrack = pointOnFixture(st, hitX, hitY);
+          const offTrack = pointOnFixture(st, 120 + 48, 70 - 22);
+          if (onTrack !== inp) throw new Error(`expected <input> on rotated track, got <${onTrack?.localName}>`);
+          if (offTrack === inp) throw new Error('point 22 px above the unrotated track still hit <input>');
+          return `elementFromPoint(${hitX.toFixed(0)}, ${hitY.toFixed(0)}) returned <input>; point above the unrotated track returned <${offTrack?.localName}>.`;
+        } finally {
+          window.__gfx?.retire?.(st.canvas);
+        }
+      },
+    },
+    {
+      name: 'Checkbox gate toggles DOM state, raises paint and switches barrier collision',
+      why: 'Unticking the gate checkbox must raise a paint event and disable the right-lane diverter segment in the collision solver.',
+      run: async () => {
+        const html = '<label drawable style="display:inline-flex;align-items:center;gap:4px;width:84px;height:32px;background:#052e16;color:#fff"><input type="checkbox" checked> Gate</label>';
+        const st = await makeFixture(html, (c, el) => {
+          const lbl = el.querySelector('label');
+          c.drawElementImage(lbl, 16, 16, lbl.offsetWidth, lbl.offsetHeight);
+        }, 140, 80);
+        try {
+          const lbl = st.canvas.querySelector('label');
+          const box = lbl.querySelector('input');
+          const n0 = st.paints;
+          box.checked = false;
+          for (let i = 0; i < 30 && st.paints === n0; i++) await sleep(20);
+          const paints = st.paints - n0;
+          if (!paints) throw new Error('no paint event after checkbox changed');
+
+          // Verify closed gate reflects a downward ball while open gate skips collision.
+          const closedBall = { x: 292, y: 266, vx: 0, vy: 220 };
+          const hitClosed = collideSegment(closedBall, gateBarrier.ax, gateBarrier.ay, gateBarrier.bx, gateBarrier.by, 3, gateBarrier.bounce);
+          if (!hitClosed || closedBall.vy >= 0) throw new Error(`closed gate did not deflect ball (vy=${closedBall.vy.toFixed(1)})`);
+          const openBall = { x: 292, y: 266, vx: 0, vy: 220 };
+          if (box.checked) collideSegment(openBall, gateBarrier.ax, gateBarrier.ay, gateBarrier.bx, gateBarrier.by, 3, gateBarrier.bounce);
+          if (openBall.vy !== 220) throw new Error(`open gate altered ball velocity (vy=${openBall.vy})`);
+          return `${paints} paint event(s) on untick. Closed gate reversed vy to ${closedBall.vy.toFixed(0)} px/s; open gate left vy at ${openBall.vy} px/s.`;
+        } finally {
+          window.__gfx?.retire?.(st.canvas);
+        }
+      },
+    },
+    {
+      name: '<details> saucer opens by script, raises paint and paints the revealed bonus',
+      why: 'Capturing a ball sets details.open = true so the trap grows to show +250 on the playfield.',
+      run: async () => {
+        const html = '<details drawable style="width:80px;margin:0;background:#1e1b4b;color:#fff"><summary style="height:26px;list-style:none">Trap</summary><p style="height:28px;margin:0;background:#16a34a">+250</p></details>';
+        const st = await makeFixture(html, (c, el) => {
+          const det = el.querySelector('details');
+          c.drawElementImage(det, 20, 12, det.offsetWidth, det.offsetHeight);
+        }, 140, 100);
+        try {
+          const det = st.canvas.querySelector('details');
+          const closedH = det.offsetHeight;
+          const before = readCopyPixel(st.canvas, 60, 12 + closedH + 10);
+          const n0 = st.paints;
+          det.open = true;
+          for (let i = 0; i < 30 && st.paints === n0; i++) await sleep(20);
+          await sleep(40);
+          const openH = det.offsetHeight;
+          const after = readCopyPixel(st.canvas, 60, 12 + closedH + 10);
+          const paints = st.paints - n0;
+          if (!paints) throw new Error('no paint event after details.open = true');
+          if (openH <= closedH) throw new Error(`height stayed ${openH} px`);
+          if (before[3] > 8 || after[1] < 120) throw new Error(`revealed pixel alpha ${before[3]} before, rgb(${after.slice(0, 3)}) after`);
+          return `${paints} paint event(s). Height grew from ${closedH} px to ${openH} px; bonus pixel rgb(${after.slice(0, 3)}).`;
+        } finally {
+          window.__gfx?.retire?.(st.canvas);
+        }
+      },
+    },
+    {
+      name: 'Pivoted flipper <button> receives a click at its rotated blade',
+      why: 'Flippers swing round a hinge via ctx.rotate(). The real button must still hit-test at its rotated position.',
+      run: async () => {
+        const rad = (-25 * Math.PI) / 180;
+        const html = '<button type="button" drawable style="width:80px;height:28px;margin:0;border:0;background:#f97316;color:#fff">L</button>';
+        const st = await makeFixture(html, (c, el) => {
+          const btn = el.querySelector('button');
+          c.save();
+          c.translate(40, 88);
+          c.rotate(rad);
+          c.drawElementImage(btn, 0, -btn.offsetHeight / 2, btn.offsetWidth, btn.offsetHeight);
+          c.restore();
+          btn.toggleAttribute('data-moved');
+        }, 180, 130);
+        try {
+          const btn = st.canvas.querySelector('button');
+          let clicks = 0;
+          btn.addEventListener('click', () => { clicks++; });
+          const hx = 40 + 46 * Math.cos(rad);
+          const hy = 88 + 46 * Math.sin(rad);
+          const hit = pointOnFixture(st, hx, hy);
+          if (hit !== btn) throw new Error(`expected <button> at rotated blade, got <${hit?.localName}>`);
+          hit.click();
+          if (clicks !== 1) throw new Error(`click handler ran ${clicks} times`);
+          return `elementFromPoint(${hx.toFixed(0)}, ${hy.toFixed(0)}) returned <button> and click handler ran once.`;
+        } finally {
+          window.__gfx?.retire?.(st.canvas);
+        }
+      },
+    },
+    stillDrawn(() => [
+      {
+        name: 'Pinball playfield',
+        ink: async () => {
+          if (!supported || contextLost || canvas.hidden || !canvas.width || !canvas.height) return null;
+          const probe = document.createElement('canvas');
+          probe.width = Math.min(canvas.width, 190);
+          probe.height = Math.min(canvas.height, 280);
+          const pctx = probe.getContext('2d', { willReadFrequently: true });
+          pctx.drawImage(canvas, 0, 0, probe.width, probe.height);
+          const frac = inkFraction(pctx);
+          window.__gfx?.retire?.(probe);
+          return frac;
+        },
+        rescue: () => showPlainFallback('was blank after the live checks finished'),
+      },
+    ]),
+  ]);
+</script>
+</body>
+</html>

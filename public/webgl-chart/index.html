@@ -1,0 +1,1727 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>100k-point WebGL chart with live DOM tooltips</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="100,000 data points drawn in WebGL 2 on one ElementGL canvas, with a selectable tooltip, series filter legend and pinned callout drawn as live HTML inside the same canvas.">
+<link rel="canonical" href="https://html-in-canvas.page/webgl-chart/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="100k-point WebGL chart with live DOM tooltips">
+<meta property="og:description" content="100,000 data points drawn in WebGL 2 on one ElementGL canvas, with a selectable tooltip, series filter legend and pinned callout drawn as live HTML inside the same canvas.">
+<meta property="og:url" content="https://html-in-canvas.page/webgl-chart/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;100k-point WebGL chart with live DOM tooltips&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="100k-point WebGL chart with live DOM tooltips">
+<meta name="twitter:description" content="100,000 data points drawn in WebGL 2 on one ElementGL canvas, with a selectable tooltip, series filter legend and pinned callout drawn as live HTML inside the same canvas.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;100k-point WebGL chart with live DOM tooltips&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/webgl-chart/",
+   "url": "https://html-in-canvas.page/webgl-chart/",
+   "mainEntityOfPage": "https://html-in-canvas.page/webgl-chart/",
+   "headline": "100k-point WebGL chart with live DOM tooltips",
+   "name": "100k-point WebGL chart with live DOM tooltips",
+   "description": "100,000 data points drawn in WebGL 2 on one ElementGL canvas, with a selectable tooltip, series filter legend and pinned callout drawn as live HTML inside the same canvas.",
+   "abstract": "Can a WebGL 2 chart plot 100,000 interactive data points smoothly while keeping its tooltips, legend filters and inline point-annotation form as real accessible HTML inside the same canvas?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "WebGL, ElementGL, texElementSubImage2D, updateElementGeometry, charts, texElementSubImage2D\u0028), updateElementGeometry\u0028), requestPaint\u0028), drawElementImage\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "100k-point WebGL chart with live DOM tooltips",
+     "item": "https://html-in-canvas.page/webgl-chart/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 960px; }
+
+  #stage {
+    position: relative;
+    height: min(520px, 68svh);
+    min-height: 360px;
+    padding: 0;
+    overflow: hidden;
+    background: #0d1117;
+  }
+  #stage canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  #stage.dragging canvas { cursor: grabbing; }
+
+  /* Plain fallback: overlays sit above the plain 2D canvas using CSS transforms. */
+  #stage.plain .chart-ui {
+    pointer-events: auto;
+    z-index: 2;
+  }
+  #stage.plain .chart-ui[data-hidden="1"] {
+    display: none;
+  }
+
+  /* In-canvas HTML overlays: fixed dark palette so pixels match the WebGL chart in light and dark page themes. */
+  .chart-ui {
+    position: absolute;
+    left: 0;
+    top: 0;
+    box-sizing: border-box;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    background: rgba(17, 23, 34, 0.92);
+    color: #edf2f7;
+    font: 12.5px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    padding: 9px 10px;
+  }
+  .chart-ui :is(button, input, select):focus-visible {
+    outline: 2px solid #ff7a4d;
+    outline-offset: 1px;
+  }
+  .chart-ui button {
+    font: 600 12px/1.2 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    padding: 5px 9px;
+    min-height: 28px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    background: rgba(255, 255, 255, 0.1);
+    color: #f8fafc;
+    cursor: pointer;
+  }
+  .chart-ui button:hover {
+    border-color: #f8fafc;
+    background: rgba(255, 255, 255, 0.18);
+  }
+  .chart-ui input[type="text"],
+  .chart-ui select {
+    font: 12px/1.25 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color: #f8fafc;
+    background: #0b0f16;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 6px;
+    padding: 4px 7px;
+    min-height: 28px;
+  }
+
+  #chart-legend {
+    width: 214px;
+    max-width: calc(100% - 20px);
+  }
+  .ui-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .ui-title {
+    font: 700 11px/1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #9fb0c7;
+  }
+  .series-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 8px;
+    margin-bottom: 7px;
+  }
+  .series-opt {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .series-opt input {
+    margin: 0;
+    accent-color: #ff7a4d;
+  }
+  .swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .legend-ctrl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 5px 8px;
+    font-size: 11.5px;
+    color: #cbd5e1;
+  }
+  .legend-ctrl input[type="range"] {
+    width: 100%;
+    margin: 0;
+    accent-color: #ff7a4d;
+  }
+  .legend-ctrl select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  #chart-tip {
+    width: 244px;
+    max-width: calc(100% - 20px);
+    border-color: rgba(255, 160, 120, 0.52);
+  }
+  .tip-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    font-size: 12.5px;
+  }
+  .tip-badge {
+    margin-left: auto;
+    font: 600 10px/1 var(--mono);
+    color: #9fb0c7;
+    text-transform: uppercase;
+  }
+  .tip-close {
+    padding: 2px 7px !important;
+    min-height: 24px !important;
+    line-height: 1;
+  }
+  .tip-vals {
+    display: block;
+    margin: 5px 0 7px;
+    padding: 5px 7px;
+    border-radius: 6px;
+    background: #0a0e14;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font: 11.5px/1.4 var(--mono);
+    color: #e2e8f0;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
+  .tip-form {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+  }
+  .tip-form input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .tip-form button {
+    flex: none;
+    background: #d2491f;
+    border-color: #ff8e66;
+    color: #fff;
+  }
+  .tip-form button:hover {
+    background: #e25529;
+  }
+
+  #chart-pin {
+    width: 218px;
+    max-width: calc(100% - 20px);
+    border-color: rgba(251, 146, 60, 0.72);
+    background: rgba(24, 21, 18, 0.94);
+  }
+  .pin-coords {
+    font: 11px/1.3 var(--mono);
+    color: #fdba74;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .pin-row {
+    display: flex;
+    gap: 5px;
+    margin-top: 6px;
+    align-items: center;
+  }
+  .pin-row input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .chart-controls {
+    margin: 12px 0 8px;
+    gap: 8px;
+  }
+  .chart-controls button {
+    min-height: 40px;
+    min-width: 42px;
+    font-weight: 600;
+  }
+  #status {
+    font: 13px/1.45 var(--mono);
+    color: var(--muted);
+    margin: 6px 0 4px;
+    min-height: 1.5em;
+  }
+  #notice {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  #notice[hidden] { display: none; }
+
+  @media (max-width: 520px) {
+    #stage { height: min(460px, 64svh); }
+    #chart-legend { width: 196px; padding: 7px 8px; }
+    #chart-tip { width: 224px; padding: 8px; }
+    #chart-pin { width: 204px; padding: 8px; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+
+  <h1>100k-point WebGL chart with live DOM tooltips</h1>
+  <p class="lede">
+    I wanted to know if a WebGL 2 chart can plot 100,000 points smoothly while keeping its tooltips, series filters and pinned callouts as real accessible HTML inside the same canvas.
+    This experiment draws on the data-visualisation motivation in the WICG HTML-in-canvas explainer and on high-density WebGL charts such as deck.gl and Lightweight Charts.
+    Drag or pinch to pan and zoom, click or tap any point to inspect and copy its values, or pin an editable note to a data coordinate.
+  </p>
+
+  <div id="stage" class="stage">
+    <!-- #region markup -->
+    <canvas id="canvas" content="drawable" layoutsubtree aria-label="100,000-point WebGL chart with interactive HTML legend, tooltip and pinned callout">
+      <section id="chart-legend" class="chart-ui" drawable aria-label="Chart series filters and display controls">
+        <div class="ui-head">
+          <span class="ui-title">Series (25k each)</span>
+          <span class="tip-badge" id="legend-total">100k</span>
+        </div>
+        <div class="series-grid">
+          <label class="series-opt"><input type="checkbox" data-series="0" checked><span class="swatch" style="background:#2dd4bf"></span>Regime A</label>
+          <label class="series-opt"><input type="checkbox" data-series="1" checked><span class="swatch" style="background:#fb923c"></span>Regime B</label>
+          <label class="series-opt"><input type="checkbox" data-series="2" checked><span class="swatch" style="background:#f472b6"></span>Regime C</label>
+          <label class="series-opt"><input type="checkbox" data-series="3" checked><span class="swatch" style="background:#60a5fa"></span>Regime D</label>
+        </div>
+        <div class="legend-ctrl">
+          <label for="pt-size">Size</label>
+          <input id="pt-size" type="range" min="1.5" max="8" step="0.5" value="3">
+          <label for="chart-mode">Mode</label>
+          <select id="chart-mode">
+            <option value="scatter">Scatter (100k pts)</option>
+            <option value="series">Time-series + OHLC</option>
+          </select>
+        </div>
+      </section>
+
+      <aside id="chart-pin" class="chart-ui" drawable aria-label="Pinned data-space callout">
+        <div class="ui-head">
+          <span class="ui-title" id="pin-title">Pinned point</span>
+          <button id="pin-unpin" type="button">Unpin</button>
+        </div>
+        <div class="pin-coords" id="pin-coords">x: 72.14  y: 65.40</div>
+        <div class="pin-row">
+          <input id="pin-text" type="text" value="Cluster peak" aria-label="Pinned note text">
+        </div>
+      </aside>
+
+      <aside id="chart-tip" class="chart-ui" drawable aria-label="Selected data point tooltip">
+        <div class="ui-head">
+          <span class="tip-meta"><span class="swatch" id="tip-dot" style="background:#2dd4bf"></span><span id="tip-series">Regime A</span></span>
+          <span class="tip-badge" id="tip-state">locked</span>
+          <button id="tip-close" class="tip-close" type="button" aria-label="Close tooltip">&times;</button>
+        </div>
+        <code class="tip-vals" id="tip-vals">#00000  x: 0.00  y: 0.00  v: 0.00</code>
+        <form id="tip-form" class="tip-form">
+          <input id="tip-note" type="text" placeholder="Add note for point" aria-label="Annotation note">
+          <button id="tip-pin-btn" type="submit">Pin note</button>
+        </form>
+      </aside>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="row chart-controls">
+    <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+    <button id="zoom-out" type="button" aria-label="Zoom out">&minus;</button>
+    <button id="reset-view" type="button">Reset view</button>
+    <button id="toggle-legend" type="button" aria-pressed="true">Hide legend</button>
+  </div>
+  <p id="status">&nbsp;</p>
+  <p id="notice" hidden></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>100k-point VBO, spatial grid, ElementGL quads and 2D fallback</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Three drawable HTML overlays inside one canvas.</b> The legend, pinned callout and tooltip are children of <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>.</li>
+      <li data-code="#data-grid"><b>100,000 points and a 64&times;64 spatial grid.</b> Both layouts are generated deterministically and indexed in flat typed arrays for sub-millisecond lookup.</li>
+      <li data-code="#shaders"><b>One bitmask uniform filters 25,000 points per series.</b> Toggling a checkbox updates <code>uMask</code> on the GPU without touching the vertex buffer.</li>
+      <li data-code="#paint"><b>Sharing one <code>ElementGL</code> WebGL 2 context.</b> The chart draws its buffers first, restores <code>ElementGL</code>'s program and VAO, draws the HTML textures and syncs hit boxes via <code>updateElementGeometry()</code>.</li>
+      <li data-code="#fallback-2d"><b>2D canvas fallback.</b> If WebGL 2 is unavailable, a 2D context draws a downsampled point set and composites the same overlays with five-argument <code>drawElementImage()</code>.</li>
+      <li data-code="/lib/element-gl.js#upload"><b>Texture upload.</b> <code>ElementGL.upload()</code> sizes each texture to the element's picture and calls <code>texElementSubImage2D()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Most high-density WebGL charts (deck.gl, Lightweight Charts and similar engines) render the data on a canvas and float separate HTML nodes over it with CSS transforms.
+    That works until a fast pan or zoom lets the HTML layer drift a frame behind the WebGL buffer, or until screen readers and hit testing disagree with clipped elements.
+    Here the page opens one WebGL 2 context through <code>ElementGL</code> from <code>/lib/element-gl.js</code>, uploads 100,000 points once into static <code>ARRAY_BUFFER</code> storage, and draws three <code>drawable</code> HTML children in the same <code>paint</code> pass.
+  </p>
+  <p>
+    In scatter mode all 100,000 vertices are drawn in one <code>gl.drawArrays(gl.POINTS, 0, 100000)</code> call.
+    Each checkbox in the in-canvas legend flips a bit in a 4-bit integer uniform (<code>uMask</code>); hidden series are discarded in the vertex shader with zero VBO re-uploads.
+    In time-series mode the same 100,000 samples are drawn as four 25,000-vertex <code>GL_LINE_STRIP</code> traces over precomputed 500-bucket high/low OHLC range bands.
+  </p>
+  <p>
+    Pointer lookup doesn't scan all 100,000 points.
+    Scatter points are packed into a 64&times;64 flat grid (<code>cellStart</code> and <code>cellPoints</code> typed arrays) so finding the nearest visible point inspects only a handful of cells around the pointer.
+    Time-series samples are evenly spaced in time, so lookup jumps straight to the bucket index.
+    When you pan or zoom, the pinned callout's screen position is calculated from its data-space <code>(x, y)</code> coordinate, drawn with <code>stage.quad()</code>, and registered for clicks and text selection via <code>canvas.updateElementGeometry(el, { canvasTransform })</code> plus a <code>data-hit-tick</code> attribute toggle to clear Chromium's hit-test cache.
+  </p>
+
+  <h2>Live checks</h2>
+  <p>These checks wait for a tap so the page opens only one WebGL context on load. Each check builds its own fixture on the off-to-the-side test stage and retires its canvas when finished.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>This experiment was inspired by the data-visualisation use case in the WICG HTML-in-canvas explainer (keeping accessible labels and tooltips in the same composited surface) and by high-density WebGL scatter and financial charts like deck.gl and Lightweight Charts.</li>
+    <li>Sharing <code>ElementGL</code>'s single WebGL 2 context avoids allocating a second GPU context on mobile. Because <code>ElementGL</code> keeps its quad program and VAO private, the chart reads <code>gl.CURRENT_PROGRAM</code> and <code>gl.VERTEX_ARRAY_BINDING</code> once after <code>stage.begin()</code>, draws the 100,000-point buffers with its own VAOs, then restores <code>ElementGL</code>'s bindings before calling <code>stage.quad()</code>.</li>
+    <li>Panning and zooming change only view uniforms and quad matrices. Stationary overlays whose DOM content didn't change don't need new <code>texElementSubImage2D()</code> uploads, which the upload counter under the chart tracks live.</li>
+    <li>Toggling <code>el.dataset.hitTick</code> after <code>updateElementGeometry()</code> clears Chromium's stale hit-test cache, and gating it on whether the element's rectangle actually changed prevents an infinite <code>paint</code> loop.</li>
+    <li>Hidden overlays (a dismissed tooltip, an unpinned callout, or a pinned point panned outside the plot) get <code>inert = true</code> and a hit box moved off-canvas so they stop catching clicks or Tab focus.</li>
+    <li>Live browser verification in Chromium 157 and on Chrome 159 for Android is not verified yet; run the live checks on your device to measure spatial lookup, WebGL 2 rendering, hit-box alignment and upload counts directly.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint } from '/shared/support.js';
+  import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+  banner();
+
+  const stageEl = document.getElementById('stage');
+  const canvas = document.getElementById('canvas');
+  const legendEl = document.getElementById('chart-legend');
+  const pinEl = document.getElementById('chart-pin');
+  const tipEl = document.getElementById('chart-tip');
+  const statusEl = document.getElementById('status');
+  const noticeEl = document.getElementById('notice');
+
+  const legendTotalEl = document.getElementById('legend-total');
+  const sizeInput = document.getElementById('pt-size');
+  const modeSelect = document.getElementById('chart-mode');
+  const seriesChecks = [...legendEl.querySelectorAll('input[data-series]')];
+
+  const pinTitleEl = document.getElementById('pin-title');
+  const pinCoordsEl = document.getElementById('pin-coords');
+  const pinTextInput = document.getElementById('pin-text');
+  const pinUnpinBtn = document.getElementById('pin-unpin');
+
+  const tipDotEl = document.getElementById('tip-dot');
+  const tipSeriesEl = document.getElementById('tip-series');
+  const tipStateEl = document.getElementById('tip-state');
+  const tipValsEl = document.getElementById('tip-vals');
+  const tipForm = document.getElementById('tip-form');
+  const tipNoteInput = document.getElementById('tip-note');
+  const tipCloseBtn = document.getElementById('tip-close');
+
+  const zoomInBtn = document.getElementById('zoom-in');
+  const zoomOutBtn = document.getElementById('zoom-out');
+  const resetViewBtn = document.getElementById('reset-view');
+  const toggleLegendBtn = document.getElementById('toggle-legend');
+
+  const say = (msg) => { noticeEl.hidden = !msg; noticeEl.textContent = msg || ''; };
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  // #region data-grid
+  const SERIES = [
+    { name: 'Regime A', hex: '#2dd4bf', rgb: [0.176, 0.831, 0.749] },
+    { name: 'Regime B', hex: '#fb923c', rgb: [0.984, 0.573, 0.235] },
+    { name: 'Regime C', hex: '#f472b6', rgb: [0.957, 0.447, 0.714] },
+    { name: 'Regime D', hex: '#60a5fa', rgb: [0.376, 0.647, 0.980] },
+  ];
+  const PER_SERIES = 25000;
+  const POINT_COUNT = PER_SERIES * SERIES.length; // 100,000 points
+  const GRID_N = 64;
+  const BAND_BUCKETS = 500;
+
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function buildDataset() {
+    const rand = mulberry32(20261122);
+    const gauss = () => {
+      const u = Math.max(1e-7, rand()), v = rand();
+      return Math.sqrt(-2 * Math.log(u)) * Math.cos(6.2831853 * v);
+    };
+
+    // Interleaved [x, y, seriesIndex] for WebGL ARRAY_BUFFERs.
+    const scatter = new Float32Array(POINT_COUNT * 3);
+    const seriesData = new Float32Array(POINT_COUNT * 3);
+    const metric = new Float32Array(POINT_COUNT);
+    const bandVerts = new Float32Array(SERIES.length * BAND_BUCKETS * 2 * 3);
+
+    for (let s = 0; s < SERIES.length; s++) {
+      let walk = 0;
+      const base = [24, 44, 62, 79][s];
+      for (let i = 0; i < PER_SERIES; i++) {
+        const idx = s * PER_SERIES + i;
+        const t = i / (PER_SERIES - 1);
+
+        // Scatter: four overlapping multi-lobe clusters with clear curved trends.
+        let sx, sy;
+        if (s === 0) {
+          if (i % 5 === 0) { sx = 28 + gauss() * 6.5; sy = 67 + gauss() * 7.2; }
+          else { sx = 12 + t * 44 + gauss() * 4.2; sy = 22 + Math.sin(t * 2.4) * 34 + t * 24 + gauss() * 4.8; }
+        } else if (s === 1) {
+          if (i % 6 === 0) { sx = 72 + gauss() * 5.0; sy = 68 + gauss() * 4.8; }
+          else { sx = 34 + t * 52 + gauss() * 5.2; sy = 18 + t * 58 + Math.cos(t * 4.0) * 6 + gauss() * 4.4; }
+        } else if (s === 2) {
+          const angle = t * Math.PI * 2.2;
+          const r = 10 + 18 * Math.sqrt(rand());
+          sx = 60 + Math.cos(angle) * r * 1.15 + gauss() * 2.6;
+          sy = 36 + Math.sin(angle) * r * 0.72 + gauss() * 2.8;
+        } else {
+          sx = 15 + t * 70 + gauss() * 4.8;
+          sy = 82 - Math.sin(t * Math.PI) * 34 + Math.cos(t * 9.0) * 5 + gauss() * 3.8;
+        }
+        sx = clamp(sx, 1.5, 98.5);
+        sy = clamp(sy, 1.5, 98.5);
+        scatter[idx * 3] = sx;
+        scatter[idx * 3 + 1] = sy;
+        scatter[idx * 3 + 2] = s;
+
+        // Time-series: 25,000 samples per series with regime shifts and volatility bursts.
+        const burst = Math.exp(-Math.pow((t - (0.22 + s * 0.19)) / 0.055, 2));
+        walk = walk * 0.996 + gauss() * (0.14 + burst * 0.55);
+        const wave = Math.sin(t * (10 + s * 3.5) + s) * 4.8 + Math.cos(t * 42 + s * 2) * (1.2 + burst * 2.8);
+        const ty = clamp(base + wave + walk * 1.8, 3, 97);
+        const tx = 2 + t * 96;
+        seriesData[idx * 3] = tx;
+        seriesData[idx * 3 + 1] = ty;
+        seriesData[idx * 3 + 2] = s;
+        metric[idx] = +(0.6 + burst * 4.2 + Math.abs(walk) * 0.45).toFixed(2);
+      }
+
+      // 500-bucket OHLC high/low envelope strip per series (2 vertices per bucket).
+      const perBucket = PER_SERIES / BAND_BUCKETS;
+      for (let b = 0; b < BAND_BUCKETS; b++) {
+        let lo = Infinity, hi = -Infinity;
+        const start = s * PER_SERIES + Math.floor(b * perBucket);
+        const end = s * PER_SERIES + Math.floor((b + 1) * perBucket);
+        for (let k = start; k < end; k++) {
+          const y = seriesData[k * 3 + 1];
+          if (y < lo) lo = y;
+          if (y > hi) hi = y;
+        }
+        const bx = 2 + ((b + 0.5) / BAND_BUCKETS) * 96;
+        const out = (s * BAND_BUCKETS + b) * 6;
+        bandVerts[out] = bx; bandVerts[out + 1] = hi; bandVerts[out + 2] = s;
+        bandVerts[out + 3] = bx; bandVerts[out + 4] = lo; bandVerts[out + 5] = s;
+      }
+    }
+
+    // Flat 64x64 CSR spatial hash grid for scatter points: zero allocations on lookup.
+    const cellCount = new Uint32Array(GRID_N * GRID_N);
+    const cellOf = (x, y) => clamp(Math.floor((y / 100) * GRID_N), 0, GRID_N - 1) * GRID_N + clamp(Math.floor((x / 100) * GRID_N), 0, GRID_N - 1);
+    for (let i = 0; i < POINT_COUNT; i++) cellCount[cellOf(scatter[i * 3], scatter[i * 3 + 1])]++;
+    const cellStart = new Uint32Array(GRID_N * GRID_N + 1);
+    for (let c = 0; c < GRID_N * GRID_N; c++) cellStart[c + 1] = cellStart[c] + cellCount[c];
+    const cursor = cellStart.slice();
+    const cellPoints = new Uint32Array(POINT_COUNT);
+    for (let i = 0; i < POINT_COUNT; i++) {
+      const c = cellOf(scatter[i * 3], scatter[i * 3 + 1]);
+      cellPoints[cursor[c]++] = i;
+    }
+
+    return { scatter, seriesData, metric, bandVerts, cellStart, cellPoints };
+  }
+
+  const DATA = buildDataset();
+
+  function findNearest(mode, dx, dy, mask, pxScaleX, pxScaleY, maxCssPx = 22) {
+    const t0 = performance.now();
+    if (!mask) return { index: -1, ms: performance.now() - t0 };
+    const maxDist2 = maxCssPx * maxCssPx;
+    let bestIdx = -1, bestD2 = maxDist2;
+
+    if (mode === 'scatter') {
+      const rx = Math.max(1.5, maxCssPx / pxScaleX);
+      const ry = Math.max(1.5, maxCssPx / pxScaleY);
+      const c0 = clamp(Math.floor(((dx - rx) / 100) * GRID_N), 0, GRID_N - 1);
+      const c1 = clamp(Math.floor(((dx + rx) / 100) * GRID_N), 0, GRID_N - 1);
+      const r0 = clamp(Math.floor(((dy - ry) / 100) * GRID_N), 0, GRID_N - 1);
+      const r1 = clamp(Math.floor(((dy + ry) / 100) * GRID_N), 0, GRID_N - 1);
+      // Clamp scan window to 5x5 cells around the cursor when zoomed far out.
+      const mc = clamp(Math.floor((dx / 100) * GRID_N), 0, GRID_N - 1);
+      const mr = clamp(Math.floor((dy / 100) * GRID_N), 0, GRID_N - 1);
+      const xStart = Math.max(c0, mc - 2), xEnd = Math.min(c1, mc + 2);
+      const yStart = Math.max(r0, mr - 2), yEnd = Math.min(r1, mr + 2);
+
+      for (let row = yStart; row <= yEnd; row++) {
+        for (let col = xStart; col <= xEnd; col++) {
+          const cell = row * GRID_N + col;
+          for (let p = DATA.cellStart[cell], end = DATA.cellStart[cell + 1]; p < end; p++) {
+            const idx = DATA.cellPoints[p];
+            const s = (idx / PER_SERIES) | 0;
+            if (!(mask & (1 << s))) continue;
+            const px = (DATA.scatter[idx * 3] - dx) * pxScaleX;
+            const py = (DATA.scatter[idx * 3 + 1] - dy) * pxScaleY;
+            const d2 = px * px + py * py;
+            if (d2 < bestD2) { bestD2 = d2; bestIdx = idx; }
+          }
+        }
+      }
+    } else {
+      const approx = clamp(Math.round(((dx - 2) / 96) * (PER_SERIES - 1)), 0, PER_SERIES - 1);
+      const half = clamp(Math.ceil((maxCssPx / pxScaleX / 96) * PER_SERIES), 2, 16);
+      const i0 = Math.max(0, approx - half), i1 = Math.min(PER_SERIES - 1, approx + half);
+      for (let s = 0; s < SERIES.length; s++) {
+        if (!(mask & (1 << s))) continue;
+        const off = s * PER_SERIES;
+        for (let i = i0; i <= i1; i++) {
+          const idx = off + i;
+          const px = (DATA.seriesData[idx * 3] - dx) * pxScaleX;
+          const py = (DATA.seriesData[idx * 3 + 1] - dy) * pxScaleY;
+          const d2 = px * px + py * py;
+          if (d2 < bestD2) { bestD2 = d2; bestIdx = idx; }
+        }
+      }
+    }
+    return { index: bestIdx, ms: performance.now() - t0 };
+  }
+  // #endregion data-grid
+
+  // #region shaders
+  // ElementGL overlay shader: crisp premultiplied passthrough for live HTML cards.
+  const OVERLAY_FRAG = `#version 300 es
+  precision mediump float;
+  uniform sampler2D uTex;
+  in vec2 vUv;
+  out vec4 outColor;
+  void main() {
+    outColor = texture(uTex, vUv);
+  }`;
+
+  const POINTS_VERT = `#version 300 es
+  precision highp float;
+  precision highp int;
+  in vec3 aPoint;
+  uniform vec4 uView;      // minX, minY, spanX, spanY
+  uniform vec4 uPlot;      // ndcLeft, ndcBottom, ndcWidth, ndcHeight
+  uniform float uPointSize;
+  uniform int uMask;
+  uniform int uMode;       // 0 = scatter, 1 = time-series line
+  out vec3 vCol;
+  void main() {
+    int s = int(aPoint.z + 0.5);
+    if ((uMask & (1 << s)) == 0) {
+      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      gl_PointSize = 0.0;
+      vCol = vec3(0.0);
+      return;
+    }
+    vec2 norm = (aPoint.xy - uView.xy) / uView.zw;
+    vec2 ndc = uPlot.xy + norm * uPlot.zw;
+    gl_Position = vec4(ndc, 0.0, 1.0);
+    gl_PointSize = uMode == 0 ? uPointSize : 1.0;
+    if (s == 0) vCol = vec3(0.176, 0.831, 0.749);
+    else if (s == 1) vCol = vec3(0.984, 0.573, 0.235);
+    else if (s == 2) vCol = vec3(0.957, 0.447, 0.714);
+    else vCol = vec3(0.376, 0.647, 0.980);
+  }`;
+
+  const POINTS_FRAG = `#version 300 es
+  precision highp float;
+  precision highp int;
+  uniform int uMode;
+  uniform float uAlpha;
+  in vec3 vCol;
+  out vec4 outColor;
+  void main() {
+    float a = uAlpha;
+    if (uMode == 0) {
+      float d = length(gl_PointCoord - vec2(0.5));
+      if (d > 0.5) discard;
+      a *= smoothstep(0.5, 0.3, d);
+    }
+    outColor = vec4(vCol * a, a);
+  }`;
+
+  const LINES_VERT = `#version 300 es
+  in vec2 aPos;
+  in vec4 aCol;
+  out vec4 vCol;
+  void main() {
+    gl_Position = vec4(aPos, 0.0, 1.0);
+    vCol = aCol;
+  }`;
+
+  const LINES_FRAG = `#version 300 es
+  precision mediump float;
+  in vec4 vCol;
+  out vec4 outColor;
+  void main() {
+    outColor = vec4(vCol.rgb * vCol.a, vCol.a);
+  }`;
+  // #endregion shaders
+
+  // Chart state.
+  const state = {
+    mode: 'scatter',
+    mask: 0b1111,
+    pointSize: 3,
+    showLegend: true,
+    view: { minX: 0, minY: 0, spanX: 100, spanY: 100 },
+    selectedIdx: 6200,
+    tipOpen: true,
+    tipLocked: true,
+    pin: { idx: PER_SERIES + 4200, x: 0, y: 0, series: 1, note: 'Cluster peak' },
+    lastLookupMs: 0,
+    lastPaintMs: 0,
+    paints: 0,
+    uploads: 0,
+    paintTimes: [],
+  };
+
+  function coordsOf(idx, mode = state.mode) {
+    const arr = mode === 'scatter' ? DATA.scatter : DATA.seriesData;
+    return { x: arr[idx * 3], y: arr[idx * 3 + 1], s: (idx / PER_SERIES) | 0, v: DATA.metric[idx] };
+  }
+
+  // Initialise selected and pinned points at non-overlapping cluster regions.
+  {
+    const initTip = findNearest('scatter', 34, 34, 0b0001, 6, 4, 200);
+    if (initTip.index >= 0) state.selectedIdx = initTip.index;
+    const initPin = findNearest('scatter', 74, 68, 0b0010, 6, 4, 200);
+    if (initPin.index >= 0) state.pin.idx = initPin.index;
+    const p = coordsOf(state.pin.idx, 'scatter');
+    state.pin.x = p.x; state.pin.y = p.y; state.pin.series = p.s;
+  }
+
+  const MARGIN = { left: 16, right: 16, top: 14, bottom: 16 };
+  function plotRect() {
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    return {
+      cw, ch,
+      x: MARGIN.left,
+      y: MARGIN.top,
+      w: Math.max(1, cw - MARGIN.left - MARGIN.right),
+      h: Math.max(1, ch - MARGIN.top - MARGIN.bottom),
+    };
+  }
+  function dataToCss(dx, dy) {
+    const r = plotRect(), v = state.view;
+    return {
+      x: r.x + ((dx - v.minX) / v.spanX) * r.w,
+      y: r.y + (1 - (dy - v.minY) / v.spanY) * r.h,
+    };
+  }
+  function cssToData(cx, cy) {
+    const r = plotRect(), v = state.view;
+    return {
+      x: v.minX + ((cx - r.x) / r.w) * v.spanX,
+      y: v.minY + (1 - (cy - r.y) / r.h) * v.spanY,
+    };
+  }
+
+  function updateTipDom() {
+    if (!state.tipOpen || state.selectedIdx < 0) return;
+    const p = coordsOf(state.selectedIdx);
+    const meta = SERIES[p.s];
+    tipDotEl.style.background = meta.hex;
+    tipSeriesEl.textContent = meta.name;
+    tipStateEl.textContent = state.tipLocked ? 'locked' : 'hover';
+    tipValsEl.textContent = `#${String(state.selectedIdx).padStart(5, '0')}  x:${p.x.toFixed(2)}  y:${p.y.toFixed(2)}  s:${p.v.toFixed(2)}`;
+  }
+  function updatePinDom() {
+    if (!state.pin) return;
+    const meta = SERIES[state.pin.series];
+    pinTitleEl.textContent = `Pinned · ${meta.name}`;
+    pinCoordsEl.textContent = `#${String(state.pin.idx).padStart(5, '0')}  x:${state.pin.x.toFixed(2)}  y:${state.pin.y.toFixed(2)}`;
+  }
+  function updateLegendDom() {
+    let active = 0;
+    for (let s = 0; s < SERIES.length; s++) if (state.mask & (1 << s)) active++;
+    legendTotalEl.textContent = `${active * 25}k`;
+  }
+  updateTipDom();
+  updatePinDom();
+  updateLegendDom();
+
+  // Compute CSS boxes for the three overlays so WebGL, 2D and plain HTML share one layout.
+  function computeOverlayLayout() {
+    const r = plotRect();
+    const lw = legendEl.offsetWidth || 210, lh = legendEl.offsetHeight || 130;
+    const legendPos = state.showLegend ? { visible: true, x: 12, y: 12, w: lw, h: lh } : { visible: false, x: -4000, y: -4000, w: lw, h: lh };
+
+    let pinPos = { visible: false, x: -4000, y: -4000, w: pinEl.offsetWidth || 210, h: pinEl.offsetHeight || 88, anchor: null };
+    if (state.pin && (state.mask & (1 << state.pin.series))) {
+      const pt = dataToCss(state.pin.x, state.pin.y);
+      const inView = pt.x >= r.x - 4 && pt.x <= r.x + r.w + 4 && pt.y >= r.y - 4 && pt.y <= r.y + r.h + 4;
+      if (inView) {
+        const pw = pinEl.offsetWidth || 210, ph = pinEl.offsetHeight || 88;
+        let px = pt.x + 18;
+        if (px + pw > r.cw - 10) px = pt.x - pw - 18;
+        px = clamp(px, 10, Math.max(10, r.cw - pw - 10));
+        let py = pt.y - ph - 14;
+        if (py < 10) py = pt.y + 16;
+        py = clamp(py, 10, Math.max(10, r.ch - ph - 10));
+        pinPos = { visible: true, x: Math.round(px), y: Math.round(py), w: pw, h: ph, anchor: pt };
+      }
+    }
+
+    let tipPos = { visible: false, x: -4000, y: -4000, w: tipEl.offsetWidth || 236, h: tipEl.offsetHeight || 110, anchor: null };
+    if (state.tipOpen && state.selectedIdx >= 0) {
+      const p = coordsOf(state.selectedIdx);
+      if (state.mask & (1 << p.s)) {
+        const pt = dataToCss(p.x, p.y);
+        const inView = pt.x >= r.x - 4 && pt.x <= r.x + r.w + 4 && pt.y >= r.y - 4 && pt.y <= r.y + r.h + 4;
+        if (inView) {
+          const tw = tipEl.offsetWidth || 236, th = tipEl.offsetHeight || 110;
+          let tx = pt.x + 18;
+          if (tx + tw > r.cw - 10) tx = pt.x - tw - 18;
+          tx = clamp(tx, 10, Math.max(10, r.cw - tw - 10));
+          let ty = pt.y + 14;
+          if (ty + th > r.ch - 10) ty = pt.y - th - 14;
+          ty = clamp(ty, 10, Math.max(10, r.ch - th - 10));
+          tipPos = { visible: true, x: Math.round(tx), y: Math.round(ty), w: tw, h: th, anchor: pt };
+        }
+      }
+    }
+
+    return { legendPos, pinPos, tipPos };
+  }
+
+  // Build extra WebGL 2 programs and static VBOs on ElementGL's single gl context.
+  function compileShader(gl, type, src) {
+    const sh = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS) && !gl.isContextLost()) {
+      throw new Error(gl.getShaderInfoLog(sh) || 'shader compile failed');
+    }
+    return sh;
+  }
+  function linkProgram(gl, vsSrc, fsSrc, attribs) {
+    const prog = gl.createProgram();
+    gl.attachShader(prog, compileShader(gl, gl.VERTEX_SHADER, vsSrc));
+    gl.attachShader(prog, compileShader(gl, gl.FRAGMENT_SHADER, fsSrc));
+    for (const [loc, name] of attribs) gl.bindAttribLocation(prog, loc, name);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS) && !gl.isContextLost()) {
+      throw new Error(gl.getProgramInfoLog(prog) || 'program link failed');
+    }
+    return prog;
+  }
+
+  function createChartGpu(gl) {
+    const pointsProg = linkProgram(gl, POINTS_VERT, POINTS_FRAG, [[0, 'aPoint']]);
+    const linesProg = linkProgram(gl, LINES_VERT, LINES_FRAG, [[0, 'aPos'], [1, 'aCol']]);
+
+    const makePointVao = (typed) => {
+      const vao = gl.createVertexArray();
+      const buf = gl.createBuffer();
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, typed, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+      return { vao, buf };
+    };
+
+    const scatterGpu = makePointVao(DATA.scatter);
+    const seriesGpu = makePointVao(DATA.seriesData);
+    const bandGpu = makePointVao(DATA.bandVerts);
+
+    const lineVao = gl.createVertexArray();
+    const lineBuf = gl.createBuffer();
+    gl.bindVertexArray(lineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, 12000 * 4, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 24, 8);
+    gl.bindVertexArray(null);
+
+    return {
+      pointsProg,
+      linesProg,
+      uView: gl.getUniformLocation(pointsProg, 'uView'),
+      uPlot: gl.getUniformLocation(pointsProg, 'uPlot'),
+      uPointSize: gl.getUniformLocation(pointsProg, 'uPointSize'),
+      uMask: gl.getUniformLocation(pointsProg, 'uMask'),
+      uMode: gl.getUniformLocation(pointsProg, 'uMode'),
+      uAlpha: gl.getUniformLocation(pointsProg, 'uAlpha'),
+      scatterVao: scatterGpu.vao,
+      seriesVao: seriesGpu.vao,
+      bandVao: bandGpu.vao,
+      lineVao,
+      lineBuf,
+      lineScratch: new Float32Array(2400),
+    };
+  }
+
+  // Route selection: WebGL 2 via ElementGL, else 2D drawElementImage(), else plain HTML + plain 2D.
+  let route = 'plain';
+  let stage = null;
+  let chartGpu = null;
+  let quadProg = null;
+  let quadVao = null;
+  let ctx2d = null;
+  const placed = new WeakMap();
+
+  if (supported && glSupported) {
+    try {
+      stage = new ElementGL(canvas, {
+        fragment: OVERLAY_FRAG,
+        onLost: () => {
+          chartGpu = null;
+          quadProg = null;
+          quadVao = null;
+          placed.delete(legendEl); placed.delete(pinEl); placed.delete(tipEl);
+          say('The WebGL 2 context was lost. It will redraw when the browser restores it.');
+        },
+        onRestored: () => {
+          chartGpu = createChartGpu(stage.gl);
+          say('');
+          schedulePaint();
+        },
+      });
+      chartGpu = createChartGpu(stage.gl);
+      route = 'webgl2';
+    } catch (err) {
+      say(`WebGL 2 could not start (${err.message}). Falling back to 2D drawElementImage().`);
+    }
+  }
+  if (route !== 'webgl2' && supported) {
+    ctx2d = canvas.getContext('2d');
+    if (ctx2d) {
+      route = '2d';
+      if (noticeEl.hidden) say('WebGL 2 texElementSubImage2D() is unavailable here. Drawing a downsampled 2D chart with 5-argument drawElementImage().');
+    }
+  }
+  if (route === 'plain') {
+    stageEl.classList.add('plain');
+    stageEl.append(legendEl, pinEl, tipEl);
+    ctx2d = canvas.getContext('2d');
+    say('HTML-in-canvas is unavailable here. Drawing a downsampled 2D chart with plain HTML overlays.');
+  }
+
+  function syncHitBox(el, pos) {
+    el.inert = !pos.visible;
+    if (route === 'plain') {
+      el.dataset.hidden = pos.visible ? '0' : '1';
+      if (pos.visible) el.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
+      return;
+    }
+    if (route !== 'webgl2' || !canvas.updateElementGeometry) return;
+    const key = pos.visible ? `${pos.x},${pos.y},${pos.w},${pos.h}` : 'hidden';
+    if (placed.get(el) === key) return;
+    placed.set(el, key);
+    canvas.updateElementGeometry(el, { canvasTransform: new DOMMatrix().translate(pos.x, pos.y) });
+    // Toggle an attribute only when geometry changed so Chromium clears its hit-test cache without looping paints.
+    el.dataset.hitTick = el.dataset.hitTick === '1' ? '0' : '1';
+  }
+
+  function pushLine(buf, count, x0, y0, x1, y1, r, g, b, a) {
+    const o = count * 6;
+    buf[o] = x0; buf[o + 1] = y0; buf[o + 2] = r; buf[o + 3] = g; buf[o + 4] = b; buf[o + 5] = a;
+    buf[o + 6] = x1; buf[o + 7] = y1; buf[o + 8] = r; buf[o + 9] = g; buf[o + 10] = b; buf[o + 11] = a;
+    return count + 2;
+  }
+  function pushRing(buf, count, cx, cy, rx, ry, r, g, b, a, segs = 20) {
+    for (let i = 0; i < segs; i++) {
+      const a0 = (i / segs) * Math.PI * 2, a1 = ((i + 1) / segs) * Math.PI * 2;
+      count = pushLine(
+        buf, count,
+        cx + Math.cos(a0) * rx, cy + Math.sin(a0) * ry,
+        cx + Math.cos(a1) * rx, cy + Math.sin(a1) * ry,
+        r, g, b, a
+      );
+    }
+    return count;
+  }
+
+  // #region paint
+  function drawWebGL(changed) {
+    if (!stage || stage.lost || !chartGpu) return;
+    const t0 = performance.now();
+    const gl = stage.gl;
+    const layout = computeOverlayLayout();
+    const overlays = [
+      [legendEl, layout.legendPos],
+      [pinEl, layout.pinPos],
+      [tipEl, layout.tipPos],
+    ];
+    for (const [el, pos] of overlays) {
+      if (pos.visible && (changed.has(el) || !stage.has(el))) {
+        stage.upload(el);
+        state.uploads++;
+      }
+    }
+
+    if (!stage.begin([0.051, 0.067, 0.090, 1.0])) return;
+    if (!quadProg) {
+      quadProg = gl.getParameter(gl.CURRENT_PROGRAM);
+      quadVao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+    }
+
+    const r = plotRect();
+    const dpr = canvas.width / (r.cw || 1);
+    const ndcLeft = (r.x / r.cw) * 2 - 1;
+    const ndcBottom = 1 - ((r.y + r.h) / r.ch) * 2;
+    const ndcW = (r.w / r.cw) * 2;
+    const ndcH = (r.h / r.ch) * 2;
+    const toNdcX = (cssX) => (cssX / r.cw) * 2 - 1;
+    const toNdcY = (cssY) => 1 - (cssY / r.ch) * 2;
+
+    // 1. Background grid lines and plot border.
+    const scratch = chartGpu.lineScratch;
+    let verts = 0;
+    const gridSteps = 5;
+    for (let i = 0; i <= gridSteps; i++) {
+      const f = i / gridSteps;
+      const gx = ndcLeft + f * ndcW;
+      const gy = ndcBottom + f * ndcH;
+      const edge = i === 0 || i === gridSteps ? 0.24 : 0.11;
+      verts = pushLine(scratch, verts, gx, ndcBottom, gx, ndcBottom + ndcH, 0.72, 0.80, 0.92, edge);
+      verts = pushLine(scratch, verts, ndcLeft, gy, ndcLeft + ndcW, gy, 0.72, 0.80, 0.92, edge);
+    }
+    gl.useProgram(chartGpu.linesProg);
+    gl.bindVertexArray(chartGpu.lineVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, chartGpu.lineBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratch.subarray(0, verts * 6));
+    gl.drawArrays(gl.LINES, 0, verts);
+
+    // 2. 100,000 data points (scatter or time-series + OHLC bands), clipped to the plot scissor box.
+    const scX = Math.max(0, Math.floor(r.x * dpr));
+    const scY = Math.max(0, Math.floor((r.ch - r.y - r.h) * dpr));
+    const scW = Math.max(1, Math.floor(r.w * dpr));
+    const scH = Math.max(1, Math.floor(r.h * dpr));
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(scX, scY, scW, scH);
+
+    gl.useProgram(chartGpu.pointsProg);
+    gl.uniform4f(chartGpu.uView, state.view.minX, state.view.minY, state.view.spanX, state.view.spanY);
+    gl.uniform4f(chartGpu.uPlot, ndcLeft, ndcBottom, ndcW, ndcH);
+    gl.uniform1f(chartGpu.uPointSize, state.pointSize * dpr);
+    gl.uniform1i(chartGpu.uMask, state.mask);
+
+    if (state.mode === 'scatter') {
+      gl.uniform1i(chartGpu.uMode, 0);
+      gl.uniform1f(chartGpu.uAlpha, 0.62);
+      gl.bindVertexArray(chartGpu.scatterVao);
+      gl.drawArrays(gl.POINTS, 0, POINT_COUNT);
+    } else {
+      // Translucent OHLC high/low bands per visible series.
+      gl.uniform1i(chartGpu.uMode, 1);
+      gl.uniform1f(chartGpu.uAlpha, 0.16);
+      gl.bindVertexArray(chartGpu.bandVao);
+      for (let s = 0; s < SERIES.length; s++) {
+        if (!(state.mask & (1 << s))) continue;
+        gl.drawArrays(gl.TRIANGLE_STRIP, s * BAND_BUCKETS * 2, BAND_BUCKETS * 2);
+      }
+      // 100,000 time-series samples (4 strips of 25,000).
+      gl.uniform1f(chartGpu.uAlpha, 0.88);
+      gl.bindVertexArray(chartGpu.seriesVao);
+      for (let s = 0; s < SERIES.length; s++) {
+        if (!(state.mask & (1 << s))) continue;
+        gl.drawArrays(gl.LINE_STRIP, s * PER_SERIES, PER_SERIES);
+      }
+    }
+    gl.disable(gl.SCISSOR_TEST);
+
+    // 3. Leader lines and highlight rings for the pinned and selected points.
+    verts = 0;
+    const rxNdc = (9 / r.cw) * 2, ryNdc = (9 / r.ch) * 2;
+    if (layout.pinPos.visible && layout.pinPos.anchor) {
+      const a = layout.pinPos.anchor;
+      const targetX = clamp(a.x, layout.pinPos.x, layout.pinPos.x + layout.pinPos.w);
+      const targetY = clamp(a.y, layout.pinPos.y, layout.pinPos.y + layout.pinPos.h);
+      verts = pushLine(scratch, verts, toNdcX(a.x), toNdcY(a.y), toNdcX(targetX), toNdcY(targetY), 0.98, 0.68, 0.34, 0.9);
+      verts = pushRing(scratch, verts, toNdcX(a.x), toNdcY(a.y), rxNdc, ryNdc, 0.99, 0.78, 0.42, 0.98);
+    }
+    if (layout.tipPos.visible && layout.tipPos.anchor) {
+      const a = layout.tipPos.anchor;
+      const targetX = clamp(a.x, layout.tipPos.x, layout.tipPos.x + layout.tipPos.w);
+      const targetY = clamp(a.y, layout.tipPos.y, layout.tipPos.y + layout.tipPos.h);
+      verts = pushLine(scratch, verts, toNdcX(a.x), toNdcY(a.y), toNdcX(targetX), toNdcY(targetY), 1.0, 0.56, 0.38, 0.85);
+      verts = pushRing(scratch, verts, toNdcX(a.x), toNdcY(a.y), rxNdc * 0.8, ryNdc * 0.8, 1.0, 1.0, 1.0, 0.98);
+    }
+    if (verts > 0) {
+      gl.useProgram(chartGpu.linesProg);
+      gl.bindVertexArray(chartGpu.lineVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, chartGpu.lineBuf);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, scratch.subarray(0, verts * 6));
+      gl.drawArrays(gl.LINES, 0, verts);
+    }
+
+    // 4. Restore ElementGL's quad pipeline, draw HTML textures and update hit boxes.
+    gl.useProgram(quadProg);
+    gl.bindVertexArray(quadVao);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    for (const [el, pos] of overlays) {
+      if (pos.visible) {
+        stage.quad(el, ElementGL.rect(canvas, pos.x, pos.y, pos.w, pos.h));
+      }
+      syncHitBox(el, pos);
+    }
+
+    recordPaintStats(performance.now() - t0);
+  }
+  // #endregion paint
+
+  // #region fallback-2d
+  function draw2DFallback() {
+    if (!ctx2d) return;
+    const t0 = performance.now();
+    const r = plotRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const bw = Math.max(1, Math.round(r.cw * dpr)), bh = Math.max(1, Math.round(r.ch * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2d.fillStyle = '#0d1117';
+    ctx2d.fillRect(0, 0, r.cw, r.ch);
+
+    ctx2d.strokeStyle = 'rgba(184, 204, 235, 0.14)';
+    ctx2d.lineWidth = 1;
+    ctx2d.beginPath();
+    for (let i = 0; i <= 5; i++) {
+      const gx = r.x + (i / 5) * r.w, gy = r.y + (i / 5) * r.h;
+      ctx2d.moveTo(gx, r.y); ctx2d.lineTo(gx, r.y + r.h);
+      ctx2d.moveTo(r.x, gy); ctx2d.lineTo(r.x + r.w, gy);
+    }
+    ctx2d.stroke();
+
+    ctx2d.save();
+    ctx2d.beginPath();
+    ctx2d.rect(r.x, r.y, r.w, r.h);
+    ctx2d.clip();
+
+    if (state.mode === 'scatter') {
+      const step = 12; // ~8,300 points in 2D fallback
+      const sz = Math.max(1.5, state.pointSize);
+      const half = sz * 0.5;
+      for (let s = 0; s < SERIES.length; s++) {
+        if (!(state.mask & (1 << s))) continue;
+        ctx2d.fillStyle = SERIES[s].hex;
+        ctx2d.globalAlpha = 0.65;
+        const start = s * PER_SERIES, end = start + PER_SERIES;
+        for (let i = start; i < end; i += step) {
+          const pt = dataToCss(DATA.scatter[i * 3], DATA.scatter[i * 3 + 1]);
+          if (pt.x < r.x - sz || pt.x > r.x + r.w + sz || pt.y < r.y - sz || pt.y > r.y + r.h + sz) continue;
+          ctx2d.fillRect(pt.x - half, pt.y - half, sz, sz);
+        }
+      }
+      ctx2d.globalAlpha = 1;
+    } else {
+      const step = 20;
+      for (let s = 0; s < SERIES.length; s++) {
+        if (!(state.mask & (1 << s))) continue;
+        ctx2d.strokeStyle = SERIES[s].hex;
+        ctx2d.lineWidth = 1.25;
+        ctx2d.beginPath();
+        const start = s * PER_SERIES, end = start + PER_SERIES;
+        for (let i = start; i < end; i += step) {
+          const pt = dataToCss(DATA.seriesData[i * 3], DATA.seriesData[i * 3 + 1]);
+          if (i === start) ctx2d.moveTo(pt.x, pt.y); else ctx2d.lineTo(pt.x, pt.y);
+        }
+        ctx2d.stroke();
+      }
+    }
+    ctx2d.restore();
+
+    const layout = computeOverlayLayout();
+    const drawMarker = (pos, stroke) => {
+      if (!pos.visible || !pos.anchor) return;
+      const a = pos.anchor;
+      const tx = clamp(a.x, pos.x, pos.x + pos.w), ty = clamp(a.y, pos.y, pos.y + pos.h);
+      ctx2d.strokeStyle = stroke;
+      ctx2d.lineWidth = 1.5;
+      ctx2d.beginPath();
+      ctx2d.moveTo(a.x, a.y); ctx2d.lineTo(tx, ty);
+      ctx2d.stroke();
+      ctx2d.beginPath();
+      ctx2d.arc(a.x, a.y, 7, 0, Math.PI * 2);
+      ctx2d.stroke();
+    };
+    drawMarker(layout.pinPos, '#fb923c');
+    drawMarker(layout.tipPos, '#ffffff');
+
+    for (const [el, pos] of [[legendEl, layout.legendPos], [pinEl, layout.pinPos], [tipEl, layout.tipPos]]) {
+      if (route === '2d' && pos.visible) {
+        ctx2d.drawElementImage(el, pos.x, pos.y, el.offsetWidth, el.offsetHeight);
+        state.uploads++;
+      }
+      syncHitBox(el, pos);
+    }
+
+    recordPaintStats(performance.now() - t0);
+  }
+  // #endregion fallback-2d
+
+  let statusTimer = 0;
+  function recordPaintStats(ms) {
+    state.paints++;
+    state.lastPaintMs = ms;
+    const now = performance.now();
+    state.paintTimes.push(now);
+    while (state.paintTimes.length && now - state.paintTimes[0] > 1000) state.paintTimes.shift();
+    if (now - statusTimer > 120 || state.paints < 4) {
+      statusTimer = now;
+      renderStatus();
+    }
+  }
+
+  function renderStatus() {
+    let activeSeries = 0;
+    for (let s = 0; s < SERIES.length; s++) if (state.mask & (1 << s)) activeSeries++;
+    const shownPts = activeSeries * PER_SERIES;
+    const zoom = (100 / state.view.spanX).toFixed(1);
+    const fps = state.paintTimes.length > 1
+      ? Math.min(120, Math.round(((state.paintTimes.length - 1) * 1000) / Math.max(16, state.paintTimes[state.paintTimes.length - 1] - state.paintTimes[0])))
+      : 0;
+    const routeName = route === 'webgl2' ? 'WebGL 2' : route === '2d' ? '2D fallback' : 'Plain HTML';
+    const v = state.view;
+    statusEl.textContent =
+      `${shownPts.toLocaleString()} pts (${activeSeries}/4 series) | ${routeName} | ` +
+      `lookup ${state.lastLookupMs.toFixed(2)} ms | paint ${state.lastPaintMs.toFixed(2)} ms` +
+      `${fps ? ` (${fps} fps)` : ''} | ${state.paints} paints, ${state.uploads} uploads | ` +
+      `zoom ${zoom}x  x[${v.minX.toFixed(1)}..${(v.minX + v.spanX).toFixed(1)}] y[${v.minY.toFixed(1)}..${(v.minY + v.spanY).toFixed(1)}]`;
+  }
+
+  let rafQueued = false;
+  function schedulePaint() {
+    if (route === 'plain') {
+      if (rafQueued) return;
+      rafQueued = true;
+      requestAnimationFrame(() => { rafQueued = false; draw2DFallback(); });
+      return;
+    }
+    canvas.requestPaint?.();
+  }
+
+  if (route !== 'plain') {
+    canvas.addEventListener('paint', (e) => {
+      const changed = new Set(e.changedElements ?? []);
+      if (route === 'webgl2') drawWebGL(changed);
+      else draw2DFallback();
+    });
+  }
+
+  new ResizeObserver(() => schedulePaint()).observe(canvas);
+  schedulePaint();
+
+  // Pan, zoom and hit lookup helpers.
+  function zoomAt(factor, pivotCssX, pivotCssY) {
+    const v = state.view;
+    const anchor = cssToData(pivotCssX, pivotCssY);
+    const nextSpanX = clamp(v.spanX * factor, 0.5, 100);
+    const nextSpanY = clamp(v.spanY * factor, 0.5, 100);
+    const rx = (anchor.x - v.minX) / v.spanX;
+    const ry = (anchor.y - v.minY) / v.spanY;
+    v.spanX = nextSpanX;
+    v.spanY = nextSpanY;
+    v.minX = clamp(anchor.x - rx * nextSpanX, -10, 110 - nextSpanX);
+    v.minY = clamp(anchor.y - ry * nextSpanY, -10, 110 - nextSpanY);
+    schedulePaint();
+  }
+
+  function panByCss(dxCss, dyCss) {
+    const r = plotRect(), v = state.view;
+    v.minX = clamp(v.minX - (dxCss / r.w) * v.spanX, -10, 110 - v.spanX);
+    v.minY = clamp(v.minY + (dyCss / r.h) * v.spanY, -10, 110 - v.spanY);
+    schedulePaint();
+  }
+
+  function inspectCssPoint(cssX, cssY, lock) {
+    const r = plotRect();
+    const d = cssToData(cssX, cssY);
+    const pxScaleX = r.w / state.view.spanX;
+    const pxScaleY = r.h / state.view.spanY;
+    const res = findNearest(state.mode, d.x, d.y, state.mask, pxScaleX, pxScaleY, 24);
+    state.lastLookupMs = res.ms;
+    if (res.index >= 0) {
+      const changed = state.selectedIdx !== res.index || state.tipLocked !== lock || !state.tipOpen;
+      state.selectedIdx = res.index;
+      state.tipOpen = true;
+      state.tipLocked = lock;
+      if (changed) { updateTipDom(); schedulePaint(); }
+      else renderStatus();
+    } else if (lock && state.tipOpen) {
+      state.tipOpen = false;
+      state.tipLocked = false;
+      schedulePaint();
+    }
+  }
+
+  const isOverlayFocused = () => !!document.activeElement?.closest('#chart-tip, #chart-pin, #chart-legend');
+
+  // Pointer pan, pinch-zoom and tap/hover inspect (never intercepts taps on drawable HTML overlays).
+  const pointers = new Map();
+  let dragMoved = false;
+  let dragStart = null;
+  let pinchStart = null;
+
+  function canvasPoint(e) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.target !== canvas) return;
+    const pt = canvasPoint(e);
+    pointers.set(e.pointerId, pt);
+    canvas.setPointerCapture?.(e.pointerId);
+    if (pointers.size === 1) {
+      dragMoved = false;
+      dragStart = { ...pt };
+      pinchStart = null;
+    } else if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinchStart = {
+        dist: Math.max(10, Math.hypot(b.x - a.x, b.y - a.y)),
+        midX: (a.x + b.x) / 2,
+        midY: (a.y + b.y) / 2,
+      };
+      dragMoved = true;
+    }
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    const pt = canvasPoint(e);
+    if (pointers.has(e.pointerId)) {
+      const prev = pointers.get(e.pointerId);
+      pointers.set(e.pointerId, pt);
+      if (pointers.size === 1 && dragStart) {
+        if (!dragMoved && Math.hypot(pt.x - dragStart.x, pt.y - dragStart.y) > 5) {
+          dragMoved = true;
+          stageEl.classList.add('dragging');
+        }
+        if (dragMoved) panByCss(pt.x - prev.x, pt.y - prev.y);
+      } else if (pointers.size === 2 && pinchStart) {
+        const [a, b] = [...pointers.values()];
+        const dist = Math.max(10, Math.hypot(b.x - a.x, b.y - a.y));
+        const midX = (a.x + b.x) / 2, midY = (a.y + b.y) / 2;
+        panByCss(midX - pinchStart.midX, midY - pinchStart.midY);
+        zoomAt(pinchStart.dist / dist, midX, midY);
+        pinchStart = { dist, midX, midY };
+      }
+      return;
+    }
+    if (e.pointerType === 'mouse' && e.target === canvas && !state.tipLocked && !isOverlayFocused()) {
+      inspectCssPoint(pt.x, pt.y, false);
+    }
+  });
+
+  function endPointer(e) {
+    if (!pointers.has(e.pointerId)) return;
+    const pt = canvasPoint(e);
+    const wasTap = pointers.size === 1 && !dragMoved;
+    pointers.delete(e.pointerId);
+    stageEl.classList.remove('dragging');
+    if (pointers.size < 2) pinchStart = null;
+    if (wasTap) inspectCssPoint(pt.x, pt.y, true);
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+
+  canvas.addEventListener('wheel', (e) => {
+    if (e.target !== canvas) return;
+    e.preventDefault();
+    const pt = canvasPoint(e);
+    zoomAt(e.deltaY > 0 ? 1.18 : 1 / 1.18, pt.x, pt.y);
+  }, { passive: false });
+
+  // Live DOM controls inside the canvas.
+  for (const cb of seriesChecks) {
+    cb.addEventListener('change', () => {
+      const bit = 1 << Number(cb.dataset.series);
+      state.mask = cb.checked ? (state.mask | bit) : (state.mask & ~bit);
+      updateLegendDom();
+      schedulePaint();
+    });
+  }
+  sizeInput.addEventListener('input', () => {
+    state.pointSize = Number(sizeInput.value);
+    schedulePaint();
+  });
+  modeSelect.addEventListener('change', () => {
+    state.mode = modeSelect.value;
+    if (state.pin) {
+      const p = coordsOf(state.pin.idx, state.mode);
+      state.pin.x = p.x; state.pin.y = p.y; state.pin.series = p.s;
+      updatePinDom();
+    }
+    updateTipDom();
+    schedulePaint();
+  });
+
+  tipForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (state.selectedIdx < 0) return;
+    const p = coordsOf(state.selectedIdx);
+    const text = tipNoteInput.value.trim() || `Point #${state.selectedIdx}`;
+    state.pin = { idx: state.selectedIdx, x: p.x, y: p.y, series: p.s, note: text };
+    pinTextInput.value = text;
+    tipNoteInput.value = '';
+    updatePinDom();
+    schedulePaint();
+  });
+
+  pinTextInput.addEventListener('input', () => {
+    if (state.pin) state.pin.note = pinTextInput.value;
+  });
+  pinUnpinBtn.addEventListener('click', () => {
+    state.pin = null;
+    schedulePaint();
+  });
+  tipCloseBtn.addEventListener('click', () => {
+    state.tipOpen = false;
+    state.tipLocked = false;
+    schedulePaint();
+  });
+
+  // Accessible toolbar controls below the canvas.
+  zoomInBtn.addEventListener('click', () => { const r = plotRect(); zoomAt(0.65, r.x + r.w / 2, r.y + r.h / 2); });
+  zoomOutBtn.addEventListener('click', () => { const r = plotRect(); zoomAt(1 / 0.65, r.x + r.w / 2, r.y + r.h / 2); });
+  resetViewBtn.addEventListener('click', () => { state.view = { minX: 0, minY: 0, spanX: 100, spanY: 100 }; schedulePaint(); });
+  toggleLegendBtn.addEventListener('click', () => {
+    state.showLegend = !state.showLegend;
+    toggleLegendBtn.setAttribute('aria-pressed', String(state.showLegend));
+    toggleLegendBtn.textContent = state.showLegend ? 'Hide legend' : 'Show legend';
+    schedulePaint();
+  });
+
+  // ---------------------------------------------------------------- live checks (isolated fixtures)
+  const need = (ok, detail) => { if (!ok) throw new Error(detail); return detail; };
+  const makeFixture = (html) => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:240px;flex:none';
+    wrap.innerHTML = html;
+    testStage().append(wrap);
+    return wrap;
+  };
+
+  const tests = [
+    {
+      name: 'Spatial grid matches brute-force lookup on 100,000 points in under 1 ms',
+      expect: 'pass',
+      why: 'Queries 20 points across the 64x64 grid and verifies exact agreement with a full linear scan on a sample point.',
+      run: async () => {
+        let total = 0, hits = 0;
+        for (let q = 0; q < 20; q++) {
+          const x = 10 + (q % 5) * 19, y = 14 + Math.floor(q / 5) * 21;
+          const r = findNearest('scatter', x, y, 0b1111, 6, 4, 24);
+          total += r.ms;
+          if (r.index >= 0) hits++;
+        }
+        const avg = total / 20;
+        const probe = { x: 52, y: 48 };
+        const gridRes = findNearest('scatter', probe.x, probe.y, 0b0101, 6, 4, 24);
+        let bruteIdx = -1, bruteD2 = 24 * 24;
+        for (let i = 0; i < POINT_COUNT; i++) {
+          const s = (i / PER_SERIES) | 0;
+          if (!(0b0101 & (1 << s))) continue;
+          const px = (DATA.scatter[i * 3] - probe.x) * 6;
+          const py = (DATA.scatter[i * 3 + 1] - probe.y) * 4;
+          const d2 = px * px + py * py;
+          if (d2 < bruteD2) { bruteD2 = d2; bruteIdx = i; }
+        }
+        return need(
+          avg < 1 && hits > 0 && gridRes.index === bruteIdx,
+          `Average ${avg.toFixed(3)} ms over 20 queries (${hits}/20 hits). Filtered probe matched brute force (#${bruteIdx}).`
+        );
+      },
+    },
+    {
+      name: 'WebGL 2 uploads 100,000 points and draws a drawable tooltip via ElementGL',
+      expect: 'pass',
+      why: 'Creates an isolated ElementGL fixture, draws the 100k scatter VBO plus a drawable card, and reads pixels once.',
+      run: async () => {
+        need(supported && glSupported, 'WebGL 2 texElementSubImage2D() is not available in this browser.');
+        const f = makeFixture(
+          '<canvas content="drawable" layoutsubtree style="display:block;width:160px;height:100px">' +
+          '<div drawable style="position:absolute;left:0;top:0;width:70px;height:28px;background:#d2491f;color:#fff;font:700 12px system-ui;padding:4px">Tip</div>' +
+          '</canvas>'
+        );
+        const cv = f.firstElementChild, card = cv.firstElementChild;
+        let g = null;
+        try {
+          g = new ElementGL(cv, { fragment: OVERLAY_FRAG, attributes: { preserveDrawingBuffer: true } });
+          const gpu = createChartGpu(g.gl);
+          cv.addEventListener('paint', () => {
+            g.upload(card);
+            g.begin([0.05, 0.07, 0.09, 1]);
+            const qProg = g.gl.getParameter(g.gl.CURRENT_PROGRAM);
+            const qVao = g.gl.getParameter(g.gl.VERTEX_ARRAY_BINDING);
+
+            g.gl.useProgram(gpu.pointsProg);
+            g.gl.uniform4f(gpu.uView, 0, 0, 100, 100);
+            g.gl.uniform4f(gpu.uPlot, -1, -1, 2, 2);
+            g.gl.uniform1f(gpu.uPointSize, 4);
+            g.gl.uniform1i(gpu.uMask, 0b1111);
+            g.gl.uniform1i(gpu.uMode, 0);
+            g.gl.uniform1f(gpu.uAlpha, 0.9);
+            g.gl.bindVertexArray(gpu.scatterVao);
+            g.gl.drawArrays(g.gl.POINTS, 0, POINT_COUNT);
+
+            g.gl.useProgram(qProg);
+            g.gl.bindVertexArray(qVao);
+            g.quad(card, ElementGL.rect(cv, 80, 10, card.offsetWidth, card.offsetHeight));
+          }, { once: true });
+          await nextPaint(cv);
+
+          const buf = new Uint8Array(cv.width * cv.height * 4);
+          g.gl.readPixels(0, 0, cv.width, cv.height, g.gl.RGBA, g.gl.UNSIGNED_BYTE, buf);
+          let orangeCard = 0, chartPts = 0;
+          for (let i = 0; i < buf.length; i += 4) {
+            const r = buf[i], gr = buf[i + 1], b = buf[i + 2];
+            if (r > 180 && gr < 100 && b < 60) orangeCard++;
+            else if (r > 35 || gr > 50 || b > 60) chartPts++;
+          }
+          return need(
+            orangeCard > 20 && chartPts > 20,
+            `Read ${chartPts} chart pixels and ${orangeCard} overlay pixels from ${cv.width}x${cv.height} WebGL buffer.`
+          );
+        } finally {
+          window.__gfx?.retire(cv);
+        }
+      },
+    },
+    {
+      name: 'Series bitmask uniform hides a series without re-uploading the VBO',
+      expect: 'pass',
+      why: 'Draws a centre cluster with uMask = 1 and then with uMask = 0 using the same vertex buffer.',
+      run: async () => {
+        need(supported && glSupported, 'WebGL 2 texElementSubImage2D() is not available in this browser.');
+        const f = makeFixture('<canvas content="drawable" layoutsubtree style="display:block;width:80px;height:80px"></canvas>');
+        const cv = f.firstElementChild;
+        try {
+          const g = new ElementGL(cv, { fragment: OVERLAY_FRAG, attributes: { preserveDrawingBuffer: true } });
+          const gl = g.gl;
+          const prog = linkProgram(gl, POINTS_VERT, POINTS_FRAG, [[0, 'aPoint']]);
+          const vao = gl.createVertexArray();
+          const vbo = gl.createBuffer();
+          gl.bindVertexArray(vao);
+          gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([50, 50, 0]), gl.STATIC_DRAW);
+          gl.enableVertexAttribArray(0);
+          gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+          const drawWithMask = (mask) => {
+            g.begin([0, 0, 0, 1]);
+            gl.useProgram(prog);
+            gl.uniform4f(gl.getUniformLocation(prog, 'uView'), 0, 0, 100, 100);
+            gl.uniform4f(gl.getUniformLocation(prog, 'uPlot'), -1, -1, 2, 2);
+            gl.uniform1f(gl.getUniformLocation(prog, 'uPointSize'), 24);
+            gl.uniform1i(gl.getUniformLocation(prog, 'uMask'), mask);
+            gl.uniform1i(gl.getUniformLocation(prog, 'uMode'), 0);
+            gl.uniform1f(gl.getUniformLocation(prog, 'uAlpha'), 1);
+            gl.bindVertexArray(vao);
+            gl.drawArrays(gl.POINTS, 0, 1);
+            const px = new Uint8Array(4);
+            gl.readPixels(Math.floor(cv.width / 2), Math.floor(cv.height / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+            return px;
+          };
+
+          const shown = drawWithMask(0b0001);
+          const hidden = drawWithMask(0b0000);
+          return need(
+            shown[1] > 150 && hidden[0] < 10 && hidden[1] < 10 && hidden[2] < 10,
+            `uMask=1 drew rgb(${shown[0]},${shown[1]},${shown[2]}); uMask=0 drew rgb(${hidden[0]},${hidden[1]},${hidden[2]}).`
+          );
+        } finally {
+          window.__gfx?.retire(cv);
+        }
+      },
+    },
+    {
+      name: 'updateElementGeometry() aligns hit testing with a translated callout',
+      expect: 'pass',
+      why: 'Places a drawable button at (110, 62) with updateElementGeometry() and dataset.hitTick, then probes elementsFromPoint().',
+      run: async () => {
+        need(supported && typeof HTMLCanvasElement.prototype.updateElementGeometry === 'function', 'updateElementGeometry() is not available here.');
+        const f = makeFixture(
+          '<canvas content="drawable" layoutsubtree style="display:block;width:220px;height:110px">' +
+          '<button type="button" drawable style="position:absolute;left:0;top:0;width:84px;height:32px;background:#2dd4bf;color:#000;border:0">Unpin</button>' +
+          '</canvas>'
+        );
+        const cv = f.firstElementChild, btn = cv.firstElementChild;
+        try {
+          if (glSupported) {
+            const g = new ElementGL(cv, { fragment: OVERLAY_FRAG });
+            cv.addEventListener('paint', () => {
+              g.upload(btn);
+              g.begin([0.05, 0.07, 0.09, 1]);
+              g.quad(btn, ElementGL.rect(cv, 110, 62, btn.offsetWidth, btn.offsetHeight));
+              cv.updateElementGeometry(btn, { canvasTransform: new DOMMatrix().translate(110, 62) });
+              btn.dataset.hitTick = '1';
+            }, { once: true });
+            await nextPaint(cv);
+          } else {
+            const ctx = cv.getContext('2d');
+            cv.addEventListener('paint', () => {
+              ctx.reset();
+              ctx.drawElementImage(btn, 110, 62, btn.offsetWidth, btn.offsetHeight);
+              cv.updateElementGeometry(btn, { canvasTransform: new DOMMatrix().translate(110, 62) });
+              btn.dataset.hitTick = '1';
+            }, { once: true });
+            await nextPaint(cv);
+          }
+          const rect = cv.getBoundingClientRect();
+          const hit = document.elementsFromPoint(rect.left + 145, rect.top + 78);
+          return need(
+            hit.includes(btn),
+            `elementsFromPoint() at (145, 78) returned: ${hit.slice(0, 3).map((e) => e.tagName.toLowerCase()).join(', ')}.`
+          );
+        } finally {
+          window.__gfx?.retire(cv);
+        }
+      },
+    },
+    {
+      name: '2D fallback draws a drawable badge with 5-argument drawElementImage()',
+      expect: 'pass',
+      why: 'Draws a drawable badge onto a 2D canvas, copies it into a plain non-drawable willReadFrequently canvas, and checks ink.',
+      run: async () => {
+        need(supported, 'drawElementImage() is not available in this browser.');
+        const f = makeFixture(
+          '<canvas content="drawable" layoutsubtree width="160" height="60" style="display:block;width:160px;height:60px">' +
+          '<div drawable style="position:absolute;left:0;top:0;width:120px;height:36px;background:#2dd4bf;color:#0b0f16;font:700 13px system-ui;padding:6px">Pinned</div>' +
+          '</canvas>'
+        );
+        const cv = f.firstElementChild, badge = cv.firstElementChild;
+        try {
+          const ctx = cv.getContext('2d');
+          cv.addEventListener('paint', () => {
+            ctx.reset();
+            ctx.drawElementImage(badge, 12, 10, badge.offsetWidth || 120, badge.offsetHeight || 36);
+          }, { once: true });
+          await nextPaint(cv);
+
+          // Copy into a plain non-drawable canvas before reading pixels (see docs/graphics-rules.md).
+          const copy = document.createElement('canvas');
+          copy.width = cv.width; copy.height = cv.height;
+          const cc = copy.getContext('2d', { willReadFrequently: true });
+          cc.drawImage(cv, 0, 0);
+          const data = cc.getImageData(0, 0, copy.width, copy.height).data;
+          window.__gfx?.retire(copy);
+          let teal = 0;
+          for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] > 200 && data[i + 1] > 160 && data[i + 2] > 140) teal++;
+          }
+          return need(teal > 100, `Found ${teal} drawn badge pixels in 2D fallback copy.`);
+        } finally {
+          window.__gfx?.retire(cv);
+        }
+      },
+    },
+    {
+      name: 'Stationary legend requires zero texture re-uploads across pan repaints',
+      expect: 'pass',
+      why: 'Calls requestPaint() three times after the first paint without mutating the overlay DOM and checks changedElements.',
+      run: async () => {
+        need(supported, 'requestPaint() is not available in this browser.');
+        const f = makeFixture(
+          '<canvas content="drawable" layoutsubtree width="140" height="60" style="display:block;width:140px;height:60px">' +
+          '<div drawable style="position:absolute;left:0;top:0;width:100px;height:30px;background:#111722;color:#fff">Legend</div>' +
+          '</canvas>'
+        );
+        const cv = f.firstElementChild, box = cv.firstElementChild;
+        try {
+          const ctx = cv.getContext('2d');
+          let reuploads = 0;
+          cv.addEventListener('paint', (e) => {
+            ctx.reset();
+            ctx.drawElementImage(box, 6, 6, box.offsetWidth || 100, box.offsetHeight || 30);
+            if (e.changedElements?.includes(box)) reuploads++;
+          });
+          await nextPaint(cv);
+          reuploads = 0;
+          for (let i = 0; i < 3; i++) await nextPaint(cv);
+          return need(reuploads === 0, `${reuploads} changedElements reports across 3 pan-only requestPaint() frames.`);
+        } finally {
+          window.__gfx?.retire(cv);
+        }
+      },
+    },
+  ];
+
+  runTests(document.getElementById('tests'), tests);
+</script>
+</body>
+</html>

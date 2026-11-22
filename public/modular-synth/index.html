@@ -1,0 +1,1722 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Eurorack modular synth with dangling patch cables</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Three drawable &lt;fieldset&gt; synth modules (VCO, LFO and VCF/Mix) sit inside one 2D canvas. Verlet-simulated patch cables dangle in front of the HTML controls with cast shadows and a live phosphor…">
+<link rel="canonical" href="https://html-in-canvas.page/modular-synth/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Eurorack modular synth with dangling patch cables">
+<meta property="og:description" content="Three drawable &lt;fieldset&gt; synth modules (VCO, LFO and VCF/Mix) sit inside one 2D canvas. Verlet-simulated patch cables dangle in front of the HTML controls with cast shadows and a live phosphor…">
+<meta property="og:url" content="https://html-in-canvas.page/modular-synth/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Eurorack modular synth with dangling patch cables&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Eurorack modular synth with dangling patch cables">
+<meta name="twitter:description" content="Three drawable &lt;fieldset&gt; synth modules (VCO, LFO and VCF/Mix) sit inside one 2D canvas. Verlet-simulated patch cables dangle in front of the HTML controls with cast shadows and a live phosphor…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Eurorack modular synth with dangling patch cables&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/modular-synth/",
+   "url": "https://html-in-canvas.page/modular-synth/",
+   "mainEntityOfPage": "https://html-in-canvas.page/modular-synth/",
+   "headline": "Eurorack modular synth with dangling patch cables",
+   "name": "Eurorack modular synth with dangling patch cables",
+   "description": "Three drawable \u003cfieldset> synth modules \u0028VCO, LFO and VCF/Mix) sit inside one 2D canvas. Verlet-simulated patch cables dangle in front of the HTML controls with cast shadows and a live phosphor oscilloscope while every slider, select and jack stays clickable and keyboard-accessible.",
+   "abstract": "Can a single 2D canvas draw real HTML form controls as Eurorack synth modules with physical Verlet-simulated patch cables hanging in front of them, cast shadows and live oscilloscope traces while every slider, selector and jack stays keyboard- and touch-accessible?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "drawable descendants, drawElementImage, form controls, Web Audio, AnalyserNode, Verlet physics, drawElementImage\u0028), paint, layoutsubtree, AudioContext",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Eurorack modular synth with dangling patch cables",
+     "item": "https://html-in-canvas.page/modular-synth/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .rack-stage {
+    padding: 0;
+    overflow: hidden;
+    background: #14161a;
+    border-color: var(--line);
+  }
+  #rack-canvas {
+    display: block;
+    width: 100%;
+    height: 424px;
+    background: #14161a;
+    touch-action: pan-y;
+  }
+  #rack-canvas[hidden] { display: none; }
+
+  #fallback-note[hidden] { display: none; }
+  #fallback-note {
+    margin: 0;
+    padding: 10px 14px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+  }
+
+  .rack-controls {
+    margin-top: 12px;
+    gap: 8px 10px;
+  }
+  .rack-controls button {
+    min-height: 40px;
+    font-size: 14px;
+  }
+  .rack-controls button[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .opacity-ctrl {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    font-size: 14px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .opacity-ctrl input[type="range"] {
+    width: 110px;
+    accent-color: var(--accent);
+  }
+  #status-line {
+    font: 13px/1.5 var(--mono);
+    color: var(--muted);
+    min-height: 2.2em;
+    margin: 8px 0 0;
+  }
+
+  /* #region module-css */
+  /* Each Eurorack module is a real drawable <fieldset> sized to its rack slot. */
+  .rack-mod {
+    position: relative;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 10px 11px 10px;
+    border: 1px solid #353a46;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #252932 0%, #1a1d24 100%);
+    color: #e8e6df;
+    font: 12px/1.3 system-ui, -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    color-scheme: dark;
+  }
+  .rack-mod legend {
+    float: left;
+    width: 100%;
+    padding: 0 0 5px;
+    margin: 0 0 2px;
+    border-bottom: 1px solid #3a404d;
+    font: 700 11px/1 var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #f3efe6;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .mod-tag {
+    font-size: 10px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    background: #12151a;
+    border: 1px solid #3d4452;
+    color: #9ea6b5;
+    letter-spacing: 0.08em;
+  }
+  .mod-field {
+    display: grid;
+    gap: 3px;
+  }
+  .mod-field-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font: 600 10px/1.2 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #aab2c0;
+  }
+  .mod-field-head output {
+    color: #f3efe6;
+    font-weight: 600;
+  }
+  .rack-mod select {
+    width: 100%;
+    min-height: 32px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    border: 1px solid #454c5c;
+    background: #12151b;
+    color: #f3efe6;
+    font: 13px var(--mono);
+    cursor: pointer;
+  }
+  .rack-mod input[type="range"] {
+    width: 100%;
+    height: 26px;
+    margin: 0;
+    accent-color: #e86a33;
+    cursor: pointer;
+  }
+  #mod-lfo input[type="range"] { accent-color: #2bc4b0; }
+  #mod-vcf input[type="range"] { accent-color: #eab308; }
+
+  .rack-mod :is(select, input, button):focus-visible {
+    outline: 2px solid #ff7a4d;
+    outline-offset: 2px;
+  }
+
+  /* Recessed oscilloscope viewport painted over by the 2D canvas. */
+  .scope-slot {
+    height: 68px;
+    border-radius: 5px;
+    border: 1px solid #3a4440;
+    background: #08120e;
+    box-shadow: inset 0 2px 8px rgb(0 0 0 / 0.7);
+    display: flex;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 4px 6px;
+    font: 600 9px var(--mono);
+    letter-spacing: 0.1em;
+    color: #35694e;
+    user-select: none;
+  }
+
+  .jack-row {
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 1px solid #2f3440;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .jack-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .jack-label {
+    font: 700 10px/1.1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #c7ccd6;
+  }
+  /* Metallic 3.5 mm Eurorack socket button: drag or tap/click to patch. */
+  .jack {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 50%;
+    border: 3px solid #9aa2b1;
+    background: radial-gradient(circle at 50% 50%, #050608 0 38%, #525967 42% 62%, #cfd5df 66% 100%);
+    color: transparent;
+    font-size: 1px;
+    cursor: grab;
+    touch-action: none;
+    flex: none;
+  }
+  .jack.jack-out { border-color: #e86a33; }
+  #mod-lfo .jack.jack-out { border-color: #2bc4b0; }
+  .jack.jack-in { border-color: #cbd2de; }
+  .jack.pending {
+    border-color: #ffe066;
+    box-shadow: 0 0 0 3px rgb(255 224 102 / 0.45);
+  }
+  .jack.target-ok {
+    border-color: #5fcf7f;
+    box-shadow: 0 0 0 3px rgb(95 207 127 / 0.45);
+  }
+
+  .power-btn {
+    min-height: 36px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    border: 1px solid #4c5363;
+    background: #14171e;
+    color: #d7dce5;
+    font: 700 11px/1.1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-left: auto;
+  }
+  .power-btn[aria-pressed="true"] {
+    background: #1f7a3a;
+    border-color: #5fcf7f;
+    color: #fff;
+  }
+
+  /* Compact two-row tuning for narrow viewports (e.g. 412 px Android phone). */
+  .rack-mod.compact {
+    padding: 7px 8px 7px;
+    gap: 4px;
+  }
+  .rack-mod.compact .scope-slot { height: 50px; }
+  .rack-mod.compact input[type="range"] { height: 22px; }
+  .rack-mod.compact select { min-height: 28px; font-size: 12px; }
+  .rack-mod.compact .jack { width: 32px; height: 32px; }
+  .rack-mod.compact .power-btn { min-height: 32px; padding: 4px 8px; }
+  /* #endregion module-css */
+
+  /* Plain HTML fallback when the canvas is unavailable or loses its context. */
+  .plain-rack {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    padding: 12px;
+    background: #14161a;
+  }
+  .plain-rack[hidden] { display: none; }
+  .plain-rack .rack-mod {
+    width: auto !important;
+    height: auto !important;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Eurorack modular synth with dangling patch cables</h1>
+  <p class="lede">
+    I wanted to know if one 2D canvas could draw three HTML form panels as Eurorack synthesiser modules, drape physical
+    Verlet-simulated patch cables in front of them with cast shadows and a live oscilloscope, and still leave every slider,
+    select and jack clickable and keyboard-accessible. Drag from one 3.5 mm jack to another (or tap two jacks in turn) to
+    rewire the patch, and press Power inside the VCF module to start Web Audio.
+  </p>
+
+  <div class="stage rack-stage" id="rack-stage">
+    <p id="fallback-note" hidden></p>
+    <!-- #region markup -->
+    <canvas id="rack-canvas" content="drawable" layoutsubtree aria-label="Eurorack modular synthesiser with VCO, LFO and VCF modules">
+      <fieldset class="rack-mod" id="mod-vco" drawable>
+        <legend><span>VCO-1</span><span class="mod-tag">OSC</span></legend>
+        <label class="mod-field">
+          <span class="mod-field-head"><span>Waveform</span></span>
+          <select id="vco-wave">
+            <option value="sawtooth" selected>Sawtooth</option>
+            <option value="square">Square</option>
+            <option value="triangle">Triangle</option>
+            <option value="sine">Sine</option>
+          </select>
+        </label>
+        <label class="mod-field">
+          <span class="mod-field-head"><span>Pitch</span><output id="vco-pitch-out" for="vco-pitch">110 Hz</output></span>
+          <input type="range" id="vco-pitch" min="80" max="880" step="1" value="110">
+        </label>
+        <label class="mod-field">
+          <span class="mod-field-head"><span>Detune</span><output id="vco-detune-out" for="vco-detune">0 ct</output></span>
+          <input type="range" id="vco-detune" min="-50" max="50" step="1" value="0">
+        </label>
+        <div class="jack-row">
+          <span class="jack-wrap">
+            <button type="button" class="jack jack-out" data-jack="vco-out" data-dir="out" aria-label="VCO OUT jack">VCO OUT</button>
+            <span class="jack-label">VCO OUT</span>
+          </span>
+        </div>
+      </fieldset>
+
+      <fieldset class="rack-mod" id="mod-lfo" drawable>
+        <legend><span>LFO-1</span><span class="mod-tag">MOD</span></legend>
+        <label class="mod-field">
+          <span class="mod-field-head"><span>Wave</span></span>
+          <select id="lfo-wave">
+            <option value="sine" selected>Sine</option>
+            <option value="triangle">Triangle</option>
+            <option value="square">Square</option>
+            <option value="sawtooth">Sawtooth</option>
+          </select>
+        </label>
+        <label class="mod-field">
+          <span class="mod-field-head"><span>Rate</span><output id="lfo-rate-out" for="lfo-rate">2.4 Hz</output></span>
+          <input type="range" id="lfo-rate" min="0.2" max="14" step="0.1" value="2.4">
+        </label>
+        <label class="mod-field">
+          <span class="mod-field-head"><span>Depth</span><output id="lfo-depth-out" for="lfo-depth">68%</output></span>
+          <input type="range" id="lfo-depth" min="0" max="100" step="1" value="68">
+        </label>
+        <div class="jack-row">
+          <span class="jack-wrap">
+            <button type="button" class="jack jack-out" data-jack="lfo-out" data-dir="out" aria-label="LFO OUT jack">LFO OUT</button>
+            <span class="jack-label">LFO OUT</span>
+          </span>
+        </div>
+      </fieldset>
+
+      <fieldset class="rack-mod" id="mod-vcf" drawable>
+        <legend><span>VCF / MIX</span><span class="mod-tag">OUT</span></legend>
+        <div class="scope-slot" id="scope-slot" aria-hidden="true"><span>SCOPE</span></div>
+        <label class="mod-field">
+          <span class="mod-field-head"><span>Cutoff</span><output id="vcf-cutoff-out" for="vcf-cutoff">900 Hz</output></span>
+          <input type="range" id="vcf-cutoff" min="150" max="6000" step="10" value="900">
+        </label>
+        <label class="mod-field">
+          <span class="mod-field-head"><span>Resonance</span><output id="vcf-res-out" for="vcf-res">7.5 Q</output></span>
+          <input type="range" id="vcf-res" min="0.5" max="18" step="0.1" value="7.5">
+        </label>
+        <label class="mod-field">
+          <span class="mod-field-head"><span>Volume</span><output id="vcf-vol-out" for="vcf-vol">45%</output></span>
+          <input type="range" id="vcf-vol" min="0" max="100" step="1" value="45">
+        </label>
+        <div class="jack-row">
+          <span class="jack-wrap">
+            <button type="button" class="jack jack-in" data-jack="audio-in" data-dir="in" aria-label="AUDIO IN jack">AUDIO IN</button>
+            <span class="jack-label">AUDIO IN</span>
+          </span>
+          <span class="jack-wrap">
+            <button type="button" class="jack jack-in" data-jack="cv-in" data-dir="in" aria-label="CV IN jack">CV IN</button>
+            <span class="jack-label">CV IN</span>
+          </span>
+          <button type="button" class="power-btn" id="power-btn" aria-pressed="false">Power: Off</button>
+        </div>
+      </fieldset>
+    </canvas>
+    <!-- #endregion markup -->
+    <div id="plain-host" class="plain-rack" hidden></div>
+  </div>
+
+  <div class="row rack-controls">
+    <button type="button" data-preset="bass" aria-pressed="true">Bass Pulse</button>
+    <button type="button" data-preset="siren" aria-pressed="false">Sci-Fi Siren</button>
+    <button type="button" data-preset="bell" aria-pressed="false">Bell Tremolo</button>
+    <button type="button" data-preset="unpatched" aria-pressed="false">Unpatched</button>
+    <button type="button" id="nudge-btn">Nudge rack</button>
+    <button type="button" id="plain-toggle" aria-pressed="false">Plain HTML</button>
+    <label class="opacity-ctrl">
+      <span>Cable opacity</span>
+      <input type="range" id="cable-opacity" min="15" max="100" step="5" value="95">
+      <output id="cable-opacity-out" for="cable-opacity">95%</output>
+    </label>
+  </div>
+  <p id="status-line" role="status">Patched: VCO OUT to AUDIO IN, LFO OUT to CV IN. Sound is muted until you press Power.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>three drawable fieldsets, Verlet cables and oscilloscope</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The rack markup.</b> Three <code>drawable</code> <code>&lt;fieldset&gt;</code> modules sit inside one <code>layoutsubtree</code> canvas. Every slider, select and jack button stays a standard HTML control.</li>
+      <li data-code="#module-css"><b>Faceplate styling.</b> CSS lays out the labels, sliders, recessed scope slot and 3.5 mm jack buttons inside each module.</li>
+      <li data-code="#layout-draw"><b>Responsive rack slots and five-argument draws.</b> On wide screens the three modules sit side by side; below 660 px they stack into a two-row skiff under 4 megapixels at 2.625 scale. Each module is drawn with a five-argument <code>drawElementImage()</code>.</li>
+      <li data-code="#verlet-cables"><b>Verlet patch cables drawn in front of the DOM.</b> Each cable has 12 nodes with gravity, damping and distance constraints. Cast shadows, braided jackets and metallic plugs paint after <code>drawElementImage()</code> so they hang visually over the controls without blocking hits.</li>
+      <li data-code="#scope-audio"><b>Live oscilloscope and Web Audio patch graph.</b> Pressing Power creates and resumes an <code>AudioContext</code> routed through an <code>AnalyserNode</code>. While muted, a synthetic preview trace reflects the active patch immediately on load.</li>
+      <li data-code="#patching"><b>Pointer drag and tap/keyboard patching.</b> Dragging from one jack to another pulls a live dangling cable; tapping or pressing Enter on two jacks toggles the same connection without needing hover or drag.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    The idea comes from hardware Eurorack modular synthesisers, VCV Rack's dangling patch cables, and two earlier experiments on this site:
+    <a href="/instruments/">form controls drawn as instruments</a> and the <a href="/cassette/">cassette deck from audio controls</a>, which
+    established that standard HTML form controls can be drawn inside a canvas as tactile audio hardware while keeping keyboard and touch input.
+  </p>
+  <ul class="findings">
+    <li>One 2D canvas with <code>content="drawable" layoutsubtree</code> holds three <code>&lt;fieldset drawable&gt;</code> modules: VCO-1, LFO-1 and VCF/Mix. A <code>ResizeObserver</code> sizes the canvas backing store in device pixels and fits the modules into either one row (desktop) or two compact rows (narrow phones around 412 px).</li>
+    <li>Each frame paints the brushed-aluminium rails and M3 mounting screws first, then calls five-argument <code>drawElementImage(mod, x, y, w, h)</code> for each module. That call both copies the module's live pixels and places its hit-test region at <code>(x, y, w, h)</code>.</li>
+    <li>Next, the canvas draws the glowing phosphor oscilloscope waveform straight over the VCF module's recessed <code>.scope-slot</code> box, plus a pulsing LFO rate LED beside the LFO header.</li>
+    <li>Last, the canvas paints the cast drop shadows, braided jackets and 3.5 mm plugs of every active Verlet patch cable over the top of the drawn modules. Canvas strokes have no DOM hit box of their own, so clicks, drags and focus pass straight through a hanging cable to the sliders and selects behind it.</li>
+    <li>Audio stays off on load. Clicking Power inside the VCF module creates and resumes an <code>AudioContext</code>, wires the oscillator, LFO and biquad filter according to the active cables, and feeds the oscilloscope from an <code>AnalyserNode</code>. If the canvas loses its context or the API is missing, the three <code>&lt;fieldset&gt;</code> modules move into a plain CSS grid with every control still working.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own isolated fixture on <code>testStage()</code> and copies pixels into a plain 2D canvas to read them. The visible synth above isn't touched until the final check inspects whether it still has pixels.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Built 2026-11-22. Live browser rendering, Android touch patching and Web Audio output are not verified yet; run the checks above in Chrome with HTML-in-canvas enabled to measure your browser.</p>
+  <ul class="findings">
+    <li><strong>Prior work credited:</strong> this layout builds on hardware Eurorack synthesisers, VCV Rack's dangling patch cables, and <a href="/instruments/">/instruments/</a> plus <a href="/cassette/">/cassette/</a> on this site.</li>
+    <li><strong>Design: cables in front, hit boxes underneath.</strong> Because 2D canvas paths painted after <code>drawElementImage()</code> don't alter the element's hit-test transform, dangling cables can cross directly over range sliders and <code>&lt;select&gt;</code> menus without stealing taps. Lower the Cable opacity slider to inspect the overlap.</li>
+    <li><strong>Design: phone pixel budget.</strong> At 412 CSS px wide and scale 2.625, the two-row skiff is 590 CSS px tall (about 1.68 megapixels, well under the 4-megapixel guard limit).</li>
+    <li><strong>Not verified:</strong> live rendering in Chromium 157 headless and Chrome 159 on Android, touch drag patching vs. page scroll on Android, native <code>&lt;select&gt;</code> popup anchoring inside a drawn <code>&lt;fieldset&gt;</code>, and real-time Web Audio output with <code>AnalyserNode</code>.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage, supported, nextPaint, inkFraction, stillDrawn } from '/shared/support.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('rack-canvas');
+  const ctx = canvas.getContext('2d');
+  const stage = $('rack-stage');
+  const plainHost = $('plain-host');
+  const fallbackNote = $('fallback-note');
+  const statusLine = $('status-line');
+
+  const mods = {
+    vco: $('mod-vco'),
+    lfo: $('mod-lfo'),
+    vcf: $('mod-vcf'),
+  };
+  const scopeSlot = $('scope-slot');
+  const powerBtn = $('power-btn');
+  const cableOpacityInput = $('cable-opacity');
+  const cableOpacityOut = $('cable-opacity-out');
+  const plainToggleBtn = $('plain-toggle');
+
+  const controls = {
+    vcoWave: $('vco-wave'),
+    vcoPitch: $('vco-pitch'),
+    vcoDetune: $('vco-detune'),
+    lfoWave: $('lfo-wave'),
+    lfoRate: $('lfo-rate'),
+    lfoDepth: $('lfo-depth'),
+    vcfCutoff: $('vcf-cutoff'),
+    vcfRes: $('vcf-res'),
+    vcfVol: $('vcf-vol'),
+  };
+
+  const JACK_NAMES = {
+    'vco-out': 'VCO OUT',
+    'lfo-out': 'LFO OUT',
+    'audio-in': 'AUDIO IN',
+    'cv-in': 'CV IN',
+  };
+
+  const CABLE_COLOURS = {
+    'vco-out->audio-in': { body: '#e85d2a', weave: '#ffae85', plug: '#d94d1e' },
+    'lfo-out->cv-in': { body: '#22b8a6', weave: '#8cf0e3', plug: '#179486' },
+    'lfo-out->audio-in': { body: '#d9a416', weave: '#fde68a', plug: '#b8860b' },
+    'vco-out->cv-in': { body: '#c84ad6', weave: '#f0abfc', plug: '#a22db0' },
+  };
+
+  const PRESETS = {
+    bass: {
+      label: 'Bass Pulse',
+      vcoWave: 'sawtooth', vcoPitch: 110, vcoDetune: 0,
+      lfoWave: 'sine', lfoRate: 2.4, lfoDepth: 68,
+      vcfCutoff: 900, vcfRes: 7.5, vcfVol: 45,
+      patches: [['vco-out', 'audio-in'], ['lfo-out', 'cv-in']],
+    },
+    siren: {
+      label: 'Sci-Fi Siren',
+      vcoWave: 'triangle', vcoPitch: 340, vcoDetune: 12,
+      lfoWave: 'sine', lfoRate: 0.9, lfoDepth: 92,
+      vcfCutoff: 2400, vcfRes: 13.0, vcfVol: 42,
+      patches: [['vco-out', 'audio-in'], ['lfo-out', 'cv-in']],
+    },
+    bell: {
+      label: 'Bell Tremolo',
+      vcoWave: 'sine', vcoPitch: 520, vcoDetune: -8,
+      lfoWave: 'square', lfoRate: 7.5, lfoDepth: 80,
+      vcfCutoff: 3200, vcfRes: 4.0, vcfVol: 40,
+      patches: [['vco-out', 'audio-in'], ['lfo-out', 'cv-in']],
+    },
+    unpatched: {
+      label: 'Unpatched',
+      vcoWave: 'sawtooth', vcoPitch: 220, vcoDetune: 0,
+      lfoWave: 'sine', lfoRate: 2.0, lfoDepth: 50,
+      vcfCutoff: 1400, vcfRes: 5.0, vcfVol: 45,
+      patches: [],
+    },
+  };
+
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let plainMode = false;
+  let onScreen = true;
+  let cssWidth = 760;
+  let cssHeight = 424;
+  let dpr = Math.min(window.devicePixelRatio || 1, 3);
+  let slots = {};
+  let cableAlpha = 0.95;
+  let pendingJack = null;
+  let dragState = null;
+  let suppressNextClick = false;
+  let rafId = 0;
+  let lastFrame = performance.now();
+
+  // #region verlet-cables
+  /** Create an isolated patch matrix and 12-node Verlet rope solver. */
+  function createPatchEngine(nodeCount = 12) {
+    const cables = new Map();
+
+    function normalisePair(a, b) {
+      const aOut = a.endsWith('-out'), bOut = b.endsWith('-out');
+      if (aOut === bOut) return null;
+      return aOut ? [a, b] : [b, a];
+    }
+
+    function makeNodes(p0, p1) {
+      const nodes = [];
+      for (let i = 0; i < nodeCount; i++) {
+        const t = i / (nodeCount - 1);
+        const sag = Math.sin(t * Math.PI) * 52;
+        const x = p0.x + (p1.x - p0.x) * t;
+        const y = p0.y + (p1.y - p0.y) * t + sag;
+        nodes.push({ x, y, px: x, py: y });
+      }
+      return nodes;
+    }
+
+    function addOrToggle(a, b, getPoint) {
+      const pair = normalisePair(a, b);
+      if (!pair) return { action: 'invalid' };
+      const key = `${pair[0]}->${pair[1]}`;
+      if (cables.has(key)) {
+        cables.delete(key);
+        return { action: 'removed', key, pair };
+      }
+      const p0 = getPoint(pair[0]), p1 = getPoint(pair[1]);
+      cables.set(key, {
+        key,
+        from: pair[0],
+        to: pair[1],
+        colour: CABLE_COLOURS[key] ?? { body: '#e85d2a', weave: '#ffd1b8', plug: '#c2410c' },
+        nodes: makeNodes(p0, p1),
+      });
+      return { action: 'added', key, pair };
+    }
+
+    function setPatches(pairs, getPoint) {
+      cables.clear();
+      for (const [a, b] of pairs) addOrToggle(a, b, getPoint);
+    }
+
+    function impulse(dx, dy = 0) {
+      for (const cable of cables.values()) {
+        const n = cable.nodes.length;
+        for (let i = 1; i < n - 1; i++) {
+          const weight = Math.sin((i / (n - 1)) * Math.PI);
+          cable.nodes[i].px -= dx * weight;
+          cable.nodes[i].py -= dy * weight;
+        }
+      }
+    }
+
+    function stepRope(nodes, p0, p1, dt, gravity = 1180, damping = 0.984) {
+      const n = nodes.length;
+      const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+      const totalLen = Math.max(dist * 1.28, dist + 54, 118);
+      const segLen = totalLen / (n - 1);
+      const dt2 = dt * dt;
+
+      nodes[0].x = p0.x; nodes[0].y = p0.y;
+      nodes[n - 1].x = p1.x; nodes[n - 1].y = p1.y;
+
+      for (let i = 1; i < n - 1; i++) {
+        const node = nodes[i];
+        const vx = (node.x - node.px) * damping;
+        const vy = (node.y - node.py) * damping;
+        node.px = node.x;
+        node.py = node.y;
+        node.x += vx;
+        node.y += vy + gravity * dt2;
+      }
+
+      for (let iter = 0; iter < 8; iter++) {
+        nodes[0].x = p0.x; nodes[0].y = p0.y;
+        nodes[n - 1].x = p1.x; nodes[n - 1].y = p1.y;
+        for (let i = 0; i < n - 1; i++) {
+          const a = nodes[i], b = nodes[i + 1];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const d = Math.hypot(dx, dy) || 0.0001;
+          const diff = (d - segLen) / d;
+          const ox = dx * diff * 0.5;
+          const oy = dy * diff * 0.5;
+          if (i > 0) { a.x += ox; a.y += oy; }
+          if (i + 1 < n - 1) { b.x -= ox; b.y -= oy; }
+        }
+      }
+    }
+
+    function stepAll(getPoint, dt) {
+      for (const cable of cables.values()) {
+        stepRope(cable.nodes, getPoint(cable.from), getPoint(cable.to), dt);
+      }
+    }
+
+    function hasPatch(from, to) {
+      return cables.has(`${from}->${to}`);
+    }
+
+    return { cables, addOrToggle, setPatches, impulse, stepRope, stepAll, hasPatch, makeNodes, normalisePair };
+  }
+
+  const engine = createPatchEngine(12);
+
+  function traceSpline(c, nodes, ox = 0, oy = 0, bellyLift = 0) {
+    const n = nodes.length;
+    c.beginPath();
+    c.moveTo(nodes[0].x + ox, nodes[0].y + oy);
+    for (let i = 1; i < n - 1; i++) {
+      const t0 = i / (n - 1), t1 = (i + 1) / (n - 1);
+      const lift0 = Math.sin(t0 * Math.PI) * bellyLift;
+      const lift1 = Math.sin(t1 * Math.PI) * bellyLift;
+      const x0 = nodes[i].x + ox, y0 = nodes[i].y + oy + lift0;
+      const x1 = nodes[i + 1].x + ox, y1 = nodes[i + 1].y + oy + lift1;
+      c.quadraticCurveTo(x0, y0, (x0 + x1) * 0.5, (y0 + y1) * 0.5);
+    }
+    const last = nodes[n - 1];
+    c.lineTo(last.x + ox, last.y + oy);
+  }
+
+  function drawPlug(c, tip, next, colour) {
+    const angle = Math.atan2(next.y - tip.y, next.x - tip.x);
+    c.save();
+    c.translate(tip.x, tip.y);
+    c.rotate(angle);
+    // Cast plug shadow.
+    c.fillStyle = 'rgba(0, 0, 0, 0.42)';
+    c.beginPath();
+    c.arc(2, 4, 10, 0, Math.PI * 2);
+    c.fill();
+    // Knurled metallic sleeve.
+    c.fillStyle = '#c5ccd8';
+    c.strokeStyle = '#20242d';
+    c.lineWidth = 1.5;
+    c.beginPath();
+    c.arc(0, 0, 8.5, 0, Math.PI * 2);
+    c.fill();
+    c.stroke();
+    // Coloured strain-relief collar pointing along the cable.
+    c.fillStyle = colour.plug;
+    c.beginPath();
+    c.roundRect(4, -4.5, 11, 9, 3);
+    c.fill();
+    // Inner recessed pin head.
+    c.fillStyle = '#2b303b';
+    c.beginPath();
+    c.arc(0, 0, 4.2, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    c.beginPath();
+    c.arc(-2.5, -2.5, 1.8, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+  }
+
+  function drawCable(c, nodes, colour, alpha) {
+    c.save();
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    // Soft cast shadow dropped onto the HTML modules behind the cable.
+    c.globalAlpha = alpha * 0.22;
+    c.strokeStyle = '#000000';
+    c.lineWidth = 12;
+    traceSpline(c, nodes, 4, 10, 10);
+    c.stroke();
+    c.globalAlpha = alpha * 0.34;
+    c.lineWidth = 6.5;
+    traceSpline(c, nodes, 3, 7, 7);
+    c.stroke();
+
+    // Dark outer casing + main coloured braided jacket.
+    c.globalAlpha = alpha;
+    c.strokeStyle = '#0d0f13';
+    c.lineWidth = 8.4;
+    traceSpline(c, nodes);
+    c.stroke();
+
+    c.strokeStyle = colour.body;
+    c.lineWidth = 5.8;
+    traceSpline(c, nodes);
+    c.stroke();
+
+    // Braided highlight thread along the cable crest.
+    c.strokeStyle = colour.weave;
+    c.lineWidth = 1.8;
+    c.setLineDash([4, 5]);
+    traceSpline(c, nodes, -0.8, -1.1);
+    c.stroke();
+    c.setLineDash([]);
+
+    // 3.5 mm plugs at each end.
+    drawPlug(c, nodes[0], nodes[1], colour);
+    drawPlug(c, nodes[nodes.length - 1], nodes[nodes.length - 2], colour);
+    c.restore();
+  }
+  // #endregion verlet-cables
+
+  // #region layout-draw
+  function relRect(el, ancestor) {
+    let x = 0, y = 0, cur = el;
+    while (cur && cur !== ancestor) {
+      x += cur.offsetLeft;
+      y += cur.offsetTop;
+      cur = cur.offsetParent;
+    }
+    return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+  }
+
+  function computeLayout(width) {
+    const compact = width < 660;
+    const cheek = compact ? 6 : 10;
+    const rail = compact ? 18 : 20;
+    const gap = 4;
+    const innerW = Math.max(260, width - cheek * 2);
+
+    if (compact) {
+      const topH = 266;
+      const botH = 268;
+      const halfW = Math.floor((innerW - gap) / 2);
+      const rightW = innerW - gap - halfW;
+      const y1 = rail;
+      const y2 = rail + topH + rail;
+      return {
+        compact: true,
+        cheek,
+        rail,
+        height: y2 + botH + rail,
+        railsY: [0, rail + topH, y2 + botH],
+        slots: {
+          vco: { x: cheek, y: y1, w: halfW, h: topH },
+          lfo: { x: cheek + halfW + gap, y: y1, w: rightW, h: topH },
+          vcf: { x: cheek, y: y2, w: innerW, h: botH },
+        },
+      };
+    }
+
+    const modH = 384;
+    const wVco = Math.floor((innerW - gap * 2) * 0.32);
+    const wLfo = Math.floor((innerW - gap * 2) * 0.31);
+    const wVcf = innerW - gap * 2 - wVco - wLfo;
+    return {
+      compact: false,
+      cheek,
+      rail,
+      height: modH + rail * 2,
+      railsY: [0, rail + modH],
+      slots: {
+        vco: { x: cheek, y: rail, w: wVco, h: modH },
+        lfo: { x: cheek + wVco + gap, y: rail, w: wLfo, h: modH },
+        vcf: { x: cheek + wVco + wLfo + gap * 2, y: rail, w: wVcf, h: modH },
+      },
+    };
+  }
+
+  let layout = computeLayout(cssWidth);
+  slots = layout.slots;
+
+  function applyLayout(width, deviceW) {
+    cssWidth = Math.max(280, Math.round(width));
+    layout = computeLayout(cssWidth);
+    cssHeight = layout.height;
+    slots = layout.slots;
+
+    if (canvas.style.height !== `${cssHeight}px`) {
+      canvas.style.height = `${cssHeight}px`;
+    }
+
+    const zoom = canvas.currentCSSZoom || 1;
+    const ratio = deviceW ? deviceW / cssWidth : (window.devicePixelRatio || 1) * zoom;
+    const targetW = Math.max(1, Math.round(cssWidth * ratio));
+    const targetH = Math.max(1, Math.round(cssHeight * ratio));
+    // Stay below 4 megapixels even on very tall/high-DPR viewports.
+    const cap = Math.sqrt(3_800_000 / Math.max(1, targetW * targetH));
+    const clampedScale = cap < 1 ? cap : 1;
+    const bw = Math.max(1, Math.round(targetW * clampedScale));
+    const bh = Math.max(1, Math.round(targetH * clampedScale));
+    dpr = bw / cssWidth;
+
+    if (canvas.width !== bw) canvas.width = bw;
+    if (canvas.height !== bh) canvas.height = bh;
+
+    for (const [key, mod] of Object.entries(mods)) {
+      const s = slots[key];
+      mod.classList.toggle('compact', layout.compact);
+      mod.style.width = `${s.w}px`;
+      mod.style.height = `${s.h}px`;
+    }
+  }
+
+  function jackCentre(jackId) {
+    const btn = stage.querySelector(`button.jack[data-jack="${jackId}"]`);
+    if (!btn) return { x: cssWidth * 0.5, y: cssHeight * 0.5 };
+    const modEl = btn.closest('.rack-mod');
+    const modKey = modEl === mods.vco ? 'vco' : modEl === mods.lfo ? 'lfo' : 'vcf';
+    const slot = slots[modKey];
+    if (!slot) return { x: cssWidth * 0.5, y: cssHeight * 0.5 };
+    const r = relRect(btn, modEl);
+    return { x: slot.x + r.x + r.w * 0.5, y: slot.y + r.y + r.h * 0.5 };
+  }
+
+  function drawRails(c) {
+    // Dark anodized case interior.
+    c.fillStyle = '#0d0f13';
+    c.fillRect(0, 0, cssWidth, cssHeight);
+
+    // Side cheeks (warm dark walnut).
+    const cheekGrad = c.createLinearGradient(0, 0, layout.cheek, 0);
+    cheekGrad.addColorStop(0, '#3a271c');
+    cheekGrad.addColorStop(0.6, '#573a29');
+    cheekGrad.addColorStop(1, '#261911');
+    c.fillStyle = cheekGrad;
+    c.fillRect(0, 0, layout.cheek, cssHeight);
+    c.fillRect(cssWidth - layout.cheek, 0, layout.cheek, cssHeight);
+
+    // Brushed aluminium rails + M3 screws aligned to each module corner.
+    for (const ry of layout.railsY) {
+      const g = c.createLinearGradient(0, ry, 0, ry + layout.rail);
+      g.addColorStop(0, '#c8ced8');
+      g.addColorStop(0.28, '#eef2f7');
+      g.addColorStop(0.55, '#a2aab8');
+      g.addColorStop(1, '#6f7785');
+      c.fillStyle = g;
+      c.fillRect(layout.cheek, ry, cssWidth - layout.cheek * 2, layout.rail);
+
+      c.fillStyle = '#3d434f';
+      c.fillRect(layout.cheek, ry + layout.rail * 0.5 - 1.5, cssWidth - layout.cheek * 2, 3);
+    }
+
+    for (const s of Object.values(slots)) {
+      const screwXs = [s.x + 12, s.x + s.w - 12];
+      const screwYs = [s.y - layout.rail * 0.5, s.y + s.h + layout.rail * 0.5];
+      for (const sx of screwXs) {
+        for (const sy of screwYs) {
+          c.fillStyle = '#3a404c';
+          c.beginPath(); c.arc(sx, sy, 4.6, 0, Math.PI * 2); c.fill();
+          c.fillStyle = '#d8dee8';
+          c.beginPath(); c.arc(sx - 0.5, sy - 0.5, 3.3, 0, Math.PI * 2); c.fill();
+          c.strokeStyle = '#535b6a';
+          c.lineWidth = 1.1;
+          c.beginPath();
+          c.moveTo(sx - 2, sy - 2); c.lineTo(sx + 2, sy + 2);
+          c.moveTo(sx + 2, sy - 2); c.lineTo(sx - 2, sy + 2);
+          c.stroke();
+        }
+      }
+    }
+  }
+
+  function paintRack(now = performance.now()) {
+    if (plainMode || !supported) return;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+    // 1. Eurorack skiff rails and mounting screws.
+    drawRails(ctx);
+
+    // 2. Live HTML <fieldset> modules (always five-argument drawElementImage).
+    for (const [key, mod] of Object.entries(mods)) {
+      const s = slots[key];
+      ctx.drawElementImage(mod, s.x, s.y, s.w, s.h);
+    }
+
+    // 3. Pulsing LFO indicator LED and glowing phosphor oscilloscope trace.
+    drawLfoLed(ctx, now);
+    drawScope(ctx, now);
+
+    // 4. Dangling Verlet patch cables painted IN FRONT of the HTML modules.
+    for (const cable of engine.cables.values()) {
+      drawCable(ctx, cable.nodes, cable.colour, cableAlpha);
+    }
+    if (dragState && dragState.active) {
+      drawCable(ctx, dragState.nodes, dragState.colour, 0.92);
+    }
+
+    ctx.restore();
+  }
+  // #endregion layout-draw
+
+  // #region scope-audio
+  let audio = null;
+  const scopeBuf = new Float32Array(256);
+
+  function readParams() {
+    return {
+      vcoWave: controls.vcoWave.value,
+      vcoPitch: Number(controls.vcoPitch.value),
+      vcoDetune: Number(controls.vcoDetune.value),
+      lfoWave: controls.lfoWave.value,
+      lfoRate: Number(controls.lfoRate.value),
+      lfoDepth: Number(controls.lfoDepth.value) / 100,
+      vcfCutoff: Number(controls.vcfCutoff.value),
+      vcfRes: Number(controls.vcfRes.value),
+      vcfVol: Number(controls.vcfVol.value) / 100,
+    };
+  }
+
+  function syncReadouts() {
+    const p = readParams();
+    $('vco-pitch-out').textContent = `${p.vcoPitch} Hz`;
+    $('vco-detune-out').textContent = `${p.vcoDetune >= 0 ? '+' : ''}${p.vcoDetune} ct`;
+    $('lfo-rate-out').textContent = `${p.lfoRate.toFixed(1)} Hz`;
+    $('lfo-depth-out').textContent = `${Math.round(p.lfoDepth * 100)}%`;
+    $('vcf-cutoff-out').textContent = `${p.vcfCutoff} Hz`;
+    $('vcf-res-out').textContent = `${p.vcfRes.toFixed(1)} Q`;
+    $('vcf-vol-out').textContent = `${Math.round(p.vcfVol * 100)}%`;
+    applyAudioParams();
+  }
+
+  function ensureAudio() {
+    if (audio) return audio;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    const ac = new AC();
+    const vco = ac.createOscillator();
+    const lfo = ac.createOscillator();
+    const vcoAudioGain = ac.createGain();
+    const vcoFmGain = ac.createGain();
+    const lfoCvGain = ac.createGain();
+    const lfoAudioGain = ac.createGain();
+    const vcf = ac.createBiquadFilter();
+    const master = ac.createGain();
+    const analyser = ac.createAnalyser();
+
+    vcf.type = 'lowpass';
+    analyser.fftSize = 256;
+    master.gain.value = 0;
+
+    vco.connect(vcoAudioGain).connect(vcf);
+    vco.connect(vcoFmGain).connect(vcf.frequency);
+    lfo.connect(lfoCvGain).connect(vcf.frequency);
+    lfo.connect(lfoAudioGain).connect(vcf);
+    vcf.connect(master).connect(analyser).connect(ac.destination);
+
+    vco.start();
+    lfo.start();
+    audio = { ac, vco, lfo, vcoAudioGain, vcoFmGain, lfoCvGain, lfoAudioGain, vcf, master, analyser, on: false };
+    applyAudioParams();
+    return audio;
+  }
+
+  function applyAudioParams() {
+    if (!audio) return;
+    const p = readParams();
+    const t = audio.ac.currentTime;
+    audio.vco.type = p.vcoWave;
+    audio.vco.frequency.setTargetAtTime(p.vcoPitch, t, 0.015);
+    audio.vco.detune.setTargetAtTime(p.vcoDetune, t, 0.015);
+    audio.lfo.type = p.lfoWave;
+    audio.lfo.frequency.setTargetAtTime(p.lfoRate, t, 0.015);
+    audio.vcf.frequency.setTargetAtTime(p.vcfCutoff, t, 0.02);
+    audio.vcf.Q.setTargetAtTime(p.vcfRes, t, 0.02);
+
+    const hasVcoAudio = engine.hasPatch('vco-out', 'audio-in');
+    const hasLfoCv = engine.hasPatch('lfo-out', 'cv-in');
+    const hasLfoAudio = engine.hasPatch('lfo-out', 'audio-in');
+    const hasVcoFm = engine.hasPatch('vco-out', 'cv-in');
+
+    audio.vcoAudioGain.gain.setTargetAtTime(hasVcoAudio ? 0.55 : 0, t, 0.02);
+    audio.lfoAudioGain.gain.setTargetAtTime(hasLfoAudio ? 0.32 * Math.max(0.2, p.lfoDepth) : 0, t, 0.02);
+    audio.lfoCvGain.gain.setTargetAtTime(hasLfoCv ? p.lfoDepth * Math.min(2600, p.vcfCutoff * 0.9) : 0, t, 0.02);
+    audio.vcoFmGain.gain.setTargetAtTime(hasVcoFm ? 550 : 0, t, 0.02);
+    audio.master.gain.setTargetAtTime(audio.on ? p.vcfVol * 0.34 : 0, t, 0.03);
+  }
+
+  function waveSample(type, phase) {
+    const f = ((phase % 1) + 1) % 1;
+    if (type === 'square') return f < 0.5 ? 0.85 : -0.85;
+    if (type === 'sawtooth') return 1 - 2 * f;
+    if (type === 'triangle') return f < 0.5 ? -1 + 4 * f : 3 - 4 * f;
+    return Math.sin(f * Math.PI * 2);
+  }
+
+  function drawLfoLed(c, now) {
+    const p = readParams();
+    const s = slots.lfo;
+    const phase = (now * 0.001) * p.lfoRate;
+    const val = (waveSample(p.lfoWave, phase) + 1) * 0.5;
+    const cx = s.x + s.w - 50;
+    const cy = s.y + 15;
+    c.save();
+    c.fillStyle = `rgba(43, 196, 176, ${0.15 + val * 0.45})`;
+    c.beginPath(); c.arc(cx, cy, 8, 0, Math.PI * 2); c.fill();
+    c.fillStyle = `rgb(${Math.round(30 + val * 90)}, ${Math.round(140 + val * 115)}, ${Math.round(130 + val * 95)})`;
+    c.beginPath(); c.arc(cx, cy, 3.8, 0, Math.PI * 2); c.fill();
+    c.restore();
+  }
+
+  function drawScope(c, now) {
+    const slot = slots.vcf;
+    const r = relRect(scopeSlot, mods.vcf);
+    const x = slot.x + r.x + 2;
+    const y = slot.y + r.y + 2;
+    const w = Math.max(40, r.w - 4);
+    const h = Math.max(24, r.h - 4);
+
+    c.save();
+    c.beginPath();
+    c.roundRect(x, y, w, h, 4);
+    c.clip();
+
+    // Phosphor CRT glass background and graticule lines.
+    c.fillStyle = '#07140f';
+    c.fillRect(x, y, w, h);
+    c.strokeStyle = 'rgba(72, 224, 146, 0.14)';
+    c.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const gx = x + (w * i) / 4;
+      c.beginPath(); c.moveTo(gx, y); c.lineTo(gx, y + h); c.stroke();
+    }
+    const midY = y + h * 0.5;
+    c.beginPath(); c.moveTo(x, midY); c.lineTo(x + w, midY); c.stroke();
+
+    const p = readParams();
+    const hasVcoAudio = engine.hasPatch('vco-out', 'audio-in');
+    const hasLfoAudio = engine.hasPatch('lfo-out', 'audio-in');
+    const hasLfoCv = engine.hasPatch('lfo-out', 'cv-in');
+    const hasVcoFm = engine.hasPatch('vco-out', 'cv-in');
+    const hasAudioSignal = hasVcoAudio || hasLfoAudio;
+
+    let liveAudio = false;
+    if (audio && audio.on && audio.ac.state === 'running') {
+      audio.analyser.getFloatTimeDomainData(scopeBuf);
+      liveAudio = true;
+    } else {
+      // Synthetic live preview of the current patch when sound is muted.
+      const t = now * 0.001;
+      const lfoVal = hasLfoCv ? waveSample(p.lfoWave, t * p.lfoRate) * p.lfoDepth : 0;
+      const modCutoff = Math.max(120, p.vcfCutoff * (1 + lfoVal * 0.72));
+      const brightness = Math.min(1, modCutoff / 3200);
+      const cycles = 1.6 + (p.vcoPitch / 880) * 5.2;
+      const detuneShift = p.vcoDetune * 0.002;
+      const amp = hasAudioSignal ? (0.28 + p.vcfVol * 0.55) : 0;
+      const resRing = Math.min(0.45, (p.vcfRes - 0.5) / 34) * brightness;
+
+      for (let i = 0; i < scopeBuf.length; i++) {
+        if (!hasAudioSignal) { scopeBuf[i] = 0; continue; }
+        const u = i / (scopeBuf.length - 1);
+        const ph = u * cycles * (1 + detuneShift) + t * 2.2;
+        let s = 0;
+        if (hasVcoAudio) {
+          const raw = waveSample(p.vcoWave, ph);
+          const smooth = Math.sin(ph * Math.PI * 2);
+          s += smooth * (1 - brightness * 0.75) + raw * (brightness * 0.75);
+          if (hasVcoFm) s += Math.sin(ph * Math.PI * 6) * 0.25;
+          s += Math.sin(ph * Math.PI * (4 + brightness * 6)) * resRing;
+        }
+        if (hasLfoAudio) {
+          s += waveSample(p.lfoWave, u * (0.8 + p.lfoRate * 0.25) + t * p.lfoRate) * 0.55;
+        }
+        scopeBuf[i] = Math.max(-0.95, Math.min(0.95, s * amp));
+      }
+    }
+
+    const strokeTrace = (colour, width) => {
+      c.strokeStyle = colour;
+      c.lineWidth = width;
+      c.beginPath();
+      const gain = liveAudio ? h * 0.95 : h * 0.42;
+      for (let i = 0; i < scopeBuf.length; i++) {
+        const px = x + (i / (scopeBuf.length - 1)) * w;
+        const py = midY - Math.max(-1, Math.min(1, scopeBuf[i])) * gain;
+        if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
+      }
+      c.stroke();
+    };
+    strokeTrace('rgba(64, 255, 152, 0.28)', 5);
+    strokeTrace('#6bffb0', 1.7);
+
+    // Small status tag in top-left of the scope window.
+    c.fillStyle = liveAudio ? '#7dffb3' : hasAudioSignal ? '#68c995' : '#8a9c93';
+    c.font = '600 9px ui-monospace, Menlo, Consolas, monospace';
+    c.fillText(liveAudio ? 'LIVE AUDIO' : hasAudioSignal ? 'PREVIEW (MUTED)' : 'NO SIGNAL', x + 6, y + 12);
+    c.restore();
+  }
+  // #endregion scope-audio
+
+  // #region patching
+  function updateStatus(extra = '') {
+    const names = [...engine.cables.values()].map((c) => `${JACK_NAMES[c.from]} to ${JACK_NAMES[c.to]}`);
+    const patchText = names.length ? `Patched: ${names.join(', ')}.` : 'No cables patched.';
+    const audioText = audio && audio.on ? 'Web Audio running.' : 'Sound is muted until you press Power.';
+    statusLine.textContent = extra ? `${extra} ${patchText}` : `${patchText} ${audioText}`;
+  }
+
+  function clearPendingJack() {
+    pendingJack = null;
+    for (const btn of stage.querySelectorAll('button.jack')) {
+      btn.classList.remove('pending', 'target-ok');
+    }
+  }
+
+  function markCompatibleTargets(sourceId) {
+    const srcOut = sourceId.endsWith('-out');
+    for (const btn of stage.querySelectorAll('button.jack')) {
+      const id = btn.dataset.jack;
+      btn.classList.toggle('pending', id === sourceId);
+      btn.classList.toggle('target-ok', id !== sourceId && id.endsWith('-out') !== srcOut);
+    }
+  }
+
+  function completePatch(a, b) {
+    const res = engine.addOrToggle(a, b, jackCentre);
+    clearPendingJack();
+    applyAudioParams();
+    if (!reducedMotion.matches) engine.impulse((Math.random() - 0.5) * 14, -5);
+    if (res.action === 'added') {
+      updateStatus(`Connected ${JACK_NAMES[res.pair[0]]} to ${JACK_NAMES[res.pair[1]]}.`);
+    } else if (res.action === 'removed') {
+      updateStatus(`Unplugged ${JACK_NAMES[res.pair[0]]} from ${JACK_NAMES[res.pair[1]]}.`);
+    }
+    requestPaintNow();
+  }
+
+  function onJackClick(e) {
+    if (suppressNextClick) { suppressNextClick = false; return; }
+    const id = e.currentTarget.dataset.jack;
+    if (!pendingJack) {
+      pendingJack = id;
+      markCompatibleTargets(id);
+      updateStatus(`Selected ${JACK_NAMES[id]}. Tap a matching jack to connect or unplug.`);
+      requestPaintNow();
+      return;
+    }
+    if (pendingJack === id) {
+      clearPendingJack();
+      updateStatus('Cancelled jack selection.');
+      requestPaintNow();
+      return;
+    }
+    if (engine.normalisePair(pendingJack, id)) {
+      completePatch(pendingJack, id);
+    } else {
+      pendingJack = id;
+      markCompatibleTargets(id);
+      updateStatus(`Switched selection to ${JACK_NAMES[id]} (connect an output jack to an input jack).`);
+      requestPaintNow();
+    }
+  }
+
+  function clientToCanvas(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+
+  function nearestCompatibleJack(sourceId, pt) {
+    let best = null, bestD = 38;
+    for (const btn of stage.querySelectorAll('button.jack')) {
+      const id = btn.dataset.jack;
+      if (id === sourceId || !engine.normalisePair(sourceId, id)) continue;
+      const c = jackCentre(id);
+      const d = Math.hypot(c.x - pt.x, c.y - pt.y);
+      if (d < bestD) { bestD = d; best = id; }
+    }
+    return best;
+  }
+
+  function onJackPointerDown(e) {
+    if (plainMode || e.button > 0) return;
+    const id = e.currentTarget.dataset.jack;
+    const startPt = jackCentre(id);
+    const colour = id === 'lfo-out'
+      ? CABLE_COLOURS['lfo-out->cv-in']
+      : CABLE_COLOURS['vco-out->audio-in'];
+    dragState = {
+      sourceId: id,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      pointer: { ...startPt },
+      active: false,
+      colour,
+      nodes: engine.makeNodes(startPt, startPt),
+    };
+
+    const onMove = (ev) => {
+      if (!dragState) return;
+      const dist = Math.hypot(ev.clientX - dragState.startClientX, ev.clientY - dragState.startClientY);
+      if (!dragState.active && dist > 8) {
+        dragState.active = true;
+        suppressNextClick = true;
+        markCompatibleTargets(dragState.sourceId);
+      }
+      if (dragState.active) {
+        dragState.pointer = clientToCanvas(ev.clientX, ev.clientY);
+        requestPaintNow();
+      }
+    };
+
+    const finish = (ev) => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
+      const st = dragState;
+      dragState = null;
+      if (!st || !st.active) return;
+      const dropPt = clientToCanvas(ev.clientX, ev.clientY);
+      const targetId = nearestCompatibleJack(st.sourceId, dropPt);
+      if (targetId) {
+        completePatch(st.sourceId, targetId);
+      } else {
+        clearPendingJack();
+        updateStatus('Dropped cable outside a matching jack.');
+        requestPaintNow();
+      }
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: true });
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
+  }
+  // #endregion patching
+
+  function applyPreset(key) {
+    const preset = PRESETS[key];
+    if (!preset) return;
+    controls.vcoWave.value = preset.vcoWave;
+    controls.vcoPitch.value = preset.vcoPitch;
+    controls.vcoDetune.value = preset.vcoDetune;
+    controls.lfoWave.value = preset.lfoWave;
+    controls.lfoRate.value = preset.lfoRate;
+    controls.lfoDepth.value = preset.lfoDepth;
+    controls.vcfCutoff.value = preset.vcfCutoff;
+    controls.vcfRes.value = preset.vcfRes;
+    controls.vcfVol.value = preset.vcfVol;
+
+    engine.setPatches(preset.patches, jackCentre);
+    if (!reducedMotion.matches) engine.impulse(12, -4);
+    clearPendingJack();
+    syncReadouts();
+    for (const b of document.querySelectorAll('button[data-preset]')) {
+      b.setAttribute('aria-pressed', String(b.dataset.preset === key));
+    }
+    updateStatus(`Loaded ${preset.label}.`);
+    requestPaintNow();
+  }
+
+  function enterPlainMode(reason) {
+    if (plainMode) return;
+    plainMode = true;
+    canvas.hidden = true;
+    plainHost.hidden = false;
+    for (const mod of Object.values(mods)) {
+      mod.classList.remove('compact');
+      plainHost.append(mod);
+    }
+    fallbackNote.hidden = false;
+    fallbackNote.textContent = reason;
+    plainToggleBtn.setAttribute('aria-pressed', 'true');
+    plainToggleBtn.textContent = supported ? 'Restore canvas' : 'Plain HTML';
+  }
+
+  function exitPlainMode() {
+    if (!plainMode || !supported) return;
+    plainMode = false;
+    for (const mod of Object.values(mods)) canvas.append(mod);
+    plainHost.hidden = true;
+    canvas.hidden = false;
+    fallbackNote.hidden = true;
+    plainToggleBtn.setAttribute('aria-pressed', 'false');
+    plainToggleBtn.textContent = 'Plain HTML';
+    applyLayout(canvas.clientWidth || stage.clientWidth || 760);
+    requestPaintNow();
+  }
+
+  function requestPaintNow() {
+    if (!plainMode && supported && typeof canvas.requestPaint === 'function') {
+      canvas.requestPaint();
+    }
+  }
+
+  function tick(now) {
+    rafId = 0;
+    const dt = Math.min(0.032, Math.max(0.004, (now - lastFrame) * 0.001));
+    lastFrame = now;
+    if (!plainMode && supported && onScreen) {
+      const subDt = reducedMotion.matches ? 0.016 : dt;
+      engine.stepAll(jackCentre, subDt);
+      if (dragState && dragState.active) {
+        engine.stepRope(dragState.nodes, jackCentre(dragState.sourceId), dragState.pointer, subDt);
+      }
+      canvas.requestPaint();
+      rafId = requestAnimationFrame(tick);
+    }
+  }
+
+  function ensureLoop() {
+    if (!rafId && !plainMode && supported && onScreen) {
+      lastFrame = performance.now();
+      rafId = requestAnimationFrame(tick);
+    }
+  }
+
+  // Event wiring for controls, jacks, presets and context loss.
+  for (const el of Object.values(controls)) {
+    el.addEventListener('input', () => {
+      syncReadouts();
+      if (!reducedMotion.matches) engine.impulse((Math.random() - 0.5) * 4.5, 0);
+      requestPaintNow();
+    });
+    el.addEventListener('change', () => {
+      syncReadouts();
+      requestPaintNow();
+    });
+  }
+
+  for (const btn of stage.querySelectorAll('button.jack')) {
+    btn.addEventListener('click', onJackClick);
+    btn.addEventListener('pointerdown', onJackPointerDown);
+  }
+
+  powerBtn.addEventListener('click', async () => {
+    const a = ensureAudio();
+    if (!a) {
+      updateStatus('Web Audio is not available in this browser.');
+      return;
+    }
+    a.on = !a.on;
+    if (a.on) {
+      await a.ac.resume().catch(() => {});
+    }
+    powerBtn.setAttribute('aria-pressed', String(a.on));
+    powerBtn.textContent = a.on ? 'Power: On' : 'Power: Off';
+    applyAudioParams();
+    updateStatus(a.on ? 'Audio on.' : 'Audio muted.');
+    requestPaintNow();
+  });
+
+  for (const b of document.querySelectorAll('button[data-preset]')) {
+    b.addEventListener('click', () => applyPreset(b.dataset.preset));
+  }
+
+  $('nudge-btn').addEventListener('click', () => {
+    engine.impulse(22, -8);
+    requestPaintNow();
+  });
+
+  cableOpacityInput.addEventListener('input', () => {
+    const pct = Number(cableOpacityInput.value);
+    cableAlpha = pct / 100;
+    cableOpacityOut.textContent = `${pct}%`;
+    requestPaintNow();
+  });
+
+  plainToggleBtn.addEventListener('click', () => {
+    if (plainMode) exitPlainMode();
+    else enterPlainMode('Showing the three synth modules as plain HTML without the canvas.');
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && pendingJack) {
+      clearPendingJack();
+      updateStatus('Cancelled jack selection.');
+      requestPaintNow();
+    }
+  });
+
+  canvas.addEventListener('paint', () => paintRack(performance.now()));
+
+  canvas.addEventListener('contextlost', (e) => {
+    e.preventDefault();
+    enterPlainMode('The 2D canvas lost its graphics context. Every synth control below stays live in plain HTML.');
+  });
+  canvas.addEventListener('contextrestored', () => {
+    exitPlainMode();
+    ensureLoop();
+  });
+
+  // Pause the physics and oscilloscope loop when the rack scrolls off screen.
+  const vis = new IntersectionObserver((entries) => {
+    onScreen = entries[0]?.isIntersecting ?? true;
+    if (onScreen) ensureLoop();
+    else if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  }, { rootMargin: '120px' });
+  vis.observe(stage);
+
+  // Initial sizing and startup.
+  if (supported) {
+    applyLayout(canvas.clientWidth || stage.clientWidth || 760);
+    const ro = new ResizeObserver((entries) => {
+      if (plainMode) return;
+      const entry = entries[0];
+      const box = entry.devicePixelContentBoxSize?.[0];
+      const cssW = entry.contentBoxSize?.[0]?.inlineSize || canvas.clientWidth;
+      applyLayout(cssW, box?.inlineSize);
+      requestPaintNow();
+    });
+    try { ro.observe(canvas, { box: 'device-pixel-content-box' }); }
+    catch { ro.observe(canvas); }
+
+    applyPreset('bass');
+    // Settle initial catenary sag before the first paint.
+    for (let i = 0; i < 24; i++) engine.stepAll(jackCentre, 0.016);
+    ensureLoop();
+  } else {
+    applyPreset('bass');
+    enterPlainMode('HTML-in-canvas is not available in this browser, so the synth modules are shown as plain HTML.');
+  }
+
+  // ---- Live checks (isolated fixtures on testStage()) ----
+
+  function copyPixels(sourceCanvas, x = 0, y = 0, w = sourceCanvas.width, h = sourceCanvas.height) {
+    const copy = document.createElement('canvas');
+    copy.width = Math.max(1, Math.round(w));
+    copy.height = Math.max(1, Math.round(h));
+    const c2 = copy.getContext('2d', { willReadFrequently: true });
+    c2.drawImage(sourceCanvas, x, y, w, h, 0, 0, copy.width, copy.height);
+    const data = c2.getImageData(0, 0, copy.width, copy.height).data;
+    window.__gfx?.retire(copy);
+    return data;
+  }
+
+  function canvasInk(sourceCanvas) {
+    if (plainMode || !sourceCanvas.width || !sourceCanvas.height) return null;
+    const copy = document.createElement('canvas');
+    copy.width = Math.min(240, sourceCanvas.width);
+    copy.height = Math.min(240, sourceCanvas.height);
+    const c2 = copy.getContext('2d', { willReadFrequently: true });
+    c2.drawImage(sourceCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height, 0, 0, copy.width, copy.height);
+    const f = inkFraction(c2);
+    window.__gfx?.retire(copy);
+    return f;
+  }
+
+  function makeFixtureCanvas(w, h) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.width = w;
+    c.height = h;
+    c.style.cssText = `display:block;width:${w}px;height:${h}px;background:#101216`;
+    return c;
+  }
+
+  function nonDarkFraction(data) {
+    let lit = 0, total = data.length / 4;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] > 180 && (data[i] + data[i + 1] + data[i + 2]) > 90) lit++;
+    }
+    return total ? lit / total : 0;
+  }
+
+  function diffPixels(a, b) {
+    let changed = 0;
+    for (let i = 0; i < a.length; i += 4) {
+      const d = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+      if (d > 45) changed++;
+    }
+    return changed;
+  }
+
+  const tests = [
+    {
+      name: 'Three drawable fieldset modules paint pixels into one 2D canvas',
+      why: 'Creates an isolated 320x150 drawable canvas with three styled <fieldset drawable> modules drawn via five-argument drawElementImage(), then reads each slot through a plain 2D copy.',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas is not available');
+        const c = makeFixtureCanvas(320, 150);
+        c.innerHTML =
+          '<fieldset drawable style="box-sizing:border-box;width:96px;height:126px;margin:0;padding:8px;background:#2a3242;border:2px solid #e86a33;color:#fff"><legend>VCO</legend><input type="range" value="60" style="width:72px"></fieldset>' +
+          '<fieldset drawable style="box-sizing:border-box;width:96px;height:126px;margin:0;padding:8px;background:#24383b;border:2px solid #2bc4b0;color:#fff"><legend>LFO</legend><select style="width:72px"><option>Sine</option></select></fieldset>' +
+          '<fieldset drawable style="box-sizing:border-box;width:96px;height:126px;margin:0;padding:8px;background:#3a3222;border:2px solid #eab308;color:#fff"><legend>VCF</legend><button type="button">Power</button></fieldset>';
+        const c2 = c.getContext('2d');
+        const list = [...c.querySelectorAll('fieldset')];
+        c.addEventListener('paint', () => {
+          c2.fillStyle = '#0c0d10';
+          c2.fillRect(0, 0, 320, 150);
+          list.forEach((m, idx) => c2.drawElementImage(m, 8 + idx * 104, 12, 96, 126));
+        });
+        testStage().append(c);
+        await nextPaint(c);
+        await nextPaint(c);
+        const shares = [0, 1, 2].map((idx) => nonDarkFraction(copyPixels(c, 8 + idx * 104, 12, 96, 126)));
+        if (shares.some((s) => s < 0.2)) {
+          throw new Error(`module coverage too low: ${shares.map((s) => (s * 100).toFixed(1) + '%').join(', ')}`);
+        }
+        return `module coverage: VCO ${(shares[0] * 100).toFixed(0)}%, LFO ${(shares[1] * 100).toFixed(0)}%, VCF ${(shares[2] * 100).toFixed(0)}%`;
+      },
+    },
+    {
+      name: 'Patch cable strokes drawn after drawElementImage() paint over module pixels',
+      why: 'Draws a blue drawable module first, reads its centre pixel via a plain copy, then draws a bright orange cable across the same coordinates and checks the centre pixel turns orange.',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas is not available');
+        const c = makeFixtureCanvas(220, 120);
+        c.innerHTML = '<fieldset drawable style="box-sizing:border-box;width:180px;height:84px;margin:0;padding:0;border:0;background:#1a4fd6"></fieldset>';
+        const mod = c.querySelector('fieldset');
+        const c2 = c.getContext('2d');
+        let withCable = false;
+        c.addEventListener('paint', () => {
+          c2.clearRect(0, 0, 220, 120);
+          c2.drawElementImage(mod, 20, 18, 180, 84);
+          if (withCable) {
+            c2.strokeStyle = '#ff6a1a';
+            c2.lineWidth = 14;
+            c2.beginPath();
+            c2.moveTo(20, 60);
+            c2.lineTo(200, 60);
+            c2.stroke();
+          }
+        });
+        testStage().append(c);
+        await nextPaint(c);
+        const before = copyPixels(c, 108, 58, 4, 4);
+        withCable = true;
+        await nextPaint(c);
+        const after = copyPixels(c, 108, 58, 4, 4);
+        const blueFirst = before[2] > before[0] + 50;
+        const orangeSecond = after[0] > after[2] + 80;
+        if (!blueFirst || !orangeSecond) {
+          throw new Error(`before rgb(${before[0]},${before[1]},${before[2]}), after rgb(${after[0]},${after[1]},${after[2]})`);
+        }
+        return `centre pixel changed from blue (${before[0]},${before[1]},${before[2]}) to orange (${after[0]},${after[1]},${after[2]})`;
+      },
+    },
+    {
+      name: 'Form controls behind a painted patch cable still answer elementFromPoint()',
+      why: 'Draws a <fieldset drawable> with a range slider and button, paints a thick opaque cable straight over both controls, and checks document.elementFromPoint() at each control.',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas is not available');
+        const c = makeFixtureCanvas(260, 130);
+        c.innerHTML =
+          '<fieldset drawable style="box-sizing:border-box;width:240px;height:110px;margin:0;padding:12px;border:1px solid #444;background:#222">' +
+          '<input type="range" value="50" style="display:block;width:200px;height:32px;margin:0 0 12px">' +
+          '<button type="button" style="display:block;width:120px;height:36px">JACK</button>' +
+          '</fieldset>';
+        const mod = c.querySelector('fieldset');
+        const slider = c.querySelector('input');
+        const btn = c.querySelector('button');
+        const c2 = c.getContext('2d');
+        c.addEventListener('paint', () => {
+          c2.clearRect(0, 0, 260, 130);
+          c2.drawElementImage(mod, 10, 10, 240, 110);
+          c2.strokeStyle = '#e85d2a';
+          c2.lineWidth = 12;
+          c2.beginPath();
+          c2.moveTo(10, 38); c2.lineTo(250, 38);
+          c2.moveTo(10, 82); c2.lineTo(250, 82);
+          c2.stroke();
+        });
+        testStage().append(c);
+        await nextPaint(c);
+        await nextPaint(c);
+        const box = c.getBoundingClientRect();
+        const hitSlider = document.elementFromPoint(box.left + 110, box.top + 38);
+        const hitBtn = document.elementFromPoint(box.left + 70, box.top + 82);
+        if (hitSlider !== slider || hitBtn !== btn) {
+          throw new Error(`slider hit ${hitSlider?.localName ?? 'null'}, button hit ${hitBtn?.localName ?? 'null'}`);
+        }
+        return 'elementFromPoint() returned <input> and <button> straight through the painted cable';
+      },
+    },
+    {
+      name: 'Updating a slider inside a drawn module changes its painted pixels',
+      why: 'Moves a fixture range input from 10 to 95, waits for a paint, and compares pixels via a plain 2D copy.',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas is not available');
+        const c = makeFixtureCanvas(240, 80);
+        c.innerHTML = '<fieldset drawable style="box-sizing:border-box;width:220px;height:60px;margin:0;padding:12px;border:0;background:#1e222a"><input type="range" min="0" max="100" value="10" style="width:190px;height:32px;accent-color:#e86a33"></fieldset>';
+        const mod = c.querySelector('fieldset');
+        const slider = c.querySelector('input');
+        const c2 = c.getContext('2d');
+        c.addEventListener('paint', () => {
+          c2.clearRect(0, 0, 240, 80);
+          c2.drawElementImage(mod, 10, 10, 220, 60);
+        });
+        testStage().append(c);
+        await nextPaint(c);
+        const before = copyPixels(c, 10, 10, 220, 60);
+        slider.value = '95';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        await nextPaint(c);
+        const after = copyPixels(c, 10, 10, 220, 60);
+        const changed = diffPixels(before, after);
+        if (changed < 40) throw new Error(`only ${changed} pixels changed after moving slider from 10 to 95`);
+        return `${changed} pixels changed in the module after moving the range slider`;
+      },
+    },
+    {
+      name: 'Jack rewiring updates patch state and Verlet cable sag',
+      why: 'Runs the patch engine in isolation: connects two patches, steps 20 Verlet frames, checks the middle node hangs below the jacks, and unplugs one cable.',
+      run: async () => {
+        const testEngine = createPatchEngine(12);
+        const pts = {
+          'vco-out': { x: 40, y: 120 },
+          'lfo-out': { x: 160, y: 120 },
+          'audio-in': { x: 280, y: 120 },
+          'cv-in': { x: 340, y: 120 },
+        };
+        const getPt = (id) => pts[id];
+        testEngine.addOrToggle('vco-out', 'audio-in', getPt);
+        testEngine.addOrToggle('cv-in', 'lfo-out', getPt); // reverse order must normalise to lfo-out->cv-in
+        if (!testEngine.hasPatch('lfo-out', 'cv-in') || testEngine.cables.size !== 2) {
+          throw new Error(`expected 2 cables with lfo-out->cv-in, got ${testEngine.cables.size}`);
+        }
+        for (let i = 0; i < 20; i++) testEngine.stepAll(getPt, 0.016);
+        const cable = testEngine.cables.get('vco-out->audio-in');
+        const mid = cable.nodes[Math.floor(cable.nodes.length / 2)];
+        const sag = mid.y - 120;
+        if (sag < 15) throw new Error(`expected dangling sag > 15 px, measured ${sag.toFixed(1)} px`);
+        testEngine.addOrToggle('vco-out', 'audio-in', getPt);
+        if (testEngine.cables.size !== 1) throw new Error(`expected 1 cable after unplug, got ${testEngine.cables.size}`);
+        return `2 cables patched, Verlet midpoint sagged ${sag.toFixed(1)} px below jacks, 1 cable left after unplug`;
+      },
+    },
+    stillDrawn(() => [
+      {
+        name: 'Eurorack modular synth',
+        ink: () => canvasInk(canvas),
+        rescue: () => enterPlainMode('The canvas lost its picture during live checks, so the synth switched to plain HTML.'),
+      },
+    ]),
+  ];
+
+  runTests($('tests'), tests);
+</script>
+</body>
+</html>

@@ -1,0 +1,2218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Two-sided 3D hardcover book with live HTML pages</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Six live HTML pages bound as a hardcover book in one WebGL 2 canvas. Drag a corner to curl both the front and the mirrored back of a leaf over the spine, while checkboxes, inputs, notes and text…">
+<link rel="canonical" href="https://html-in-canvas.page/page-book/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Two-sided 3D hardcover book with live HTML pages">
+<meta property="og:description" content="Six live HTML pages bound as a hardcover book in one WebGL 2 canvas. Drag a corner to curl both the front and the mirrored back of a leaf over the spine, while checkboxes, inputs, notes and text…">
+<meta property="og:url" content="https://html-in-canvas.page/page-book/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Two-sided 3D hardcover book with live HTML pages&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Two-sided 3D hardcover book with live HTML pages">
+<meta name="twitter:description" content="Six live HTML pages bound as a hardcover book in one WebGL 2 canvas. Drag a corner to curl both the front and the mirrored back of a leaf over the spine, while checkboxes, inputs, notes and text…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Two-sided 3D hardcover book with live HTML pages&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/page-book/",
+   "url": "https://html-in-canvas.page/page-book/",
+   "mainEntityOfPage": "https://html-in-canvas.page/page-book/",
+   "headline": "Two-sided 3D hardcover book with live HTML pages",
+   "name": "Two-sided 3D hardcover book with live HTML pages",
+   "description": "Six live HTML pages bound as a hardcover book in one WebGL 2 canvas. Drag a corner to curl both the front and the mirrored back of a leaf over the spine, while checkboxes, inputs, notes and text selection keep working on the open spread.",
+   "abstract": "Can a multi-page book curl both the front and back of a live HTML leaf across a shaded spine in WebGL while links, checkboxes, notes and text selection keep working on the open spread?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "WebGL, page-curl, ElementGL, updateElementGeometry, 3D, texElementSubImage2D\u0028), updateElementGeometry\u0028), drawElementImage\u0028), paint event",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Two-sided 3D hardcover book with live HTML pages",
+     "item": "https://html-in-canvas.page/page-book/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  #book-stage {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--bg) 72%, var(--fg) 28%);
+    min-height: 460px;
+  }
+  #book-canvas {
+    display: block;
+    width: 100%;
+    height: min(540px, 74svh);
+    min-height: 460px;
+    touch-action: manipulation;
+  }
+  #fallback-note {
+    margin: 0;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--warn) 14%, var(--card));
+    color: var(--fg);
+    font-size: 14px;
+  }
+  #book-stage.plain #book-canvas,
+  #book-stage.plain .corner-zone,
+  #book-stage.plain #ribbon-zone {
+    display: none;
+  }
+  #plain-book {
+    display: none;
+    padding: 16px;
+    gap: 12px;
+    justify-content: center;
+    align-items: stretch;
+  }
+  #book-stage.plain #plain-book {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  #book-stage.plain .book-page {
+    position: static;
+    width: min(360px, 100%);
+    min-height: 420px;
+    height: auto;
+    border: 1px solid #c9beaa;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+  }
+  #book-stage.plain .book-page[hidden] {
+    display: none;
+  }
+
+  /* Corner drag hit zones over the canvas */
+  .corner-zone {
+    position: absolute;
+    z-index: 4;
+    width: 68px;
+    height: 68px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .corner-zone:hover { border: 0; }
+  .corner-zone:active { cursor: grabbing; }
+  .corner-zone:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+  }
+  .corner-zone::after {
+    content: "";
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    opacity: 0.48;
+    transition: opacity 0.15s ease;
+  }
+  .corner-zone:hover::after,
+  .corner-zone:focus-visible::after { opacity: 0.9; }
+  #corner-tr::after {
+    top: 0; right: 0;
+    background: linear-gradient(225deg, rgb(255 250 240 / 0.85) 45%, rgb(80 65 45 / 0.35) 50%, transparent 55%);
+  }
+  #corner-br::after {
+    bottom: 0; right: 0;
+    background: linear-gradient(315deg, rgb(255 250 240 / 0.85) 45%, rgb(80 65 45 / 0.35) 50%, transparent 55%);
+  }
+  #corner-tl::after {
+    top: 0; left: 0;
+    background: linear-gradient(135deg, rgb(255 250 240 / 0.85) 45%, rgb(80 65 45 / 0.35) 50%, transparent 55%);
+  }
+  #corner-bl::after {
+    bottom: 0; left: 0;
+    background: linear-gradient(45deg, rgb(255 250 240 / 0.85) 45%, rgb(80 65 45 / 0.35) 50%, transparent 55%);
+  }
+  .corner-zone[hidden] { display: none; }
+
+  #ribbon-zone {
+    position: absolute;
+    z-index: 5;
+    width: 36px;
+    height: 110px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #ribbon-zone:hover { border: 0; }
+  #ribbon-zone:active { cursor: grabbing; }
+  #ribbon-zone:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 0;
+  }
+
+  .book-controls {
+    margin-top: 12px;
+  }
+  .book-controls button {
+    min-height: 40px;
+  }
+  .curl-ctrl {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    min-height: 40px;
+  }
+  .curl-ctrl input[type="range"] {
+    width: 140px;
+    accent-color: var(--accent);
+  }
+  .curl-ctrl output {
+    font-family: var(--mono);
+    font-size: 13px;
+    min-width: 3.4em;
+    color: var(--muted);
+  }
+  #book-status {
+    margin: 8px 0 0;
+  }
+
+  /* Live HTML pages inside the hardcover book (fixed book-stock palette) */
+  .book-page {
+    position: absolute;
+    left: 0;
+    top: 0;
+    box-sizing: border-box;
+    padding: 20px 26px 30px;
+    background: linear-gradient(180deg, #fcf9f2 0%, #f6f0e2 100%);
+    color: #241f1a;
+    font: 14.5px/1.5 Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  .book-page h3 {
+    margin: 2px 0 0;
+    font: 700 18px/1.2 Georgia, serif;
+    color: #1f1a14;
+    letter-spacing: -0.01em;
+  }
+  .book-page p {
+    margin: 0;
+  }
+  .page-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid #d7cbb8;
+    padding-bottom: 5px;
+    font: 600 10.5px/1.2 var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #726556;
+  }
+  .page-foot {
+    margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 6px;
+    border-top: 1px solid #e4dac8;
+    font: 11px/1 var(--mono);
+    color: #7c6f60;
+  }
+
+  /* Page 1: hardcover inlaid front cover */
+  .book-page.cover-page {
+    background: linear-gradient(155deg, #213a31 0%, #172b24 100%);
+    color: #f3ead8;
+    padding: 22px 26px 28px;
+  }
+  .cover-frame {
+    flex: 1;
+    border: 2px solid #c5a264;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: rgb(0 0 0 / 0.14);
+  }
+  .cover-kicker {
+    font: 600 10.5px/1.2 var(--mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #d7b87c;
+  }
+  .cover-page h3 {
+    font: 700 23px/1.15 Georgia, serif;
+    color: #fbf5e8;
+    margin: 0;
+  }
+  .cover-sub {
+    font: italic 13.5px/1.4 Georgia, serif;
+    color: #d9cfb9;
+  }
+  .cover-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font: 600 11px/1.2 var(--mono);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #d7b87c;
+  }
+  .cover-field input,
+  .cover-field select {
+    font: 14px/1.3 Georgia, serif;
+    padding: 7px 9px;
+    border: 1px solid #b59457;
+    border-radius: 4px;
+    background: #fbf7ee;
+    color: #1f1a14;
+    min-height: 36px;
+  }
+  .cover-stamp {
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid rgb(197 162 100 / 0.4);
+    font: 11px/1.3 var(--mono);
+    color: #c8bfa8;
+  }
+
+  /* Page 2: prose + footnote */
+  .drop-cap::first-letter {
+    float: left;
+    font-size: 34px;
+    line-height: 0.85;
+    padding: 3px 6px 0 0;
+    font-weight: 700;
+    color: #9b3518;
+  }
+  .fn-btn {
+    display: inline-block;
+    font: 600 12px/1.2 var(--mono);
+    padding: 5px 9px;
+    border-radius: 4px;
+    border: 1px solid #b9a78e;
+    background: #efe6d5;
+    color: #3a2b1c;
+    cursor: pointer;
+    min-height: 34px;
+  }
+  .fn-btn:hover { border-color: #3a2b1c; }
+  .fn-note {
+    padding: 8px 10px;
+    border-left: 3px solid #b8292f;
+    background: #f1e9d8;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: #3d3328;
+  }
+
+  /* Page 3: checklist */
+  .checklist {
+    list-style: none;
+    margin: 2px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .checklist label {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 6px 8px;
+    border: 1px solid #e0d5c2;
+    border-radius: 5px;
+    background: #fffdf8;
+    cursor: pointer;
+    font-size: 13.5px;
+    line-height: 1.3;
+  }
+  .checklist input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 1px 0 0;
+    accent-color: #9b3518;
+    flex: none;
+  }
+  .checklist input:checked + span {
+    text-decoration: line-through;
+    color: #776a5a;
+  }
+  .tally-line {
+    font: 600 12px/1.3 var(--mono);
+    color: #5c4e3e;
+  }
+
+  /* Page 4: SVG compass + scale range */
+  .plate-box {
+    flex: 1;
+    min-height: 180px;
+    display: grid;
+    place-items: center;
+    border: 1px solid #d9ccb6;
+    border-radius: 6px;
+    background: radial-gradient(circle at 50% 50%, #fffdf8 0%, #f1e8d6 100%);
+    overflow: hidden;
+  }
+  #compass-svg {
+    width: 184px;
+    height: 184px;
+    display: block;
+  }
+  .scale-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: 600 12px/1.2 var(--mono);
+    color: #534638;
+  }
+  .scale-row input[type="range"] {
+    flex: 1;
+    min-width: 80px;
+    accent-color: #9b3518;
+  }
+
+  /* Page 5: ruled textarea margin notes */
+  #margin-note {
+    width: 100%;
+    flex: 1;
+    min-height: 170px;
+    resize: none;
+    padding: 8px 10px;
+    border: 1px solid #cbbda6;
+    border-radius: 4px;
+    background: repeating-linear-gradient(
+      180deg,
+      #fffdf8 0px,
+      #fffdf8 23px,
+      #e6dccb 23px,
+      #e6dccb 24px
+    );
+    color: #241f1a;
+    font: 14px/24px Georgia, serif;
+  }
+  #note-meta {
+    font: 12px/1.3 var(--mono);
+    color: #6a5d4e;
+  }
+
+  /* Page 6: colophon */
+  .colophon-box {
+    padding: 10px 12px;
+    border: 1px solid #d5c8b2;
+    border-radius: 5px;
+    background: #f3ecdd;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  #reading-progress {
+    display: block;
+    padding: 8px 10px;
+    border-radius: 5px;
+    background: #223830;
+    color: #f6eedf;
+    font: 12px/1.4 var(--mono);
+  }
+  #jump-cover {
+    align-self: flex-start;
+    min-height: 38px;
+    padding: 6px 14px;
+    border: 1px solid #8a3116;
+    border-radius: 5px;
+    background: #a53c1b;
+    color: #fffaf2;
+    font: 600 13px/1.2 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  #jump-cover:hover { background: #872f14; border-color: #5f200c; }
+
+  @media (max-width: 579px) {
+    #book-canvas {
+      height: 480px;
+    }
+    .book-page {
+      padding: 18px 20px 26px;
+      font-size: 14px;
+    }
+    .cover-page h3 { font-size: 20px; }
+    #compass-svg { width: 160px; height: 160px; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+
+  <h1>Two-sided 3D hardcover book with live HTML pages</h1>
+  <p class="lede">I wanted to know if one WebGL 2 canvas could curl both sides of a live HTML leaf across a shaded book spine, while links, checkboxes, notes and text selection still work on the open spread. Drag any outer page corner to turn a leaf, hold a turn mid-air with the slider, or drag the silk ribbon in the gutter.</p>
+
+  <div class="stage" id="book-stage">
+    <p id="fallback-note" hidden></p>
+
+    <!-- #region book-markup -->
+    <canvas id="book-canvas" content="drawable" layoutsubtree aria-label="Interactive hardcover book with six live HTML pages">
+      <section class="book-page cover-page" id="page-1" data-page="1" drawable aria-label="Page 1, front cover">
+        <div class="cover-frame">
+          <p class="cover-kicker">Field Guide, Vol. IV</p>
+          <h3>Field Notes on Drawn Paper</h3>
+          <p class="cover-sub">Six live HTML leaves bound across one WebGL 2 canvas.</p>
+          <label class="cover-field">
+            Ex Libris
+            <input id="ex-libris" type="text" value="P. Kinlan" maxlength="32" autocomplete="off">
+          </label>
+          <label class="cover-field">
+            Silk ribbon colour
+            <select id="ribbon-colour">
+              <option value="#b8292f" selected>Crimson</option>
+              <option value="#1f4e8c">Cobalt</option>
+              <option value="#1e6340">Forest</option>
+              <option value="#b87a14">Ochre</option>
+              <option value="#6b2c66">Plum</option>
+            </select>
+          </label>
+          <p class="cover-stamp">Drag the bottom-right corner to open.</p>
+        </div>
+      </section>
+
+      <section class="book-page" id="page-2" data-page="2" drawable aria-label="Page 2, field notes">
+        <header class="page-head"><span>II. Field notes</span><span>Verso</span></header>
+        <h3>Binding live DOM to a cylinder</h3>
+        <p class="drop-cap">Each leaf in this book pairs two ordinary HTML sections as front and back textures on one 28 by 18 mesh. When a corner lifts, the vertex shader rolls the sheet round a cylinder anchored to the spine.</p>
+        <p>Select any sentence here on the open spread, or toggle the note below. The change repaints this page and shows through on the curled underside of the cover leaf.</p>
+        <div>
+          <button type="button" class="fn-btn" id="fn-btn" aria-expanded="false" aria-controls="fn-note">[1] Show printing note</button>
+        </div>
+        <aside class="fn-note" id="fn-note" hidden>
+          Note 1: the back face flips its horizontal texture coordinate so text reads left to right once the leaf settles on the left.
+        </aside>
+        <footer class="page-foot"><span>2</span><span>Live typography</span></footer>
+      </section>
+
+      <section class="book-page" id="page-3" data-page="3" drawable aria-label="Page 3, bench checklist">
+        <header class="page-head"><span>III. Bench checklist</span><span>Recto</span></header>
+        <h3>Things to test on the spread</h3>
+        <p>Tick items as you try them. The count updates the colophon on page 6.</p>
+        <ul class="checklist" id="book-checklist">
+          <li><label><input type="checkbox" checked><span>Curl a leaf and inspect both sides</span></label></li>
+          <li><label><input type="checkbox"><span>Select text on page 2</span></label></li>
+          <li><label><input type="checkbox"><span>Open the inline footnote</span></label></li>
+          <li><label><input type="checkbox"><span>Scale the SVG compass on page 4</span></label></li>
+          <li><label><input type="checkbox"><span>Drag the silk ribbon bookmark</span></label></li>
+        </ul>
+        <output class="tally-line" id="check-tally">1 of 5 ticked</output>
+        <footer class="page-foot"><span>Interactive form</span><span>3</span></footer>
+      </section>
+
+      <section class="book-page" id="page-4" data-page="4" drawable aria-label="Page 4, compass sketch">
+        <header class="page-head"><span>IV. Compass plate</span><span>Verso</span></header>
+        <h3>Inline SVG figure</h3>
+        <div class="plate-box">
+          <svg id="compass-svg" viewBox="-100 -100 200 200" role="img" aria-label="Compass rose diagram">
+            <g id="compass-group" transform="scale(1)">
+              <circle cx="0" cy="0" r="84" fill="none" stroke="#8a7a64" stroke-width="1.5"/>
+              <circle cx="0" cy="0" r="74" fill="none" stroke="#b9aa94" stroke-width="1" stroke-dasharray="3 4"/>
+              <circle cx="0" cy="0" r="46" fill="none" stroke="#c8bba6" stroke-width="1"/>
+              <path d="M0,-84 L0,-70 M0,84 L0,70 M-84,0 L-70,0 M84,0 L70,0 M59,-59 L50,-50 M-59,-59 L-50,-50 M59,59 L50,50 M-59,59 L-50,50" stroke="#6f604e" stroke-width="1.5"/>
+              <polygon points="0,-62 11,-11 62,0 11,11 0,62 -11,11 -62,0 -11,-11" fill="#e7dcc7" stroke="#5c4d3c" stroke-width="1.4"/>
+              <g id="compass-needle" transform="rotate(0)">
+                <polygon points="0,-60 8,0 0,-8" fill="#b8292f"/>
+                <polygon points="0,-60 -8,0 0,-8" fill="#7f1a1f"/>
+                <polygon points="0,60 8,0 0,8" fill="#3a332b"/>
+                <polygon points="0,60 -8,0 0,8" fill="#685d50"/>
+                <circle cx="0" cy="0" r="5" fill="#d9c6a3" stroke="#3a332b" stroke-width="1.5"/>
+              </g>
+              <text x="0" y="-87" text-anchor="middle" font-size="11" font-family="Georgia, serif" font-weight="700" fill="#8f2428">N</text>
+              <text x="0" y="96" text-anchor="middle" font-size="11" font-family="Georgia, serif" fill="#4f4437">S</text>
+              <text x="90" y="4" text-anchor="middle" font-size="11" font-family="Georgia, serif" fill="#4f4437">E</text>
+              <text x="-90" y="4" text-anchor="middle" font-size="11" font-family="Georgia, serif" fill="#4f4437">W</text>
+            </g>
+          </svg>
+        </div>
+        <label class="scale-row">
+          Scale
+          <input id="compass-scale" type="range" min="60" max="130" value="100">
+          <output id="compass-scale-out" for="compass-scale">100%</output>
+        </label>
+        <footer class="page-foot"><span>4</span><span>Inline SVG</span></footer>
+      </section>
+
+      <section class="book-page" id="page-5" data-page="5" drawable aria-label="Page 5, margin notes">
+        <header class="page-head"><span>V. Margin notes</span><span>Recto</span></header>
+        <h3>Editable notebook</h3>
+        <p>Write a note here, then drag the corner to see your text curl over the spine.</p>
+        <textarea id="margin-note" aria-label="Margin notes" rows="6">Cylinder radius peaks at half-turn and flattens to zero at the spine so the bound edge stays pinned.</textarea>
+        <output id="note-meta" for="margin-note">16 words, 102 characters</output>
+        <footer class="page-foot"><span>Live textarea</span><span>5</span></footer>
+      </section>
+
+      <section class="book-page" id="page-6" data-page="6" drawable aria-label="Page 6, colophon">
+        <header class="page-head"><span>VI. Colophon</span><span>Verso</span></header>
+        <h3>Credits and progress</h3>
+        <p id="owner-credit">Bound for P. Kinlan.</p>
+        <div class="colophon-box">
+          Builds on the single-corner HTML page-peel shader in <a href="/view-source/">/view-source/</a>, classic page-curl UIs such as Apple Books and Turn.js, and the cylindrical page-curl geometry described by W. David MacDonald and Calin-Andrei Burloiu.
+        </div>
+        <output id="reading-progress">Spread 1 of 4 visited</output>
+        <button type="button" id="jump-cover">Jump to cover</button>
+        <footer class="page-foot"><span>6</span><span>Colophon</span></footer>
+      </section>
+    </canvas>
+    <!-- #endregion book-markup -->
+
+    <button type="button" class="corner-zone" id="corner-tl" aria-label="Drag or press top-left corner for previous page"></button>
+    <button type="button" class="corner-zone" id="corner-bl" aria-label="Drag or press bottom-left corner for previous page"></button>
+    <button type="button" class="corner-zone" id="corner-tr" aria-label="Drag or press top-right corner for next page"></button>
+    <button type="button" class="corner-zone" id="corner-br" aria-label="Drag or press bottom-right corner for next page"></button>
+    <button type="button" id="ribbon-zone" aria-label="Drag silk ribbon bookmark"></button>
+
+    <div id="plain-book" aria-live="polite"></div>
+  </div>
+
+  <div class="row book-controls">
+    <button type="button" id="btn-prev">Prev page</button>
+    <button type="button" id="btn-next">Next page</button>
+    <label class="curl-ctrl">
+      Hold curl at
+      <input id="curl-slider" type="range" min="0" max="100" value="0">
+      <output id="curl-out" for="curl-slider">0%</output>
+    </label>
+    <button type="button" id="btn-ribbon">Jump to ribbon</button>
+  </div>
+  <p class="note" id="book-status" role="status">Starting book canvas…</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>the six pages, the cylindrical curl shader, the mesh, hit testing and drag</small></summary>
+    <ol>
+      <li data-code="#book-markup"><b>The six drawable pages.</b> Each page sits directly inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> as a <code>drawable</code> section.</li>
+      <li data-code="#curl-shader" data-lang="glsl"><b>The cylindrical curl shader.</b> One WebGL 2 program bends the leaf round a rolling cylinder, picks front or horizontally mirrored back via <code>gl_FrontFacing</code>, and shades the spine gutter and roll crest.</li>
+      <li data-code="#curl-mesh"><b>The 28 by 18 mesh on ElementGL.</b> The page opens one WebGL 2 context through <code>new ElementGL()</code> and builds the subdivided leaf mesh and flat spread quad on <code>stage.gl</code>.</li>
+      <li data-code="#paint-and-hit"><b>Uploading, drawing and syncing hit boxes.</b> Every <code>paint</code> event uploads changed pages with <code>stage.upload()</code>, draws the spread and curling leaf, and updates <code>updateElementGeometry()</code> plus <code>inert</code> and <code>dataset.hitTick</code>. If WebGL 2 isn't available, a 2D folded-slice route draws with 5-argument and 9-argument <code>drawElementImage()</code>.</li>
+      <li data-code="#drag-and-ribbon"><b>Corner drag and silk ribbon.</b> Dragging past 40% completes the page turn; releasing earlier springs back. Dragging the ribbon snaps the bookmark to the open spread.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>All six pages live inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> as direct <code>drawable</code> children: cover (page 1), field notes and checklist (pages 2 and 3), compass plate and margin notes (pages 4 and 5), and colophon (page 6). They form three physical two-sided leaves: 1/2, 3/4 and 5/6.</li>
+    <li>I opened one WebGL 2 context with <code>new ElementGL(canvas, …)</code> from <code>/lib/element-gl.js</code> and compiled two shader programs on <code>stage.gl</code>: a flat book shader for the hardcover boards, page stack, ribbon and stationary spread (with spine-gutter ambient occlusion and a soft cast shadow from the curling leaf), and a cylindrical curl shader for the moving leaf.</li>
+    <li>The cylindrical geometry follows W. David MacDonald and Calin-Andrei Burloiu's rolling-cylinder model, adapted so the spine edge stays pinned to <code>x = 0</code>. Grabbing a top or bottom corner tilts the cylinder axis during the first half of the turn and straightens it back toward the spine as the leaf lands. This builds on the single-corner HTML page-peel shader in <a href="/view-source/">/view-source/</a> and classic page-curl UIs such as Apple Books and Turn.js.</li>
+    <li>The moving leaf is a 28 by 18 triangle mesh. Its fragment shader checks <code>gl_FrontFacing</code> (adjusted when turning backward from left to right) to sample the front HTML texture on the near face and the back HTML texture with <code>1.0 - vUv.x</code> on the curled underside. When the leaf lands flat on the left, text on the back page reads left to right.</li>
+    <li>On every settled spread, the script calls <code>canvas.updateElementGeometry()</code> with the flat pixel rectangle of each visible page, toggles <code>dataset.hitTick</code> to clear Chromium's hit-test cache, and marks hidden pages <code>inert</code> with <code>pointer-events: none</code> while leaving their geometry inside the canvas so Chromium keeps their pictures painted for the next curl.</li>
+    <li>Below 580 CSS pixels wide (such as a 412 px Android phone), the book switches to a single-page layout with the spine on the left edge, keeping the backing store below 4 megapixels and touch targets large.</li>
+    <li>If WebGL 2 or <code>texElementSubImage2D()</code> is missing, the book draws a 2D folded-slice spread with 5-argument and 9-argument <code>drawElementImage()</code>. If HTML-in-canvas isn't available or <code>webglcontextlost</code> fires, the six pages move into plain HTML until <code>webglcontextrestored</code> brings the canvas back.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small fixture on the hidden test stage and retires its canvas when done. The visible book above isn't touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Live browser runs in Chromium 157 and Chrome 159 on Android are not verified yet. Press "Run these 7 checks" above to measure your browser.</p>
+  <p class="note" id="measured">On this device: turn a page or drag the curl slider to record canvas size, paint count and active route here.</p>
+  <ul class="findings">
+    <li><strong>Not verified yet:</strong> real rendering, two-sided texture uploads, back-page mirroring, <code>updateElementGeometry()</code> hit testing, 2D folded-slice fallback and frame rate in Chromium 157 and Chrome 159 on Android (412 px wide, scale 2.625).</li>
+    <li><strong>Design limit while held mid-curl:</strong> <code>updateElementGeometry()</code> takes one flat matrix per element, not a curved mesh. Controls stay interactive on the settled spread (and on the stationary flat side), while the curved paper itself isn't hit-tested along the cylinder.</li>
+    <li><strong>Corner margins:</strong> four 68 by 68 px corner grab zones sit above the canvas with <code>touch-action: none</code> so corner drags don't scroll the page on touch screens. Page padding keeps buttons, inputs and text away from those four corners.</li>
+    <li><strong>Credits:</strong> builds on <a href="/view-source/">/view-source/</a> for the single-corner HTML page-peel shader, Apple Books and Turn.js for page-curl interaction, and W. David MacDonald and Calin-Andrei Burloiu for the cylindrical page-curl geometry.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests, testStage, nextPaint, supported as supported2d } from '/shared/support.js';
+  import { ElementGL, supported as supportedGL } from '/lib/element-gl.js';
+  import { geometryUnit } from '/lib/surface.js';
+
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const stageBox = $('book-stage');
+  const fallbackNote = $('fallback-note');
+  const plainBook = $('plain-book');
+  const statusEl = $('book-status');
+  const measuredEl = $('measured');
+  const btnPrev = $('btn-prev');
+  const btnNext = $('btn-next');
+  const btnRibbon = $('btn-ribbon');
+  const curlSlider = $('curl-slider');
+  const curlOut = $('curl-out');
+  const ribbonZone = $('ribbon-zone');
+  const corners = {
+    tl: $('corner-tl'),
+    bl: $('corner-bl'),
+    tr: $('corner-tr'),
+    br: $('corner-br'),
+  };
+
+  let canvas = $('book-canvas');
+  const pages = [1, 2, 3, 4, 5, 6].map((n) => $(`page-${n}`));
+
+  // Live widgets inside the six pages
+  const exLibrisInput = $('ex-libris');
+  const ribbonSelect = $('ribbon-colour');
+  const fnBtn = $('fn-btn');
+  const fnNote = $('fn-note');
+  const checklist = $('book-checklist');
+  const checkTally = $('check-tally');
+  const compassScale = $('compass-scale');
+  const compassScaleOut = $('compass-scale-out');
+  const compassGroup = $('compass-group');
+  const compassNeedle = $('compass-needle');
+  const marginNote = $('margin-note');
+  const noteMeta = $('note-meta');
+  const ownerCredit = $('owner-credit');
+  const readingProgress = $('reading-progress');
+  const jumpCoverBtn = $('jump-cover');
+
+  const PASS_FRAG = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+in vec2 vUv;
+out vec4 outColor;
+void main() { outColor = texture(uTex, vUv); }`;
+
+  // #region curl-shader
+  const FLAT_VERT = `#version 300 es
+in vec2 aPos;
+uniform vec2 uCanvas;
+uniform vec2 uSpine;
+uniform vec4 uRect; // x, y, w, h in book-space CSS px relative to spine
+out vec2 vUv;
+out vec2 vBookPos;
+void main() {
+  vUv = aPos;
+  vec2 bp = uRect.xy + aPos * uRect.zw;
+  vBookPos = bp;
+  float cx = 2.0 * (uSpine.x + bp.x) / uCanvas.x - 1.0;
+  float cy = 1.0 - 2.0 * (uSpine.y + bp.y) / uCanvas.y;
+  gl_Position = vec4(cx, cy, 0.0, 1.0);
+}`;
+
+  const FLAT_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUv;
+in vec2 vBookPos;
+uniform int uMode;       // 0 = solid/shaded chrome, 1 = live HTML page, 2 = marbled endpaper, 3 = silk ribbon
+uniform sampler2D uTex;
+uniform vec4 uColorA;
+uniform vec4 uColorB;
+uniform float uSpineSide; // -1.0 left page, +1.0 right page, 0.0 none
+uniform vec2 uPage;
+uniform float uCurlActive;
+uniform float uCurlSc;
+uniform vec2 uCurlDir;
+uniform float uCurlR;
+uniform float uCurlT;
+uniform float uFlipSide;
+out vec4 outColor;
+
+void main() {
+  if (uMode == 0) {
+    float g = mix(0.92, 1.05, 1.0 - vUv.y);
+    vec4 c = mix(uColorA, uColorB, vUv.x) * vec4(vec3(g), 1.0);
+    outColor = vec4(c.rgb * c.a, c.a);
+    return;
+  }
+  if (uMode == 2) {
+    // Marbled linen endpaper with subtle weave and spine shadow
+    float wave = sin(vUv.x * 16.0 + sin(vUv.y * 12.0) * 1.4) * 0.5 + 0.5;
+    float weave = sin(vUv.x * 90.0) * sin(vUv.y * 90.0) * 0.03;
+    vec3 col = mix(uColorA.rgb, uColorB.rgb, wave * 0.35 + weave);
+    float distSpine = uSpineSide < 0.0 ? (1.0 - vUv.x) : vUv.x;
+    col *= mix(0.72, 1.0, smoothstep(0.0, 0.16, distSpine));
+    outColor = vec4(col, 1.0);
+    return;
+  }
+  if (uMode == 3) {
+    // Silk ribbon bookmark with swallowtail V-cut notch at bottom
+    float notch = 1.0 - abs(vUv.x - 0.5) * 2.0;
+    if (vUv.y > 0.87 + notch * 0.13) discard;
+    float sheen = 0.86 + 0.18 * sin(vUv.x * 3.14159265) + 0.06 * sin(vUv.y * 18.0);
+    vec3 col = uColorA.rgb * sheen;
+    float edge = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
+    col *= mix(0.74, 1.0, edge);
+    outColor = vec4(col, 1.0);
+    return;
+  }
+
+  // Live HTML page texture with spine-gutter AO and cast curl shadow
+  vec4 texel = texture(uTex, vUv);
+  float distSpine = uSpineSide < 0.0 ? (1.0 - vUv.x) : vUv.x;
+  float gutterAo = mix(0.75, 1.0, smoothstep(0.0, 0.15, distSpine));
+  // Subtle outer page edge highlight
+  float outerEdge = smoothstep(0.0, 0.015, 1.0 - distSpine);
+  float shade = gutterAo * mix(0.92, 1.0, outerEdge);
+
+  if (uCurlActive > 0.5) {
+    const float PI = 3.14159265;
+    float env = smoothstep(0.0, 0.06, uCurlT) * smoothstep(1.0, 0.92, uCurlT);
+    float lx = vBookPos.x * uFlipSide;
+    float s = lx * uCurlDir.x + vBookPos.y * uCurlDir.y;
+    // Shadow cast onto the newly revealed page behind the roll
+    if (s >= uCurlSc - 4.0) {
+      float behind = max(0.0, s - uCurlSc);
+      float drop = exp(-behind / max(22.0, uCurlR * 2.1)) * 0.36 * env;
+      shade *= (1.0 - drop);
+    } else {
+      // Soft ambient shadow under the hovering turned-over flap
+      float ahead = uCurlSc - s;
+      float sMax = uPage.x * abs(uCurlDir.x) + uPage.y * 0.5 * abs(uCurlDir.y);
+      float flapReach = max(0.0, (sMax - uCurlSc) - PI * uCurlR);
+      if (flapReach > 1.0) {
+        float under = 1.0 - smoothstep(flapReach - 18.0, flapReach + 24.0, ahead);
+        shade *= (1.0 - 0.22 * under * env);
+      }
+    }
+  }
+
+  outColor = vec4(texel.rgb * shade, texel.a);
+}`;
+
+  const CURL_VERT = `#version 300 es
+in vec2 aUv;
+uniform vec2 uCanvas;
+uniform vec2 uSpine;
+uniform vec2 uPage;
+uniform float uPersp;
+uniform float uFlipSide; // +1.0 forward (right->left), -1.0 backward (left->right)
+uniform float uSc;
+uniform vec2 uDir;
+uniform float uRadius;
+out vec2 vUv;
+out vec3 vNormal;
+out float vRoll;
+out float vWorldX;
+
+void main() {
+  const float PI = 3.14159265359;
+  vUv = aUv;
+
+  // Leaf starts on x in [0, uPage.x], bound along the spine at x = 0
+  vec2 p0 = vec2(aUv.x * uPage.x, (aUv.y - 0.5) * uPage.y);
+  float s = dot(p0, uDir);
+  vec2 axis = vec2(-uDir.y, uDir.x);
+  float a = dot(p0, axis);
+
+  float arc = s - uSc;
+  float sOut = s;
+  float zOut = 0.0;
+  vec3 nLeaf = vec3(0.0, 0.0, 1.0);
+  float roll = 0.0;
+
+  if (arc > 0.0) {
+    float R = max(uRadius, 0.001);
+    float halfCirc = PI * R;
+    if (arc < halfCirc) {
+      float phi = arc / R;
+      sOut = uSc + R * sin(phi);
+      zOut = R * (1.0 - cos(phi));
+      nLeaf = vec3(-sin(phi) * uDir.x, -sin(phi) * uDir.y, cos(phi));
+      roll = sin(phi);
+    } else {
+      float extra = arc - halfCirc;
+      sOut = uSc - extra;
+      zOut = 2.0 * R;
+      nLeaf = vec3(0.0, 0.0, -1.0);
+      roll = 0.0;
+    }
+  }
+
+  vec2 pLeaf = uDir * sOut + axis * a;
+  float wx = pLeaf.x * uFlipSide;
+  float wy = pLeaf.y;
+  float wz = zOut + (uRadius > 0.05 ? 1.5 : 0.0);
+
+  vNormal = normalize(vec3(nLeaf.x * uFlipSide, nLeaf.y, nLeaf.z));
+  vRoll = roll;
+  vWorldX = wx;
+
+  float wClip = max(0.25, 1.0 - wz / uPersp);
+  float spineNdcX = (2.0 * uSpine.x / uCanvas.x) - 1.0;
+  float spineNdcY = 1.0 - (2.0 * uSpine.y / uCanvas.y);
+  float clipX = spineNdcX * wClip + (2.0 * wx / uCanvas.x);
+  float clipY = spineNdcY * wClip - (2.0 * wy / uCanvas.y);
+  float clipZ = -(wz / 900.0) * wClip;
+  gl_Position = vec4(clipX, clipY, clipZ, wClip);
+}`;
+
+  const CURL_FRAG = `#version 300 es
+precision highp float;
+in vec2 vUv;
+in vec3 vNormal;
+in float vRoll;
+in float vWorldX;
+uniform sampler2D uFront;
+uniform sampler2D uBack;
+uniform float uFlipSide;
+uniform float uCompact;
+uniform float uPageW;
+out vec4 outColor;
+
+void main() {
+  bool isStartFace = (uFlipSide > 0.0) ? gl_FrontFacing : !gl_FrontFacing;
+  vec2 texUv = (uFlipSide > 0.0)
+    ? (isStartFace ? vUv : vec2(1.0 - vUv.x, vUv.y))
+    : (isStartFace ? vec2(1.0 - vUv.x, vUv.y) : vUv);
+
+  vec4 texel = isStartFace ? texture(uFront, texUv) : texture(uBack, texUv);
+
+  vec3 N = normalize(isStartFace ? vNormal : -vNormal);
+  vec3 L = normalize(vec3(-0.32, -0.34, 0.88));
+  vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
+  float ndotl = max(dot(N, L), 0.0);
+  float diffuse = 0.66 + 0.34 * ndotl;
+  float spec = pow(max(dot(N, H), 0.0), 16.0) * 0.24 * vRoll;
+  float gutterAo = mix(0.76, 1.0, smoothstep(0.0, 0.16, vUv.x));
+  float trough = isStartFace ? (1.0 - 0.15 * vRoll * (1.0 - ndotl)) : 1.0;
+
+  vec3 rgb = texel.rgb * diffuse * gutterAo * trough + vec3(1.0, 0.98, 0.93) * spec * texel.a;
+  float alpha = texel.a;
+  if (uCompact > 0.5) {
+    float fade = smoothstep(-uPageW * 0.36, -uPageW * 0.04, vWorldX);
+    alpha *= fade;
+    rgb *= fade;
+  }
+  outColor = vec4(rgb, alpha);
+}`;
+  // #endregion curl-shader
+
+  // #region curl-mesh
+  const MESH_COLS = 28;
+  const MESH_ROWS = 18;
+
+  function compileProgram(gl, vertSrc, fragSrc, attribName) {
+    const make = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && !gl.isContextLost()) {
+        throw new Error(gl.getShaderInfoLog(s) || 'Shader compile error');
+      }
+      return s;
+    };
+    const prog = gl.createProgram();
+    gl.attachShader(prog, make(gl.VERTEX_SHADER, vertSrc));
+    gl.attachShader(prog, make(gl.FRAGMENT_SHADER, fragSrc));
+    gl.bindAttribLocation(prog, 0, attribName);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS) && !gl.isContextLost()) {
+      throw new Error(gl.getProgramInfoLog(prog) || 'Program link error');
+    }
+    const cache = new Map();
+    const u = (name) => {
+      let loc = cache.get(name);
+      if (loc === undefined) { loc = gl.getUniformLocation(prog, name); cache.set(name, loc); }
+      return loc;
+    };
+    return { prog, u };
+  }
+
+  function buildBookPrograms(gl) {
+    const flat = compileProgram(gl, FLAT_VERT, FLAT_FRAG, 'aPos');
+    const curl = compileProgram(gl, CURL_VERT, CURL_FRAG, 'aUv');
+
+    // Unit quad VAO for flat book boards, pages and ribbon
+    const quadVao = gl.createVertexArray();
+    gl.bindVertexArray(quadVao);
+    const quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    // Subdivided 28x18 leaf mesh VAO
+    const verts = new Float32Array((MESH_COLS + 1) * (MESH_ROWS + 1) * 2);
+    let vi = 0;
+    for (let r = 0; r <= MESH_ROWS; r++) {
+      const v = r / MESH_ROWS;
+      for (let c = 0; c <= MESH_COLS; c++) {
+        verts[vi++] = c / MESH_COLS;
+        verts[vi++] = v;
+      }
+    }
+    const indices = new Uint16Array(MESH_COLS * MESH_ROWS * 6);
+    let ii = 0;
+    const stride = MESH_COLS + 1;
+    for (let r = 0; r < MESH_ROWS; r++) {
+      for (let c = 0; c < MESH_COLS; c++) {
+        const a = r * stride + c;
+        const b = a + 1;
+        const cIdx = a + stride;
+        const d = cIdx + 1;
+        indices[ii++] = a; indices[ii++] = cIdx; indices[ii++] = b;
+        indices[ii++] = b; indices[ii++] = cIdx; indices[ii++] = d;
+      }
+    }
+    const leafVao = gl.createVertexArray();
+    gl.bindVertexArray(leafVao);
+    const leafVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, leafVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const leafIbo = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, leafIbo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+
+    gl.bindVertexArray(null);
+    return { flat, curl, quadVao, leafVao, indexCount: indices.length };
+  }
+  // #endregion curl-mesh
+
+  // Compute MacDonald / Burloiu cylindrical parameters with spine pinned at x = 0.
+  // Tilt and radius decay smoothly to 0 as t -> 1 so the leaf lays flat at -pageW with no final jump.
+  function curlGeometry(t, pageW, pageH, grabBias) {
+    const clamped = Math.max(0, Math.min(1, t));
+    const tiltEnv = Math.sin(Math.PI * clamped) * Math.pow(1 - clamped, 1.25);
+    const alpha = grabBias * 0.40 * tiltEnv;
+    const dx = Math.cos(alpha);
+    const dy = Math.sin(alpha);
+    const spineMax = (pageH * 0.5) * Math.abs(dy);
+    const sc = spineMax * (1 - clamped) + Math.pow(1 - clamped, 1.15) * pageW * dx;
+    const radius = Math.max(0.02, pageW * 0.145 * Math.pow(Math.sin(Math.PI * clamped), 1.35) * (1 - clamped * 0.45));
+    return { sc, dx, dy, radius, t: clamped };
+  }
+
+  function hexToRgba(hex, a = 1) {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    if (!m) return [0.72, 0.16, 0.18, a];
+    return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255, a];
+  }
+
+  // Book state
+  const state = {
+    route: 'plain',   // 'webgl' | '2d' | 'plain'
+    compact: false,   // true below 580 CSS px wide (single-page phone view)
+    index: 0,         // two-page mode: spread 0..3; compact mode: page 0..5
+    visited: new Set([0]),
+    curlT: 0,         // 0..1 turn progress
+    curlDir: 1,       // +1 forward, -1 backward
+    grabBias: 0.75,   // +1 bottom corner, -1 top corner
+    holding: false,
+    turning: false,
+    pendingCommit: false,
+    animId: 0,
+    lastHitKey: '',
+    ribbonIndex: 0,   // spread/page index where the silk ribbon sits
+    ribbonColor: '#b8292f',
+    ribbonDrag: null, // { x, y } offset while dragging the ribbon
+    paints: 0,
+    uploads: 0,
+    lastLayout: null,
+  };
+
+  let stage = null;
+  let glRes = null;
+  let ctx2d = null;
+  const pageTextures = new Map();
+
+  function maxIndex() {
+    return state.compact ? 5 : 3;
+  }
+
+  function currentPagesFor(idx, compact) {
+    if (compact) return { left: null, right: pages[idx] || null };
+    // Spread 0: endpaper | p1, Spread 1: p2 | p3, Spread 2: p4 | p5, Spread 3: p6 | endpaper
+    const leftNum = idx * 2;
+    const rightNum = idx * 2 + 1;
+    return {
+      left: leftNum >= 1 && leftNum <= 6 ? pages[leftNum - 1] : null,
+      right: rightNum >= 1 && rightNum <= 6 ? pages[rightNum - 1] : null,
+    };
+  }
+
+  // Which pages are stationary and which two pages sit on the curling leaf?
+  function curlSlots() {
+    const t = state.curlT;
+    const active = t > 0.001;
+    const cur = currentPagesFor(state.index, state.compact);
+    if (!active) {
+      return { active: false, baseLeft: cur.left, baseRight: cur.right, leafFront: null, leafBack: null, flipSide: 1, t: 0 };
+    }
+    if (state.compact) {
+      if (state.curlDir > 0) {
+        const nextIdx = Math.min(5, state.index + 1);
+        return {
+          active: true,
+          baseLeft: null,
+          baseRight: pages[nextIdx],
+          leafFront: pages[state.index],
+          leafBack: pages[nextIdx],
+          flipSide: 1,
+          t,
+        };
+      }
+      // Backward in single-page mode: previous page unfolds from spine (1 -> 0)
+      const prevIdx = Math.max(0, state.index - 1);
+      return {
+        active: true,
+        baseLeft: null,
+        baseRight: pages[state.index],
+        leafFront: pages[prevIdx],
+        leafBack: pages[state.index],
+        flipSide: 1,
+        t: 1 - t,
+      };
+    }
+    // Two-page spread mode
+    if (state.curlDir > 0) {
+      const next = currentPagesFor(Math.min(3, state.index + 1), false);
+      return {
+        active: true,
+        baseLeft: cur.left,
+        baseRight: next.right,
+        leafFront: cur.right,
+        leafBack: next.left,
+        flipSide: 1,
+        t,
+      };
+    }
+    const prev = currentPagesFor(Math.max(0, state.index - 1), false);
+    return {
+      active: true,
+      baseLeft: prev.left,
+      baseRight: cur.right,
+      leafFront: cur.left,
+      leafBack: prev.right,
+      flipSide: -1,
+      t,
+    };
+  }
+
+  function computeLayout(cw, ch) {
+    const compact = cw < 580;
+    const padX = compact ? 18 : 28;
+    const padY = compact ? 22 : 26;
+    const pageW = compact
+      ? Math.max(220, Math.min(390, Math.floor(cw - padX * 2 - 14)))
+      : Math.max(220, Math.min(396, Math.floor((cw - padX * 2) * 0.5)));
+    const pageH = Math.max(360, Math.min(476, Math.floor(ch - padY * 2)));
+    const spineX = compact ? Math.round((cw - pageW) * 0.5) : Math.round(cw * 0.5);
+    const spineY = Math.round(ch * 0.5);
+    return { cw, ch, compact, pageW, pageH, spineX, spineY };
+  }
+
+  function syncCanvasSize(cv) {
+    const cw = Math.max(1, cv.clientWidth);
+    const ch = Math.max(1, cv.clientHeight);
+    let dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const maxPixels = 3_800_000;
+    if (cw * dpr * ch * dpr > maxPixels) {
+      dpr = Math.sqrt(maxPixels / (cw * ch));
+    }
+    const bw = Math.max(1, Math.round(cw * dpr));
+    const bh = Math.max(1, Math.round(ch * dpr));
+    if (cv.width !== bw || cv.height !== bh) {
+      cv.width = bw;
+      cv.height = bh;
+    }
+    return { cw, ch, bw, bh, dpr };
+  }
+
+  function applyPageSizes(layout) {
+    for (const p of pages) {
+      const w = `${layout.pageW}px`;
+      const h = `${layout.pageH}px`;
+      if (p.style.width !== w) p.style.width = w;
+      if (p.style.height !== h) p.style.height = h;
+    }
+  }
+
+  function syncCornerZones(layout) {
+    const { pageW, pageH, spineX, spineY, compact } = layout;
+    const topY = spineY - pageH * 0.5;
+    const botY = spineY + pageH * 0.5 - 68;
+    const rightX = spineX + pageW - 68;
+    const leftX = compact ? spineX : spineX - pageW;
+    const canPrev = state.index > 0;
+    const canNext = state.index < maxIndex();
+
+    corners.tr.style.left = `${rightX}px`;
+    corners.tr.style.top = `${topY}px`;
+    corners.tr.hidden = !canNext;
+
+    corners.br.style.left = `${rightX}px`;
+    corners.br.style.top = `${botY}px`;
+    corners.br.hidden = !canNext;
+
+    corners.tl.style.left = `${leftX}px`;
+    corners.tl.style.top = `${topY}px`;
+    corners.tl.hidden = !canPrev;
+
+    corners.bl.style.left = `${leftX}px`;
+    corners.bl.style.top = `${botY}px`;
+    corners.bl.hidden = !canPrev;
+
+    // Position draggable ribbon handle over the hanging ribbon tail
+    const onSpread = state.ribbonIndex === state.index;
+    const rx = spineX + (state.ribbonDrag ? state.ribbonDrag.x : 0) - 18;
+    const ry = onSpread
+      ? topY + Math.min(pageH - 90, 120 + (state.ribbonDrag ? state.ribbonDrag.y : 0))
+      : topY + pageH - 22;
+    ribbonZone.style.left = `${Math.max(4, Math.min(layout.cw - 40, rx))}px`;
+    ribbonZone.style.top = `${Math.max(4, Math.min(layout.ch - 60, ry))}px`;
+    ribbonZone.style.height = onSpread ? '120px' : '54px';
+    ribbonZone.setAttribute(
+      'aria-label',
+      onSpread
+        ? 'Drag silk ribbon bookmark across the gutter'
+        : `Jump to bookmarked ${compact ? 'page' : 'spread'} ${state.ribbonIndex + 1}`
+    );
+  }
+
+  function updateStatus() {
+    const cur = currentPagesFor(state.index, state.compact);
+    const label = state.compact
+      ? `Page ${state.index + 1} of 6`
+      : cur.left && cur.right
+        ? `Spread ${state.index + 1} of 4 (Pages ${cur.left.dataset.page} and ${cur.right.dataset.page})`
+        : cur.right
+          ? `Spread 1 of 4 (Cover, Page 1)`
+          : `Spread 4 of 4 (Colophon, Page 6)`;
+    const routeName = state.route === 'webgl' ? 'WebGL 2' : state.route === '2d' ? '2D slices' : 'Plain HTML';
+    const ribLabel = state.compact ? `Page ${state.ribbonIndex + 1}` : `Spread ${state.ribbonIndex + 1}`;
+    statusEl.textContent = `${label}. Drawn with ${routeName}. Ribbon on ${ribLabel}.`;
+    const effectiveIdx = state.turning && state.pendingCommit
+      ? Math.max(0, Math.min(maxIndex(), state.index + state.curlDir))
+      : state.index;
+    btnPrev.disabled = effectiveIdx <= 0;
+    btnNext.disabled = effectiveIdx >= maxIndex();
+    btnRibbon.disabled = state.ribbonIndex === state.index;
+
+    const total = maxIndex() + 1;
+    const ticks = checklist.querySelectorAll('input:checked').length;
+    const allTicks = checklist.querySelectorAll('input').length;
+    readingProgress.textContent =
+      `${state.visited.size} of ${total} ${state.compact ? 'pages' : 'spreads'} seen. ` +
+      `${ticks}/${allTicks} tasks ticked. Ribbon on ${ribLabel}.`;
+
+    if (state.lastLayout) {
+      const mp = ((canvas.width * canvas.height) / 1e6).toFixed(2);
+      measuredEl.textContent =
+        `On this device: ${routeName} route, canvas ${canvas.width} by ${canvas.height} px (${mp} MP), ` +
+        `${state.paints} paint events, ${state.uploads} texture uploads.`;
+    }
+  }
+
+  // #region paint-and-hit
+  function syncHitGeometry(layout, force = false) {
+    if (state.route === 'plain' || typeof canvas.updateElementGeometry !== 'function') return;
+    const { pageW, pageH, spineX, spineY } = layout;
+    const cur = currentPagesFor(state.index, state.compact);
+    const settled = state.curlT <= 0.001 && !state.turning;
+    const key = `${state.route}|${state.index}|${settled ? 1 : 0}|${layout.cw}x${layout.ch}|${pageW}x${pageH}`;
+    if (!force && key === state.lastHitKey) return;
+    state.lastHitKey = key;
+
+    const leftX = state.compact ? spineX : spineX - pageW;
+    const topY = spineY - pageH * 0.5;
+    const refEl = cur.right || cur.left || pages[0];
+    const u = refEl ? geometryUnit(canvas, refEl, pageW) : 1;
+
+    for (const p of pages) {
+      const isLeft = p === cur.left;
+      const isRight = p === cur.right;
+      const interactive = settled && (isLeft || isRight);
+      if (p.inert !== !interactive) p.inert = !interactive;
+      const pe = interactive ? 'auto' : 'none';
+      if (p.style.pointerEvents !== pe) p.style.pointerEvents = pe;
+      // Keep hidden pages' geometry inside the canvas so Chromium keeps painting their textures.
+      const x = isLeft ? leftX : spineX;
+      canvas.updateElementGeometry(p, {
+        canvasTransform: new DOMMatrix().translate(x * u, topY * u).scale(u, u),
+      });
+      p.dataset.hitTick = p.dataset.hitTick === '1' ? '0' : '1';
+    }
+  }
+
+  function drawQuadGL(gl, flat, quadVao, layout, rect, opts) {
+    gl.useProgram(flat.prog);
+    gl.bindVertexArray(quadVao);
+    gl.uniform2f(flat.u('uCanvas'), layout.cw, layout.ch);
+    gl.uniform2f(flat.u('uSpine'), layout.spineX, layout.spineY);
+    gl.uniform4f(flat.u('uRect'), rect[0], rect[1], rect[2], rect[3]);
+    gl.uniform1i(flat.u('uMode'), opts.mode);
+    gl.uniform4fv(flat.u('uColorA'), opts.colorA || [0, 0, 0, 1]);
+    gl.uniform4fv(flat.u('uColorB'), opts.colorB || opts.colorA || [0, 0, 0, 1]);
+    gl.uniform1f(flat.u('uSpineSide'), opts.spineSide || 0);
+    gl.uniform2f(flat.u('uPage'), layout.pageW, layout.pageH);
+    const curl = opts.curl;
+    gl.uniform1f(flat.u('uCurlActive'), curl ? 1 : 0);
+    if (curl) {
+      gl.uniform1f(flat.u('uCurlSc'), curl.sc);
+      gl.uniform2f(flat.u('uCurlDir'), curl.dx, curl.dy);
+      gl.uniform1f(flat.u('uCurlR'), curl.radius);
+      gl.uniform1f(flat.u('uCurlT'), curl.t);
+      gl.uniform1f(flat.u('uFlipSide'), curl.flipSide);
+    }
+    if (opts.tex) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, opts.tex);
+      gl.uniform1i(flat.u('uTex'), 0);
+    }
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  function drawBookWebGL(layout) {
+    if (!stage || stage.lost || !glRes) return;
+    const gl = stage.gl;
+    const { bw, bh } = syncCanvasSize(canvas);
+    gl.viewport(0, 0, bw, bh);
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const { pageW, pageH, compact } = layout;
+    const halfH = pageH * 0.5;
+    const { flat, curl, quadVao, leafVao, indexCount } = glRes;
+    const slots = curlSlots();
+    const curlInfo = slots.active
+      ? { ...curlGeometry(slots.t, pageW, pageH, state.grabBias), flipSide: slots.flipSide }
+      : null;
+
+    // 1. Hardcover boards & soft drop shadow
+    const boardL = compact ? -14 : -(pageW + 16);
+    const boardW = compact ? pageW + 30 : pageW * 2 + 32;
+    drawQuadGL(gl, flat, quadVao, layout, [boardL + 4, -halfH - 8, boardW, pageH + 24], {
+      mode: 0, colorA: [0, 0, 0, 0.28], colorB: [0, 0, 0, 0.24],
+    });
+    drawQuadGL(gl, flat, quadVao, layout, [boardL, -halfH - 12, boardW, pageH + 24], {
+      mode: 0, colorA: [0.11, 0.20, 0.16, 1], colorB: [0.16, 0.27, 0.22, 1],
+    });
+    // Spine cloth band
+    drawQuadGL(gl, flat, quadVao, layout, [-10, -halfH - 12, 20, pageH + 24], {
+      mode: 0, colorA: [0.08, 0.14, 0.11, 1], colorB: [0.13, 0.21, 0.17, 1],
+    });
+
+    // 2. Stacked page-block edges
+    const leftThick = compact ? 0 : Math.min(8, 2 + state.index * 2);
+    const rightThick = Math.min(8, 2 + (maxIndex() - state.index) * 2);
+    if (!compact && leftThick > 0) {
+      drawQuadGL(gl, flat, quadVao, layout, [-(pageW + leftThick), -halfH + 3, leftThick, pageH - 6], {
+        mode: 0, colorA: [0.82, 0.77, 0.69, 1], colorB: [0.93, 0.89, 0.81, 1],
+      });
+    }
+    if (rightThick > 0) {
+      drawQuadGL(gl, flat, quadVao, layout, [pageW, -halfH + 3, rightThick, pageH - 6], {
+        mode: 0, colorA: [0.93, 0.89, 0.81, 1], colorB: [0.79, 0.74, 0.65, 1],
+      });
+    }
+
+    // Silk ribbon tucked behind pages if it marks a different spread
+    const ribColor = hexToRgba(state.ribbonColor, 1);
+    const drawRibbon = (full) => {
+      const dx = state.ribbonDrag ? state.ribbonDrag.x : 0;
+      const dy = state.ribbonDrag ? state.ribbonDrag.y : 0;
+      const rx = -8 + dx * (full ? 0.65 : 0.15);
+      const ry = full ? -halfH - 6 : halfH - 8;
+      const rh = full ? Math.max(90, Math.min(pageH + 22, 195 + dy)) : 32;
+      drawQuadGL(gl, flat, quadVao, layout, [rx + 3, ry + 3, 18, rh], {
+        mode: 0, colorA: [0, 0, 0, 0.24], colorB: [0, 0, 0, 0.14],
+      });
+      drawQuadGL(gl, flat, quadVao, layout, [rx, ry, 18, rh], {
+        mode: 3, colorA: ribColor,
+      });
+    };
+    if (state.ribbonIndex !== state.index) drawRibbon(false);
+
+    // 3. Stationary underlying spread (left & right pages or marbled endpapers)
+    if (!compact) {
+      const lTex = slots.baseLeft ? pageTextures.get(slots.baseLeft) : null;
+      if (lTex) {
+        drawQuadGL(gl, flat, quadVao, layout, [-pageW, -halfH, pageW, pageH], {
+          mode: 1, tex: lTex, spineSide: -1, curl: curlInfo,
+        });
+      } else {
+        drawQuadGL(gl, flat, quadVao, layout, [-pageW, -halfH, pageW, pageH], {
+          mode: 2, colorA: [0.22, 0.30, 0.27, 1], colorB: [0.35, 0.44, 0.39, 1], spineSide: -1,
+        });
+      }
+    }
+    const rTex = slots.baseRight ? pageTextures.get(slots.baseRight) : null;
+    if (rTex) {
+      drawQuadGL(gl, flat, quadVao, layout, [0, -halfH, pageW, pageH], {
+        mode: 1, tex: rTex, spineSide: 1, curl: curlInfo,
+      });
+    } else {
+      drawQuadGL(gl, flat, quadVao, layout, [0, -halfH, pageW, pageH], {
+        mode: 2, colorA: [0.22, 0.30, 0.27, 1], colorB: [0.35, 0.44, 0.39, 1], spineSide: 1,
+      });
+    }
+
+    // Silk ribbon sitting over the spine gutter when it marks the open spread
+    if (state.ribbonIndex === state.index) drawRibbon(true);
+
+    // 4. Subdivided 28x18 cylindrical curling leaf (both front and back live HTML)
+    if (slots.active && slots.leafFront && slots.leafBack && curlInfo) {
+      const fTex = pageTextures.get(slots.leafFront);
+      const bTex = pageTextures.get(slots.leafBack);
+      if (fTex && bTex) {
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LEQUAL);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        gl.useProgram(curl.prog);
+        gl.bindVertexArray(leafVao);
+        gl.uniform2f(curl.u('uCanvas'), layout.cw, layout.ch);
+        gl.uniform2f(curl.u('uSpine'), layout.spineX, layout.spineY);
+        gl.uniform2f(curl.u('uPage'), pageW, pageH);
+        gl.uniform1f(curl.u('uPersp'), Math.max(950, pageW * 3.5));
+        gl.uniform1f(curl.u('uFlipSide'), slots.flipSide);
+        gl.uniform1f(curl.u('uSc'), curlInfo.sc);
+        gl.uniform2f(curl.u('uDir'), curlInfo.dx, curlInfo.dy);
+        gl.uniform1f(curl.u('uRadius'), curlInfo.radius);
+        gl.uniform1f(curl.u('uCompact'), compact ? 1 : 0);
+        gl.uniform1f(curl.u('uPageW'), pageW);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, fTex);
+        gl.uniform1i(curl.u('uFront'), 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, bTex);
+        gl.uniform1i(curl.u('uBack'), 1);
+        gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0);
+        gl.disable(gl.DEPTH_TEST);
+      }
+    }
+  }
+
+  // 2D folded-slice fallback using 5-arg and 9-arg drawElementImage()
+  function drawBook2D(layout) {
+    if (!ctx2d) return;
+    const { dpr } = syncCanvasSize(canvas);
+    const { cw, ch, pageW, pageH, spineX, spineY, compact } = layout;
+    const topY = spineY - pageH * 0.5;
+    const slots = curlSlots();
+
+    ctx2d.save();
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2d.clearRect(0, 0, cw, ch);
+
+    // Hardcover board
+    const boardL = compact ? spineX - 14 : spineX - pageW - 16;
+    const boardW = compact ? pageW + 30 : pageW * 2 + 32;
+    ctx2d.fillStyle = '#1d332a';
+    ctx2d.fillRect(boardL, topY - 12, boardW, pageH + 24);
+
+    // Flat underlying spread (5-argument drawElementImage)
+    if (!compact) {
+      if (slots.baseLeft) {
+        ctx2d.drawElementImage(slots.baseLeft, spineX - pageW, topY, pageW, pageH);
+      } else {
+        ctx2d.fillStyle = '#384d44';
+        ctx2d.fillRect(spineX - pageW, topY, pageW, pageH);
+      }
+    }
+    if (slots.baseRight) {
+      ctx2d.drawElementImage(slots.baseRight, spineX, topY, pageW, pageH);
+    } else {
+      ctx2d.fillStyle = '#384d44';
+      ctx2d.fillRect(spineX, topY, pageW, pageH);
+    }
+
+    // Folded vertical slices for a curling leaf (9-argument drawElementImage)
+    if (slots.active && slots.leafFront && slots.leafBack) {
+      const slices = 14;
+      const angle = Math.PI * slots.t;
+      const cosA = Math.cos(angle);
+      const showBack = cosA < 0;
+      const el = showBack ? slots.leafBack : slots.leafFront;
+      const spanW = Math.max(2, Math.abs(cosA) * pageW);
+      const sideSign = showBack ? -slots.flipSide : slots.flipSide;
+      const xStart = sideSign > 0 ? spineX : spineX - spanW;
+
+      for (let i = 0; i < slices; i++) {
+        const u0 = i / slices;
+        const u1 = (i + 1) / slices;
+        const sw = pageW / slices;
+        const dw = spanW / slices + 0.6;
+        const sx = u0 * pageW;
+        const dx = sideSign > 0 ? xStart + u0 * spanW : xStart + (1 - u1) * spanW;
+        const lift = Math.sin(Math.PI * u0) * Math.sin(angle) * 14;
+
+        ctx2d.save();
+        if (sideSign < 0 && !showBack) {
+          ctx2d.drawElementImage(el, (1 - u1) * pageW, 0, sw, pageH, dx, topY - lift, dw, pageH);
+        } else {
+          ctx2d.drawElementImage(el, sx, 0, sw, pageH, dx, topY - lift, dw, pageH);
+        }
+        ctx2d.fillStyle = `rgb(0 0 0 / ${(0.18 * Math.sin(angle) * (1 - u0 * 0.5)).toFixed(3)})`;
+        ctx2d.fillRect(dx, topY - lift, dw, pageH);
+        ctx2d.restore();
+      }
+    }
+
+    // Spine gutter shadow
+    const grad = ctx2d.createLinearGradient(spineX - 24, 0, spineX + 24, 0);
+    grad.addColorStop(0, 'rgb(0 0 0 / 0)');
+    grad.addColorStop(0.5, 'rgb(0 0 0 / 0.24)');
+    grad.addColorStop(1, 'rgb(0 0 0 / 0)');
+    ctx2d.fillStyle = grad;
+    ctx2d.fillRect(spineX - 24, topY, 48, pageH);
+
+    // Silk ribbon
+    ctx2d.fillStyle = state.ribbonColor;
+    const onSpread = state.ribbonIndex === state.index;
+    const ribY = onSpread ? topY - 6 : topY + pageH - 8;
+    const ribH = onSpread ? 185 : 30;
+    ctx2d.fillRect(spineX - 8, ribY, 16, ribH);
+    ctx2d.restore();
+  }
+
+  function renderPlain() {
+    const cur = currentPagesFor(state.index, state.compact);
+    for (const p of pages) {
+      const visible = p === cur.left || p === cur.right;
+      p.hidden = !visible;
+      p.inert = !visible;
+      p.style.pointerEvents = visible ? 'auto' : 'none';
+      p.style.width = '';
+      p.style.height = '';
+    }
+    updateStatus();
+  }
+
+  function switchToPlain(reason) {
+    state.route = 'plain';
+    stageBox.classList.add('plain');
+    fallbackNote.hidden = false;
+    fallbackNote.textContent = reason;
+    for (const p of pages) plainBook.append(p);
+    renderPlain();
+  }
+
+  function restoreFromPlain() {
+    stageBox.classList.remove('plain');
+    fallbackNote.hidden = true;
+    for (const p of pages) {
+      p.hidden = false;
+      canvas.append(p);
+    }
+  }
+
+  function onPaint(e) {
+    if (state.route === 'plain') return;
+    state.paints++;
+    const cw = Math.max(1, canvas.clientWidth);
+    const ch = Math.max(1, canvas.clientHeight);
+    const layout = computeLayout(cw, ch);
+    const modeChanged = layout.compact !== state.compact;
+    state.compact = layout.compact;
+    if (modeChanged) {
+      state.index = Math.min(state.index, maxIndex());
+      state.ribbonIndex = Math.min(state.ribbonIndex, maxIndex());
+    }
+    state.lastLayout = layout;
+    applyPageSizes(layout);
+    syncCornerZones(layout);
+
+    if (state.route === 'webgl' && stage && !stage.lost) {
+      const changed = new Set(e?.changedElements ?? []);
+      for (const p of pages) {
+        if (changed.has(p) || !pageTextures.has(p)) {
+          const uploaded = stage.upload(p);
+          if (uploaded) {
+            pageTextures.set(p, uploaded.tex);
+            state.uploads++;
+          }
+        }
+      }
+      drawBookWebGL(layout);
+    } else if (state.route === '2d') {
+      drawBook2D(layout);
+    }
+
+    syncHitGeometry(layout);
+    updateStatus();
+  }
+  // #endregion paint-and-hit
+
+  function requestDraw() {
+    if (state.route === 'plain') {
+      renderPlain();
+      return;
+    }
+    canvas.requestPaint?.();
+  }
+
+  // Boot rendering route: WebGL 2 via ElementGL -> 2D folded slices -> Plain HTML
+  function initCanvas() {
+    if (supportedGL) {
+      try {
+        stage = new ElementGL(canvas, {
+          fragment: PASS_FRAG,
+          attributes: { depth: true, antialias: true },
+          onLost: () => {
+            pageTextures.clear();
+            glRes = null;
+            switchToPlain('The browser took the WebGL context away. Showing the spread in plain HTML until it returns.');
+          },
+          onRestored: () => {
+            glRes = buildBookPrograms(stage.gl);
+            pageTextures.clear();
+            state.route = 'webgl';
+            restoreFromPlain();
+            requestDraw();
+          },
+        });
+        glRes = buildBookPrograms(stage.gl);
+        state.route = 'webgl';
+        canvas.addEventListener('paint', onPaint);
+        requestDraw();
+        return;
+      } catch (err) {
+        // Replace canvas before falling back to 2D so we never ask a WebGL canvas for a 2D context.
+        const fresh = document.createElement('canvas');
+        fresh.id = 'book-canvas';
+        fresh.setAttribute('content', 'drawable');
+        fresh.setAttribute('layoutsubtree', '');
+        fresh.setAttribute('aria-label', canvas.getAttribute('aria-label'));
+        for (const p of pages) fresh.append(p);
+        canvas.replaceWith(fresh);
+        window.__gfx?.retire(canvas);
+        canvas = fresh;
+      }
+    }
+
+    if (supported2d && 'requestPaint' in HTMLCanvasElement.prototype) {
+      ctx2d = canvas.getContext('2d');
+      if (ctx2d) {
+        state.route = '2d';
+        fallbackNote.hidden = false;
+        fallbackNote.textContent = 'WebGL 2 texElementSubImage2D() is not available here. Drawing with the 2D folded-slice route.';
+        canvas.addEventListener('paint', onPaint);
+        requestDraw();
+        return;
+      }
+    }
+
+    switchToPlain('HTML-in-canvas is not enabled in this browser. Showing the six pages as plain HTML spreads.');
+  }
+
+  // #region drag-and-ribbon
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
+  function drawFrameFast() {
+    if (state.route === 'webgl' && stage && !stage.lost && glRes && state.lastLayout && pageTextures.size === pages.length) {
+      drawBookWebGL(state.lastLayout);
+      return;
+    }
+    requestDraw();
+  }
+
+  function settleTurn(commit) {
+    cancelAnimationFrame(state.animId);
+    state.animId = 0;
+    state.turning = false;
+    state.pendingCommit = false;
+    if (commit) {
+      state.index = Math.max(0, Math.min(maxIndex(), state.index + state.curlDir));
+      state.visited.add(state.index);
+    }
+    state.curlT = 0;
+    state.holding = false;
+    curlSlider.value = '0';
+    curlOut.textContent = '0%';
+    if (state.lastLayout) {
+      syncCornerZones(state.lastLayout);
+      syncHitGeometry(state.lastLayout, true);
+    }
+    updateStatus();
+    drawFrameFast();
+  }
+
+  function animateCurlTo(target, commitOnEnd, duration = 500) {
+    cancelAnimationFrame(state.animId);
+    state.turning = true;
+    state.pendingCommit = commitOnEnd;
+    if (state.lastLayout) syncHitGeometry(state.lastLayout);
+    updateStatus();
+    if (reducedMotion.matches || duration <= 0) {
+      settleTurn(commitOnEnd);
+      return;
+    }
+    const startT = state.curlT;
+    const t0 = performance.now();
+    const step = (now) => {
+      const p = Math.min(1, (now - t0) / duration);
+      const ease = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      state.curlT = startT + (target - startT) * ease;
+      curlSlider.value = String(Math.round(state.curlT * 100));
+      curlOut.textContent = `${Math.round(state.curlT * 100)}%`;
+      drawFrameFast();
+      if (p < 1) {
+        state.animId = requestAnimationFrame(step);
+      } else {
+        settleTurn(commitOnEnd);
+      }
+    };
+    state.animId = requestAnimationFrame(step);
+  }
+
+  function turnBy(dir, bias = 0.65) {
+    // If a turn is already in flight or held on the slider, finish it cleanly first so rapid clicks step smoothly.
+    if (state.turning) {
+      settleTurn(state.pendingCommit);
+    } else if (state.holding && state.curlT > 0.001) {
+      if (state.curlDir === dir) {
+        animateCurlTo(1, true, Math.max(160, Math.round((1 - state.curlT) * 500)));
+        return;
+      }
+      settleTurn(false);
+    }
+    const next = state.index + dir;
+    if (next < 0 || next > maxIndex()) return;
+    if (state.route === 'plain') {
+      state.index = next;
+      state.visited.add(state.index);
+      renderPlain();
+      return;
+    }
+    state.curlDir = dir;
+    state.grabBias = bias;
+    state.curlT = 0.01;
+    animateCurlTo(1, true, 520);
+  }
+
+  function bindCornerDrag(el, dir, bias) {
+    let drag = null;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button) return;
+      if (state.index + dir < 0 || state.index + dir > maxIndex()) return;
+      cancelAnimationFrame(state.animId);
+      el.setPointerCapture(e.pointerId);
+      drag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, moved: 0 };
+      state.curlDir = dir;
+      state.grabBias = bias;
+      state.holding = true;
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x0;
+      const dy = e.clientY - drag.y0;
+      drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
+      if (drag.moved < 5) return;
+      const span = Math.max(180, (state.lastLayout?.pageW || 280) * (state.compact ? 1.05 : 1.75));
+      const travel = dir > 0 ? -dx : dx;
+      state.curlT = Math.max(0.01, Math.min(0.99, travel / span));
+      // Blend vertical tilt with current pointer height relative to spine
+      const rect = canvas.getBoundingClientRect();
+      const relY = ((e.clientY - rect.top) / Math.max(1, rect.height) - 0.5) * 2;
+      state.grabBias = Math.max(-1, Math.min(1, relY * 1.1));
+      curlSlider.value = String(Math.round(state.curlT * 100));
+      curlOut.textContent = `${Math.round(state.curlT * 100)}%`;
+      drawFrameFast();
+    });
+    const end = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const moved = drag.moved;
+      drag = null;
+      if (moved < 8) {
+        turnBy(dir, bias);
+        return;
+      }
+      if (state.curlT > 0.4) {
+        animateCurlTo(1, true, 320);
+      } else {
+        animateCurlTo(0, false, 260);
+      }
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+    el.addEventListener('click', (e) => { if (e.detail === 0) turnBy(dir, bias); });
+  }
+
+  bindCornerDrag(corners.tr, 1, -0.78);
+  bindCornerDrag(corners.br, 1, 0.78);
+  bindCornerDrag(corners.tl, -1, -0.78);
+  bindCornerDrag(corners.bl, -1, 0.78);
+
+  // Draggable silk ribbon bookmark
+  let ribDrag = null;
+  ribbonZone.addEventListener('pointerdown', (e) => {
+    if (e.button) return;
+    ribbonZone.setPointerCapture(e.pointerId);
+    ribDrag = { id: e.pointerId, x0: e.clientX, y0: e.clientY, moved: 0 };
+  });
+  ribbonZone.addEventListener('pointermove', (e) => {
+    if (!ribDrag || e.pointerId !== ribDrag.id) return;
+    const dx = e.clientX - ribDrag.x0;
+    const dy = e.clientY - ribDrag.y0;
+    ribDrag.moved = Math.max(ribDrag.moved, Math.hypot(dx, dy));
+    state.ribbonDrag = { x: Math.max(-70, Math.min(70, dx)), y: Math.max(-40, Math.min(140, dy)) };
+    requestDraw();
+  });
+  const endRibbon = (e) => {
+    if (!ribDrag || e.pointerId !== ribDrag.id) return;
+    const moved = ribDrag.moved;
+    ribDrag = null;
+    state.ribbonDrag = null;
+    if (moved < 10 && state.ribbonIndex !== state.index) {
+      state.index = state.ribbonIndex;
+      state.visited.add(state.index);
+    } else {
+      state.ribbonIndex = state.index;
+    }
+    requestDraw();
+  };
+  ribbonZone.addEventListener('pointerup', endRibbon);
+  ribbonZone.addEventListener('pointercancel', endRibbon);
+  ribbonZone.addEventListener('click', (e) => {
+    if (e.detail !== 0) return;
+    if (state.ribbonIndex !== state.index) {
+      state.index = state.ribbonIndex;
+      state.visited.add(state.index);
+    } else {
+      state.ribbonIndex = state.index;
+    }
+    requestDraw();
+  });
+  // #endregion drag-and-ribbon
+
+  // External controls
+  btnPrev.addEventListener('click', () => turnBy(-1, 0.65));
+  btnNext.addEventListener('click', () => turnBy(1, 0.65));
+  btnRibbon.addEventListener('click', () => {
+    if (state.ribbonIndex === state.index) return;
+    state.index = state.ribbonIndex;
+    state.visited.add(state.index);
+    state.curlT = 0;
+    curlSlider.value = '0';
+    curlOut.textContent = '0%';
+    requestDraw();
+  });
+  curlSlider.addEventListener('input', () => {
+    cancelAnimationFrame(state.animId);
+    state.turning = false;
+    state.pendingCommit = false;
+    const val = Number(curlSlider.value) / 100;
+    curlOut.textContent = `${curlSlider.value}%`;
+    state.curlDir = state.index < maxIndex() ? 1 : -1;
+    state.grabBias = 0.72;
+    state.curlT = val;
+    state.holding = val > 0;
+    if (state.lastLayout) syncHitGeometry(state.lastLayout);
+    drawFrameFast();
+  });
+
+  // Live HTML controls inside the pages
+  exLibrisInput.addEventListener('input', () => {
+    const name = exLibrisInput.value.trim() || 'Anonymous reader';
+    ownerCredit.textContent = `Bound for ${name}.`;
+    requestDraw();
+  });
+  ribbonSelect.addEventListener('change', () => {
+    state.ribbonColor = ribbonSelect.value;
+    requestDraw();
+  });
+  fnBtn.addEventListener('click', () => {
+    const open = fnNote.hidden;
+    fnNote.hidden = !open;
+    fnBtn.setAttribute('aria-expanded', String(open));
+    fnBtn.textContent = open ? '[1] Hide printing note' : '[1] Show printing note';
+    requestDraw();
+  });
+  checklist.addEventListener('change', () => {
+    const boxes = checklist.querySelectorAll('input[type="checkbox"]');
+    const done = [...boxes].filter((b) => b.checked).length;
+    checkTally.textContent = `${done} of ${boxes.length} ticked`;
+    updateStatus();
+    requestDraw();
+  });
+  compassScale.addEventListener('input', () => {
+    const pct = Number(compassScale.value);
+    compassScaleOut.textContent = `${pct}%`;
+    const s = (pct / 100).toFixed(2);
+    const deg = Math.round((pct - 100) * 1.4);
+    compassGroup.setAttribute('transform', `scale(${s})`);
+    compassNeedle.setAttribute('transform', `rotate(${deg})`);
+    requestDraw();
+  });
+  marginNote.addEventListener('input', () => {
+    const txt = marginNote.value.trim();
+    const words = txt ? txt.split(/\s+/).length : 0;
+    noteMeta.textContent = `${words} ${words === 1 ? 'word' : 'words'}, ${marginNote.value.length} characters`;
+    requestDraw();
+  });
+  jumpCoverBtn.addEventListener('click', () => {
+    cancelAnimationFrame(state.animId);
+    state.index = 0;
+    state.curlT = 0;
+    curlSlider.value = '0';
+    curlOut.textContent = '0%';
+    requestDraw();
+  });
+
+  new ResizeObserver(() => {
+    if (state.route === 'plain') {
+      state.compact = stageBox.clientWidth < 580;
+      renderPlain();
+    } else {
+      requestDraw();
+    }
+  }).observe(stageBox);
+
+  initCanvas();
+
+  // ---- Isolated live checks (run on tap via <meta name="checks" content="tap">) ----
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function makeCurlFixture(frontHtml, backHtml) {
+    if (!supportedGL) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+    const cv = document.createElement('canvas');
+    cv.setAttribute('content', 'drawable');
+    cv.setAttribute('layoutsubtree', '');
+    cv.style.cssText = 'display:block;width:240px;height:140px';
+    cv.width = 240;
+    cv.height = 140;
+
+    const front = document.createElement('div');
+    front.setAttribute('drawable', '');
+    front.style.cssText = 'position:absolute;left:0;top:0;width:110px;height:120px;box-sizing:border-box';
+    front.innerHTML = frontHtml;
+
+    const back = document.createElement('div');
+    back.setAttribute('drawable', '');
+    back.style.cssText = 'position:absolute;left:0;top:0;width:110px;height:120px;box-sizing:border-box';
+    back.innerHTML = backHtml;
+
+    cv.append(front, back);
+    testStage().append(cv);
+
+    const gStage = new ElementGL(cv, {
+      fragment: PASS_FRAG,
+      attributes: { depth: true, preserveDrawingBuffer: true },
+    });
+    const progs = buildBookPrograms(gStage.gl);
+    let texFront = null;
+    let texBack = null;
+    const uploadBoth = () => {
+      texFront = gStage.upload(front);
+      texBack = gStage.upload(back);
+    };
+    cv.addEventListener('paint', uploadBoth);
+    await nextPaint(cv);
+    if (!texFront || !texBack) {
+      await sleep(80);
+      await nextPaint(cv);
+    }
+
+    const renderLeaf = (t, flipSide = 1, bias = 0) => {
+      const gl = gStage.gl;
+      gl.viewport(0, 0, 240, 140);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LEQUAL);
+      const cg = curlGeometry(t, 110, 120, bias);
+      gl.useProgram(progs.curl.prog);
+      gl.bindVertexArray(progs.leafVao);
+      gl.uniform2f(progs.curl.u('uCanvas'), 240, 140);
+      gl.uniform2f(progs.curl.u('uSpine'), 120, 70);
+      gl.uniform2f(progs.curl.u('uPage'), 110, 120);
+      gl.uniform1f(progs.curl.u('uPersp'), 900);
+      gl.uniform1f(progs.curl.u('uFlipSide'), flipSide);
+      gl.uniform1f(progs.curl.u('uSc'), cg.sc);
+      gl.uniform2f(progs.curl.u('uDir'), cg.dx, cg.dy);
+      gl.uniform1f(progs.curl.u('uRadius'), cg.radius);
+      gl.uniform1f(progs.curl.u('uCompact'), 0);
+      gl.uniform1f(progs.curl.u('uPageW'), 110);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, texFront.tex);
+      gl.uniform1i(progs.curl.u('uFront'), 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, texBack.tex);
+      gl.uniform1i(progs.curl.u('uBack'), 1);
+      gl.drawElements(gl.TRIANGLES, progs.indexCount, gl.UNSIGNED_SHORT, 0);
+    };
+
+    const readPx = (x, y) => {
+      const out = new Uint8Array(4);
+      gStage.gl.readPixels(Math.round(x), 140 - 1 - Math.round(y), 1, 1, gStage.gl.RGBA, gStage.gl.UNSIGNED_BYTE, out);
+      return Array.from(out);
+    };
+
+    const dispose = () => {
+      window.__gfx?.retire(cv);
+      cv.remove();
+    };
+    return { cv, front, back, texFront, texBack, renderLeaf, readPx, dispose };
+  }
+
+  runTests($('tests'), [
+    {
+      name: 'Two live HTML pages upload to one ElementGL WebGL 2 context',
+      why: 'Builds an isolated drawable canvas with front and back HTML children and uploads both through stage.upload().',
+      run: async () => {
+        const f = await makeCurlFixture(
+          '<div style="width:110px;height:120px;background:rgb(200,40,40)">Front</div>',
+          '<div style="width:110px;height:120px;background:rgb(30,80,210)">Back</div>'
+        );
+        try {
+          if (!f.texFront || !f.texBack) throw new Error('upload returned null for one of the pages');
+          return `front texture ${f.texFront.w}x${f.texFront.h}, back texture ${f.texBack.w}x${f.texBack.h}`;
+        } finally {
+          f.dispose();
+        }
+      },
+    },
+    {
+      name: 'Leaf shows front HTML at rest (t = 0) and back HTML when turned (t = 1)',
+      why: 'Renders the 28 by 18 cylindrical mesh at t = 0 and t = 1 and reads one pixel from each side of the spine.',
+      run: async () => {
+        const f = await makeCurlFixture(
+          '<div style="width:110px;height:120px;background:rgb(210,36,36)"></div>',
+          '<div style="width:110px;height:120px;background:rgb(32,92,216)"></div>'
+        );
+        try {
+          f.renderLeaf(0.0, 1, 0);
+          const frontPx = f.readPx(175, 70);
+          f.renderLeaf(1.0, 1, 0);
+          const backPx = f.readPx(65, 70);
+          if (!(frontPx[0] > 140 && frontPx[2] < 90)) throw new Error(`front pixel was rgba(${frontPx.join(',')})`);
+          if (!(backPx[2] > 140 && backPx[0] < 90)) throw new Error(`back pixel was rgba(${backPx.join(',')})`);
+          return `t=0 right rgba(${frontPx.join(',')}), t=1 left rgba(${backPx.join(',')})`;
+        } finally {
+          f.dispose();
+        }
+      },
+    },
+    {
+      name: 'Mid-curl leaf draws both front and back HTML in one pass (t = 0.45)',
+      why: 'At t = 0.45 with a vertical roll, the strip near the spine shows the red front and the turned flap past the crest shows the blue back.',
+      run: async () => {
+        const f = await makeCurlFixture(
+          '<div style="width:110px;height:120px;background:rgb(210,36,36)"></div>',
+          '<div style="width:110px;height:120px;background:rgb(32,92,216)"></div>'
+        );
+        try {
+          f.renderLeaf(0.45, 1, 0);
+          const nearSpine = f.readPx(132, 70);
+          const turnedFlap = f.readPx(176, 70);
+          if (!(nearSpine[0] > 120 && nearSpine[2] < 95)) throw new Error(`near-spine pixel was rgba(${nearSpine.join(',')})`);
+          if (!(turnedFlap[2] > 110 && turnedFlap[0] < 95)) throw new Error(`turned-flap pixel was rgba(${turnedFlap.join(',')})`);
+          return `near spine rgba(${nearSpine.join(',')}), turned back flap rgba(${turnedFlap.join(',')})`;
+        } finally {
+          f.dispose();
+        }
+      },
+    },
+    {
+      name: 'Back HTML page reads left to right after turning onto the left spread',
+      why: 'The back page has a green left half and an amber right half. After turning to t = 1, green must sit on the outer left and amber near the spine.',
+      run: async () => {
+        const f = await makeCurlFixture(
+          '<div style="width:110px;height:120px;background:#ccc"></div>',
+          '<div style="display:flex;width:110px;height:120px"><div style="flex:1;background:rgb(30,175,60)"></div><div style="flex:1;background:rgb(225,155,20)"></div></div>'
+        );
+        try {
+          f.renderLeaf(1.0, 1, 0);
+          const outerLeft = f.readPx(38, 70);
+          const innerSpine = f.readPx(96, 70);
+          if (!(outerLeft[1] > 110 && outerLeft[0] < 90)) throw new Error(`outer-left pixel was rgba(${outerLeft.join(',')})`);
+          if (!(innerSpine[0] > 140 && innerSpine[1] > 90 && innerSpine[2] < 80)) throw new Error(`inner-spine pixel was rgba(${innerSpine.join(',')})`);
+          return `outer left rgba(${outerLeft.join(',')}), near spine rgba(${innerSpine.join(',')})`;
+        } finally {
+          f.dispose();
+        }
+      },
+    },
+    {
+      name: 'updateElementGeometry() and inert route pointer hits to the active spread only',
+      why: 'Places two overlapping drawable pages in one canvas, switches inert and toggles dataset.hitTick, then checks document.elementFromPoint().',
+      run: async () => {
+        if (!supported2d) throw new Error('HTML-in-canvas is not available');
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.style.cssText = 'display:block;width:220px;height:110px';
+        cv.width = 220;
+        cv.height = 110;
+        const pA = document.createElement('div');
+        pA.setAttribute('drawable', '');
+        pA.style.cssText = 'position:absolute;left:0;top:0;width:100px;height:100px;background:#efe';
+        pA.innerHTML = '<button type="button" class="hit-a" style="width:80px;height:60px;margin:10px">A</button>';
+        const pB = document.createElement('div');
+        pB.setAttribute('drawable', '');
+        pB.style.cssText = 'position:absolute;left:0;top:0;width:100px;height:100px;background:#eef';
+        pB.innerHTML = '<button type="button" class="hit-b" style="width:80px;height:60px;margin:10px">B</button>';
+        cv.append(pA, pB);
+        testStage().append(cv);
+        const c2 = cv.getContext('2d');
+        const draw = () => {
+          c2.clearRect(0, 0, 220, 110);
+          c2.drawElementImage(pA, 110, 5, 100, 100);
+          c2.drawElementImage(pB, 110, 5, 100, 100);
+        };
+        cv.addEventListener('paint', draw);
+        try {
+          pA.inert = false; pA.style.pointerEvents = 'auto';
+          pB.inert = true; pB.style.pointerEvents = 'none';
+          await nextPaint(cv);
+          cv.updateElementGeometry(pA, { canvasTransform: new DOMMatrix().translate(110, 5) });
+          cv.updateElementGeometry(pB, { canvasTransform: new DOMMatrix().translate(110, 5) });
+          pA.dataset.hitTick = '1'; pB.dataset.hitTick = '1';
+          const box = cv.getBoundingClientRect();
+          const hit1 = document.elementFromPoint(box.left + 155, box.top + 45);
+          if (!hit1?.classList.contains('hit-a')) throw new Error(`first hit gave ${hit1?.className || hit1?.localName}`);
+
+          pA.inert = true; pA.style.pointerEvents = 'none';
+          pB.inert = false; pB.style.pointerEvents = 'auto';
+          cv.updateElementGeometry(pB, { canvasTransform: new DOMMatrix().translate(110, 5) });
+          pB.dataset.hitTick = '0';
+          const hit2 = document.elementFromPoint(box.left + 155, box.top + 45);
+          if (!hit2?.classList.contains('hit-b')) throw new Error(`second hit gave ${hit2?.className || hit2?.localName}`);
+          return 'first hit button A, after switching inert and hitTick hit button B';
+        } finally {
+          window.__gfx?.retire(cv);
+          cv.remove();
+        }
+      },
+    },
+    {
+      name: '2D folded-slice fallback draws pages with 5-arg and 9-arg drawElementImage()',
+      why: 'Draws one flat page with 5-arg drawElementImage() and one slice with 9-arg drawElementImage(), then reads from a plain 2D copy.',
+      run: async () => {
+        if (!supported2d) throw new Error('2D drawElementImage() is not available');
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.style.cssText = 'display:block;width:200px;height:100px';
+        cv.width = 200;
+        cv.height = 100;
+        const left = document.createElement('div');
+        left.setAttribute('drawable', '');
+        left.style.cssText = 'position:absolute;left:0;top:0;width:90px;height:90px;background:rgb(185,42,48)';
+        const right = document.createElement('div');
+        right.setAttribute('drawable', '');
+        right.style.cssText = 'position:absolute;left:0;top:0;width:90px;height:90px;background:rgb(28,145,140)';
+        cv.append(left, right);
+        testStage().append(cv);
+        const ctx = cv.getContext('2d');
+        cv.addEventListener('paint', () => {
+          ctx.clearRect(0, 0, 200, 100);
+          ctx.drawElementImage(left, 10, 5, 90, 90);
+          ctx.drawElementImage(right, 0, 0, 45, 90, 105, 5, 45, 90);
+        });
+        try {
+          await nextPaint(cv);
+          const copy = document.createElement('canvas');
+          copy.width = 200; copy.height = 100;
+          const cc = copy.getContext('2d', { willReadFrequently: true });
+          cc.drawImage(cv, 0, 0);
+          const lpx = Array.from(cc.getImageData(45, 50, 1, 1).data);
+          const rpx = Array.from(cc.getImageData(125, 50, 1, 1).data);
+          if (!(lpx[0] > 140 && lpx[2] < 90)) throw new Error(`left 5-arg pixel rgba(${lpx.join(',')})`);
+          if (!(rpx[1] > 100 && rpx[2] > 100 && rpx[0] < 80)) throw new Error(`right 9-arg pixel rgba(${rpx.join(',')})`);
+          return `5-arg left rgba(${lpx.join(',')}), 9-arg slice rgba(${rpx.join(',')})`;
+        } finally {
+          window.__gfx?.retire(cv);
+          cv.remove();
+        }
+      },
+    },
+    {
+      name: 'Synthetic webglcontextlost falls back to plain HTML and webglcontextrestored recovers',
+      why: 'Dispatches cancelable webglcontextlost and webglcontextrestored events on an isolated ElementGL fixture without calling loseContext().',
+      run: async () => {
+        const box = document.createElement('div');
+        const cv = document.createElement('canvas');
+        cv.width = 64; cv.height = 64;
+        box.append(cv);
+        testStage().append(box);
+        let fellBack = false;
+        let restored = false;
+        try {
+          const g = new ElementGL(cv, {
+            fragment: PASS_FRAG,
+            onLost: () => { fellBack = true; box.classList.add('plain'); },
+            onRestored: () => { restored = true; box.classList.remove('plain'); },
+          });
+          const lostEv = new Event('webglcontextlost', { cancelable: true });
+          cv.dispatchEvent(lostEv);
+          if (!lostEv.defaultPrevented) throw new Error('webglcontextlost was not preventDefault()ed');
+          if (!fellBack || !g.lost || !box.classList.contains('plain')) throw new Error('fallback did not activate on loss');
+          cv.dispatchEvent(new Event('webglcontextrestored'));
+          if (!restored || g.lost || box.classList.contains('plain')) throw new Error('context did not recover on restore');
+          return 'preventDefault() called, plain class toggled on loss and cleared on restore';
+        } finally {
+          window.__gfx?.retire(cv);
+          box.remove();
+        }
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

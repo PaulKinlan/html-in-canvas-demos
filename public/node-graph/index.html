@@ -1,0 +1,1952 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visual node graph made of live HTML forms</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Four draggable HTML form nodes connected by glowing Bézier wires on one pan-and-zoom 2D canvas.">
+<link rel="canonical" href="https://html-in-canvas.page/node-graph/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Visual node graph made of live HTML forms">
+<meta property="og:description" content="Four draggable HTML form nodes connected by glowing Bézier wires on one pan-and-zoom 2D canvas.">
+<meta property="og:url" content="https://html-in-canvas.page/node-graph/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Visual node graph made of live HTML forms&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Visual node graph made of live HTML forms">
+<meta name="twitter:description" content="Four draggable HTML form nodes connected by glowing Bézier wires on one pan-and-zoom 2D canvas.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Visual node graph made of live HTML forms&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/node-graph/",
+   "url": "https://html-in-canvas.page/node-graph/",
+   "mainEntityOfPage": "https://html-in-canvas.page/node-graph/",
+   "headline": "Visual node graph made of live HTML forms",
+   "name": "Visual node graph made of live HTML forms",
+   "description": "Four draggable HTML form nodes connected by glowing Bézier wires on one pan-and-zoom 2D canvas. Drag headers to move nodes, drag or tap ports to rewire the live signal graph, and zoom from 35% to 300% while text and inputs re-rasterise sharply.",
+   "abstract": "Can an infinite pan-and-zoom node graph draw glowing Bézier wires behind draggable HTML \u003cform> nodes on one 2D canvas so text stays sharp from 35% overview to 300% zoom without CSS-transform blur?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "drawElementImage, node graph, bezier, forms, zoom, drawElementImage\u0028), updateElementGeometry\u0028), paint, requestPaint\u0028), layoutsubtree",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Visual node graph made of live HTML forms",
+     "item": "https://html-in-canvas.page/node-graph/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .controls {
+    margin: 14px 0 12px;
+  }
+  .controls button {
+    min-height: 40px;
+  }
+  .controls button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  .zoom-seg {
+    display: inline-flex;
+    align-items: stretch;
+  }
+  .zoom-seg button {
+    border-radius: 0;
+    margin-left: -1px;
+  }
+  .zoom-seg button:first-child {
+    border-radius: 6px 0 0 6px;
+    margin-left: 0;
+  }
+  .zoom-seg button:last-child {
+    border-radius: 0 6px 6px 0;
+  }
+  .zoom-seg output {
+    font: 600 13px var(--mono);
+    display: inline-block;
+    min-width: 44px;
+    text-align: center;
+  }
+
+  .graph-stage {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+    height: 520px;
+    background: var(--card);
+  }
+  @media (max-width: 620px) {
+    .graph-stage {
+      height: 440px;
+    }
+  }
+  .graph-stage.plain {
+    height: auto;
+    padding: 14px;
+  }
+  #graph-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: grab;
+    outline-offset: -3px;
+  }
+  #graph-canvas.panning {
+    cursor: grabbing;
+  }
+  #graph-canvas:focus-visible {
+    outline: 3px solid var(--accent);
+  }
+  .graph-stage.plain #graph-canvas,
+  .graph-stage.plain .graph-hud {
+    display: none;
+  }
+
+  .demo-banner {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--warn) 12%, var(--card));
+    font-size: 14px;
+  }
+  .demo-banner[hidden] {
+    display: none;
+  }
+
+  .graph-hud {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    max-width: calc(100% - 172px);
+    padding: 4px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+    color: var(--fg);
+    font: 12px/1.35 var(--mono);
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  @media (max-width: 520px) {
+    .graph-hud {
+      max-width: calc(100% - 20px);
+      bottom: auto;
+      top: 8px;
+    }
+  }
+
+  .plain-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px;
+  }
+  .plain-grid[hidden] {
+    display: none;
+  }
+
+  /* ---- Drawable HTML <form> nodes ---- */
+  .ng-node {
+    position: relative;
+    width: 232px;
+    margin: 0;
+    border-radius: 10px;
+    border: 1.5px solid #353a46;
+    background: #1b1e26;
+    color: #eef1f6;
+    font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    user-select: none;
+    overflow: hidden;
+  }
+  .ng-node.ng-out {
+    width: 244px;
+  }
+  .ng-node[data-pending="true"] {
+    border-color: #ff9c54;
+  }
+  .node-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: grab;
+    touch-action: none;
+    border-bottom: 1px solid #2d323e;
+    background: #232733;
+  }
+  .node-head:active {
+    cursor: grabbing;
+  }
+  .node-grip {
+    display: inline-grid;
+    grid-template-columns: repeat(2, 3px);
+    gap: 2px;
+    opacity: 0.65;
+    flex: none;
+  }
+  .node-grip i {
+    display: block;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .node-title {
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: -0.01em;
+    margin-right: auto;
+  }
+  .node-pill {
+    font: 700 10px/1 var(--mono);
+    letter-spacing: 0.06em;
+    padding: 3px 6px;
+    border-radius: 99px;
+    color: #fff;
+  }
+  .ng-gen .node-pill { background: #c9481d; }
+  .ng-xform .node-pill { background: #0f7b72; }
+  .ng-pal .node-pill { background: #1e62c7; }
+  .ng-out .node-pill { background: #7b42c7; }
+
+  .ng-gen .node-head { border-top: 3px solid #e05a2b; }
+  .ng-xform .node-head { border-top: 3px solid #16a394; }
+  .ng-pal .node-head { border-top: 3px solid #3882f0; }
+  .ng-out .node-head { border-top: 3px solid #9b62e8; }
+
+  .port-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 0 2px;
+  }
+  .port-row {
+    display: flex;
+    padding: 5px 0;
+  }
+  .port-out-row {
+    justify-content: flex-end;
+    border-top: 1px solid #282d38;
+    background: #171a21;
+  }
+  .port-in-row {
+    justify-content: flex-start;
+    border-bottom: 1px solid #282d38;
+    background: #171a21;
+  }
+  .port-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 10px;
+    min-height: 28px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #cfd6e3;
+    font: 600 11.5px/1.2 var(--mono);
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .port-btn:hover {
+    color: #ffffff;
+    border-color: transparent;
+  }
+  .port-btn:focus-visible {
+    outline: 2px solid #ff7a4d;
+    outline-offset: -2px;
+  }
+  .port-btn[aria-pressed="true"] {
+    color: #ffb86b;
+  }
+  .port-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 2px solid #8a94a8;
+    background: #14171f;
+    flex: none;
+  }
+  .port-btn[data-wired="true"] .port-dot {
+    border-color: #ffffff;
+    background: var(--port-col, #ff7a4d);
+  }
+  .port-btn[aria-pressed="true"] .port-dot {
+    border-color: #ffe08a;
+    background: #ff7a4d;
+  }
+
+  .node-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 11px 11px;
+  }
+  .node-body label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    color: #b7c0d0;
+  }
+  .node-body label .lbl-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .node-body label output {
+    font: 600 11.5px var(--mono);
+    color: #f4f6fa;
+  }
+  .node-body .inline-field {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .node-body .check-field {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    color: #eef1f6;
+    padding-top: 2px;
+    cursor: pointer;
+  }
+  .node-body input[type="range"] {
+    width: 100%;
+    margin: 0;
+    accent-color: #ff7a4d;
+    cursor: pointer;
+  }
+  .ng-xform .node-body input[type="range"] { accent-color: #20bfb0; }
+  .ng-pal .node-body input[type="range"] { accent-color: #4f94f8; }
+  .node-body select,
+  .node-body input[type="text"] {
+    width: 100%;
+    padding: 5px 7px;
+    border-radius: 5px;
+    border: 1px solid #3c4352;
+    background: #12151c;
+    color: #f4f6fa;
+    font: 12.5px/1.3 system-ui, -apple-system, sans-serif;
+  }
+  .node-body input[type="color"] {
+    width: 44px;
+    height: 26px;
+    padding: 2px;
+    border-radius: 5px;
+    border: 1px solid #3c4352;
+    background: #12151c;
+    cursor: pointer;
+  }
+  .node-body input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #20bfb0;
+    cursor: pointer;
+  }
+  .out-preview {
+    display: block;
+    width: 100%;
+    height: 96px;
+    border-radius: 6px;
+    border: 1px solid #363c4b;
+    background: #0f1218;
+  }
+  .out-summary {
+    display: block;
+    padding: 6px 8px;
+    border-radius: 5px;
+    background: #12151c;
+    border: 1px solid #2b303c;
+    color: #d6deed;
+    font: 11px/1.4 var(--mono);
+    word-break: break-word;
+  }
+  .rand-btn {
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: 1px solid #8a56d6;
+    background: #2f1f4a;
+    color: #f4eeff;
+    font: 600 12.5px/1.2 system-ui, -apple-system, sans-serif;
+    cursor: pointer;
+  }
+  .rand-btn:hover {
+    border-color: #c29dff;
+    background: #3d2861;
+  }
+  .plain-grid .ng-node {
+    width: 100%;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Visual node graph made of live HTML forms</h1>
+  <p class="lede">
+    Tools like Blender Shader Nodes, ComfyUI, cables.gl, Rete and React Flow pair graph wires with parameter cards, but zooming DOM nodes with CSS <code>transform</code> blurs text once you pass 150%, while drawing form controls by hand on a canvas throws away browser inputs. After <a href="/board/">/board/</a> showed that 2D <code>drawElementImage()</code> re-rasterises DOM vector paint commands sharply at any scale, I built a four-node signal graph of real <code>&lt;form&gt;</code> elements with glowing Bézier wires drawn behind them on one 2D canvas. Drag the background to pan, drag node headers to rearrange, drag or tap ports to rewire, and zoom from 35% to 300%.
+  </p>
+
+  <div class="row controls" id="graph-controls">
+    <span class="zoom-seg" role="group" aria-label="Zoom">
+      <button type="button" id="btn-zoom-out" aria-label="Zoom out">−</button>
+      <button type="button" id="btn-zoom-reset" title="Reset zoom to 100%"><output id="zoom-out-val">100%</output></button>
+      <button type="button" id="btn-zoom-in" aria-label="Zoom in">+</button>
+    </span>
+    <button type="button" id="btn-fit">Fit all</button>
+    <button type="button" id="btn-zoom-250">Zoom 250%</button>
+    <button type="button" id="btn-pulses" aria-pressed="false">Signal pulses</button>
+    <button type="button" id="btn-reset">Reset graph</button>
+  </div>
+
+  <div class="stage graph-stage" id="graph-stage">
+    <div id="graph-fallback-note" class="demo-banner" hidden></div>
+    <!-- #region canvas -->
+    <canvas id="graph-canvas" content="drawable" layoutsubtree tabindex="0" aria-label="Interactive node graph of four HTML form nodes. Drag background to pan, drag node headers to move, drag or tap port buttons to rewire, arrow keys pan, plus and minus zoom, Tab moves through form controls.">
+      <form id="node-gen" class="ng-node ng-gen" drawable data-node="gen" aria-label="Generator node">
+        <div class="node-head">
+          <span class="node-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="node-title">1. Generator</span>
+          <span class="node-pill">GEN</span>
+        </div>
+        <div class="node-body">
+          <label>
+            Waveform
+            <select name="wave">
+              <option value="Sine" selected>Sine</option>
+              <option value="Spiral">Spiral</option>
+              <option value="Checker">Checker</option>
+              <option value="Plasma">Plasma</option>
+            </select>
+          </label>
+          <label>
+            <span class="lbl-row"><span>Frequency</span><output id="val-freq">4.0 Hz</output></span>
+            <input type="range" name="freq" min="1" max="12" step="0.5" value="4">
+          </label>
+          <label class="inline-field">
+            Primary colour
+            <input type="color" name="primary" value="#d2491f">
+          </label>
+        </div>
+        <div class="port-row port-out-row">
+          <button type="button" class="port-btn" data-port="gen:signal" data-dir="out" aria-pressed="false" aria-label="Generator signal output port">
+            Signal out <span class="port-dot" aria-hidden="true"></span>
+          </button>
+        </div>
+      </form>
+
+      <form id="node-xform" class="ng-node ng-xform" drawable data-node="xform" aria-label="Transform node">
+        <div class="node-head">
+          <span class="node-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="node-title">2. Transform</span>
+          <span class="node-pill">XFORM</span>
+        </div>
+        <div class="port-row port-in-row">
+          <button type="button" class="port-btn" data-port="xform:in" data-dir="in" aria-pressed="false" aria-label="Transform signal input port">
+            <span class="port-dot" aria-hidden="true"></span> Signal in
+          </button>
+        </div>
+        <div class="node-body">
+          <label>
+            <span class="lbl-row"><span>Twist angle</span><output id="val-angle">35 deg</output></span>
+            <input type="range" name="angle" min="0" max="360" step="1" value="35">
+          </label>
+          <label>
+            <span class="lbl-row"><span>Scale</span><output id="val-scale">1.15x</output></span>
+            <input type="range" name="scale" min="0.4" max="2.5" step="0.05" value="1.15">
+          </label>
+          <label class="check-field">
+            <input type="checkbox" name="invert">
+            Invert polarity
+          </label>
+        </div>
+        <div class="port-row port-out-row">
+          <button type="button" class="port-btn" data-port="xform:out" data-dir="out" aria-pressed="false" aria-label="Transform warped output port">
+            Warped out <span class="port-dot" aria-hidden="true"></span>
+          </button>
+        </div>
+      </form>
+
+      <form id="node-pal" class="ng-node ng-pal" drawable data-node="pal" aria-label="Palette node">
+        <div class="node-head">
+          <span class="node-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="node-title">3. Palette</span>
+          <span class="node-pill">PAL</span>
+        </div>
+        <div class="port-row port-in-row">
+          <button type="button" class="port-btn" data-port="pal:in" data-dir="in" aria-pressed="false" aria-label="Palette colour input port">
+            <span class="port-dot" aria-hidden="true"></span> Colour in
+          </button>
+        </div>
+        <div class="node-body">
+          <label class="inline-field">
+            Accent colour
+            <input type="color" name="accent" value="#1e6bd6">
+          </label>
+          <label>
+            <span class="lbl-row"><span>Contrast</span><output id="val-contrast">1.25x</output></span>
+            <input type="range" name="contrast" min="0.5" max="2.4" step="0.05" value="1.25">
+          </label>
+          <label>
+            Blend mode
+            <select name="blend">
+              <option value="Mix" selected>Mix</option>
+              <option value="Multiply">Multiply</option>
+              <option value="Screen">Screen</option>
+            </select>
+          </label>
+        </div>
+        <div class="port-row port-out-row">
+          <button type="button" class="port-btn" data-port="pal:out" data-dir="out" aria-pressed="false" aria-label="Palette shaded output port">
+            Shaded out <span class="port-dot" aria-hidden="true"></span>
+          </button>
+        </div>
+      </form>
+
+      <form id="node-out" class="ng-node ng-out" drawable data-node="out" aria-label="Preview output node">
+        <div class="node-head">
+          <span class="node-grip" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="node-title">4. Preview</span>
+          <span class="node-pill">OUT</span>
+        </div>
+        <div class="port-stack port-in-row">
+          <button type="button" class="port-btn" data-port="out:signal" data-dir="in" aria-pressed="false" aria-label="Preview pattern input port">
+            <span class="port-dot" aria-hidden="true"></span> Pattern in
+          </button>
+          <button type="button" class="port-btn" data-port="out:colour" data-dir="in" aria-pressed="false" aria-label="Preview palette input port">
+            <span class="port-dot" aria-hidden="true"></span> Palette in
+          </button>
+        </div>
+        <div class="node-body">
+          <svg id="out-preview" class="out-preview" viewBox="0 0 216 96" role="img" aria-label="Live signal swatch"></svg>
+          <label>
+            Patch title
+            <input type="text" name="title" value="Signal patch 01" maxlength="32">
+          </label>
+          <output id="out-summary" class="out-summary" for="node-gen node-xform node-pal"></output>
+          <button type="button" id="btn-randomise" class="rand-btn">Randomise</button>
+        </div>
+      </form>
+    </canvas>
+    <!-- #endregion canvas -->
+    <div id="plain-host" class="plain-grid" hidden></div>
+    <div class="graph-hud" id="graph-hud" aria-live="polite"></div>
+  </div>
+  <p class="note" id="graph-hint">
+    Drag empty space to pan, wheel or pinch to zoom (35% to 300%), drag any node header to move it, drag from an output port to an input port (or tap output then input) to rewire, and tap a wired input port to disconnect it.
+  </p>
+
+  <details class="show-code">
+    <summary>Show the code <small>Bézier wires, camera zoom and live form nodes on one canvas</small></summary>
+    <ol>
+      <li data-code="#canvas"><b>Four live <code>&lt;form&gt;</code> nodes inside one drawable canvas.</b> Every select, slider, colour input, checkbox, text box and port button stays native HTML.</li>
+      <li data-code="#graph-eval"><b>Evaluating the signal chain from live form values and active wires.</b> Changing a control or rewiring a port recalculates colours, waveform geometry and the SVG swatch inside the Preview node.</li>
+      <li data-code="#paint"><b>Drawing glowing Bézier wires behind the nodes, then re-rasterising each form at the camera zoom.</b> Wires and optional signal pulses paint first, each visible form paints with 5-argument <code>drawElementImage()</code>, off-screen nodes park their hit boxes via <code>updateElementGeometry()</code>, and the minimap paints last.</li>
+      <li data-code="#wiring"><b>Dragging nodes and rewiring ports by pointer or tap.</b> Each port's world coordinate comes from its layout offset inside its form, so wires stay locked to port dots at any zoom level.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Node-based editors such as Blender Shader Nodes, ComfyUI, cables.gl, Rete and React Flow all face the same browser split: put HTML controls on top of an SVG wire layer and CSS <code>transform: scale()</code> rasterises cards into a bitmap that turns fuzzy at 250% zoom, or draw the whole graph onto a canvas and rebuild every slider, dropdown and text input from scratch. Following <a href="/board/">/board/</a>, this experiment puts four <code>&lt;form drawable&gt;</code> elements directly inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> and lets one 2D paint handler draw both the wires and the DOM.
+  </p>
+  <p>
+    On each <code>paint</code> event, the 2D context scales by <code>devicePixelRatio</code>, draws the background dot grid, and strokes every active wire as a horizontal-tangent cubic Bézier curve (an outer glow pass plus a bright core coloured by the live signal). Each visible form node then draws on top under <code>ctx.translate(sx, sy); ctx.scale(cam.k, cam.k);</code> with 5-argument <code>ctx.drawElementImage(node.el, 0, 0, w, h)</code>. Because <code>drawElementImage()</code> replays the element's paint commands under the current canvas matrix, labels, borders, inputs and the inline preview SVG re-rasterise cleanly from 35% overview to 300% close-up, and hit-testing tracks the same matrix.
+  </p>
+  <p>
+    Nodes dragged off screen aren't drawn, so the paint handler calls <code>canvas.updateElementGeometry(node.el, { canvasTransform: OFFSTAGE })</code> to park their hit boxes away from clicks. After a node drag or camera move finishes, the script toggles a <code>data-hit</code> attribute on moved forms so Chromium clears its hit-test cache without triggering a paint loop. When HTML-in-canvas isn't available or the 2D context fires <code>contextlost</code>, the four forms move into a plain CSS grid with a visible notice so every control keeps working.
+  </p>
+
+  <h2>Live checks</h2>
+  <table class="results">
+    <thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead>
+    <tbody id="tests"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>Prior art and inspiration.</strong> The node-and-wire interaction follows Blender Shader Nodes, ComfyUI, cables.gl, Rete and React Flow, while the zoomable 2D <code>drawElementImage()</code> camera builds directly on <a href="/board/">/board/</a>.</li>
+    <li><strong>Single-canvas layering removes overlay sync.</strong> Drawing glowing cubic Bézier wires first and calling <code>drawElementImage()</code> for each form afterwards puts wires behind nodes in one coordinate space, with zero DOM z-index clashes and no separate SVG transform matrix to keep aligned during pan and zoom.</li>
+    <li><strong>Port anchors stay exact from CSS layout offsets.</strong> Reading each port button's <code>offsetTop</code> relative to its <code>&lt;form&gt;</code> gives graph-space coordinates that don't depend on current camera zoom or device scale, so wires stay locked to port dots while dragging or zooming.</li>
+    <li><strong>Off-screen nodes need explicit hit-box parking.</strong> Skipping <code>drawElementImage()</code> for a culled node leaves its previous hit region active until <code>updateElementGeometry()</code> parks it off stage and a DOM attribute toggle clears the hit-test cache.</li>
+    <li><strong>Verification status.</strong> Live browser runs in headless Chromium 157 and Chrome 159 on Android are not verified yet; the six checks above run on isolated fixtures in your browser and report their own pixel and hit-test measurements directly.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, inkFraction, nextPaint, runTests, stillDrawn, supported, testStage } from '/shared/support.js';
+
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const stage = $('graph-stage');
+  const canvas = $('graph-canvas');
+  const plainHost = $('plain-host');
+  const fallbackNote = $('graph-fallback-note');
+  const hud = $('graph-hud');
+  const controls = $('graph-controls');
+  const zoomOutVal = $('zoom-out-val');
+  const btnPulses = $('btn-pulses');
+  const ctx = supported ? canvas.getContext('2d') : null;
+
+  const OFFSTAGE = new DOMMatrix().translate(-100000, -100000);
+  const MIN_K = 0.35;
+  const MAX_K = 3.0;
+  const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+  const DEFAULT_LAYOUT = {
+    gen: { x: 24, y: 122 },
+    xform: { x: 304, y: 20 },
+    pal: { x: 304, y: 274 },
+    out: { x: 588, y: 84 },
+  };
+  const DEFAULT_WIRES = [
+    { from: 'gen:signal', to: 'xform:in' },
+    { from: 'xform:out', to: 'out:signal' },
+    { from: 'gen:signal', to: 'pal:in' },
+    { from: 'pal:out', to: 'out:colour' },
+  ];
+
+  const nodes = [
+    { id: 'gen', el: $('node-gen'), x: DEFAULT_LAYOUT.gen.x, y: DEFAULT_LAYOUT.gen.y, z: 1, parked: false, pill: '#e05a2b' },
+    { id: 'xform', el: $('node-xform'), x: DEFAULT_LAYOUT.xform.x, y: DEFAULT_LAYOUT.xform.y, z: 2, parked: false, pill: '#16a394' },
+    { id: 'pal', el: $('node-pal'), x: DEFAULT_LAYOUT.pal.x, y: DEFAULT_LAYOUT.pal.y, z: 3, parked: false, pill: '#3882f0' },
+    { id: 'out', el: $('node-out'), x: DEFAULT_LAYOUT.out.x, y: DEFAULT_LAYOUT.out.y, z: 4, parked: false, pill: '#9b62e8' },
+  ];
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+  let wires = DEFAULT_WIRES.map((w) => ({ ...w }));
+  let cam = { x: 0, y: 0, k: 1 };
+  let size = { w: 0, h: 0, dpr: 1 };
+  let topZ = 10;
+  let hitTick = 0;
+  let pendingOut = null;
+  let wireDrag = null;
+  let pulsesOn = false;
+  let pulsePhase = 0;
+  let pulseRaf = 0;
+  let lastFrame = 0;
+  let stageVisible = true;
+  let contextLost = false;
+  let statusNotice = '';
+  let evalState = null;
+
+  // Prevent Enter in any node form from submitting or reloading the page.
+  for (const n of nodes) {
+    n.el.addEventListener('submit', (e) => e.preventDefault());
+  }
+
+  // ---- Colour helpers ----
+  function hexToRgb(hex) {
+    const clean = String(hex || '#888888').replace('#', '');
+    const full = clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean.padEnd(6, '0');
+    return [
+      parseInt(full.slice(0, 2), 16) || 0,
+      parseInt(full.slice(2, 4), 16) || 0,
+      parseInt(full.slice(4, 6), 16) || 0,
+    ];
+  }
+  function rgbToHex(r, g, b) {
+    const c = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    return `#${c(r)}${c(g)}${c(b)}`;
+  }
+  function invertHex(hex) {
+    const [r, g, b] = hexToRgb(hex);
+    return rgbToHex(255 - r, 255 - g, 255 - b);
+  }
+  function blendHex(baseHex, accentHex, mode, contrast) {
+    const a = hexToRgb(baseHex).map((v) => v / 255);
+    const b = hexToRgb(accentHex).map((v) => v / 255);
+    const out = [0, 1, 2].map((i) => {
+      let v;
+      if (mode === 'Multiply') v = a[i] * b[i];
+      else if (mode === 'Screen') v = 1 - (1 - a[i]) * (1 - b[i]);
+      else v = a[i] * 0.52 + b[i] * 0.48;
+      v = (v - 0.5) * contrast + 0.5;
+      return Math.max(0, Math.min(1, v)) * 255;
+    });
+    return rgbToHex(out[0], out[1], out[2]);
+  }
+
+  // #region graph-eval
+  function readFormValues() {
+    const gf = nodeById.get('gen').el;
+    const xf = nodeById.get('xform').el;
+    const pf = nodeById.get('pal').el;
+    const of = nodeById.get('out').el;
+    return {
+      wave: gf.elements.wave.value,
+      freq: Number(gf.elements.freq.value),
+      primary: gf.elements.primary.value,
+      angle: Number(xf.elements.angle.value),
+      scale: Number(xf.elements.scale.value),
+      invert: xf.elements.invert.checked,
+      accent: pf.elements.accent.value,
+      contrast: Number(pf.elements.contrast.value),
+      blend: pf.elements.blend.value,
+      title: of.elements.title.value.trim() || 'Untitled patch',
+    };
+  }
+
+  function evaluateGraph(vals, wireList) {
+    const incoming = (toPort) => wireList.find((w) => w.to === toPort)?.from ?? null;
+    const genSignal = {
+      active: true,
+      wave: vals.wave,
+      freq: vals.freq,
+      angle: 0,
+      scale: 1,
+      invert: false,
+      colour: vals.primary,
+      transformed: false,
+    };
+
+    const xformSource = incoming('xform:in');
+    const xformSignal = xformSource === 'gen:signal'
+      ? {
+          ...genSignal,
+          angle: vals.angle,
+          scale: vals.scale,
+          invert: vals.invert,
+          colour: vals.invert ? invertHex(vals.primary) : vals.primary,
+          transformed: true,
+        }
+      : { ...genSignal, active: false, colour: '#64748b', transformed: false };
+
+    const palSource = incoming('pal:in');
+    const palBase = palSource === 'xform:out' && xformSignal.active
+      ? xformSignal.colour
+      : palSource === 'gen:signal'
+        ? genSignal.colour
+        : '#7c8599';
+    const palBlended = blendHex(palBase, vals.accent, vals.blend, vals.contrast);
+
+    const outSigSrc = incoming('out:signal');
+    const outColSrc = incoming('out:colour');
+    let finalSig = null;
+    if (outSigSrc === 'xform:out' && xformSignal.active) finalSig = xformSignal;
+    else if (outSigSrc === 'gen:signal') finalSig = genSignal;
+
+    const paletteActive = outColSrc === 'pal:out';
+    const primary = finalSig ? finalSig.colour : '#475569';
+    const secondary = paletteActive
+      ? palBlended
+      : (finalSig ? (finalSig.invert ? '#e2e8f0' : '#94a3b8') : '#334155');
+    const accent = paletteActive ? vals.accent : primary;
+
+    return {
+      vals,
+      finalSig,
+      paletteActive,
+      primary,
+      secondary,
+      accent,
+      wireCount: wireList.length,
+      portColours: {
+        'gen:signal': genSignal.colour,
+        'xform:out': xformSignal.active ? xformSignal.colour : '#64748b',
+        'pal:out': palBlended,
+      },
+    };
+  }
+
+  function buildPreviewSvg(state) {
+    const W = 216, H = 96;
+    if (!state.finalSig) {
+      return `<rect width="${W}" height="${H}" fill="#11151d"/>` +
+        `<line x1="0" y1="48" x2="${W}" y2="48" stroke="#334155" stroke-dasharray="4 4" stroke-width="1.5"/>` +
+        `<text x="108" y="42" text-anchor="middle" fill="#94a3b8" font-family="ui-monospace,monospace" font-size="11">No pattern wired</text>` +
+        `<text x="108" y="62" text-anchor="middle" fill="#64748b" font-family="ui-monospace,monospace" font-size="10">Connect Signal or Warped out</text>`;
+    }
+    const { wave, freq, angle, scale, invert } = state.finalSig;
+    const bg = invert ? '#f1f5f9' : '#0f131b';
+    const fg1 = state.primary;
+    const fg2 = state.secondary;
+    const fg3 = state.accent;
+    let body = `<rect width="${W}" height="${H}" fill="${bg}"/>`;
+
+    if (wave === 'Sine') {
+      const lines = 4;
+      for (let l = 0; l < lines; l++) {
+        let d = '';
+        const phase = (angle * Math.PI) / 180 + l * 0.7;
+        const amp = Math.min(34, (12 + l * 5) * scale);
+        for (let x = 0; x <= W; x += 4) {
+          const y = 44 + Math.sin((x / W) * Math.PI * 2 * (freq * 0.65) + phase) * amp;
+          d += (x === 0 ? `M${x},${y.toFixed(1)}` : `L${x},${y.toFixed(1)}`);
+        }
+        const col = l % 2 === 0 ? fg1 : fg2;
+        body += `<path d="${d}" fill="none" stroke="${col}" stroke-width="${(2.6 - l * 0.35).toFixed(2)}" stroke-opacity="${(0.95 - l * 0.14).toFixed(2)}"/>`;
+      }
+    } else if (wave === 'Spiral') {
+      const turns = Math.max(1.5, freq * 0.55);
+      const pts = 90;
+      const rad = (angle * Math.PI) / 180;
+      for (let arm = 0; arm < 2; arm++) {
+        let d = '';
+        for (let i = 0; i <= pts; i++) {
+          const t = i / pts;
+          const a = t * Math.PI * 2 * turns + rad + arm * Math.PI;
+          const r = t * 44 * scale;
+          const x = 108 + Math.cos(a) * r * 1.45;
+          const y = 45 + Math.sin(a) * r;
+          d += (i === 0 ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`);
+        }
+        body += `<path d="${d}" fill="none" stroke="${arm === 0 ? fg1 : fg2}" stroke-width="2.4" stroke-linecap="round"/>`;
+      }
+    } else if (wave === 'Checker') {
+      const step = Math.max(12, Math.round(48 / (0.6 + freq * 0.28)));
+      let cells = '';
+      for (let y = -60; y < H + 60; y += step) {
+        for (let x = -60; x < W + 60; x += step) {
+          const odd = ((Math.floor(x / step) + Math.floor(y / step)) & 1) === 0;
+          cells += `<rect x="${x}" y="${y}" width="${step}" height="${step}" fill="${odd ? fg1 : fg2}" fill-opacity="${odd ? '0.88' : '0.42'}"/>`;
+        }
+      }
+      body += `<g transform="translate(108 45) rotate(${angle}) scale(${scale.toFixed(2)}) translate(-108 -45)">${cells}</g>`;
+    } else {
+      // Plasma interference blobs and contour rings
+      const rad = (angle * Math.PI) / 180;
+      const count = Math.min(8, Math.max(3, Math.round(freq * 0.7)));
+      for (let i = 0; i < count; i++) {
+        const a = rad + (i / count) * Math.PI * 2;
+        const cx = 108 + Math.cos(a) * 46 * Math.min(1.4, scale);
+        const cy = 44 + Math.sin(a * 1.3) * 22 * Math.min(1.4, scale);
+        const r = (16 + (i % 3) * 8) * Math.min(1.5, scale);
+        body += `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="${i % 2 === 0 ? fg1 : fg2}" fill-opacity="0.34" stroke="${fg3}" stroke-opacity="0.65" stroke-width="1.2"/>`;
+      }
+    }
+
+    // Swatch strip along bottom edge
+    body += `<rect x="0" y="${H - 12}" width="72" height="12" fill="${fg1}"/>`;
+    body += `<rect x="72" y="${H - 12}" width="72" height="12" fill="${fg2}"/>`;
+    body += `<rect x="144" y="${H - 12}" width="72" height="12" fill="${fg3}"/>`;
+    return body;
+  }
+
+  function syncGraph() {
+    const vals = readFormValues();
+    $('val-freq').textContent = `${vals.freq.toFixed(1)} Hz`;
+    $('val-angle').textContent = `${vals.angle} deg`;
+    $('val-scale').textContent = `${vals.scale.toFixed(2)}x`;
+    $('val-contrast').textContent = `${vals.contrast.toFixed(2)}x`;
+
+    evalState = evaluateGraph(vals, wires);
+    $('out-preview').innerHTML = buildPreviewSvg(evalState);
+
+    const route = !evalState.finalSig
+      ? 'no signal'
+      : evalState.finalSig.transformed
+        ? `${evalState.finalSig.wave} ${vals.freq.toFixed(1)}Hz · ${vals.angle}deg · ${vals.scale.toFixed(2)}x${vals.invert ? ' · inv' : ''}`
+        : `${evalState.finalSig.wave} ${vals.freq.toFixed(1)}Hz · direct`;
+    const palNote = evalState.paletteActive ? `${vals.blend} ${evalState.secondary}` : 'mono';
+    $('out-summary').textContent = `${vals.title}: ${route} | ${palNote} (${wires.length} wires)`;
+
+    // Update port visual states on the live DOM buttons
+    for (const btn of document.querySelectorAll('.port-btn')) {
+      const id = btn.dataset.port;
+      const wired = wires.some((w) => w.from === id || w.to === id);
+      btn.dataset.wired = String(wired);
+      btn.setAttribute('aria-pressed', String(pendingOut === id));
+      const wire = wires.find((w) => w.from === id || w.to === id);
+      const col = evalState.portColours[wire?.from ?? id] ?? '#ff7a4d';
+      btn.style.setProperty('--port-col', col);
+    }
+    for (const n of nodes) {
+      n.el.dataset.pending = String(!!pendingOut && pendingOut.startsWith(`${n.id}:`));
+    }
+    updateHud();
+    requestPaint();
+  }
+  // #endregion graph-eval
+
+  for (const n of nodes) {
+    n.el.addEventListener('input', syncGraph);
+    n.el.addEventListener('change', syncGraph);
+  }
+
+  $('btn-randomise').addEventListener('click', () => {
+    const gf = nodeById.get('gen').el;
+    const xf = nodeById.get('xform').el;
+    const pf = nodeById.get('pal').el;
+    const waves = ['Sine', 'Spiral', 'Checker', 'Plasma'];
+    const blends = ['Mix', 'Multiply', 'Screen'];
+    const paletteA = ['#d2491f', '#e11d48', '#d97706', '#0d9488', '#7c3aed', '#ea580c'];
+    const paletteB = ['#1e6bd6', '#059669', '#2563eb', '#db2777', '#0891b2', '#65a30d'];
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    gf.elements.wave.value = pick(waves);
+    gf.elements.freq.value = String((Math.floor(Math.random() * 20) + 3) * 0.5);
+    gf.elements.primary.value = pick(paletteA);
+    xf.elements.angle.value = String(Math.floor(Math.random() * 360));
+    xf.elements.scale.value = (0.55 + Math.random() * 1.5).toFixed(2);
+    xf.elements.invert.checked = Math.random() < 0.35;
+    pf.elements.accent.value = pick(paletteB);
+    pf.elements.contrast.value = (0.8 + Math.random() * 1.3).toFixed(2);
+    pf.elements.blend.value = pick(blends);
+    statusNotice = 'Randomised upstream controls';
+    syncGraph();
+  });
+
+  // ---- Camera and coordinates ----
+  function clampK(k) {
+    return Math.max(MIN_K, Math.min(MAX_K, k));
+  }
+  function localPt(e) {
+    const r = canvas.getBoundingClientRect();
+    const z = (canvas.clientWidth || r.width) / (r.width || 1);
+    return { x: (e.clientX - r.left) * z, y: (e.clientY - r.top) * z };
+  }
+  function screenToWorld(sx, sy) {
+    return { x: cam.x + sx / cam.k, y: cam.y + sy / cam.k };
+  }
+  function worldToScreen(wx, wy) {
+    return { x: (wx - cam.x) * cam.k, y: (wy - cam.y) * cam.k };
+  }
+  function nodeSize(n) {
+    return {
+      w: n.el.offsetWidth || (n.id === 'out' ? 244 : 232),
+      h: n.el.offsetHeight || 220,
+    };
+  }
+  function graphBounds() {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of nodes) {
+      const s = nodeSize(n);
+      x0 = Math.min(x0, n.x);
+      y0 = Math.min(y0, n.y);
+      x1 = Math.max(x1, n.x + s.w);
+      y1 = Math.max(y1, n.y + s.h);
+    }
+    return { x: x0, y: y0, w: Math.max(100, x1 - x0), h: Math.max(100, y1 - y0) };
+  }
+  function bumpHitCache() {
+    hitTick++;
+    for (const n of nodes) n.el.dataset.hit = String(hitTick);
+  }
+
+  let glide = null;
+  function flyTo(target, ms = 260) {
+    if (ms === 0 || reducedMotionQuery.matches) {
+      cam = { x: target.x, y: target.y, k: clampK(target.k) };
+      glide = null;
+      cameraChanged(true);
+      return;
+    }
+    glide = { from: { ...cam }, to: { ...target, k: clampK(target.k) }, t0: performance.now(), ms };
+    requestAnimationFrame(stepGlide);
+  }
+  function stepGlide(now) {
+    if (!glide) return;
+    const t = Math.min(1, (now - glide.t0) / glide.ms);
+    const s = t * t * (3 - 2 * t);
+    const zk = Math.exp(Math.log(glide.from.k) + (Math.log(glide.to.k) - Math.log(glide.from.k)) * s);
+    const c0x = glide.from.x + size.w / 2 / glide.from.k;
+    const c0y = glide.from.y + size.h / 2 / glide.from.k;
+    const c1x = glide.to.x + size.w / 2 / glide.to.k;
+    const c1y = glide.to.y + size.h / 2 / glide.to.k;
+    cam = {
+      k: zk,
+      x: c0x + (c1x - c0x) * s - size.w / 2 / zk,
+      y: c0y + (c1y - c0y) * s - size.h / 2 / zk,
+    };
+    cameraChanged(t >= 1);
+    if (t < 1) requestAnimationFrame(stepGlide);
+    else glide = null;
+  }
+  function zoomAt(sx, sy, factor) {
+    glide = null;
+    const before = screenToWorld(sx, sy);
+    cam.k = clampK(cam.k * factor);
+    cam.x = before.x - sx / cam.k;
+    cam.y = before.y - sy / cam.k;
+    cameraChanged(true);
+  }
+  function fitAll(ms = 260) {
+    if (!size.w || !size.h) return;
+    const b = graphBounds();
+    const pad = size.w < 500 ? 18 : 34;
+    const k = clampK(Math.min(1.05, (size.w - pad * 2) / b.w, (size.h - pad * 2) / b.h));
+    flyTo({
+      k,
+      x: b.x + b.w / 2 - size.w / 2 / k,
+      y: b.y + b.h / 2 - size.h / 2 / k,
+    }, ms);
+  }
+  function zoomToNode(nodeId, targetK = 2.5, ms = 280) {
+    if (!size.w || !size.h) return;
+    const n = nodeById.get(nodeId) ?? nodes[0];
+    const s = nodeSize(n);
+    const k = clampK(targetK);
+    flyTo({
+      k,
+      x: n.x + s.w / 2 - size.w / 2 / k,
+      y: n.y + s.h / 2 - size.h / 2 / k,
+    }, ms);
+  }
+
+  let cacheTimer = 0;
+  function cameraChanged(settled) {
+    zoomOutVal.textContent = `${Math.round(cam.k * 100)}%`;
+    updateHud();
+    requestPaint();
+    clearTimeout(cacheTimer);
+    if (settled) cacheTimer = setTimeout(bumpHitCache, 90);
+  }
+  function updateHud() {
+    const pct = `${Math.round(cam.k * 100)}%`;
+    const wireText = `${wires.length} wire${wires.length === 1 ? '' : 's'}`;
+    if (pendingOut) {
+      hud.textContent = `${pct} · Tap an input port to connect ${pendingOut} (Esc cancels)`;
+    } else if (statusNotice) {
+      hud.textContent = `${pct} · ${wireText} · ${statusNotice}`;
+    } else {
+      hud.textContent = `${pct} · ${nodes.length} forms · ${wireText}`;
+    }
+  }
+
+  // #region wiring
+  function portWorldPos(portId) {
+    const btn = canvas.querySelector(`.port-btn[data-port="${portId}"]`) || plainHost.querySelector(`.port-btn[data-port="${portId}"]`);
+    if (!btn) return null;
+    const form = btn.closest('form');
+    const n = nodeById.get(form?.dataset.node);
+    if (!n) return null;
+    let oy = 0, cur = btn;
+    while (cur && cur !== form) {
+      oy += cur.offsetTop;
+      cur = cur.offsetParent;
+    }
+    const s = nodeSize(n);
+    const x = btn.dataset.dir === 'in' ? n.x : n.x + s.w;
+    const y = n.y + oy + btn.offsetHeight / 2;
+    return { x, y, dir: btn.dataset.dir, nodeId: n.id };
+  }
+
+  function isValidWire(fromPort, toPort) {
+    if (!fromPort || !toPort) return false;
+    const fromNode = fromPort.split(':')[0];
+    const toNode = toPort.split(':')[0];
+    if (fromNode === toNode) return false;
+    // Keep the graph acyclic (gen -> xform/pal/out, xform -> pal/out, pal -> out)
+    const order = { gen: 0, xform: 1, pal: 2, out: 3 };
+    return order[fromNode] < order[toNode];
+  }
+
+  function toggleOrConnectWire(fromPort, toPort) {
+    if (!isValidWire(fromPort, toPort)) {
+      statusNotice = `Cannot wire ${fromPort} to ${toPort}`;
+      pendingOut = null;
+      syncGraph();
+      return false;
+    }
+    const exact = wires.findIndex((w) => w.from === fromPort && w.to === toPort);
+    if (exact >= 0) {
+      wires.splice(exact, 1);
+      statusNotice = `Disconnected ${fromPort} -> ${toPort}`;
+    } else {
+      wires = wires.filter((w) => w.to !== toPort);
+      wires.push({ from: fromPort, to: toPort });
+      statusNotice = `Wired ${fromPort} -> ${toPort}`;
+    }
+    pendingOut = null;
+    syncGraph();
+    return true;
+  }
+
+  function findInputPortNear(wx, wy) {
+    const radius = Math.max(24, 26 / cam.k);
+    let best = null, bestD = radius;
+    for (const btn of canvas.querySelectorAll('.port-btn[data-dir="in"]')) {
+      const p = portWorldPos(btn.dataset.port);
+      if (!p) continue;
+      const d = Math.hypot(p.x - wx, p.y - wy);
+      if (d < bestD) { bestD = d; best = btn.dataset.port; }
+    }
+    return best;
+  }
+
+  // Node dragging by header bar
+  for (const n of nodes) {
+    n.el.addEventListener('pointerdown', () => {
+      n.z = ++topZ;
+      requestPaint();
+    }, true);
+
+    const head = n.el.querySelector('.node-head');
+    let drag = null;
+    head.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 && e.pointerType === 'mouse') return;
+      glide = null;
+      n.z = ++topZ;
+      drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      head.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    head.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      n.x += (e.clientX - drag.x) / cam.k;
+      n.y += (e.clientY - drag.y) / cam.k;
+      drag.x = e.clientX;
+      drag.y = e.clientY;
+      requestPaint();
+    });
+    const endDrag = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag = null;
+      bumpHitCache();
+    };
+    head.addEventListener('pointerup', endDrag);
+    head.addEventListener('pointercancel', endDrag);
+  }
+
+  // Port wiring: drag output -> input, or click/tap output then input
+  let suppressNextPortClick = false;
+  for (const btn of document.querySelectorAll('.port-btn')) {
+    btn.addEventListener('pointerdown', (e) => {
+      if (btn.dataset.dir !== 'out') return;
+      if (e.button !== 0 && e.pointerType === 'mouse') return;
+      const start = portWorldPos(btn.dataset.port);
+      if (!start) return;
+      wireDrag = {
+        id: e.pointerId,
+        from: btn.dataset.port,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        wx: start.x,
+        wy: start.y,
+        moved: false,
+        hoverTo: null,
+      };
+      e.stopPropagation();
+    });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (suppressNextPortClick) {
+        suppressNextPortClick = false;
+        return;
+      }
+      const id = btn.dataset.port;
+      if (btn.dataset.dir === 'out') {
+        pendingOut = pendingOut === id ? null : id;
+        statusNotice = pendingOut ? '' : 'Cleared port selection';
+        syncGraph();
+      } else if (pendingOut) {
+        toggleOrConnectWire(pendingOut, id);
+      } else {
+        const idx = wires.findIndex((w) => w.to === id);
+        if (idx >= 0) {
+          const old = wires[idx];
+          wires.splice(idx, 1);
+          statusNotice = `Disconnected ${old.from} -> ${old.to}`;
+          syncGraph();
+        } else {
+          statusNotice = 'Tap an output port first to connect here';
+          updateHud();
+        }
+      }
+    });
+  }
+
+  window.addEventListener('pointermove', (e) => {
+    if (!wireDrag || e.pointerId !== wireDrag.id) return;
+    const dist = Math.hypot(e.clientX - wireDrag.startClientX, e.clientY - wireDrag.startClientY);
+    if (dist > 6) wireDrag.moved = true;
+    const lp = localPt(e);
+    const wp = screenToWorld(lp.x, lp.y);
+    wireDrag.wx = wp.x;
+    wireDrag.wy = wp.y;
+    const hit = findInputPortNear(wp.x, wp.y);
+    wireDrag.hoverTo = hit && isValidWire(wireDrag.from, hit) ? hit : null;
+    requestPaint();
+  });
+
+  const finishWireDrag = (e) => {
+    if (!wireDrag || e.pointerId !== wireDrag.id) return;
+    const activeDrag = wireDrag;
+    wireDrag = null;
+    if (activeDrag.moved) {
+      suppressNextPortClick = true;
+      setTimeout(() => { suppressNextPortClick = false; }, 60);
+      if (activeDrag.hoverTo) {
+        toggleOrConnectWire(activeDrag.from, activeDrag.hoverTo);
+      } else {
+        statusNotice = 'Drop onto an input port to wire';
+        updateHud();
+        requestPaint();
+      }
+    }
+  };
+  window.addEventListener('pointerup', finishWireDrag);
+  window.addEventListener('pointercancel', finishWireDrag);
+  // #endregion wiring
+
+  // ---- Background pan, pinch zoom, wheel zoom, minimap hit ----
+  const MAP = { w: 144, h: 92, pad: 10 };
+  function mapGeometry(w, h) {
+    const b = graphBounds();
+    const view = { x: cam.x, y: cam.y, w: w / cam.k, h: h / cam.k };
+    const x0 = Math.min(b.x, view.x) - 30;
+    const y0 = Math.min(b.y, view.y) - 30;
+    const x1 = Math.max(b.x + b.w, view.x + view.w) + 30;
+    const y1 = Math.max(b.y + b.h, view.y + view.h) + 30;
+    const s = Math.min((MAP.w - 14) / (x1 - x0), (MAP.h - 14) / (y1 - y0));
+    const left = w - MAP.w - MAP.pad;
+    const top = h - MAP.h - MAP.pad;
+    const ox = left + (MAP.w - (x1 - x0) * s) / 2;
+    const oy = top + (MAP.h - (y1 - y0) * s) / 2;
+    return { view, s, ox, oy, x0, y0, left, top };
+  }
+  function minimapHit(sx, sy) {
+    if (size.w < 300 || size.h < 240) return null;
+    const g = mapGeometry(size.w, size.h);
+    if (sx < g.left || sy < g.top || sx > g.left + MAP.w || sy > g.top + MAP.h) return null;
+    return { x: g.x0 + (sx - g.ox) / g.s, y: g.y0 + (sy - g.oy) / g.s };
+  }
+
+  const pointers = new Map();
+  let panId = null, pinch = null, mapDrag = false;
+  canvas.addEventListener('pointerdown', (e) => {
+    const p = localPt(e);
+    pointers.set(e.pointerId, p);
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) };
+      panId = null;
+      mapDrag = false;
+      return;
+    }
+    if (e.target !== canvas) return;
+    glide = null;
+    const onMap = minimapHit(p.x, p.y);
+    if (onMap) {
+      mapDrag = true;
+      cam.x = onMap.x - size.w / 2 / cam.k;
+      cam.y = onMap.y - size.h / 2 / cam.k;
+      cameraChanged(false);
+    }
+    panId = e.pointerId;
+    canvas.setPointerCapture(e.pointerId);
+    canvas.classList.add('panning');
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    const prev = pointers.get(e.pointerId);
+    const p = localPt(e);
+    pointers.set(e.pointerId, p);
+    if (pointers.size >= 2 && pinch) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      cam.x -= (p.x - prev.x) / 2 / cam.k;
+      cam.y -= (p.y - prev.y) / 2 / cam.k;
+      if (pinch.d > 0 && d > 0) zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, d / pinch.d);
+      else cameraChanged(false);
+      pinch.d = d;
+      e.preventDefault();
+      return;
+    }
+    if (e.pointerId !== panId) return;
+    if (mapDrag) {
+      const onMap = minimapHit(p.x, p.y);
+      if (onMap) {
+        cam.x = onMap.x - size.w / 2 / cam.k;
+        cam.y = onMap.y - size.h / 2 / cam.k;
+        cameraChanged(false);
+      }
+      return;
+    }
+    cam.x -= (p.x - prev.x) / cam.k;
+    cam.y -= (p.y - prev.y) / cam.k;
+    cameraChanged(false);
+  });
+
+  const releasePan = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = null;
+    if (e.pointerId === panId) {
+      panId = null;
+      mapDrag = false;
+      canvas.classList.remove('panning');
+      bumpHitCache();
+    }
+  };
+  canvas.addEventListener('pointerup', releasePan);
+  canvas.addEventListener('pointercancel', releasePan);
+  window.addEventListener('pointerup', releasePan);
+
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const p = localPt(e);
+    const scale = e.ctrlKey || e.metaKey ? 0.01 : 0.0022;
+    zoomAt(p.x, p.y, Math.exp(-e.deltaY * scale));
+  }, { passive: false });
+
+  canvas.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && pendingOut) {
+      pendingOut = null;
+      statusNotice = 'Cancelled wiring';
+      syncGraph();
+      e.preventDefault();
+      return;
+    }
+    if (e.target !== canvas) return;
+    const step = 64 / cam.k;
+    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    if (moves[e.key]) {
+      cam.x += moves[e.key][0];
+      cam.y += moves[e.key][1];
+      cameraChanged(true);
+    } else if (e.key === '+' || e.key === '=') {
+      zoomAt(size.w / 2, size.h / 2, 1.25);
+    } else if (e.key === '-') {
+      zoomAt(size.w / 2, size.h / 2, 0.8);
+    } else if (e.key === '0') {
+      fitAll();
+    } else {
+      return;
+    }
+    e.preventDefault();
+  });
+
+  // ---- Toolbar buttons ----
+  $('btn-zoom-in').addEventListener('click', () => zoomAt(size.w / 2, size.h / 2, 1.25));
+  $('btn-zoom-out').addEventListener('click', () => zoomAt(size.w / 2, size.h / 2, 0.8));
+  $('btn-zoom-reset').addEventListener('click', () => zoomAt(size.w / 2, size.h / 2, 1 / cam.k));
+  $('btn-fit').addEventListener('click', () => fitAll());
+  $('btn-zoom-250').addEventListener('click', () => zoomToNode('xform', 2.5));
+  $('btn-reset').addEventListener('click', () => {
+    for (const n of nodes) {
+      n.x = DEFAULT_LAYOUT[n.id].x;
+      n.y = DEFAULT_LAYOUT[n.id].y;
+    }
+    wires = DEFAULT_WIRES.map((w) => ({ ...w }));
+    pendingOut = null;
+    statusNotice = 'Reset graph layout and wires';
+    syncGraph();
+    fitAll();
+  });
+
+  function updatePulseLoop() {
+    const active = pulsesOn && !reducedMotionQuery.matches && stageVisible && !document.hidden && supported && !contextLost;
+    btnPulses.setAttribute('aria-pressed', String(pulsesOn));
+    if (active && !pulseRaf) {
+      lastFrame = performance.now();
+      const tick = (now) => {
+        if (!(pulsesOn && !reducedMotionQuery.matches && stageVisible && !document.hidden && !contextLost)) {
+          pulseRaf = 0;
+          return;
+        }
+        pulsePhase = (pulsePhase + (now - lastFrame) * 0.00045) % 1;
+        lastFrame = now;
+        requestPaint();
+        pulseRaf = requestAnimationFrame(tick);
+      };
+      pulseRaf = requestAnimationFrame(tick);
+    } else if (!active && pulseRaf) {
+      cancelAnimationFrame(pulseRaf);
+      pulseRaf = 0;
+    }
+  }
+  btnPulses.addEventListener('click', () => {
+    if (reducedMotionQuery.matches) {
+      pulsesOn = false;
+      statusNotice = 'Reduced motion is on: pulses stay static';
+      updateHud();
+      updatePulseLoop();
+      return;
+    }
+    pulsesOn = !pulsesOn;
+    statusNotice = pulsesOn ? 'Signal pulses running' : 'Signal pulses paused';
+    updateHud();
+    updatePulseLoop();
+    requestPaint();
+  });
+  reducedMotionQuery.addEventListener('change', () => {
+    if (reducedMotionQuery.matches) pulsesOn = false;
+    updatePulseLoop();
+    requestPaint();
+  });
+  document.addEventListener('visibilitychange', updatePulseLoop);
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((entries) => {
+      stageVisible = entries[0]?.isIntersecting ?? true;
+      updatePulseLoop();
+    }, { threshold: 0.05 }).observe(stage);
+  }
+
+  // ---- Painting ----
+  function requestPaint() {
+    if (supported && !contextLost) canvas.requestPaint?.();
+  }
+
+  // #region paint
+  function bezierPoint(p0, p1, p2, p3, t) {
+    const u = 1 - t;
+    const tt = t * t, uu = u * u;
+    const uuu = uu * u, ttt = tt * t;
+    return {
+      x: uuu * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + ttt * p3.x,
+      y: uuu * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + ttt * p3.y,
+    };
+  }
+
+  function strokeWire(p0, p3, colour, { dashed = false, pulses = false } = {}) {
+    const bend = Math.max(46 * cam.k, Math.abs(p3.x - p0.x) * 0.5);
+    const p1 = { x: p0.x + bend, y: p0.y };
+    const p2 = { x: p3.x - bend, y: p3.y };
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    if (dashed) ctx.setLineDash([7 * cam.k, 5 * cam.k]);
+
+    // Soft outer glow behind the wire core
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+    ctx.strokeStyle = colour;
+    ctx.globalAlpha = 0.26;
+    ctx.lineWidth = Math.max(4, 9 * cam.k);
+    ctx.stroke();
+
+    // Crisp wire core
+    ctx.globalAlpha = 0.96;
+    ctx.lineWidth = Math.max(1.5, 2.6 * cam.k);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Travelling signal pulses (when toggled and motion allowed)
+    if (pulses) {
+      for (let i = 0; i < 3; i++) {
+        const pt = bezierPoint(p0, p1, p2, p3, (pulsePhase + i / 3) % 1);
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, Math.max(2.6, 5.2 * cam.k), 0, Math.PI * 2);
+        ctx.fillStyle = colour;
+        ctx.globalAlpha = 0.35;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, Math.max(1.6, 2.7 * cam.k), 0, Math.PI * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.globalAlpha = 0.95;
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function parkNode(n) {
+    if (n.parked) return;
+    n.parked = true;
+    canvas.updateElementGeometry?.(n.el, { canvasTransform: OFFSTAGE });
+  }
+
+  function drawMinimap(w, h) {
+    if (w < 300 || h < 240) return;
+    const g = mapGeometry(w, h);
+    const dark = darkQuery.matches;
+    ctx.save();
+    ctx.fillStyle = dark ? 'rgba(22, 24, 31, 0.92)' : 'rgba(255, 253, 248, 0.92)';
+    ctx.strokeStyle = dark ? '#3a4152' : '#c6bfb0';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(g.left, g.top, MAP.w, MAP.h, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    // Wires in minimap
+    for (const wire of wires) {
+      const a = portWorldPos(wire.from), b = portWorldPos(wire.to);
+      if (!a || !b) continue;
+      ctx.strokeStyle = evalState?.portColours[wire.from] ?? '#d2491f';
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(g.ox + (a.x - g.x0) * g.s, g.oy + (a.y - g.y0) * g.s);
+      ctx.lineTo(g.ox + (b.x - g.x0) * g.s, g.oy + (b.y - g.y0) * g.s);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // Nodes in minimap
+    for (const n of nodes) {
+      const s = nodeSize(n);
+      ctx.fillStyle = n.pill;
+      ctx.fillRect(
+        g.ox + (n.x - g.x0) * g.s,
+        g.oy + (n.y - g.y0) * g.s,
+        Math.max(3, s.w * g.s),
+        Math.max(3, s.h * g.s),
+      );
+    }
+
+    // Current viewport rectangle
+    ctx.strokeStyle = dark ? '#ff7a4d' : '#d2491f';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(
+      g.ox + (g.view.x - g.x0) * g.s,
+      g.oy + (g.view.y - g.y0) * g.s,
+      g.view.w * g.s,
+      g.view.h * g.s,
+    );
+    ctx.restore();
+  }
+
+  function paint() {
+    if (!ctx || !size.w || !size.h) return;
+    const { w, h, dpr } = size;
+    const dark = darkQuery.matches;
+    ctx.reset();
+    ctx.scale(dpr, dpr);
+
+    // Background + infinite dot grid
+    ctx.fillStyle = dark ? '#111319' : '#ebe7de';
+    ctx.fillRect(0, 0, w, h);
+
+    let step = 32;
+    while (step * cam.k < 16) step *= 2;
+    ctx.fillStyle = dark ? '#2a2f3d' : '#c7c0b0';
+    const dotR = Math.max(1, Math.min(2.2, cam.k * 1.3));
+    const startX = Math.floor(cam.x / step) * step;
+    const startY = Math.floor(cam.y / step) * step;
+    for (let wx = startX; (wx - cam.x) * cam.k < w; wx += step) {
+      const gx = (wx - cam.x) * cam.k;
+      for (let wy = startY; (wy - cam.y) * cam.k < h; wy += step) {
+        const gy = (wy - cam.y) * cam.k;
+        ctx.fillRect(gx - dotR / 2, gy - dotR / 2, dotR, dotR);
+      }
+    }
+
+    // 1. Draw glowing Bézier wires behind the nodes
+    const animatePulses = pulsesOn && !reducedMotionQuery.matches;
+    for (const wire of wires) {
+      const a = portWorldPos(wire.from);
+      const b = portWorldPos(wire.to);
+      if (!a || !b) continue;
+      const col = evalState?.portColours[wire.from] ?? '#d2491f';
+      strokeWire(worldToScreen(a.x, a.y), worldToScreen(b.x, b.y), col, { pulses: animatePulses });
+    }
+
+    // Live preview wire while dragging from an output port
+    if (wireDrag?.moved) {
+      const a = portWorldPos(wireDrag.from);
+      if (a) {
+        const targetPos = wireDrag.hoverTo ? portWorldPos(wireDrag.hoverTo) : { x: wireDrag.wx, y: wireDrag.wy };
+        const col = evalState?.portColours[wireDrag.from] ?? '#ff7a4d';
+        strokeWire(worldToScreen(a.x, a.y), worldToScreen(targetPos.x, targetPos.y), col, { dashed: !wireDrag.hoverTo });
+      }
+    }
+
+    // 2. Draw each live <form> node on top of the wires
+    for (const n of [...nodes].sort((a, b) => a.z - b.z)) {
+      const { w: nw, h: nh } = nodeSize(n);
+      const sx = (n.x - cam.x) * cam.k;
+      const sy = (n.y - cam.y) * cam.k;
+      const sw = nw * cam.k;
+      const sh = nh * cam.k;
+
+      if (sx > w || sy > h || sx + sw < 0 || sy + sh < 0) {
+        parkNode(n);
+        continue;
+      }
+
+      // Crisp backdrop behind the node card
+      ctx.save();
+      ctx.fillStyle = dark ? 'rgba(0, 0, 0, 0.42)' : 'rgba(20, 22, 28, 0.2)';
+      ctx.beginPath();
+      ctx.roundRect(sx + 3 * cam.k, sy + 5 * cam.k, sw, sh, 10 * cam.k);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.scale(cam.k, cam.k);
+      try {
+        ctx.drawElementImage(n.el, 0, 0, nw, nh);
+        n.parked = false;
+      } catch {
+        // Wait for the next paint record
+      }
+      ctx.restore();
+    }
+
+    // 3. Corner minimap
+    drawMinimap(w, h);
+  }
+  // #endregion paint
+
+  // ---- Plain-HTML fallback and context loss handling ----
+  function enterPlainFallback(message) {
+    contextLost = true;
+    updatePulseLoop();
+    stage.classList.add('plain');
+    fallbackNote.textContent = message;
+    fallbackNote.hidden = false;
+    plainHost.hidden = false;
+    for (const n of nodes) plainHost.append(n.el);
+    controls.hidden = true;
+  }
+  function restoreCanvasMode() {
+    contextLost = false;
+    for (const n of nodes) canvas.append(n.el);
+    plainHost.hidden = true;
+    fallbackNote.hidden = true;
+    stage.classList.remove('plain');
+    controls.hidden = false;
+    syncGraph();
+    requestPaint();
+    updatePulseLoop();
+  }
+
+  // ---- Startup ----
+  syncGraph();
+  if (!supported || !ctx) {
+    enterPlainFallback('HTML-in-canvas is not available in this browser, so the four form nodes are shown as plain HTML cards. Changing inputs still updates the live preview.');
+  } else {
+    canvas.addEventListener('paint', paint);
+    canvas.addEventListener('contextlost', (e) => {
+      e.preventDefault();
+      enterPlainFallback('The 2D canvas context was lost, so the form nodes moved to plain HTML until it recovers.');
+    });
+    canvas.addEventListener('contextrestored', () => {
+      restoreCanvasMode();
+    });
+    darkQuery.addEventListener('change', requestPaint);
+
+    const ro = new ResizeObserver(([entry]) => {
+      const box = entry.devicePixelContentBoxSize?.[0];
+      const cw = entry.contentRect.width;
+      const ch = entry.contentRect.height;
+      if (!cw || !ch) return;
+      const pw = Math.max(1, Math.round(box ? box.inlineSize : cw * devicePixelRatio));
+      const ph = Math.max(1, Math.round(box ? box.blockSize : ch * devicePixelRatio));
+      if (canvas.width !== pw) canvas.width = pw;
+      if (canvas.height !== ph) canvas.height = ph;
+      const first = !size.w;
+      size = { w: cw, h: ch, dpr: canvas.width / cw };
+      if (first) fitAll(0);
+      else requestPaint();
+    });
+    try { ro.observe(canvas, { box: 'device-pixel-content-box' }); } catch { ro.observe(canvas); }
+  }
+
+  // =========================================================================
+  // LIVE CHECKS (6 isolated checks; plain 2D copies for pixel readback)
+  // =========================================================================
+  const need = () => { if (!supported) throw new Error('HTML-in-canvas is not available'); };
+  const frames = (n = 2) => new Promise((resolve) => {
+    const step = () => (n-- > 0 ? requestAnimationFrame(step) : resolve());
+    step();
+  });
+
+  function copyPixels(srcCanvas) {
+    const copy = document.createElement('canvas');
+    copy.width = srcCanvas.width;
+    copy.height = srcCanvas.height;
+    const cc = copy.getContext('2d', { willReadFrequently: true });
+    cc.drawImage(srcCanvas, 0, 0);
+    const img = cc.getImageData(0, 0, copy.width, copy.height);
+    window.__gfx?.retire(copy);
+    copy.width = 0;
+    copy.height = 0;
+    return img;
+  }
+
+  function makeDrawableFixture(w, h, html) {
+    const cv = document.createElement('canvas');
+    cv.setAttribute('content', 'drawable');
+    cv.setAttribute('layoutsubtree', '');
+    cv.width = w;
+    cv.height = h;
+    cv.style.cssText = `display:block;width:${w}px;height:${h}px;background:transparent`;
+    cv.innerHTML = html;
+    testStage().append(cv);
+    const fctx = cv.getContext('2d');
+    return { cv, fctx };
+  }
+
+  runTests($('tests'), [
+    {
+      name: 'Form node draws sharply at 2.5x zoom via drawElementImage()',
+      why: 'Draws an isolated <form drawable> at 2.5x scale on a fixture canvas, copies pixels into a plain 2D canvas, and checks ink coverage and high-contrast edge transitions.',
+      timeout: 8000,
+      run: async () => {
+        need();
+        const { cv, fctx } = makeDrawableFixture(300, 140, `
+          <form class="fx-node" drawable style="width:110px;height:48px;margin:0;padding:8px;background:#ffffff;color:#111111;border:2px solid #111111;font:700 14px/1.2 system-ui,sans-serif">
+            NODE 250%
+          </form>
+        `);
+        const form = cv.querySelector('.fx-node');
+        cv.onpaint = () => {
+          fctx.reset();
+          fctx.fillStyle = '#0f131b';
+          fctx.fillRect(0, 0, cv.width, cv.height);
+          fctx.save();
+          fctx.translate(10, 10);
+          fctx.scale(2.5, 2.5);
+          fctx.drawElementImage(form, 0, 0, form.offsetWidth, form.offsetHeight);
+          fctx.restore();
+        };
+        await nextPaint(cv);
+        const img = copyPixels(cv);
+        let minL = 255, maxL = 0, sharpSteps = 0;
+        for (let y = 18; y < 120; y += 2) {
+          let prevL = null;
+          for (let x = 18; x < 275; x++) {
+            const idx = (y * img.width + x) * 4;
+            const lum = 0.299 * img.data[idx] + 0.587 * img.data[idx + 1] + 0.114 * img.data[idx + 2];
+            if (lum < minL) minL = lum;
+            if (lum > maxL) maxL = lum;
+            if (prevL !== null && Math.abs(lum - prevL) > 90) sharpSteps++;
+            prevL = lum;
+          }
+        }
+        const contrast = Math.round(maxL - minL);
+        if (contrast < 140 || sharpSteps < 20) {
+          throw new Error(`low contrast or missing scaled text: contrast=${contrast}, sharpSteps=${sharpSteps}`);
+        }
+        return `2.5x scaled form painted with contrast=${contrast}/255 and ${sharpSteps} sharp edge steps`;
+      },
+    },
+    {
+      name: 'Hit-testing lands on a moved and zoomed form control',
+      why: 'Moves and scales an isolated drawable <form> to (45, 24) at 1.8x zoom, toggles a cache-clearing attribute, and checks document.elementFromPoint() over its button.',
+      timeout: 8000,
+      run: async () => {
+        need();
+        const { cv, fctx } = makeDrawableFixture(320, 180, `
+          <form class="fx-form" drawable style="position:relative;width:120px;height:68px;margin:0;padding:10px;background:#1b1e26;color:#fff;font:12px system-ui">
+            <input type="range" value="50" style="width:96px;display:block;margin-bottom:8px">
+            <button type="button" class="fx-btn" style="width:96px;height:28px;border:0;background:#d2491f;color:#fff">Click</button>
+          </form>
+        `);
+        const form = cv.querySelector('.fx-form');
+        const btn = cv.querySelector('.fx-btn');
+        let tx = 10, ty = 10, scale = 1.0;
+        cv.onpaint = () => {
+          fctx.reset();
+          fctx.save();
+          fctx.translate(tx, ty);
+          fctx.scale(scale, scale);
+          fctx.drawElementImage(form, 0, 0, form.offsetWidth, form.offsetHeight);
+          fctx.restore();
+        };
+        await nextPaint(cv);
+        tx = 45; ty = 24; scale = 1.8;
+        form.dataset.hit = '1';
+        await nextPaint(cv);
+        await frames(2);
+
+        const rect = cv.getBoundingClientRect();
+        const cx = rect.left + tx + (btn.offsetLeft + btn.offsetWidth / 2) * scale;
+        const cy = rect.top + ty + (btn.offsetTop + btn.offsetHeight / 2) * scale;
+        const hit = document.elementFromPoint(cx, cy);
+        if (hit !== btn && !form.contains(hit)) {
+          throw new Error(`elementFromPoint(${Math.round(cx)}, ${Math.round(cy)}) returned <${hit?.localName ?? 'none'}> instead of <button.fx-btn>`);
+        }
+        return `hit <${hit.localName}${hit.className ? '.' + hit.className : ''}> at 1.8x zoom (${Math.round(cx)}, ${Math.round(cy)})`;
+      },
+    },
+    {
+      name: 'Bézier wire paints behind the node card without leaking over it',
+      why: 'Draws a bright red cubic Bézier wire across a fixture canvas, draws an opaque white <form drawable> on top, and samples pixels outside and inside the node.',
+      timeout: 8000,
+      run: async () => {
+        need();
+        const { cv, fctx } = makeDrawableFixture(260, 120, `
+          <form class="fx-card" drawable style="width:100px;height:60px;margin:0;background:#ffffff;border:1px solid #111"></form>
+        `);
+        const card = cv.querySelector('.fx-card');
+        cv.onpaint = () => {
+          fctx.reset();
+          fctx.fillStyle = '#111319';
+          fctx.fillRect(0, 0, 260, 120);
+          fctx.strokeStyle = '#e11d48';
+          fctx.lineWidth = 10;
+          fctx.beginPath();
+          fctx.moveTo(10, 60);
+          fctx.bezierCurveTo(90, 60, 170, 60, 250, 60);
+          fctx.stroke();
+          fctx.drawElementImage(card, 80, 30, card.offsetWidth, card.offsetHeight);
+        };
+        await nextPaint(cv);
+        const img = copyPixels(cv);
+        const rgb = (x, y) => {
+          const i = (y * img.width + x) * 4;
+          return [img.data[i], img.data[i + 1], img.data[i + 2]];
+        };
+        const wirePx = rgb(30, 60);
+        const cardPx = rgb(130, 60);
+        if (!(wirePx[0] > 180 && wirePx[1] < 80)) {
+          throw new Error(`exposed wire pixel at (30,60) was rgb(${wirePx.join(',')})`);
+        }
+        if (!(cardPx[0] > 230 && cardPx[1] > 230 && cardPx[2] > 230)) {
+          throw new Error(`node centre pixel at (130,60) was rgb(${cardPx.join(',')}), expected opaque white over wire`);
+        }
+        return `exposed wire rgb(${wirePx.join(',')}); occluded centre rgb(${cardPx.join(',')})`;
+      },
+    },
+    {
+      name: 'Rewiring ports changes the evaluated signal chain and preview output',
+      why: 'Evaluates the graph engine on a detached wire list: first through Transform and Palette, then bypassed straight from Generator to Preview.',
+      timeout: 4000,
+      run: async () => {
+        const sampleVals = {
+          wave: 'Spiral',
+          freq: 6,
+          primary: '#d2491f',
+          angle: 120,
+          scale: 1.6,
+          invert: true,
+          accent: '#1e6bd6',
+          contrast: 1.4,
+          blend: 'Screen',
+          title: 'Check patch',
+        };
+        const routed = evaluateGraph(sampleVals, [
+          { from: 'gen:signal', to: 'xform:in' },
+          { from: 'xform:out', to: 'out:signal' },
+          { from: 'xform:out', to: 'pal:in' },
+          { from: 'pal:out', to: 'out:colour' },
+        ]);
+        const bypassed = evaluateGraph(sampleVals, [
+          { from: 'gen:signal', to: 'out:signal' },
+        ]);
+        const svgA = buildPreviewSvg(routed);
+        const svgB = buildPreviewSvg(bypassed);
+        if (!routed.finalSig?.transformed || !routed.paletteActive) {
+          throw new Error('routed chain did not activate Transform and Palette');
+        }
+        if (bypassed.finalSig?.transformed || bypassed.paletteActive) {
+          throw new Error('bypassed chain still reported Transform or Palette active');
+        }
+        if (svgA === svgB) {
+          throw new Error('SVG preview output did not change after rewiring');
+        }
+        return `routed (${routed.primary} / ${routed.secondary}, transformed=true) -> bypassed (${bypassed.primary} / ${bypassed.secondary}, transformed=false)`;
+      },
+    },
+    {
+      name: 'Parking an off-screen node with updateElementGeometry() clears its hit box',
+      why: 'Draws a form button on a fixture canvas, confirms hit-testing finds it, then skips drawing and parks it off stage with updateElementGeometry().',
+      timeout: 8000,
+      run: async () => {
+        need();
+        const { cv, fctx } = makeDrawableFixture(220, 120, `
+          <form class="fx-park" drawable style="width:120px;height:60px;margin:0;background:#232733">
+            <button type="button" class="fx-pbtn" style="width:120px;height:60px;border:0;background:#16a394;color:#fff">Node</button>
+          </form>
+        `);
+        const form = cv.querySelector('.fx-park');
+        const btn = cv.querySelector('.fx-pbtn');
+        let visible = true;
+        cv.onpaint = () => {
+          fctx.reset();
+          fctx.fillStyle = '#111319';
+          fctx.fillRect(0, 0, 220, 120);
+          if (visible) {
+            fctx.drawElementImage(form, 20, 20, form.offsetWidth, form.offsetHeight);
+          } else {
+            cv.updateElementGeometry?.(form, { canvasTransform: OFFSTAGE });
+          }
+        };
+        await nextPaint(cv);
+        await frames(2);
+        const r = cv.getBoundingClientRect();
+        const cx = r.left + 80;
+        const cy = r.top + 50;
+        const hitBefore = document.elementFromPoint(cx, cy);
+        if (hitBefore !== btn && !form.contains(hitBefore)) {
+          throw new Error(`before parking, expected button hit, got <${hitBefore?.localName ?? 'none'}>`);
+        }
+        visible = false;
+        form.dataset.hit = 'parked';
+        await nextPaint(cv);
+        await frames(2);
+        const hitAfter = document.elementFromPoint(cx, cy);
+        if (hitAfter === btn || form.contains(hitAfter)) {
+          throw new Error(`after parking off stage, old hit box still caught <${hitAfter.localName}>`);
+        }
+        return `drawn hit <${hitBefore.localName}>; parked hit <${hitAfter?.localName ?? 'none'}>`;
+      },
+    },
+    stillDrawn(() => [
+      {
+        name: 'node graph canvas',
+        ink: async () => (stage.classList.contains('plain') ? null : inkFraction(copyPixels(canvas))),
+        rescue: () => enterPlainFallback('The node graph canvas came back blank, so the form nodes moved to plain HTML.'),
+      },
+    ]),
+  ]);
+</script>
+</body>
+</html>

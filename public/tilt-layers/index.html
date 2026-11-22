@@ -1,0 +1,1789 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>3D Tilt View DOM layer inspector</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A five-layer web interface lifted into an exploded 3D stack on one WebGL 2 canvas, inspired by Firefox 3D Tilt View and Edge 3D View.">
+<link rel="canonical" href="https://html-in-canvas.page/tilt-layers/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="3D Tilt View DOM layer inspector">
+<meta property="og:description" content="A five-layer web interface lifted into an exploded 3D stack on one WebGL 2 canvas, inspired by Firefox 3D Tilt View and Edge 3D View.">
+<meta property="og:url" content="https://html-in-canvas.page/tilt-layers/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;3D Tilt View DOM layer inspector&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="3D Tilt View DOM layer inspector">
+<meta name="twitter:description" content="A five-layer web interface lifted into an exploded 3D stack on one WebGL 2 canvas, inspired by Firefox 3D Tilt View and Edge 3D View.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;3D Tilt View DOM layer inspector&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/tilt-layers/",
+   "url": "https://html-in-canvas.page/tilt-layers/",
+   "mainEntityOfPage": "https://html-in-canvas.page/tilt-layers/",
+   "headline": "3D Tilt View DOM layer inspector",
+   "name": "3D Tilt View DOM layer inspector",
+   "description": "A five-layer web interface lifted into an exploded 3D stack on one WebGL 2 canvas, inspired by Firefox 3D Tilt View and Edge 3D View. Orbit the stack, pull the planes apart, and still click buttons, edit text and toggle filters inside every tilted layer.",
+   "abstract": "Can an exploded 3D layer view render each depth level of a live web interface on its own WebGL plane while keeping buttons, inputs and text selection interactive inside the tilted stack?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "ElementGL, texElementSubImage2D, updateElementGeometry, 3D, devtools, hit testing, texElementSubImage2D\u0028), updateElementGeometry\u0028), drawElementImage\u0028), paint, elementFromPoint\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "3D Tilt View DOM layer inspector",
+     "item": "https://html-in-canvas.page/tilt-layers/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 264px;
+    gap: 14px;
+    align-items: start;
+  }
+  @media (max-width: 780px) {
+    .workspace { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .stage-wrap {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #0f131f;
+    border: 1px solid var(--line);
+  }
+  #tiltCanvas {
+    display: block;
+    width: 100%;
+    height: 470px;
+    touch-action: none;
+    cursor: grab;
+  }
+  #tiltCanvas.dragging { cursor: grabbing; }
+  #tiltCanvas[hidden] { display: none; }
+  @media (max-width: 520px) {
+    #tiltCanvas { height: 460px; }
+  }
+
+  .stage-hint {
+    position: absolute;
+    left: 10px;
+    bottom: 8px;
+    margin: 0;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgb(15 19 31 / 0.78);
+    color: #c8d2e8;
+    font: 12px/1.35 var(--mono);
+    pointer-events: none;
+  }
+
+  .plain-stack {
+    display: none;
+    padding: 14px;
+    gap: 12px;
+    background: var(--bg);
+  }
+  .stage-wrap.is-plain .plain-stack { display: grid; }
+  .stage-wrap.is-plain .stage-hint { display: none; }
+  .plain-stack .app-layer {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  #notice {
+    margin: 10px 0 0;
+    padding: 10px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+  }
+  #notice[hidden] { display: none; }
+
+  .controls-panel {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .control-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+  }
+  .control-row button {
+    min-height: 40px;
+    padding: 6px 12px;
+    font-size: 14px;
+  }
+  .control-row button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  .control-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    font-size: 14px;
+  }
+  .control-row input[type="range"] {
+    width: min(200px, 48vw);
+    accent-color: var(--accent);
+  }
+  .depth-readout {
+    font: 600 13px var(--mono);
+    min-width: 46px;
+    color: var(--fg);
+  }
+
+  .inspector {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    display: grid;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .inspector h3 {
+    margin: 0;
+    font: 600 12px var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .layer-pills {
+    display: grid;
+    gap: 6px;
+  }
+  .layer-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 36px;
+    padding: 5px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--fg);
+    text-align: left;
+    font: 13px/1.25 system-ui, sans-serif;
+  }
+  .layer-pill[aria-pressed="true"] {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+    font-weight: 600;
+  }
+  .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex: none;
+  }
+  .layer-pill small {
+    margin-left: auto;
+    font: 11px var(--mono);
+    color: var(--muted);
+  }
+
+  .readout-grid {
+    display: grid;
+    gap: 6px;
+    margin: 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    min-height: 176px;
+  }
+  .readout-row {
+    display: grid;
+    gap: 2px;
+  }
+  .readout-row dt {
+    font: 600 11px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .readout-row dd {
+    margin: 0;
+    font: 12.5px/1.4 var(--mono);
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+
+  #statusLine {
+    margin: 8px 0 0;
+    font: 12.5px/1.45 var(--mono);
+    color: var(--muted);
+    min-height: 1.5em;
+  }
+
+  /* ---- Five-layer mini web app inside the drawable canvas ---- */
+  .app-layer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    box-sizing: border-box;
+    border-radius: 10px;
+    font: 13px/1.4 system-ui, -apple-system, sans-serif;
+    --a-bg: #f8f9fc;
+    --a-card: #ffffff;
+    --a-fg: #182030;
+    --a-muted: #56637a;
+    --a-line: #cfd7e6;
+    --a-chip: #e8eef8;
+    --a-hi: #fff3bf;
+    color: var(--a-fg);
+  }
+  .app-layer.app-dark {
+    --a-bg: #171d2b;
+    --a-card: #20283a;
+    --a-fg: #edf2fb;
+    --a-muted: #a4b2cb;
+    --a-line: #36435e;
+    --a-chip: #2a354d;
+    --a-hi: #4f4118;
+  }
+  .app-layer :is(button, input, select) {
+    font: inherit;
+    color: inherit;
+  }
+  .app-layer button {
+    padding: 5px 10px;
+    min-height: 30px;
+    border-radius: 6px;
+    border: 1px solid var(--a-line);
+    background: var(--a-card);
+    cursor: pointer;
+  }
+  .app-layer button:focus-visible,
+  .app-layer input:focus-visible,
+  .app-layer select:focus-visible {
+    outline: 2px solid #d2491f;
+    outline-offset: 1px;
+  }
+
+  /* Layer 0: App shell backdrop */
+  #layer-0 {
+    width: 480px;
+    height: 340px;
+    background-color: var(--a-bg);
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, var(--a-line) 45%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--a-line) 45%, transparent) 1px, transparent 1px);
+    background-size: 20px 20px;
+    border: 2px solid #4c7bf3;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .shell-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 12px;
+    background: var(--a-card);
+    border-bottom: 1px solid var(--a-line);
+  }
+  .shell-brand {
+    font-weight: 700;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .shell-pill {
+    font: 11px var(--mono);
+    padding: 2px 7px;
+    border-radius: 99px;
+    background: var(--a-chip);
+    color: var(--a-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #appThemeBtn {
+    margin-left: auto;
+    font-size: 12px;
+    padding: 4px 9px;
+    min-height: 28px;
+    white-space: nowrap;
+  }
+  .shell-foot {
+    margin-top: auto;
+    padding: 4px 12px;
+    font: 11px var(--mono);
+    color: var(--a-muted);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* Layer 1: Main article card */
+  #layer-1 {
+    width: 284px;
+    height: 204px;
+    padding: 10px 12px;
+    background: var(--a-card);
+    border: 2px solid #2ca58d;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .layer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    font: 600 11px var(--mono);
+    color: var(--a-muted);
+  }
+  #articleTitle {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 5px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--a-line);
+    background: var(--a-bg);
+    font-weight: 600;
+    font-size: 13px;
+  }
+  #articleBody {
+    display: grid;
+    gap: 5px;
+    overflow: hidden;
+    flex: 1;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
+  #articleBody p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.38;
+    padding: 3px 5px;
+    border-radius: 5px;
+  }
+  #articleBody.is-compact p { font-size: 11px; line-height: 1.28; }
+  #articleBody.is-highlighted p { background: var(--a-hi); }
+  .article-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: auto;
+  }
+  #likeBtn {
+    background: #2ca58d;
+    color: #fff;
+    border-color: #21836f;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .article-hint {
+    font: 11px var(--mono);
+    color: var(--a-muted);
+  }
+
+  /* Layer 2: Sidebar filter form */
+  #layer-2 {
+    width: 156px;
+    height: 204px;
+    padding: 10px 11px;
+    background: var(--a-card);
+    border: 2px solid #e09f3e;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  #layer-2 label.chk {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    min-height: 26px;
+    cursor: pointer;
+  }
+  #layer-2 label.sel {
+    display: grid;
+    gap: 3px;
+    margin-top: auto;
+    font: 600 11px var(--mono);
+    color: var(--a-muted);
+  }
+  #sortSelect {
+    width: 100%;
+    padding: 4px 6px;
+    min-height: 30px;
+    border-radius: 6px;
+    border: 1px solid var(--a-line);
+    background: var(--a-bg);
+    font-size: 12px;
+  }
+
+  /* Layer 3: Floating action bar */
+  #layer-3 {
+    width: 284px;
+    height: 48px;
+    padding: 6px 10px;
+    background: var(--a-card);
+    border: 2px solid #d95d39;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  #layer-3 .act-tag {
+    font: 700 11px var(--mono);
+    color: #d95d39;
+    margin-right: 2px;
+    white-space: nowrap;
+  }
+  #layer-3 button {
+    font-size: 12px;
+    padding: 4px 8px;
+    min-height: 30px;
+    white-space: nowrap;
+  }
+  #addNoteBtn {
+    background: #d95d39;
+    color: #fff;
+    border-color: #b74524;
+    font-weight: 600;
+  }
+
+  /* Layer 4: Toast notification card */
+  #layer-4 {
+    width: 170px;
+    height: 62px;
+    padding: 7px 9px;
+    background: var(--a-card);
+    border: 2px solid #9b5de5;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  #layer-4.is-dismissed {
+    background: var(--a-chip);
+    opacity: 0.9;
+  }
+  .toast-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  #toastMsg {
+    font-size: 11px;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #toastBtn {
+    font-size: 11px;
+    padding: 2px 7px;
+    min-height: 24px;
+    flex: none;
+    background: #9b5de5;
+    color: #fff;
+    border-color: #7c3ec9;
+    font-weight: 600;
+  }
+  .toast-track {
+    height: 6px;
+    border-radius: 99px;
+    background: var(--a-chip);
+    overflow: hidden;
+  }
+  .toast-fill {
+    height: 100%;
+    width: 35%;
+    border-radius: 99px;
+    background: #9b5de5;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>3D Tilt View DOM layer inspector</h1>
+  <p class="lede">
+    I wanted to see if HTML-in-canvas could rebuild Mozilla's old Firefox 3D Tilt View (Victor Porof, Firefox 11 to 46) and Microsoft Edge's 3D View panel, with one extra twist: every tilted plane stays interactive.
+    This experiment builds on <a href="/structure-depth/">/structure-depth/</a> and <a href="/layout-debug/">/layout-debug/</a> by lifting five <code>drawable</code> layers of a live mini app into an exploded WebGL 2 stack.
+    Drag the dark background to orbit, slide layer spacing from 0 px to 90 px, and click buttons, edit the title, toggle filters or drag across the article paragraphs right inside the tilted stack.
+  </p>
+
+  <div class="stage">
+    <div class="workspace">
+      <div>
+        <div class="stage-wrap" id="stageWrap">
+          <!-- #region markup -->
+          <canvas id="tiltCanvas" content="drawable" layoutsubtree>
+            <section id="layer-0" class="app-layer" drawable data-layer="0" aria-label="Layer 0: App shell backdrop">
+              <header class="shell-top">
+                <span class="shell-brand">Harbour Log</span>
+                <span class="shell-pill" id="shellStats">z=0 · 2 items</span>
+                <button id="appThemeBtn" type="button">Dark mode</button>
+              </header>
+              <div class="shell-foot">
+                <span>Layer 0 · shell</span>
+                <span id="shellSize">480 × 340</span>
+              </div>
+            </section>
+
+            <article id="layer-1" class="app-layer" drawable data-layer="1" aria-label="Layer 1: Main article card">
+              <div class="layer-head">
+                <span>Layer 1 · article</span>
+                <span id="articleMeta">newest</span>
+              </div>
+              <input id="articleTitle" type="text" value="Thames lock inspection" aria-label="Article title">
+              <div id="articleBody">
+                <p data-kind="note">North sluice cleared at 08:15 after overnight weed build-up.</p>
+                <p data-kind="metric">Flow rate: 14.2 m3/s · head difference 1.9 m · likes 3.</p>
+              </div>
+              <div class="article-foot">
+                <button id="likeBtn" type="button">Like (3)</button>
+                <span class="article-hint">Select text above</span>
+              </div>
+            </article>
+
+            <form id="layer-2" class="app-layer" drawable data-layer="2" aria-label="Layer 2: Sidebar filter form">
+              <div class="layer-head"><span>Layer 2 · filters</span><span>z=2</span></div>
+              <label class="chk"><input type="checkbox" id="fltNotes" checked> Show notes</label>
+              <label class="chk"><input type="checkbox" id="fltMetrics" checked> Show metrics</label>
+              <label class="chk"><input type="checkbox" id="fltCompact"> Compact text</label>
+              <label class="sel">Sort order
+                <select id="sortSelect" aria-label="Sort order">
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="likes">Most liked</option>
+                </select>
+              </label>
+            </form>
+
+            <div id="layer-3" class="app-layer" drawable data-layer="3" role="toolbar" aria-label="Layer 3: Floating action bar">
+              <span class="act-tag">z=3</span>
+              <button id="addNoteBtn" type="button">+ Note</button>
+              <button id="highlightBtn" type="button">Highlight</button>
+              <button id="resetAppBtn" type="button">Reset</button>
+            </div>
+
+            <aside id="layer-4" class="app-layer" drawable data-layer="4" aria-label="Layer 4: Toast notification card">
+              <div class="toast-top">
+                <span id="toastMsg">Ready: tap any layer</span>
+                <button id="toastBtn" type="button">Dismiss</button>
+              </div>
+              <div class="toast-track" aria-hidden="true"><div class="toast-fill" id="toastFill"></div></div>
+            </aside>
+          </canvas>
+          <!-- #endregion markup -->
+          <div class="plain-stack" id="plainStack"></div>
+          <p class="stage-hint" id="stageHint">Drag background to orbit · tap any tilted control</p>
+        </div>
+
+        <p id="notice" hidden role="status"></p>
+
+        <div class="controls-panel">
+          <div class="control-row" role="group" aria-label="Camera presets">
+            <button type="button" data-preset="flat" aria-pressed="false">Flat (0°)</button>
+            <button type="button" data-preset="firefox" aria-pressed="true">Firefox Tilt</button>
+            <button type="button" data-preset="side" aria-pressed="false">Side profile</button>
+            <button type="button" data-preset="top" aria-pressed="false">Top-down</button>
+          </div>
+          <div class="control-row">
+            <label for="explodeRange">Layer spacing
+              <input id="explodeRange" type="range" min="0" max="90" step="1" value="38">
+              <span class="depth-readout" id="explodeVal">38 px</span>
+            </label>
+            <label><input type="checkbox" id="showEdges" checked> Show layer edges/slabs</label>
+            <label><input type="checkbox" id="soloLayer"> Solo selected layer</label>
+            <label><input type="checkbox" id="highlightHit" checked> Highlight active hit layer</label>
+          </div>
+        </div>
+        <p id="statusLine" role="status"></p>
+      </div>
+
+      <aside class="inspector" aria-label="Layer inspector">
+        <h3>Layer stack</h3>
+        <div class="layer-pills" id="layerPills">
+          <button type="button" class="layer-pill" data-pick="4" aria-pressed="false"><span class="swatch" style="background:#9b5de5"></span>Toast card<small>z=4</small></button>
+          <button type="button" class="layer-pill" data-pick="3" aria-pressed="false"><span class="swatch" style="background:#d95d39"></span>Action bar<small>z=3</small></button>
+          <button type="button" class="layer-pill" data-pick="2" aria-pressed="false"><span class="swatch" style="background:#e09f3e"></span>Filter form<small>z=2</small></button>
+          <button type="button" class="layer-pill" data-pick="1" aria-pressed="true"><span class="swatch" style="background:#2ca58d"></span>Article card<small>z=1</small></button>
+          <button type="button" class="layer-pill" data-pick="0" aria-pressed="false"><span class="swatch" style="background:#4c7bf3"></span>App shell<small>z=0</small></button>
+        </div>
+
+        <dl class="readout-grid">
+          <div class="readout-row"><dt>Active layer</dt><dd id="roLayer">Layer 1 · Article card (#layer-1)</dd></div>
+          <div class="readout-row"><dt>Last target</dt><dd id="roTarget">None yet (tap a control)</dd></div>
+          <div class="readout-row"><dt>DOM depth &amp; z-offset</dt><dd id="roDepth">depth 1 · z = 38 px</dd></div>
+          <div class="readout-row"><dt>Projected quad bounds</dt><dd id="roBounds">waiting for first paint</dd></div>
+          <div class="readout-row"><dt>Selection</dt><dd id="roSelection">none</dd></div>
+        </dl>
+      </aside>
+    </div>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>5 drawable layers, 3D projection, extruded slabs, hit geometry and 2D fallback</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The five layers inside one canvas.</b> Each depth level is its own <code>drawable</code> element aligned to one app footprint.</li>
+      <li data-code="#projection"><b>One 3D matrix per layer.</b> The same <code>DOMMatrix</code> drives WebGL clip space, the inspector's quad bounds and <code>updateElementGeometry()</code>.</li>
+      <li data-code="#slabs"><b>Coloured side slabs, wireframes and depth connectors.</b> A small colour shader runs on <code>stage.gl</code> from <code>ElementGL</code> with no second WebGL context.</li>
+      <li data-code="#paint"><b>The <code>paint</code> handler.</b> Uploads changed layers with <code>stage.upload()</code>, draws back to front, updates hit boxes and bumps <code>dataset.hitTick</code>.</li>
+      <li data-code="#fallback-2d"><b>The 2D isometric fallback.</b> When WebGL 2 isn't available, the same five layers draw with five-argument <code>drawElementImage()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Firefox's classic 3D Tilt View (written by Victor Porof for Firefox 11 to 46) and Edge's 3D View panel both lift DOM depth into WebGL meshes, though those tools draw snapshots that you inspect rather than use.
+    Here I put five separate <code>drawable</code> elements inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> and align their local coordinates to one shared app footprint.
+    At 0 px spacing and 0° tilt they sit flush as a single interface; as spacing grows they separate along Z.
+  </p>
+  <p>
+    One <code>ElementGL</code> instance owns the page's single WebGL 2 context.
+    Its built-in textured-quad shader draws each layer from <code>texElementSubImage2D()</code>, and a small companion colour shader on the same <code>stage.gl</code> draws the extruded side-thickness slabs, wireframe outlines and vertical corner connectors from each layer down to <code>z = 0</code>.
+    Because all five planes are parallel in local space, drawing from layer 0 up to layer 4 gives exact painter's order with no depth-buffer fighting.
+  </p>
+  <p>
+    Every visible layer receives its exact 3D <code>DOMMatrix</code> via <code>canvas.updateElementGeometry(el, { canvasTransform })</code>, followed by updating <code>el.dataset.hitTick</code> whenever the transform changes so Chromium clears its hit-test cache.
+    When you turn on <b>Solo selected layer</b>, the other four layers are marked <code>inert</code> and parked off-stage at a scale of 0.001 so clicks and text selection pass straight through to the soloed plane.
+    If WebGL 2 isn't available, the page falls back to a 2D isometric stack using five-argument <code>drawElementImage()</code>, and if HTML-in-canvas isn't available at all it moves the five elements into a plain HTML stack.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These checks wait for a tap so the demo starts with one GPU context. Each check builds its own small fixture on the test stage and retires its canvas when finished.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Not verified in a live browser yet. Run the live checks above in Chromium with <code>#canvas-draw-element</code> enabled to record results for your device.</p>
+  <ul class="findings">
+    <li><b>Inspirations and credits:</b> Mozilla's Firefox 3D Tilt View (Victor Porof, Firefox 11 to 46), Microsoft Edge's 3D View DevTools panel, and the depth and layout experiments at <a href="/structure-depth/">/structure-depth/</a> and <a href="/layout-debug/">/layout-debug/</a> on this site.</li>
+    <li><b>One WebGL context for both DOM textures and 3D overlays:</b> sharing <code>stage.gl</code> from <code>ElementGL</code> lets the colour-slab program and the element-quad program draw into the same framebuffer without creating a second WebGL context. Restoring <code>ElementGL</code>'s program and VAO after each slab draw keeps <code>stage.quad()</code> intact.</li>
+    <li><b>Clip-space Z zeroing:</b> <code>DOMMatrix</code> keeps Z in CSS pixels while WebGL clips outside <code>[-w, w]</code>. Zeroing row 3 (<code>m13</code>, <code>m23</code>, <code>m33</code>, <code>m43</code>) of the clip matrix after multiplying in perspective keeps exact <code>x/w</code> and <code>y/w</code> projection with no near/far clipping.</li>
+    <li><b>Solo layer hit routing:</b> parking hidden layers with <code>updateElementGeometry()</code> at <code>scale(0.001)</code> and setting <code>inert = true</code> keeps upper layers from intercepting taps aimed at Layer 0 or Layer 1.</li>
+    <li><b>Not verified:</b> live WebGL rendering, native <code>&lt;select&gt;</code> popup placement on a tilted plane, text selection drag handles inside a perspective-transformed layer, and real Android touch orbiting at 412 px and DPR 2.625.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+  import { banner, runTests, supported as supported2d, testStage } from '/shared/support.js';
+
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('tiltCanvas');
+  const stageWrap = $('stageWrap');
+  const plainStack = $('plainStack');
+  const notice = $('notice');
+  const statusLine = $('statusLine');
+  const explodeRange = $('explodeRange');
+  const explodeVal = $('explodeVal');
+  const showEdgesEl = $('showEdges');
+  const soloLayerEl = $('soloLayer');
+  const highlightHitEl = $('highlightHit');
+
+  const LAYER_META = [
+    { id: 'layer-0', zIndex: 0, domDepth: 1, name: 'App shell', color: [0.30, 0.48, 0.95], hex: '#4c7bf3' },
+    { id: 'layer-1', zIndex: 1, domDepth: 2, name: 'Article card', color: [0.17, 0.65, 0.55], hex: '#2ca58d' },
+    { id: 'layer-2', zIndex: 2, domDepth: 2, name: 'Filter form', color: [0.88, 0.62, 0.24], hex: '#e09f3e' },
+    { id: 'layer-3', zIndex: 3, domDepth: 3, name: 'Action bar', color: [0.85, 0.36, 0.22], hex: '#d95d39' },
+    { id: 'layer-4', zIndex: 4, domDepth: 4, name: 'Toast card', color: [0.61, 0.36, 0.90], hex: '#9b5de5' },
+  ];
+
+  const layers = LAYER_META.map((m) => ({
+    ...m,
+    el: $(m.id),
+    lx: 0, ly: 0, lw: 100, lh: 100,
+    lastKey: '',
+    bounds: null,
+  }));
+
+  const PRESETS = {
+    flat: { yaw: 0, pitch: 0, explode: 0 },
+    firefox: { yaw: -30, pitch: 38, explode: 38 },
+    side: { yaw: -62, pitch: 18, explode: 64 },
+    top: { yaw: 0, pitch: 0, explode: 56 },
+  };
+
+  const state = {
+    yaw: PRESETS.firefox.yaw,
+    pitch: PRESETS.firefox.pitch,
+    explode: PRESETS.firefox.explode,
+    activeIdx: 1,
+    lastTarget: 'None yet (tap a control)',
+    lastAction: 'initial',
+    appW: 480,
+    appH: 340,
+    paints: 0,
+    uploads: 0,
+    backend: 'none',
+    hitTick: 0,
+  };
+
+  // ---- Mini web app state across the 5 layers ----
+  const appState = {
+    dark: false,
+    likes: 3,
+    highlighted: false,
+    toastDismissed: false,
+    progress: 35,
+    extraNotes: 0,
+  };
+
+  const EXTRA_SNIPPETS = [
+    'Weir gauge checked: +4 cm above summer datum.',
+    'Timber balance beam repainted on south gate.',
+    'Boat traffic light: 6 narrowboats through since noon.',
+  ];
+
+  function syncAppContent(toastText) {
+    const showNotes = $('fltNotes').checked;
+    const showMetrics = $('fltMetrics').checked;
+    const compact = $('fltCompact').checked;
+    const sort = $('sortSelect').value;
+
+    const entries = [];
+    if (showNotes) {
+      entries.push({ kind: 'note', order: 1, likes: appState.likes, text: 'North sluice cleared at 08:15 after overnight weed build-up.' });
+      for (let i = 0; i < appState.extraNotes; i++) {
+        entries.push({ kind: 'note', order: 3 + i, likes: appState.likes + i + 1, text: EXTRA_SNIPPETS[i % EXTRA_SNIPPETS.length] });
+      }
+    }
+    if (showMetrics) {
+      entries.push({ kind: 'metric', order: 2, likes: appState.likes + 2, text: `Flow rate: 14.2 m3/s · head 1.9 m · ${appState.likes} likes.` });
+    }
+    if (sort === 'newest') entries.sort((a, b) => b.order - a.order);
+    else if (sort === 'oldest') entries.sort((a, b) => a.order - b.order);
+    else entries.sort((a, b) => b.likes - a.likes);
+
+    const body = $('articleBody');
+    body.classList.toggle('is-compact', compact);
+    body.classList.toggle('is-highlighted', appState.highlighted);
+    body.replaceChildren();
+    if (!entries.length) {
+      const p = document.createElement('p');
+      p.textContent = 'All filters turned off in Layer 2.';
+      body.append(p);
+    } else {
+      for (const item of entries.slice(0, 3)) {
+        const p = document.createElement('p');
+        p.dataset.kind = item.kind;
+        p.textContent = item.text;
+        body.append(p);
+      }
+    }
+
+    $('articleMeta').textContent = `${sort} · ${entries.length}`;
+    $('likeBtn').textContent = `Like (${appState.likes})`;
+    $('shellStats').textContent = `z=0 · ${entries.length} items · ${appState.dark ? 'dark' : 'light'}`;
+    $('appThemeBtn').textContent = appState.dark ? 'Light mode' : 'Dark mode';
+    for (const l of layers) l.el.classList.toggle('app-dark', appState.dark);
+
+    const toastEl = $('layer-4');
+    toastEl.classList.toggle('is-dismissed', appState.toastDismissed);
+    $('toastBtn').textContent = appState.toastDismissed ? 'Restore' : 'Dismiss';
+    if (toastText) $('toastMsg').textContent = appState.toastDismissed ? 'Toast hidden' : toastText;
+    else if (appState.toastDismissed) $('toastMsg').textContent = 'Toast hidden';
+    $('toastFill').style.width = `${appState.progress}%`;
+    requestRedraw();
+  }
+
+  function bumpProgress(msg) {
+    appState.progress = appState.progress >= 95 ? 25 : appState.progress + 15;
+    appState.toastDismissed = false;
+    syncAppContent(msg);
+  }
+
+  $('appThemeBtn').addEventListener('click', () => {
+    appState.dark = !appState.dark;
+    bumpProgress(appState.dark ? 'Layer 0: dark theme on' : 'Layer 0: light theme on');
+  });
+  $('likeBtn').addEventListener('click', () => {
+    appState.likes++;
+    bumpProgress(`Layer 1: ${appState.likes} likes`);
+  });
+  $('articleTitle').addEventListener('input', () => {
+    const val = $('articleTitle').value.trim() || 'Untitled';
+    syncAppContent(`Title: ${val.slice(0, 18)}`);
+  });
+  for (const id of ['fltNotes', 'fltMetrics', 'fltCompact', 'sortSelect']) {
+    $(id).addEventListener('change', () => bumpProgress(`Layer 2: ${$('sortSelect').value}`));
+  }
+  $('addNoteBtn').addEventListener('click', () => {
+    appState.extraNotes = (appState.extraNotes + 1) % (EXTRA_SNIPPETS.length + 1);
+    bumpProgress(appState.extraNotes ? `Layer 3: note #${appState.extraNotes} added` : 'Layer 3: extra notes cleared');
+  });
+  $('highlightBtn').addEventListener('click', () => {
+    appState.highlighted = !appState.highlighted;
+    bumpProgress(appState.highlighted ? 'Layer 3: highlight on' : 'Layer 3: highlight off');
+  });
+  $('resetAppBtn').addEventListener('click', () => {
+    appState.likes = 3;
+    appState.highlighted = false;
+    appState.extraNotes = 0;
+    appState.progress = 35;
+    appState.toastDismissed = false;
+    $('fltNotes').checked = true;
+    $('fltMetrics').checked = true;
+    $('fltCompact').checked = false;
+    $('sortSelect').value = 'newest';
+    $('articleTitle').value = 'Thames lock inspection';
+    syncAppContent('Layer 3: app reset');
+  });
+  $('toastBtn').addEventListener('click', () => {
+    appState.toastDismissed = !appState.toastDismissed;
+    syncAppContent(appState.toastDismissed ? 'Toast hidden' : 'Layer 4: toast restored');
+  });
+
+  // ---- Responsive 5-layer footprint layout ----
+  function layoutApp(canvasWidth) {
+    const narrow = canvasWidth < 460;
+    const appW = narrow ? Math.max(296, Math.min(340, Math.round(canvasWidth - 20))) : 480;
+    const appH = narrow ? 356 : 340;
+    state.appW = appW;
+    state.appH = appH;
+
+    let rects;
+    if (narrow) {
+      const gap = 8;
+      const sideW = 122;
+      const mainW = appW - sideW - gap * 3;
+      rects = [
+        { lx: 0, ly: 0, lw: appW, lh: appH },
+        { lx: gap, ly: 50, lw: mainW, lh: 194 },
+        { lx: gap * 2 + mainW, ly: 50, lw: sideW, lh: 194 },
+        { lx: gap, ly: 252, lw: appW - gap * 2, lh: 44 },
+        { lx: Math.max(gap, appW - 216 - gap), ly: 302, lw: Math.min(216, appW - gap * 2), lh: 46 },
+      ];
+    } else {
+      rects = [
+        { lx: 0, ly: 0, lw: 480, lh: 340 },
+        { lx: 14, ly: 54, lw: 284, lh: 204 },
+        { lx: 310, ly: 54, lw: 156, lh: 204 },
+        { lx: 14, ly: 270, lw: 284, lh: 48 },
+        { lx: 300, ly: 266, lw: 168, lh: 58 },
+      ];
+    }
+
+    for (let i = 0; i < layers.length; i++) {
+      const l = layers[i], r = rects[i];
+      if (l.lw !== r.lw || l.lh !== r.lh) {
+        l.el.style.width = `${r.lw}px`;
+        l.el.style.height = `${r.lh}px`;
+      }
+      l.lx = r.lx; l.ly = r.ly; l.lw = r.lw; l.lh = r.lh;
+    }
+    $('shellSize').textContent = `${appW} × ${appH}`;
+  }
+
+  // #region projection
+  const PERSPECTIVE = 1050;
+  const PARK_MATRIX = new DOMMatrix().translate(-9999, -9999).scale(0.001);
+
+  // Maps app-space CSS pixels (x, y, z) to canvas CSS pixels.
+  function appToCanvasMatrix(cw, ch) {
+    const persp = new DOMMatrix();
+    persp.m34 = -1 / PERSPECTIVE;
+    // Scale gently as layers lift apart so the full stack stays inside the frame.
+    const tiltFactor = (Math.abs(state.yaw) + Math.abs(state.pitch)) / 130;
+    const fitW = (cw - 24) / Math.max(1, state.appW);
+    const fitH = (ch - 36) / Math.max(1, state.appH + state.explode * 2.2);
+    const scale = Math.min(1, fitW, fitH) * (1 - 0.12 * tiltFactor);
+    const zMid = 2 * state.explode;
+    return new DOMMatrix()
+      .translate(cw / 2, ch / 2 + state.pitch * 0.25)
+      .multiply(persp)
+      .scale(scale, scale, scale)
+      .rotate(state.pitch, 0, 0)
+      .rotate(0, state.yaw, 0)
+      .translate(-state.appW / 2, -state.appH / 2, -zMid);
+  }
+
+  // Convert a layer's canvasTransform into WebGL clip space for the unit square (0..1).
+  function toClip(layerMat, w, h, cw, ch) {
+    const c = new DOMMatrix()
+      .translate(-1, 1)
+      .scale(2 / cw, -2 / ch)
+      .multiply(layerMat)
+      .scale(w, h);
+    // Keep perspective w intact while zeroing clip Z so WebGL never clips near/far planes.
+    c.m13 = 0; c.m23 = 0; c.m33 = 0; c.m43 = 0;
+    return c.toFloat32Array();
+  }
+
+  // Convert app-space (x, y, z) directly into WebGL clip space for 3D slabs and wireframes.
+  function appToClip(appMat, cw, ch) {
+    const c = new DOMMatrix()
+      .translate(-1, 1)
+      .scale(2 / cw, -2 / ch)
+      .multiply(appMat);
+    c.m13 = 0; c.m23 = 0; c.m33 = 0; c.m43 = 0;
+    return c.toFloat32Array();
+  }
+
+  // Project a 3D app-space point to 2D canvas CSS pixels.
+  function projectPoint(mat, x, y, z = 0) {
+    const q = mat.transformPoint(new DOMPoint(x, y, z, 1));
+    return { x: q.x / q.w, y: q.y / q.w };
+  }
+
+  // Bounding box and 4 corners of a layer in canvas CSS pixels.
+  function projectQuad(layerMat, w, h) {
+    const pts = [
+      projectPoint(layerMat, 0, 0),
+      projectPoint(layerMat, w, 0),
+      projectPoint(layerMat, w, h),
+      projectPoint(layerMat, 0, h),
+    ];
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+    const left = Math.min(...xs), right = Math.max(...xs);
+    const top = Math.min(...ys), bottom = Math.max(...ys);
+    return { left, top, width: right - left, height: bottom - top, pts };
+  }
+  // #endregion projection
+
+  // #region slabs
+  const LAYER_FRAGMENT = `#version 300 es
+  precision mediump float;
+  uniform sampler2D uTex;
+  uniform vec2 uSize;
+  uniform float uTime;
+  uniform vec3 uTint;
+  uniform float uHighlight;
+  uniform float uBorder;
+  uniform float uDim;
+  in vec2 vUv;
+  out vec4 outColor;
+  void main() {
+    vec4 c = texture(uTex, vUv);
+    vec2 fw = max(fwidth(vUv), vec2(1e-5));
+    vec2 edge = min(vUv, 1.0 - vUv);
+    float aa = min(clamp(edge.x / fw.x, 0.0, 1.0), clamp(edge.y / fw.y, 0.0, 1.0));
+    vec2 px = edge * uSize;
+    float bw = uHighlight > 0.5 ? 3.5 : 1.5;
+    float onEdge = 1.0 - smoothstep(bw - 0.75, bw + 0.75, min(px.x, px.y));
+    if (uBorder > 0.5 || uHighlight > 0.5) {
+      float strength = uHighlight > 0.5 ? 0.95 : 0.48;
+      vec3 bCol = uHighlight > 0.5 ? mix(uTint, vec3(1.0), 0.25) : uTint;
+      c = mix(c, vec4(bCol, 1.0), onEdge * strength);
+    }
+    if (uHighlight > 0.5) c.rgb += uTint * 0.10 * c.a;
+    outColor = c * uDim * aa;
+  }`;
+
+  const GEOM_VERTEX = `#version 300 es
+  in vec3 aPos;
+  in vec4 aColor;
+  uniform mat4 uMvp;
+  out vec4 vColor;
+  void main() {
+    gl_Position = uMvp * vec4(aPos, 1.0);
+    vColor = aColor;
+  }`;
+
+  const GEOM_FRAGMENT = `#version 300 es
+  precision mediump float;
+  in vec4 vColor;
+  out vec4 outColor;
+  void main() {
+    // Premultiply so the colour shader matches ElementGL's blendFunc(ONE, ONE_MINUS_SRC_ALPHA).
+    outColor = vec4(vColor.rgb * vColor.a, vColor.a);
+  }`;
+
+  let geom = null;
+
+  function initGeom(g) {
+    const compile = (type, src) => {
+      const s = g.createShader(type);
+      g.shaderSource(s, src);
+      g.compileShader(s);
+      if (!g.getShaderParameter(s, g.COMPILE_STATUS) && !g.isContextLost()) throw new Error(g.getShaderInfoLog(s));
+      return s;
+    };
+    const prog = g.createProgram();
+    g.attachShader(prog, compile(g.VERTEX_SHADER, GEOM_VERTEX));
+    g.attachShader(prog, compile(g.FRAGMENT_SHADER, GEOM_FRAGMENT));
+    g.bindAttribLocation(prog, 0, 'aPos');
+    g.bindAttribLocation(prog, 1, 'aColor');
+    g.linkProgram(prog);
+    if (!g.getProgramParameter(prog, g.LINK_STATUS) && !g.isContextLost()) throw new Error(g.getProgramInfoLog(prog));
+    const vao = g.createVertexArray();
+    const vbo = g.createBuffer();
+    g.bindVertexArray(vao);
+    g.bindBuffer(g.ARRAY_BUFFER, vbo);
+    g.enableVertexAttribArray(0);
+    g.vertexAttribPointer(0, 3, g.FLOAT, false, 28, 0);
+    g.enableVertexAttribArray(1);
+    g.vertexAttribPointer(1, 4, g.FLOAT, false, 28, 12);
+    g.bindVertexArray(null);
+    geom = { prog, vao, vbo, uMvp: g.getUniformLocation(prog, 'uMvp') };
+  }
+
+  function pushVert(out, x, y, z, r, g, b, a) {
+    out.push(x, y, z, r, g, b, a);
+  }
+
+  function pushQuad(out, p0, p1, p2, p3, col) {
+    const [r, g, b, a] = col;
+    pushVert(out, p0[0], p0[1], p0[2], r, g, b, a);
+    pushVert(out, p1[0], p1[1], p1[2], r, g, b, a);
+    pushVert(out, p2[0], p2[1], p2[2], r, g, b, a);
+    pushVert(out, p0[0], p0[1], p0[2], r, g, b, a);
+    pushVert(out, p2[0], p2[1], p2[2], r, g, b, a);
+    pushVert(out, p3[0], p3[1], p3[2], r, g, b, a);
+  }
+
+  function pushLine(out, a, b, col) {
+    pushVert(out, a[0], a[1], a[2], col[0], col[1], col[2], col[3]);
+    pushVert(out, b[0], b[1], b[2], col[0], col[1], col[2], col[3]);
+  }
+
+  function drawGeom(g, mode, verts, mvp) {
+    if (!geom || !verts.length) return;
+    g.useProgram(geom.prog);
+    g.bindVertexArray(geom.vao);
+    g.uniformMatrix4fv(geom.uMvp, false, mvp);
+    g.bindBuffer(g.ARRAY_BUFFER, geom.vbo);
+    g.bufferData(g.ARRAY_BUFFER, new Float32Array(verts), g.DYNAMIC_DRAW);
+    g.drawArrays(mode, 0, verts.length / 7);
+  }
+
+  function buildFloorGrid(appW, appH) {
+    const lines = [];
+    const pad = 40, step = 40, z = -16;
+    const col = [0.42, 0.52, 0.72, 0.16];
+    for (let x = -pad; x <= appW + pad; x += step) {
+      pushLine(lines, [x, -pad, z], [x, appH + pad, z], col);
+    }
+    for (let y = -pad; y <= appH + pad; y += step) {
+      pushLine(lines, [-pad, y, z], [appW + pad, y, z], col);
+    }
+    return lines;
+  }
+
+  function buildLayerSlabs(layer, zTop, thick, appMat, active) {
+    const tris = [];
+    const { lx: x0, ly: y0, lw, lh, color } = layer;
+    const x1 = x0 + lw, y1 = y0 + lh, zBot = zTop - thick;
+    const [r, g, b] = color;
+    const alpha = active ? 0.92 : 0.78;
+    // Four side walls; draw only walls whose projected 2D winding faces the camera.
+    const walls = [
+      { pts: [[x0, y1, zTop], [x1, y1, zTop], [x1, y1, zBot], [x0, y1, zBot]], shade: 0.72 }, // South
+      { pts: [[x1, y0, zTop], [x0, y0, zTop], [x0, y0, zBot], [x1, y0, zBot]], shade: 0.54 }, // North
+      { pts: [[x1, y1, zTop], [x1, y0, zTop], [x1, y0, zBot], [x1, y1, zBot]], shade: 0.88 }, // East
+      { pts: [[x0, y0, zTop], [x0, y1, zTop], [x0, y1, zBot], [x0, y0, zBot]], shade: 0.62 }, // West
+    ];
+    for (const w of walls) {
+      const a = projectPoint(appMat, ...w.pts[0]);
+      const p = projectPoint(appMat, ...w.pts[1]);
+      const c = projectPoint(appMat, ...w.pts[2]);
+      const cross = (p.x - a.x) * (c.y - a.y) - (p.y - a.y) * (c.x - a.x);
+      if (cross >= 0) {
+        pushQuad(tris, w.pts[0], w.pts[1], w.pts[2], w.pts[3], [r * w.shade, g * w.shade, b * w.shade, alpha]);
+      }
+    }
+    return tris;
+  }
+
+  function buildLayerWire(layer, zTop, thick, alpha, connectors) {
+    const lines = [];
+    const { lx: x0, ly: y0, lw, lh, color } = layer;
+    const x1 = x0 + lw, y1 = y0 + lh, zBot = zTop - thick;
+    const edgeCol = [color[0], color[1], color[2], alpha];
+    const t = [[x0, y0, zTop], [x1, y0, zTop], [x1, y1, zTop], [x0, y1, zTop]];
+    for (let k = 0; k < 4; k++) pushLine(lines, t[k], t[(k + 1) % 4], edgeCol);
+    if (thick > 1) {
+      const b = [[x0, y0, zBot], [x1, y0, zBot], [x1, y1, zBot], [x0, y1, zBot]];
+      const subCol = [color[0], color[1], color[2], alpha * 0.55];
+      for (let k = 0; k < 4; k++) {
+        pushLine(lines, b[k], b[(k + 1) % 4], subCol);
+        pushLine(lines, t[k], b[k], subCol);
+      }
+    }
+    if (connectors && zBot > 1) {
+      const dropCol = [color[0], color[1], color[2], 0.34];
+      for (const [cx, cy] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) {
+        pushLine(lines, [cx, cy, zBot], [cx, cy, 0], dropCol);
+      }
+    }
+    return lines;
+  }
+  // #endregion slabs
+
+  // ---- Render backends: WebGL 2 (ElementGL) -> 2D isometric -> Plain HTML ----
+  let stage = null;
+  let ctx2d = null;
+  let paint2dRaf = 0;
+
+  function showPlain(reason) {
+    state.backend = 'plain';
+    stageWrap.classList.add('is-plain');
+    canvas.hidden = true;
+    plainStack.replaceChildren(...layers.map((l) => l.el));
+    for (const l of layers) l.el.inert = false;
+    notice.hidden = false;
+    notice.textContent = reason;
+    updateReadout();
+  }
+
+  function restoreToCanvas() {
+    if (!stageWrap.classList.contains('is-plain')) return;
+    stageWrap.classList.remove('is-plain');
+    canvas.hidden = false;
+    canvas.replaceChildren(...layers.map((l) => l.el));
+    notice.hidden = true;
+  }
+
+  function start2DFallback(reason) {
+    state.backend = '2d';
+    ctx2d = canvas.getContext('2d');
+    if (!ctx2d) {
+      showPlain('Neither WebGL 2 nor a 2D drawable context could start here. The five layers are shown as plain HTML.');
+      return;
+    }
+    notice.hidden = false;
+    notice.textContent = reason;
+    canvas.addEventListener('contextlost', () => showPlain('The 2D canvas lost its context. The five layers are shown as plain HTML.'));
+    canvas.addEventListener('paint', draw2DFrame);
+    canvas.requestPaint?.();
+    draw2DFrame();
+  }
+
+  if (glSupported) {
+    try {
+      stage = new ElementGL(canvas, {
+        fragment: LAYER_FRAGMENT,
+        onLost: () => {
+          geom = null;
+          showPlain('The browser took the WebGL context away. The five layers are shown as plain HTML until it returns.');
+        },
+        onRestored: () => {
+          restoreToCanvas();
+          initGeom(stage.gl);
+          state.backend = 'webgl2';
+          for (const l of layers) l.lastKey = '';
+          canvas.requestPaint?.();
+        },
+      });
+      initGeom(stage.gl);
+      state.backend = 'webgl2';
+    } catch (err) {
+      if (supported2d) start2DFallback(`WebGL 2 could not start (${err.message}). Drawing the exploded stack with the 2D isometric fallback.`);
+      else showPlain(`WebGL 2 could not start (${err.message}). The five layers are shown as plain HTML.`);
+    }
+  } else if (supported2d) {
+    start2DFallback('WebGL 2 texElementSubImage2D is not available here. Drawing the exploded stack with the 2D isometric fallback.');
+  } else {
+    showPlain('HTML-in-canvas is not available in this browser. The five layers are shown below as plain HTML so every control still works.');
+  }
+
+  // #region paint
+  function drawWebGLFrame(e) {
+    if (!stage || stage.lost) return;
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    layoutApp(cw);
+    state.paints++;
+
+    const changed = e?.changedElements ?? null;
+    for (const l of layers) {
+      if (!stage.has(l.el) || !changed || changed.includes(l.el)) {
+        stage.upload(l.el);
+        state.uploads++;
+      }
+    }
+
+    if (!stage.begin([0.058, 0.074, 0.122, 1.0])) return;
+    const g = stage.gl;
+    const elProg = g.getParameter(g.CURRENT_PROGRAM);
+    const elVao = g.getParameter(g.VERTEX_ARRAY_BINDING);
+
+    const appMat = appToCanvasMatrix(cw, ch);
+    const clipMvp = appToClip(appMat, cw, ch);
+    const showEdges = showEdgesEl.checked;
+    const solo = soloLayerEl.checked;
+    const hiActive = highlightHitEl.checked;
+    const slabThick = state.explode > 0.5 ? Math.min(12, state.explode * 0.28) : 0;
+
+    if (showEdges) drawGeom(g, g.LINES, buildFloorGrid(state.appW, state.appH), clipMvp);
+
+    for (let i = 0; i < layers.length; i++) {
+      const l = layers[i];
+      const zTop = i * state.explode;
+      const layerMat = appMat.translate(l.lx, l.ly, zTop);
+      l.bounds = projectQuad(layerMat, l.lw, l.lh);
+
+      const hiddenBySolo = solo && i !== state.activeIdx;
+      const isHit = i === state.activeIdx;
+
+      if (hiddenBySolo) {
+        if (showEdges) {
+          drawGeom(g, g.LINES, buildLayerWire(l, zTop, 0, 0.22, false), clipMvp);
+        }
+        l.el.inert = true;
+        canvas.updateElementGeometry(l.el, { canvasTransform: PARK_MATRIX });
+        const key = 'parked';
+        if (key !== l.lastKey) { l.lastKey = key; l.el.dataset.hitTick = String(++state.hitTick); }
+        continue;
+      }
+
+      if (showEdges && slabThick > 0.5) {
+        drawGeom(g, g.LINES, buildLayerWire(l, zTop, slabThick, 0.35, true), clipMvp);
+        drawGeom(g, g.TRIANGLES, buildLayerSlabs(l, zTop, slabThick, appMat, isHit && hiActive), clipMvp);
+      }
+
+      // Restore ElementGL's textured-quad program and VAO before drawing the DOM texture.
+      g.useProgram(elProg);
+      g.bindVertexArray(elVao);
+      stage.quad(l.el, toClip(layerMat, l.lw, l.lh, cw, ch), (gl, uniform) => {
+        gl.uniform3f(uniform('uTint'), l.color[0], l.color[1], l.color[2]);
+        gl.uniform1f(uniform('uHighlight'), isHit && hiActive ? 1.0 : 0.0);
+        gl.uniform1f(uniform('uBorder'), showEdges ? 1.0 : 0.0);
+        gl.uniform1f(uniform('uDim'), 1.0);
+      });
+
+      if (showEdges || (isHit && hiActive)) {
+        drawGeom(g, g.LINES, buildLayerWire(l, zTop + 0.5, 0, isHit && hiActive ? 0.95 : 0.5, false), clipMvp);
+      }
+
+      l.el.inert = false;
+      canvas.updateElementGeometry(l.el, { canvasTransform: layerMat });
+      const key = `${state.yaw.toFixed(1)},${state.pitch.toFixed(1)},${state.explode.toFixed(1)},${cw},${ch},live`;
+      if (key !== l.lastKey) { l.lastKey = key; l.el.dataset.hitTick = String(++state.hitTick); }
+    }
+
+    updateReadout();
+  }
+  // #endregion paint
+
+  // #region fallback-2d
+  function draw2DFrame() {
+    paint2dRaf = 0;
+    if (!ctx2d || state.backend !== '2d') return;
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    layoutApp(cw);
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const bw = Math.max(1, Math.round(cw * dpr)), bh = Math.max(1, Math.round(ch * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+
+    ctx2d.reset();
+    ctx2d.scale(dpr, dpr);
+    ctx2d.fillStyle = '#0f131f';
+    ctx2d.fillRect(0, 0, cw, ch);
+
+    const shearX = Math.sin((state.yaw * Math.PI) / 180) * 0.42;
+    const squashY = Math.max(0.45, Math.cos((state.pitch * Math.PI) / 180));
+    const liftX = -Math.sin((state.yaw * Math.PI) / 180) * 0.55;
+    const liftY = -Math.sin((state.pitch * Math.PI) / 180) * 0.72;
+    const fit = Math.min(1, (cw - 28) / state.appW, (ch - 44) / (state.appH + state.explode * 2));
+    const showEdges = showEdgesEl.checked;
+    const solo = soloLayerEl.checked;
+    const hiActive = highlightHitEl.checked;
+
+    state.paints++;
+    for (let i = 0; i < layers.length; i++) {
+      const l = layers[i];
+      const dz = (i - 2) * state.explode;
+      const ox = cw / 2 + dz * liftX;
+      const oy = ch / 2 + dz * liftY;
+      const m = new DOMMatrix()
+        .translate(ox, oy)
+        .scale(fit, fit)
+        .multiply(new DOMMatrix([1, 0, shearX, squashY, 0, 0]))
+        .translate(l.lx - state.appW / 2, l.ly - state.appH / 2);
+
+      l.bounds = projectQuad(m, l.lw, l.lh);
+      if (solo && i !== state.activeIdx) {
+        l.el.inert = true;
+        continue;
+      }
+      l.el.inert = false;
+      ctx2d.save();
+      ctx2d.transform(m.a, m.b, m.c, m.d, m.e, m.f);
+      if (showEdges && state.explode > 0.5) {
+        const thick = Math.min(10, state.explode * 0.22);
+        ctx2d.fillStyle = l.hex;
+        ctx2d.globalAlpha = 0.55;
+        ctx2d.fillRect(0, l.lh, l.lw, thick);
+        ctx2d.globalAlpha = 1;
+      }
+      ctx2d.drawElementImage(l.el, 0, 0, l.el.offsetWidth, l.el.offsetHeight);
+      if (showEdges || (hiActive && i === state.activeIdx)) {
+        ctx2d.strokeStyle = l.hex;
+        ctx2d.lineWidth = hiActive && i === state.activeIdx ? 3 : 1.5;
+        ctx2d.strokeRect(0, 0, l.lw, l.lh);
+      }
+      ctx2d.restore();
+    }
+    updateReadout();
+  }
+  // #endregion fallback-2d
+
+  function requestRedraw() {
+    if (state.backend === 'webgl2') canvas.requestPaint?.();
+    else if (state.backend === '2d' && !paint2dRaf) paint2dRaf = requestAnimationFrame(draw2DFrame);
+  }
+
+  if (state.backend === 'webgl2') {
+    canvas.addEventListener('paint', drawWebGLFrame);
+    canvas.requestPaint?.();
+  }
+
+  new ResizeObserver(() => {
+    layoutApp(canvas.clientWidth || 340);
+    requestRedraw();
+  }).observe(canvas);
+
+  // ---- Orbit dragging on canvas background ----
+  let drag = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    const hitLayer = e.target.closest?.('[data-layer]');
+    if (hitLayer) {
+      selectLayer(+hitLayer.dataset.layer, describeEl(e.target), 'pointerdown');
+      return;
+    }
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY, yaw: state.yaw, pitch: state.pitch };
+    canvas.setPointerCapture(e.pointerId);
+    canvas.classList.add('dragging');
+    clearPresetHighlight();
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    state.yaw = Math.max(-75, Math.min(75, drag.yaw + dx * 0.42));
+    state.pitch = Math.max(-68, Math.min(72, drag.pitch - dy * 0.42));
+    requestRedraw();
+  });
+  const endDrag = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag = null;
+    canvas.classList.remove('dragging');
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  // Track clicks, focus and text selection inside any tilted layer.
+  function describeEl(el) {
+    if (!el || el === canvas) return 'canvas background';
+    const tag = el.localName;
+    const id = el.id ? `#${el.id}` : '';
+    return `<${tag}${id}>`;
+  }
+
+  function selectLayer(idx, targetDesc, eventName) {
+    state.activeIdx = idx;
+    if (targetDesc) state.lastTarget = `${targetDesc} (${eventName})`;
+    for (const btn of document.querySelectorAll('.layer-pill')) {
+      btn.setAttribute('aria-pressed', String(+btn.dataset.pick === idx));
+    }
+    updateReadout();
+    requestRedraw();
+  }
+
+  canvas.addEventListener('click', (e) => {
+    const hitLayer = e.target.closest?.('[data-layer]');
+    if (hitLayer) selectLayer(+hitLayer.dataset.layer, describeEl(e.target), 'click');
+  });
+  canvas.addEventListener('focusin', (e) => {
+    const hitLayer = e.target.closest?.('[data-layer]');
+    if (hitLayer) selectLayer(+hitLayer.dataset.layer, describeEl(e.target), 'focus');
+  });
+  document.addEventListener('selectionchange', () => {
+    const sel = document.getSelection();
+    const txt = sel && sel.rangeCount && $('layer-1').contains(sel.anchorNode) ? sel.toString().trim() : '';
+    $('roSelection').textContent = txt ? `"${txt.slice(0, 36)}${txt.length > 36 ? '...' : ''}" (${txt.length} chars)` : 'none';
+  });
+
+  // ---- Controls & camera presets ----
+  let tweenRaf = 0;
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+
+  function clearPresetHighlight() {
+    for (const b of document.querySelectorAll('[data-preset]')) b.setAttribute('aria-pressed', 'false');
+  }
+
+  function animateTo(target) {
+    cancelAnimationFrame(tweenRaf);
+    if (reducedMotion.matches) {
+      state.yaw = target.yaw; state.pitch = target.pitch; state.explode = target.explode;
+      explodeRange.value = String(Math.round(state.explode));
+      explodeVal.textContent = `${Math.round(state.explode)} px`;
+      requestRedraw();
+      return;
+    }
+    const from = { yaw: state.yaw, pitch: state.pitch, explode: state.explode };
+    const t0 = performance.now(), dur = 260;
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / dur);
+      const ease = 1 - Math.pow(1 - k, 3);
+      state.yaw = from.yaw + (target.yaw - from.yaw) * ease;
+      state.pitch = from.pitch + (target.pitch - from.pitch) * ease;
+      state.explode = from.explode + (target.explode - from.explode) * ease;
+      explodeRange.value = String(Math.round(state.explode));
+      explodeVal.textContent = `${Math.round(state.explode)} px`;
+      requestRedraw();
+      if (k < 1) tweenRaf = requestAnimationFrame(step);
+    };
+    tweenRaf = requestAnimationFrame(step);
+  }
+
+  for (const btn of document.querySelectorAll('[data-preset]')) {
+    btn.addEventListener('click', () => {
+      clearPresetHighlight();
+      btn.setAttribute('aria-pressed', 'true');
+      animateTo(PRESETS[btn.dataset.preset]);
+    });
+  }
+
+  explodeRange.addEventListener('input', () => {
+    cancelAnimationFrame(tweenRaf);
+    clearPresetHighlight();
+    state.explode = +explodeRange.value;
+    explodeVal.textContent = `${state.explode} px`;
+    requestRedraw();
+  });
+  for (const chk of [showEdgesEl, soloLayerEl, highlightHitEl]) {
+    chk.addEventListener('change', requestRedraw);
+  }
+  for (const pill of document.querySelectorAll('.layer-pill')) {
+    pill.addEventListener('click', () => selectLayer(+pill.dataset.pick, `#layer-${pill.dataset.pick}`, 'inspector'));
+  }
+
+  function updateReadout() {
+    const l = layers[state.activeIdx];
+    const zPx = Math.round(l.zIndex * state.explode);
+    $('roLayer').textContent = `Layer ${l.zIndex} · ${l.name} (#${l.id})`;
+    $('roTarget').textContent = state.lastTarget;
+    $('roDepth').textContent = `DOM depth ${l.domDepth} · z = ${zPx} px`;
+    if (l.bounds) {
+      const b = l.bounds;
+      $('roBounds').textContent = `${b.left.toFixed(0)}, ${b.top.toFixed(0)} · ${b.width.toFixed(0)} × ${b.height.toFixed(0)} px`;
+    }
+    const modeLabel = state.backend === 'webgl2' ? 'WebGL 2 (ElementGL)' : state.backend === '2d' ? '2D isometric fallback' : 'Plain HTML';
+    statusLine.textContent = `${modeLabel} · yaw ${state.yaw.toFixed(0)}°, pitch ${state.pitch.toFixed(0)}°, spacing ${state.explode.toFixed(0)} px · ${state.paints} paints, ${state.uploads} uploads.`;
+  }
+
+  layoutApp(canvas.clientWidth || 340);
+  syncAppContent('Ready: tap any layer');
+
+  // ---- Isolated live checks on testStage() ----
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const copyCanvas = document.createElement('canvas');
+  const copyCtx = copyCanvas.getContext('2d', { willReadFrequently: true });
+
+  function readSample(srcCanvas, x, y) {
+    const dpr = srcCanvas.width / (srcCanvas.clientWidth || srcCanvas.width || 1);
+    const sx = Math.max(0, Math.min(srcCanvas.width - 1, Math.round(x * dpr)));
+    const sy = Math.max(0, Math.min(srcCanvas.height - 1, Math.round(y * dpr)));
+    copyCanvas.width = 1; copyCanvas.height = 1;
+    copyCtx.clearRect(0, 0, 1, 1);
+    copyCtx.drawImage(srcCanvas, sx, sy, 1, 1, 0, 0, 1, 1);
+    return [...copyCtx.getImageData(0, 0, 1, 1).data];
+  }
+
+  const CHECK_FRAG = `#version 300 es
+  precision mediump float;
+  uniform sampler2D uTex;
+  in vec2 vUv;
+  out vec4 outColor;
+  void main() { outColor = texture(uTex, vUv); }`;
+
+  async function glFixture(html, drawFn, w = 240, h = 180) {
+    if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D is not available');
+    const cv = document.createElement('canvas');
+    cv.setAttribute('content', 'drawable');
+    cv.setAttribute('layoutsubtree', '');
+    cv.style.cssText = `flex:none;display:block;width:${w}px;height:${h}px;`;
+    cv.innerHTML = html;
+    testStage().append(cv);
+    const gl = new ElementGL(cv, { fragment: CHECK_FRAG, attributes: { preserveDrawingBuffer: true } });
+    let paints = 0, err = null;
+    cv.addEventListener('paint', () => {
+      paints++;
+      try {
+        if (!gl.begin([0, 0, 0, 0])) return;
+        drawFn(gl, cv);
+        err = null;
+      } catch (e) { err = e; }
+    });
+    const frame = async () => {
+      const n = paints;
+      cv.requestPaint();
+      for (let i = 0; i < 60 && paints === n; i++) await sleep(20);
+      await sleep(30);
+      if (err) throw err;
+    };
+    await frame();
+    return {
+      cv, gl, frame,
+      at: (x, y) => { const b = cv.getBoundingClientRect(); return document.elementFromPoint(b.left + x, b.top + y); },
+      done: () => { cv.remove(); window.__gfx?.retire?.(cv); },
+    };
+  }
+
+  runTests($('tests'), [
+    {
+      name: 'ElementGL renders two stacked drawable layers with perspective',
+      why: 'Uploads a red back layer (z=0) and a blue front layer (z=50) into one ElementGL context, reads pixels via a plain 2D copy canvas and confirms both layers rendered.',
+      run: async () => {
+        const html = '<div id="back" drawable style="position:absolute;left:0;top:0;width:120px;height:80px;background:#e03131"></div>' +
+          '<div id="front" drawable style="position:absolute;left:0;top:0;width:80px;height:60px;background:#1971c2"></div>';
+        let fMat, bMat;
+        const fx = await glFixture(html, (gl, cv) => {
+          const back = cv.querySelector('#back'), front = cv.querySelector('#front');
+          gl.upload(back); gl.upload(front);
+          const p = new DOMMatrix(); p.m34 = -1 / 700;
+          const base = new DOMMatrix().translate(120, 90).multiply(p).rotate(22, -20, 0);
+          bMat = base.translate(-60, -40, 0);
+          fMat = base.translate(-40, -30, 50);
+          gl.quad(back, toClip(bMat, 120, 80, 240, 180));
+          gl.quad(front, toClip(fMat, 80, 60, 240, 180));
+        });
+        try {
+          const fp = projectPoint(fMat, 40, 30);
+          const bp = projectPoint(bMat, 110, 70);
+          const fPx = readSample(fx.cv, fp.x, fp.y);
+          const bPx = readSample(fx.cv, bp.x, bp.y);
+          if (!(fPx[2] > 150 && fPx[0] < 80)) throw new Error(`front layer sample at (${fp.x.toFixed(0)},${fp.y.toFixed(0)}) was rgba(${fPx.join(',')})`);
+          if (!(bPx[0] > 150 && bPx[2] < 80)) throw new Error(`back layer sample at (${bp.x.toFixed(0)},${bp.y.toFixed(0)}) was rgba(${bPx.join(',')})`);
+          return `Front blue rgba(${fPx.join(',')}) at (${fp.x.toFixed(0)}, ${fp.y.toFixed(0)}); back red rgba(${bPx.join(',')}) at (${bp.x.toFixed(0)}, ${bp.y.toFixed(0)}).`;
+        } finally { fx.done(); }
+      },
+    },
+    {
+      name: 'updateElementGeometry() routes hit tests to the front tilted layer over the back layer',
+      why: 'Two overlapping buttons drawn at z=0 and z=45 under perspective. elementFromPoint() at the overlap should hit the front button and at the exposed edge should hit the back button.',
+      run: async () => {
+        const html = '<div id="l0" drawable style="position:absolute;left:0;top:0;width:140px;height:90px;background:#334"><button id="b0" style="width:140px;height:90px">back</button></div>' +
+          '<div id="l1" drawable style="position:absolute;left:0;top:0;width:70px;height:50px;background:#268"><button id="b1" style="width:70px;height:50px">front</button></div>';
+        let m0, m1;
+        const fx = await glFixture(html, (gl, cv) => {
+          const l0 = cv.querySelector('#l0'), l1 = cv.querySelector('#l1');
+          gl.upload(l0); gl.upload(l1);
+          const p = new DOMMatrix(); p.m34 = -1 / 700;
+          const base = new DOMMatrix().translate(120, 90).multiply(p).rotate(26, -22, 0);
+          m0 = base.translate(-70, -45, 0);
+          m1 = base.translate(-35, -25, 45);
+          gl.quad(l0, toClip(m0, 140, 90, 240, 180));
+          gl.quad(l1, toClip(m1, 70, 50, 240, 180));
+          cv.updateElementGeometry(l0, { canvasTransform: m0 });
+          cv.updateElementGeometry(l1, { canvasTransform: m1 });
+          l0.dataset.hitTick = '1';
+          l1.dataset.hitTick = '1';
+        });
+        try {
+          const pFront = projectPoint(m1, 35, 25);
+          const pBack = projectPoint(m0, 125, 78);
+          const hitFront = fx.at(pFront.x, pFront.y);
+          const hitBack = fx.at(pBack.x, pBack.y);
+          if (hitFront?.id !== 'b1') throw new Error(`front point returned ${hitFront?.id || hitFront?.localName || 'nothing'}`);
+          if (hitBack?.id !== 'b0') throw new Error(`exposed back point returned ${hitBack?.id || hitBack?.localName || 'nothing'}`);
+          return `Front hit #${hitFront.id} at (${pFront.x.toFixed(0)}, ${pFront.y.toFixed(0)}); exposed back hit #${hitBack.id} at (${pBack.x.toFixed(0)}, ${pBack.y.toFixed(0)}).`;
+        } finally { fx.done(); }
+      },
+    },
+    {
+      name: 'Parking an upper layer lets hits reach the layer behind it (Solo mode)',
+      why: 'When Solo selected layer is on, upper layers are parked at scale(0.001) and marked inert so clicks pass through to a lower layer.',
+      run: async () => {
+        const html = '<div id="lo" drawable style="position:absolute;left:0;top:0;width:110px;height:70px"><button id="btnLo" style="width:110px;height:70px">low</button></div>' +
+          '<div id="hi" drawable style="position:absolute;left:0;top:0;width:110px;height:70px"><button id="btnHi" style="width:110px;height:70px">high</button></div>';
+        let solo = false, mat;
+        const fx = await glFixture(html, (gl, cv) => {
+          const lo = cv.querySelector('#lo'), hi = cv.querySelector('#hi');
+          gl.upload(lo); gl.upload(hi);
+          mat = new DOMMatrix().translate(65, 55);
+          gl.quad(lo, toClip(mat, 110, 70, 240, 180));
+          cv.updateElementGeometry(lo, { canvasTransform: mat });
+          if (solo) {
+            hi.inert = true;
+            cv.updateElementGeometry(hi, { canvasTransform: PARK_MATRIX });
+          } else {
+            hi.inert = false;
+            gl.quad(hi, toClip(mat, 110, 70, 240, 180));
+            cv.updateElementGeometry(hi, { canvasTransform: mat });
+          }
+          hi.dataset.hitTick = solo ? '2' : '1';
+        });
+        try {
+          const before = fx.at(120, 90);
+          solo = true;
+          await fx.frame();
+          const after = fx.at(120, 90);
+          if (before?.id !== 'btnHi') throw new Error(`before solo returned ${before?.id || before?.localName}`);
+          if (after?.id !== 'btnLo') throw new Error(`after parking upper layer returned ${after?.id || after?.localName}`);
+          return `Stacked hit #${before.id}; with upper layer parked hit #${after.id}.`;
+        } finally { fx.done(); }
+      },
+    },
+    {
+      name: 'Updating dataset.hitTick clears the hit-test cache after a layer moves',
+      why: 'Moves a tilted layer from left to right with updateElementGeometry() and verifies elementFromPoint() finds the moved button after bumping dataset.hitTick.',
+      run: async () => {
+        const html = '<div id="mv" drawable style="position:absolute;left:0;top:0;width:70px;height:50px"><button id="mvBtn" style="width:70px;height:50px">go</button></div>';
+        let xPos = 20, bump = false;
+        const fx = await glFixture(html, (gl, cv) => {
+          const mv = cv.querySelector('#mv');
+          gl.upload(mv);
+          const m = new DOMMatrix().translate(xPos, 60);
+          gl.quad(mv, toClip(m, 70, 50, 240, 180));
+          cv.updateElementGeometry(mv, { canvasTransform: m });
+          if (bump) mv.dataset.hitTick = '2';
+        });
+        try {
+          const atStart = fx.at(175, 85);
+          xPos = 140; bump = false;
+          await fx.frame();
+          const beforeTick = fx.at(175, 85);
+          bump = true;
+          await fx.frame();
+          const afterTick = fx.at(175, 85);
+          if (afterTick?.id !== 'mvBtn') throw new Error(`after hitTick returned ${afterTick?.id || afterTick?.localName || 'nothing'}`);
+          return `Before move: ${atStart?.localName}. Moved before tick: ${beforeTick?.id || beforeTick?.localName}. After hitTick: #${afterTick.id}.`;
+        } finally { fx.done(); }
+      },
+    },
+    {
+      name: 'Text input and select inside a tilted drawable layer hit test and repaint on change',
+      why: 'Verifies <input type="text"> and <select> stay reachable at their projected points and that updating them triggers a fresh paint event.',
+      run: async () => {
+        const html = '<div id="frm" drawable style="position:absolute;left:0;top:0;width:160px;height:90px;padding:8px;box-sizing:border-box;background:#fff">' +
+          '<input id="ti" type="text" value="A" style="width:140px;height:30px;display:block;margin-bottom:8px">' +
+          '<select id="sl" style="width:140px;height:32px;display:block"><option value="1">One</option><option value="2">Two</option></select></div>';
+        let mat, paints = 0;
+        const fx = await glFixture(html, (gl, cv) => {
+          paints++;
+          const frm = cv.querySelector('#frm');
+          gl.upload(frm);
+          const p = new DOMMatrix(); p.m34 = -1 / 750;
+          mat = new DOMMatrix().translate(120, 90).multiply(p).rotate(18, -16, 0).translate(-80, -45, 25);
+          gl.quad(frm, toClip(mat, 160, 90, 240, 180));
+          cv.updateElementGeometry(frm, { canvasTransform: mat });
+          frm.dataset.hitTick = String(paints);
+        });
+        try {
+          const pIn = projectPoint(mat, 80, 23);
+          const pSel = projectPoint(mat, 80, 62);
+          const hitIn = fx.at(pIn.x, pIn.y);
+          const hitSel = fx.at(pSel.x, pSel.y);
+          const beforePaints = paints;
+          const ti = fx.cv.querySelector('#ti');
+          ti.value = 'Updated title';
+          await sleep(120);
+          if (hitIn?.id !== 'ti') throw new Error(`input point returned ${hitIn?.id || hitIn?.localName || 'nothing'}`);
+          if (hitSel?.id !== 'sl') throw new Error(`select point returned ${hitSel?.id || hitSel?.localName || 'nothing'}`);
+          return `Hit #${hitIn.id} and #${hitSel.id} under tilt; value="${ti.value}", paint count ${beforePaints} -> ${paints}.`;
+        } finally { fx.done(); }
+      },
+    },
+    {
+      name: '2D isometric fallback draws a shifted layer stack with 5-argument drawElementImage()',
+      why: 'Verifies the 2D fallback draws a sheared layer at its offset and routes elementFromPoint() to the button inside it.',
+      run: async () => {
+        if (!supported2d) throw new Error('2D drawElementImage() is not available');
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.width = 220; cv.height = 140;
+        cv.style.cssText = 'flex:none;display:block;width:220px;height:140px;';
+        cv.innerHTML = '<div id="iso" drawable style="position:absolute;left:0;top:0;width:100px;height:50px;background:#2ca58d"><button id="isoBtn" style="width:100px;height:50px">ok</button></div>';
+        testStage().append(cv);
+        const ctx = cv.getContext('2d');
+        let painted = 0;
+        cv.addEventListener('paint', () => {
+          painted++;
+          ctx.reset();
+          ctx.transform(1, 0, -0.25, 0.8, 70, 45);
+          const el = cv.querySelector('#iso');
+          ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight);
+        });
+        try {
+          cv.requestPaint();
+          for (let i = 0; i < 60 && !painted; i++) await sleep(20);
+          await sleep(40);
+          const px = readSample(cv, 115, 65);
+          const b = cv.getBoundingClientRect();
+          const hit = document.elementFromPoint(b.left + 115, b.top + 65);
+          if (px[3] < 200) throw new Error(`expected opaque pixels at (115, 65), got rgba(${px.join(',')})`);
+          if (hit?.id !== 'isoBtn') throw new Error(`elementFromPoint() returned ${hit?.id || hit?.localName || 'nothing'}`);
+          return `2D isometric draw painted rgba(${px.join(',')}) and hit #${hit.id}.`;
+        } finally {
+          cv.remove();
+          window.__gfx?.retire?.(cv);
+        }
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
