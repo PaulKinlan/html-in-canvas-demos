@@ -83,6 +83,9 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | A drawable `marquee` raises one paint event per step (60 a second with `scrolldelay="16" truespeed`) and none after `stop()`. A marquee nested in a drawable block raises 60 a second naming the block, whatever its `scrolldelay`. | measured | C157 | `/table-data/`, `/odd-elements/` | Table data; Odd elements |
 | `:state()`, `:checked`, `details:open`, `:user-invalid` and `:popover-open` set registered custom properties on a canvas through `:has()`. A transition of such a property raises `transitionrun` and `transitionend` on the canvas and no `paint`. | measured | C157 | `/media-state/` | Media controls and state |
 | A registered `<custom-ident>` property selects a shader effect. It changes at the halfway point of a transition. | measured | C157 | `/plan-followups/` | Follow-ups to the Chrome APIs plan |
+| `changedElements` names an element whose content changed even if the last paint wiped it from the canvas. A paint handler that returns without drawing leaves the canvas with the picture it had. | measured | C157 | `/conveyor/`, `/canvas-skin/` | Conveyor belt list; Per-element themes |
+| A block child of `<canvas layoutsubtree>` is as wide as its content unless given a width: a heading was 211 px in a 380 px canvas. | measured | C157 | `/canvas-skin/` | Per-element themes |
+| A scrolling box as the drawable content keeps the canvas at one screen for a page of any length. | measured | C157 | `/view-source/` | Peel a page back to read its source |
 
 ### drawElementImage() in a 2D context
 
@@ -115,6 +118,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `ctx.filter` with `brightness(0)` first recolours a clipped piece of an element to one colour. | measured | C157 | `/table-data/` | Table data |
 | Several clipped draws of one element in a frame each rasterise it again in software. One whole draw plus `drawImage()` copies into a plain canvas is cheaper and needs no readback. | measured | C157 | `/odd-elements/` | Odd elements |
 | `drawElementImage()` of a BT.2020 video into a `display-p3` 2D canvas keeps colours outside sRGB, with the same values as `drawImage(video)`. An HDR10 (PQ) video is tone-mapped to at most 1.0 in a `float16` canvas (software decoding). | measured | C157 | `/video-lab/` | Video, second batch |
+| An element can be drawn once per change, copied to a plain canvas with `drawImage()` inside the paint handler and wiped, and frames drawn from the copy. A drag of 190 px on a ten-element endless list cost 6 element draws in 53 frames. | measured | C157 | `/conveyor/` | Conveyor belt list |
+| A page can be themed with one small drawable 2D canvas per element (53 wrappers, 18.8 MB by the guard's estimate at scale 2.625, 1 WebGL context for the shader skins). `ctx.filter = 'url(#id)'` uses an SVG filter in the wrapper's shadow root, and `<feFlood style="flood-color: var(--x)">` follows a CSS variable where the attribute form does not. | measured | C157 | `/canvas-skin/` | Per-element themes |
 
 ### Hit testing and updateElementGeometry()
 
@@ -178,6 +183,9 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `touch-action: none` on the canvas did not stop a touch that began on a drawable child from scrolling the page. | measured | C157, emulated touch | `/toolkit-occlusion/` | Occlusion between toolkit windows |
 | Links inside a scrolling drawable marquee are hit tested at their current place. | measured | C157 | `/table-data/` | Table data |
 | Client rectangles of content inside a drawable element follow the last `drawElementImage()` call for it; `offsetLeft` and `offsetTop` do not. A block drawn in several pieces reports rectangles for the last piece. | measured | C157 | `/text-marks/` | Text marks |
+| `updateElementGeometry()` places the hit box of an element that the canvas shows only as a `drawImage()` copy. A touch tap reached a checkbox on a row moving at 160 px a second. | measured | C157 | `/conveyor/` | Conveyor belt list |
+| Transparent pixels of a shaded canvas still take input. `clip-path` on the canvas host hands input to what is behind. | measured | C157 | `/view-source/` | Peel a page back to read its source |
+| A control drawn only inside an empty clip, so never painted, still takes taps and drags; a skin can draw it from its state. | measured | C157 | `/canvas-skin/` | Per-element themes |
 
 ### ElementImage, workers and OffscreenCanvas
 
@@ -305,6 +313,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `moveBefore()` into a canvas keeps focus, caret, typed value, scroll offsets and iframes. | measured | C157 | `/capture/` | Capture |
 | A scoped `CustomElementRegistry`, `slotAssignment: 'manual'` and Reference Target each work with a canvas that draws slotted children. | measured | C157 | `/component-kit/` | Newer DOM features in a drawable custom element |
 | An element in an open shadow tree of a canvas child is drawn as its own picture, with its own hit region, when it has `drawable`. | measured | C157 | `/media-state/` | Media controls and state |
+| A drawable `<div>` round a `<slot>` in a per-element canvas, with `pointer-events: none` on the canvas and `auto` on the `<div>`, leaves the slotted control hit-testable and keeps the canvas's margin from taking hits. A wrapper inside a wrapper draws and takes input. | measured | C157 | `/canvas-skin/` | Per-element themes |
+| `getHTML({ shadowRoots })` writes the drawing canvas of a wrapped element. `outerHTML` does not. | measured | C157 | `/view-source/` | Peel a page back to read its source |
 
 ### Across workers, tabs, origins and devices
 
@@ -370,6 +380,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | The picture of a password field is the same for two values of one length. | measured | C157 | `/field-heads/` | Field heads |
 | A permission element's `isValid` is false when a canvas draws it, true when it is positioned over a canvas, false for about a second after it moves, and true under a small rotation. | measured | C157 | `/blocked/` | Blocked ideas |
 | There is no `overscroll-area` property. Touch events on a drawable scroller continue past its end, which a page can use for a pull. | measured | C157, emulated touch | `/blocked/` | Blocked ideas |
+| `select-picker.js` chose the last option when the markup had `<option selected>`, because the options were moved out of the select one at a time. It now reads `selectedIndex` before the move and sets it after. | measured | C157 | `/use-it/` | Use it |
 
 ### Video and sound
 
@@ -465,6 +476,8 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | The inner canvases of `/nested-frames/` were empty on the owner's phone on 2026-11-21 with no report sent, and drew on 2026-11-22 after the page began to ask each inner canvas for its first paint with `requestPaint()`. Whether that request is what changed it is not known. | reported | A159 | `/nested-frames/` | Frames and nested canvases |
 | `/element-ideas/` drew its elements 2.625 times too large on the phone because of no-size draws under a scaled context. The audit found 2 wrong calls in 402 across 122 pages; both are corrected and `npm run build` now fails on a no-size call. | reported, then measured | A159, C157 at device scale 2.625 | `/element-ideas/` | `findings/draw-size.md` |
 | `/friction/` lists 79 places where the API did not behave as expected, by kind and area, and re-runs 19 of them in the visitor's browser. | measured | C157 | `/friction/` | `findings/friction.md` |
+| `/canvas-skin/` on the phone: nine "ResizeObserver loop completed with undelivered notifications" errors from three visits, no lost context. After a frame budget for wrapper paints, changes of skin missed 0 to 28 of about 94 frames (`skin-change` reports), and the owner called it "a lot faster". | reported | A159 | `/canvas-skin/` | Per-element themes |
+| The labels of the `RGBA16F` float buffer route of `/plan-followups/` are readable on the phone. Which defaults they were read at is not certain. | reported | A159 | `/plan-followups/` | Follow-ups to the Chrome APIs plan |
 
 ## Chromium bugs worth filing
 
@@ -539,6 +552,7 @@ Hit testing and input:
 - A stated hit-test order. Today it is the order of the last `updateElementGeometry()` calls, which a page can only learn by measuring. A `zIndex` or `order` member, or a statement that call order is the order, would let a toolkit hand over its own z-order. (Occlusion between toolkit windows)
 - A `canvasClip` of more than one rectangle (a list or a `Path2D`), and a way to clear it. Until then a list or `null` should throw: both are read as an empty rectangle and remove the hit box. (Occlusion between toolkit windows)
 - A hit-only region that belongs to the canvas itself, with no element, so a blocker does not need a node in the accessibility tree. (Occlusion between toolkit windows)
+- A way for a drawn element to say that a region of its canvas is not its own for input, without CSS clipping of the host. (Peel a page back to read its source)
 
 Accessibility and focus:
 
