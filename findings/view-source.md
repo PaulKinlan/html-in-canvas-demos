@@ -9,7 +9,7 @@ Two pages with the same peel. On each, the whole page is a scrolling box that th
 - `/view-source/`: under the page is its HTML as the server sent it (a second `fetch()` of the page, read from the response stream).
 - `/view-dom/`: under the page is its DOM as it is now (`getHTML()` of the document, rewritten when a `MutationObserver` reports a change).
 
-The layer under the page holds numbered lines of source and nothing else: no bar, tabs or buttons. The first version was one page with a header and two tabs in that layer. The owner asked for two pages that show only the code (2026-11-22). The numbers that the bar used to show (bytes and chunks, counts of changes) are in a card in the page itself. On `/view-dom/` that card is left out of the counts, or it would count its own updates.
+The layer under the page holds numbered lines of source and nothing else: no bar, tabs or buttons. The first version was one page with a header and two tabs in that layer. The owner asked for two pages that show only the code (2026-11-22). The numbers that the bar used to show (bytes and chunks, counts of changes) are in a card in the page itself. On `/view-dom/` that card is left out of the counts, or it would count its own updates, and it is not written while the page is peeled: its numbers were six changed lines in the live text after every change, and the text scrolled to them and not to what the reader had changed.
 
 Taking the page off leaves it as a roll in the bottom left corner. Pressing the roll puts the page back, so the source layer needs no button for that.
 
