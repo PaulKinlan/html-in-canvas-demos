@@ -8,6 +8,8 @@
 //   const peel = pagePeel(sheet, { under, onChange: ({ state, amount }) => {} });
 //   peel.open()   peel.away()   peel.close()   peel.state   'rest' | 'held' | 'open' | 'away'
 //
+// 'away' leaves the roll in the bottom left corner. Pressing it, or the round button, brings the sheet back.
+//
 // The sheet is drawn by the fx library (/lib/shader-fx.js): `page-peel` is an effect, in GLSL and in WGSL, that
 // rolls the paper round a cylinder and lays it back over the sheet. Where the paper is gone the effect writes
 // clear pixels, so the layer under the sheet shows through the canvas.
@@ -200,8 +202,9 @@ export function pagePeel(sheet, { under = null, rest = null, label = 'Peel the p
     // On a narrow window the paper comes down to the left and uncovers the top. On a wide one it goes
     // mostly sideways and uncovers a column on the right.
     open: () => (w > 700 ? { x: w - Math.min(w * 0.85, 1000), y: h * 0.34 } : { x: w * 0.2, y: Math.min(h * 0.86, w * 0.8 + h * 0.3) }),
-    // Far enough that the whole sheet has gone round the roll.
-    away: () => { const k = 2.1 * Math.hypot(w, h); return { x: w - k * 0.62, y: k * 0.78 }; },
+    // Nearly all of the sheet has gone round the roll. A piece about 60 px deep stays in the bottom left
+    // corner, with the roll on it, so that there is still something to press to bring the sheet back.
+    away: () => { const k = Math.hypot(w, h); const dist = 2 * (k - 60) - Math.PI * ROLL; return { x: w - (w / k) * dist, y: (h / k) * dist }; },
   };
 
   // #region apply
@@ -233,8 +236,6 @@ export function pagePeel(sheet, { under = null, rest = null, label = 'Peel the p
     if (state !== next) {
       state = next;
       grip.setAttribute('aria-expanded', String(next !== 'rest'));
-      // Once the whole sheet has gone there is no corner on screen to hold. The layer under it has to offer the way back.
-      grip.hidden = next === 'away';
       // At rest only a thumbnail-sized corner of the lower layer shows. Keep it out of the tab order and the accessibility tree.
       if (under) under.inert = next === 'rest';
       sheet.inert = next === 'away';

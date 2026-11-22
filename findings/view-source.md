@@ -1,10 +1,17 @@
-# Peel a page back to read its source (`/view-source/`, `lib/page-peel.js`)
+# Peel a page back to read its source (`/view-source/`, `/view-dom/`, `lib/page-peel.js`)
 
 Results are measured in C157 (headless Chromium 157, software rendering, 412 px wide with touch, and 1280 px wide) on 2026-11-22, by the page's live checks and by Playwright scripts that sent touch events through CDP. Nothing here was run on A159.
 
 ## What was built
 
-One page, `/view-source/`. The whole page is a scrolling box that the fx library draws through the effect `page-peel` (GLSL and WGSL in `lib/page-peel.js`). Dragging the top right corner rolls the page back. Under it is a layer with two tabs: "Sent by the server" (a second `fetch()` of the page, read from the response stream) and "Live DOM" (`getHTML()` of the document, rewritten when a `MutationObserver` reports a change).
+Two pages with the same peel. On each, the whole page is a scrolling box that the fx library draws through the effect `page-peel` (GLSL and WGSL in `lib/page-peel.js`). Dragging the top right corner rolls the page back.
+
+- `/view-source/`: under the page is its HTML as the server sent it (a second `fetch()` of the page, read from the response stream).
+- `/view-dom/`: under the page is its DOM as it is now (`getHTML()` of the document, rewritten when a `MutationObserver` reports a change).
+
+The layer under the page holds numbered lines of source and nothing else: no bar, tabs or buttons. The first version was one page with a header and two tabs in that layer. The owner asked for two pages that show only the code (2026-11-22). The numbers that the bar used to show (bytes and chunks, counts of changes) are in a card in the page itself. On `/view-dom/` that card is left out of the counts, or it would count its own updates.
+
+Taking the page off leaves it as a roll in the bottom left corner. Pressing the roll puts the page back, so the source layer needs no button for that.
 
 ## Results
 
@@ -18,8 +25,8 @@ One page, `/view-source/`. The whole page is a scrolling box that the fx library
 | Does a drawable canvas inside the drawn page work? | Yes, measured. | Its pixels are in the outer picture and its button took a touch tap. It has `contain: paint` (see `findings/media-tiles.md`). |
 | Is the WGSL the same picture as the GLSL? | Yes, measured off screen: mean difference 0.08 of 255 per channel. | Software WebGPU adapter, drawn into a texture (`sameOnWebGPU()`). |
 | Is the fetched HTML what the page was parsed from? | Same byte count in the test (the navigation entry's `decodedBodySize`). The text itself cannot be compared. | The first response cannot be read again from script. |
-| How many chunks does the stream arrive in? | 1 from the local test server (36 kB). | Not verified for the deployed Worker. |
-| Does `getHTML()` show the canvas that draws the page? | Yes with `{ shadowRoots: [surface.shadowRoot] }`. `outerHTML` shows none of it. | The live tab passes the root of `<fx-surface>` and not the root of the source layer. |
+| How many chunks does the stream arrive in? | 1 from the local test server (23 kB). | Not verified for the deployed Worker. |
+| Does `getHTML()` show the canvas that draws the page? | Yes with `{ shadowRoots: [surface.shadowRoot] }`. `outerHTML` shows none of it. | `/view-dom/` passes the root of `<fx-surface>` and not the root of the source layer. |
 | Does the live text follow the page? | Attributes, text and children: yes. `value` and `checked` properties: no, until copied to attributes. | Measured by a live check with a text field. |
 | What does a `MutationObserver` report for `textContent = …`? | A `childList` record, not `characterData`. | The clock's changes are counted under "lists of children". |
 | Does the source view report its own updates? | No: it is in a shadow root. | Measured: two changes inside a shadow root gave no record on a document observer. |
@@ -34,6 +41,8 @@ One page, `/view-source/`. The whole page is a scrolling box that the fx library
 - Nothing inside the page may change while the corner is held: any change makes the canvas take a new picture of the whole page. The status line is written when the paper stops.
 - On a wide window the first pose uncovered the left of the source layer last, where every line starts. The source keeps to a 500 px column on the right until the page is off.
 - A fixed, full-screen box would count as an overlay in the jank guard. The page uses a box in normal flow and `overflow: hidden` on the document.
+- When the window changes height the canvas changes size and is cleared. The library draws it again on the next animation frame, so for one frame the layer under the page showed through all of it (jank guard: `blankFrames 1` on `/view-dom/`; on `/view-source/` the same frame showed the source text and was not counted as blank). The pages set the surface's `resized` hook to call `render()` in the same frame. Measured after: 0 blank frames on both.
+- On `/view-dom/` the text scrolls to the first changed line, and the clock changes every second. The text keeps still for five seconds after the reader scrolls it.
 
 ## Not verified
 
@@ -43,7 +52,7 @@ One page, `/view-source/`. The whole page is a scrolling box that the fx library
 
 ## Open ideas
 
-- A third tab that shows only the lines that differ between the two sources.
+- A third page that shows only the lines that differ between the two sources.
 - Read the first response itself with a service worker that tees the navigation response.
 - Draw the source layer in the same canvas as a second texture, so the shader can light it.
 

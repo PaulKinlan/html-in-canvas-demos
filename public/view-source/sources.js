@@ -1,4 +1,4 @@
-// sources.js: the two things /view-source/ shows under the page.
+// sources.js: what /view-source/ and /view-dom/ show under the page.
 //
 //   readSent(url, onChunk)        the HTML as the server sends it, read from the response stream
 //   serialise(document, roots)    the DOM as it is now, as text
@@ -57,10 +57,11 @@ export function serialise(doc, roots = []) {
 
 // #region watch
 /**
- * Watch every node of the document. Changes inside a shadow root are not reported to an observer on the
+ * Watch every node of the document and call `onChange({ counts, last })` after each batch of changes.
+ * Changes inside a shadow root are not reported to an observer on the
  * document, so a view that lives in a shadow root can show the document without seeing its own updates.
  */
-export function watch(doc, onChange) {
+export function watch(doc, onChange, { ignore = null } = {}) {
   const counts = { attributes: 0, characterData: 0, childList: 0, total: 0 };
   const name = (node) => {
     const el = node.nodeType === 1 ? node : node.parentElement;
@@ -68,6 +69,9 @@ export function watch(doc, onChange) {
     return `<${el.localName}${el.id ? ` id="${el.id}"` : ''}>`;
   };
   const observer = new MutationObserver((records) => {
+    // `ignore` is an element whose own changes are not counted: the page's table of these counts.
+    records = records.filter((r) => !ignore?.contains(r.target));
+    if (!records.length) return;
     for (const r of records) { counts[r.type]++; counts.total++; }
     const r = records[records.length - 1];
     const what = r.type === 'attributes' ? `the ${r.attributeName} attribute of ${name(r.target)}` : r.type === 'characterData' ? `text in ${name(r.target)}` : `the children of ${name(r.target)}`;
