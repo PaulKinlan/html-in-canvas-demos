@@ -517,4 +517,118 @@ const oldmaster = {
 };
 // #endregion oldmaster
 
-export const skins = { metal, sea, space, foil, poster, crayon, impressionist, oldmaster };
+// ----------------------------------------------------------------------------------- stained glass
+// #region stained
+// A leaded window. The box is cut into the cells of a Voronoi diagram. Each cell is a piece of glass in
+// a colour between uA and uB, uneven in brightness, and the borders between cells and round the box are
+// lead. On arrival the pieces light one at a time.
+const STAINED = `
+vec4 shade(vec2 p) {
+  float d = -sdBox(p);
+  vec2 g = (p + uSeed * 400.0) / uPiece, cell = floor(g), id = cell;
+  float f1 = 9.0, f2 = 9.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 k = cell + vec2(float(i), float(j));
+    float dd = length(g - k - vec2(hash(k), hash(k + 5.0)));
+    if (dd < f1) { f2 = f1; f1 = dd; id = k; } else if (dd < f2) f2 = dd;
+  }
+  float tone = hash(id + 2.0);
+  vec3 col = mix(uA, uB, tone) * (0.72 + 0.5 * hash(id + 8.0));
+  col *= 0.8 + 0.4 * fbm(p * 0.09 + id);                                  // the glass is uneven
+  col += 0.25 * pow(fbm(p * 0.03 + uSeed * 9.0), 3.0);                     // light behind it
+  col *= mix(0.12, 1.0, step(hash(id + 4.0) * 0.8, uT));                   // not lit yet
+  float lead = min(smoothstep(0.02, 0.09, f2 - f1), smoothstep(1.6, 3.0, d));
+  col = mix(vec3(0.07, 0.07, 0.09), col * uGlow, lead);
+  return vec4(col, clamp(d * uScale + 0.5, 0.0, 1.0));
+}`;
+const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255);
+const STAINED_TYPE = 'color: #f3e3b0; color-scheme: dark; font-family: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;';
+const PANES = { body: ['#1d5fd0', '#35b6e8'], primary: ['#d6262b', '#f2a31b'], well: ['#efe6c4', '#cfe6da'], fill: ['#1f9d55', '#b6d93b'], track: ['#2a1d4a', '#56347a'], knob: ['#f2a31b', '#ffe066'], dot: ['#d6262b', '#ff7a59'] };
+const stained = {
+  label: 'Stained glass',
+  type: STAINED_TYPE,
+  root: `${STAINED_TYPE} background-color: #15131a; background-image: linear-gradient(rgb(255 255 255 / .04) 1px, rgb(255 255 255 / 0) 1px), radial-gradient(100% 70% at 50% 0%, rgb(120 100 160 / .25), rgb(0 0 0 / .3)); background-size: 100% 46px, auto;`,
+  css: 'caret-color: #15101c; &[kind="button"] > *, &[kind="field"] > * { color: #15101c; font-weight: 700; } & ::placeholder { color: rgb(21 16 28 / .55); }',
+  // Lettering on glass: a pale ground round each letter keeps it readable over the lead lines.
+  filters: `
+    <filter id="stained-ink" x="-5%" y="-20%" width="110%" height="140%" color-interpolation-filters="sRGB">
+      <feMorphology in="SourceAlpha" operator="dilate" radius="2.5" result="fat"/>
+      <feGaussianBlur in="fat" stdDeviation="1.6" result="soft"/>
+      <feColorMatrix in="soft" type="matrix" values="0 0 0 0 1  0 0 0 0 .97  0 0 0 0 .86  0 0 0 .9 0" result="ground"/>
+      <feMerge><feMergeNode in="ground"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>`,
+  paint(ctx, f) {
+    const { width: w, height: h, kind, state: s } = f;
+    const { list, rest } = shapes(ctx, f, { radius: 8 });
+    for (const b of list) {
+      if (b.role === 'mark') { ctx.save(); b.path(); ctx.strokeStyle = '#111016'; ctx.lineWidth = kind === 'check' ? 3.4 : 2.2; ctx.lineCap = ctx.lineJoin = 'round'; ctx.stroke(); ctx.restore(); continue; }
+      if (b.role === 'frame') { fillBox(ctx, b, null, '#3a3642', 3); fillBox(ctx, b, null, 'rgb(255 255 255 / .12)', 1); continue; }
+      const [from, to] = PANES[b.role];
+      const values = { uPiece: Math.max(7, Math.min(22, b.h * 0.42)), uA: hex(from), uB: hex(to), uT: f.t, uGlow: s.active ? 1.5 : s.hover || s.focus ? 1.25 : 1 };
+      if (!panel(ctx, f, 'stained', STAINED, b, values)) fillBox(ctx, b, across(ctx, b, from, to), '#111016', 2.5);
+    }
+    if (rest === 'media') { ctx.save(); rr(ctx, 0, 0, w, h, 8); ctx.clip(); f.draw({ alpha: f.t }); ctx.restore(); ctx.save(); rr(ctx, 0, 0, w, h, 8); ctx.strokeStyle = '#111016'; ctx.lineWidth = 4; ctx.stroke(); ctx.restore(); }
+    else if (rest !== 'control') f.draw(kind === 'button' || kind === 'field' ? { filter: 'url(#stained-ink)' } : {});
+    if (s.focus) { ctx.save(); rr(ctx, -4, -4, w + 8, h + 8, 11); ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); }
+    if (f.t < 1) f.again = true;
+  },
+};
+// #endregion stained
+
+// --------------------------------------------------------------------------------------------- clay
+// #region clay
+// Modelling clay. The outline is a little uneven (noise added to the distance to the edge), the surface
+// is rounded over at the rim and dented by more noise, and it is lit from the upper left with a soft
+// highlight. uJit changes the noise: while an element arrives or is pressed it changes 8 times a second,
+// as a model moved by hand between photographs does.
+const CLAY = `
+vec4 shade(vec2 p) {
+  float d = -sdBox(p) + (noise(p * 0.08 + uJit * 17.0) - 0.5) * 3.0 - 1.5, e = 0.6;
+  vec2 g = vec2(sdBox(p + vec2(e, 0.0)) - sdBox(p - vec2(e, 0.0)), sdBox(p + vec2(0.0, e)) - sdBox(p - vec2(0.0, e)));
+  g /= max(length(g), 1e-5);
+  float t = clamp(d / uPuff, 0.0, 1.0);
+  float slope = t < 1.0 ? (1.0 - t) / max(sqrt(1.0 - (1.0 - t) * (1.0 - t)), 0.3) : 0.0;
+  vec2 dent = vec2(noise(p * 0.3 + uJit * 5.0), noise(p * 0.3 + 9.0 + uJit * 5.0)) - 0.5;
+  vec3 n = normalize(vec3(g * slope * uPress + dent * 0.45, 1.0));
+  vec2 thumb = (vec2(hash(vec2(uSeed, 1.0)), hash(vec2(uSeed, 2.0))) - 0.5) * uSize;
+  float print = 0.5 + 0.5 * sin(length(p - thumb) * 1.7 + noise(p * 0.1) * 4.0);
+  vec3 L = normalize(vec3(-0.5, -0.6, 0.75));
+  vec3 col = uTone * (0.5 + 0.6 * clamp(dot(n, L), 0.0, 1.0)) * (0.95 + 0.05 * print);
+  col += pow(clamp(reflect(-L, n).z, 0.0, 1.0), 16.0) * 0.16;
+  return vec4(col, clamp(d * uScale + 0.5, 0.0, 1.0));
+}`;
+const CLAY_TYPE = 'color: #4a2f1b; color-scheme: light; font-family: "Arial Rounded MT Bold", "Varela Round", Nunito, "Trebuchet MS", system-ui, sans-serif;';
+const CLAY_TONE = { body: '#2bb3a3', primary: '#f0553a', well: '#fff3d6', track: '#d9b382', fill: '#7bc74d', knob: '#ffcf33', dot: '#7a4fd0' };
+const clay = {
+  label: 'Clay',
+  type: CLAY_TYPE,
+  root: `${CLAY_TYPE} background-color: #f3d9b1; background-image: radial-gradient(120% 80% at 30% 10%, rgb(255 255 255 / .35), rgb(160 110 50 / .18));`,
+  css: 'caret-color: #f0553a; & ::placeholder { color: rgb(74 47 27 / .5); } &[kind="button"] > * { color: #fff; }',
+  paint(ctx, f) {
+    const { width: w, height: h, kind, state: s } = f;
+    const { list, rest } = shapes(ctx, f, { radius: 14 });
+    const moving = f.t < 1 || s.active;
+    const jit = moving ? Math.floor(f.time * 8) % 64 : 0;
+    // The element is squashed and springs out as it arrives.
+    const k = f.t < 1 ? 1 + Math.exp(-5 * f.t) * Math.cos(f.t * 14) * -0.35 : 1;
+    ctx.save(); ctx.translate(w / 2, h / 2); ctx.scale(1 + (k - 1) * 0.5, k); ctx.translate(-w / 2, -h / 2);
+    for (const b of list) {
+      if (b.role === 'mark') { ctx.save(); b.path(); ctx.strokeStyle = kind === 'check' ? '#fff' : '#4a2f1b'; ctx.lineWidth = kind === 'check' ? 4 : 3; ctx.lineCap = ctx.lineJoin = 'round'; ctx.stroke(); ctx.restore(); continue; }
+      if (b.role === 'frame') { fillBox(ctx, b, null, '#c98d4f', 5); fillBox(ctx, { ...b, y: b.y - 1 }, null, 'rgb(255 255 255 / .35)', 1.2); continue; }
+      const sunk = b.role === 'well' || b.role === 'track';
+      if (!sunk) { ctx.save(); boxPath(ctx, b); ctx.shadowColor = 'rgb(90 50 10 / .45)'; ctx.shadowBlur = 5 * f.scale; ctx.shadowOffsetY = (s.active ? 1 : 3) * f.scale; ctx.fillStyle = CLAY_TONE[b.role]; ctx.fill(); ctx.restore(); }
+      const big = { x: b.x - 2, y: b.y - 2, w: b.w + 4, h: b.h + 4, r: b.r + 2 };       // room for the uneven outline
+      const values = { uPuff: Math.min(sunk ? 5 : 9, b.h / 2), uPress: sunk || (s.active && kind === 'button') ? -1 : 1, uJit: jit, uTone: hex(CLAY_TONE[b.role]) };
+      if (!panel(ctx, f, 'clay', CLAY, big, values)) fillBox(ctx, b, CLAY_TONE[b.role], 'rgb(74 47 27 / .4)', 2);
+    }
+    if (rest === 'media') { ctx.save(); rr(ctx, -5, -5, w + 10, h + 10, 16); ctx.fillStyle = '#fff3d6'; ctx.shadowColor = 'rgb(90 50 10 / .45)'; ctx.shadowBlur = 5 * f.scale; ctx.shadowOffsetY = 3 * f.scale; ctx.fill(); ctx.restore(); ctx.save(); rr(ctx, 0, 0, w, h, 12); ctx.clip(); f.draw(); ctx.restore(); }
+    else if (rest !== 'control') f.draw();
+    ctx.restore();
+    if (s.focus) { ctx.save(); rr(ctx, -5, -5, w + 10, h + 10, 18); ctx.strokeStyle = '#7a4fd0'; ctx.lineWidth = 3; ctx.setLineDash([2, 6]); ctx.lineCap = 'round'; ctx.stroke(); ctx.restore(); }
+    if (moving) f.wait = 125;
+    if (f.t < 1) f.again = true;
+  },
+};
+// #endregion clay
+
+export const skins = { metal, sea, space, foil, poster, crayon, impressionist, oldmaster, stained, clay };

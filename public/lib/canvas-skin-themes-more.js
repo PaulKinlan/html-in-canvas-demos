@@ -1,5 +1,5 @@
 // canvas-skin-themes-more.js: skins for <canvas-skin> that are drawn with 2D canvas calls and SVG filters.
-// Thermal camera, neon sign, embroidery, Christmas, seaside. A skin is described at the top of canvas-skin-themes.js, and the
+// Thermal camera, neon sign, embroidery, Christmas, seaside, LED board, punch card, oscilloscope, X-ray. A skin is described at the top of canvas-skin-themes.js, and the
 // shapes of each kind of element come from parts() in canvas-skin-draw.js.
 
 import { TAU, clamp, lerp, smooth, rng, rr, circle, line, knobX, parts, grab, cells, maskTile } from './canvas-skin-draw.js';
@@ -511,4 +511,213 @@ const seaside = {
 };
 // #endregion seaside
 
-export const skins = { thermal, neon, embroidery, christmas, seaside };
+// ---------------------------------------------------------------------------------------- LED board
+// #region led
+const LED_AMBER = '#ffb000';
+const LED_TYPE = `color: ${LED_AMBER}; color-scheme: dark; font-family: "Arial Narrow", "Helvetica Neue", Arial, system-ui, sans-serif; font-weight: 700;`;
+const lampTile = () => maskTile('lamp', (x) => { x.beginPath(); x.arc(0.5, 0.5, 0.4, 0, TAU); x.fill(); });
+const lampOffTile = () => maskTile('lamp-off', (x) => { x.fillStyle = '#2a1d05'; x.beginPath(); x.arc(0.5, 0.5, 0.4, 0, TAU); x.fill(); });
+
+const led = {
+  label: 'LED board',
+  type: LED_TYPE,
+  root: `${LED_TYPE} background-color: #0b0a08; background-image: radial-gradient(circle at 1.5px 1.5px, rgb(255 176 0 / .1) 0 1px, rgb(255 176 0 / 0) 1.4px); background-size: 3px 3px;`,
+  css: `caret-color: ${LED_AMBER}; & ::placeholder { color: rgb(255 176 0 / .5); } &[kind="button"] > .primary { color: #0b0a08; }`,
+
+  // The shapes and the element's picture are drawn in flat colour, and the whole drawing is then
+  // shown as lamps: one disc for each cell of a grid, the picture's colour at that cell.
+  paint(ctx, f) {
+    const { width: w, height: h, kind, state: s, bleed: b } = f;
+    const what = parts(ctx, f, (path, role) => {
+      ctx.save(); path(); ctx.fillStyle = ctx.strokeStyle = role === 'fill' && kind !== 'check' ? '#3cff6a' : LED_AMBER; ctx.lineWidth = 3; ctx.lineCap = ctx.lineJoin = 'round';
+      if (role === 'primary' || role === 'fill' || role === 'knob' || role === 'dot' || (role === 'body' && s.active)) ctx.fill();
+      else { if (role === 'track') ctx.globalAlpha *= 0.4; ctx.stroke(); }
+      if (role === 'fill' && kind === 'check') { ctx.fillStyle = '#0b0a08'; }
+      ctx.restore();
+      if (role === 'mark' && kind === 'check') { ctx.save(); path(); ctx.strokeStyle = '#0b0a08'; ctx.lineWidth = 4; ctx.lineCap = ctx.lineJoin = 'round'; ctx.stroke(); ctx.restore(); }
+    }, { radius: 3 });
+    if (s.focus) { ctx.save(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; rr(ctx, -5, -5, w + 10, h + 10, 4); ctx.stroke(); ctx.restore(); }
+    const shot = grab(ctx, f, what === 'control' ? false : undefined);
+    const grid = cells(ctx, f, shot, kind === 'media' ? 4 : 2, lampTile(), { boost: 2, rows: f.t });
+    // The lamps that are off, and the board behind them.
+    ctx.save(); ctx.resetTransform(); ctx.globalCompositeOperation = 'destination-over';
+    if (what !== 'text') {
+      const tile = lampOffTile(), px = grid.cell * f.scale, pattern = ctx.createPattern(tile, 'repeat');
+      pattern.setTransform(new DOMMatrix().scale(px / tile.width));
+      ctx.beginPath(); ctx.rect(Math.round((b - 3) * f.scale), Math.round((b - 3) * f.scale), Math.round((w + 6) * f.scale), Math.round((h + 6) * f.scale));
+      ctx.fillStyle = pattern; ctx.fill(); ctx.fillStyle = '#050504'; ctx.fill();
+    }
+    ctx.restore();
+  },
+};
+// #endregion led
+
+// --------------------------------------------------------------------------------------- punch card
+// #region punch
+const CARD = { paper: '#e8d5a4', ink: '#2a2118', red: '#b5362a', hole: '#17120c', green: '#cfe6c4' };
+const PUNCH_TYPE = `color: ${CARD.ink}; color-scheme: light; font-family: "IBM Plex Mono", "Courier New", Courier, ui-monospace, monospace;`;
+// A rectangular hole punched through the card.
+function hole(ctx, x, y, w, h, punched) {
+  ctx.save();
+  if (punched > 0.5) { ctx.fillStyle = CARD.hole; ctx.fillRect(x, y, w, h); ctx.fillStyle = 'rgb(255 255 255 / .35)'; ctx.fillRect(x, y + h, w, 1); }
+  else { ctx.strokeStyle = 'rgb(42 33 24 / .45)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1); }
+  ctx.restore();
+}
+
+const punch = {
+  label: 'Punch card',
+  type: PUNCH_TYPE,
+  root: `${PUNCH_TYPE} background-color: ${CARD.paper}; background-image: repeating-linear-gradient(90deg, rgb(42 33 24 / .12) 0 1px, rgb(42 33 24 / 0) 1px 9px), repeating-linear-gradient(0deg, rgb(181 54 42 / .16) 0 1px, rgb(181 54 42 / 0) 1px 22px);`,
+  css: `caret-color: ${CARD.red}; & ::placeholder { color: rgb(42 33 24 / .5); } &[kind="button"] > .primary { color: ${CARD.paper}; }`,
+  filters: `
+    <filter id="punch-print" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values=".3 .59 .11 0 0  .3 .59 .11 0 0  .3 .59 .11 0 0  0 0 0 1 0"/>
+      <feComponentTransfer><feFuncR type="discrete" tableValues=".16 .45 .72 .91"/><feFuncG type="discrete" tableValues=".13 .38 .64 .84"/><feFuncB type="discrete" tableValues=".09 .28 .48 .64"/></feComponentTransfer>
+    </filter>`,
+
+  paint(ctx, f) {
+    const { width: w, height: h, kind, state: s, bleed: b } = f;
+    // The element is printed from left to right, as a line printer does.
+    if (f.t < 1) { ctx.beginPath(); ctx.rect(-b, -b, (w + 2 * b) * f.t, h + 2 * b); ctx.clip(); }
+    ctx.strokeStyle = ctx.fillStyle = CARD.ink; ctx.lineWidth = 1.4;
+    // A card with one corner cut off.
+    const cut = (x, y, ww, hh, c = 9) => { ctx.beginPath(); ctx.moveTo(x + c, y); ctx.lineTo(x + ww, y); ctx.lineTo(x + ww, y + hh); ctx.lineTo(x, y + hh); ctx.lineTo(x, y + c); ctx.closePath(); };
+    switch (kind) {
+      case 'button':
+        ctx.save(); cut(0, 0, w, h); ctx.shadowColor = 'rgb(42 33 24 / .4)'; ctx.shadowOffsetX = ctx.shadowOffsetY = (s.active ? 0 : 2.5) * f.scale; ctx.fillStyle = f.primary ? CARD.ink : '#f4e6bd'; ctx.fill(); ctx.restore();
+        cut(0, 0, w, h); ctx.stroke(); if (s.active) ctx.translate(2, 2); f.draw(); break;
+      case 'field':
+        // Paper from a line printer: green bars, and feed holes at both edges.
+        ctx.save(); ctx.fillStyle = '#fbf7ea'; ctx.fillRect(0, 0, w, h); ctx.fillStyle = CARD.green; for (let y = 0; y < h; y += 16) ctx.fillRect(0, y, w, 8);
+        ctx.fillStyle = 'rgb(42 33 24 / .55)'; for (let y = 7; y < h; y += 12) { circle(ctx, 6, y, 2); ctx.fill(); circle(ctx, w - 6, y, 2); ctx.fill(); }
+        ctx.restore(); ctx.lineWidth = s.focus ? 2.5 : 1; ctx.strokeStyle = s.focus ? CARD.red : CARD.ink; ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+        if (f.el.localName === 'select') { ctx.beginPath(); ctx.moveTo(w - 28, h / 2 - 3); ctx.lineTo(w - 22, h / 2 + 3); ctx.lineTo(w - 16, h / 2 - 3); ctx.lineWidth = 2; ctx.strokeStyle = CARD.ink; ctx.stroke(); }
+        f.draw(); break;
+      case 'card': ctx.save(); ctx.strokeStyle = CARD.red; cut(0, 0, w, h, 14); ctx.stroke(); ctx.restore(); f.draw(); break;
+      case 'media': f.draw({ filter: 'url(#punch-print)' }); ctx.strokeRect(0.5, 0.5, w - 1, h - 1); break;
+      case 'check': hole(ctx, 7, 4, w - 14, h - 8, s.on); break;
+      case 'radio': ctx.save(); circle(ctx, w / 2, h / 2, h / 2 - 5); if (s.on > 0.5) { ctx.fillStyle = CARD.hole; ctx.fill(); } else { ctx.strokeStyle = 'rgb(42 33 24 / .45)'; ctx.stroke(); } ctx.restore(); break;
+      case 'switch': hole(ctx, 4, 4, w / 2 - 8, h - 8, 1 - s.on); hole(ctx, w / 2 + 4, 4, w / 2 - 8, h - 8, s.on); break;
+      case 'range': case 'bar': {
+        // A row of columns, punched up to the value. A range also has a red pointer.
+        const n = Math.max(6, Math.floor(w / 12)), cw = w / n, done = Math.round(n * s.value);
+        for (let i = 0; i < n; i++) hole(ctx, i * cw + 2, kind === 'bar' ? 0 : 6, cw - 4, kind === 'bar' ? h : h - 12, i < done ? 1 : 0);
+        if (kind === 'range') { const x = knobX(f, s.value, 12); ctx.fillStyle = CARD.red; ctx.beginPath(); ctx.moveTo(x - 6, 0); ctx.lineTo(x + 6, 0); ctx.lineTo(x, 6); ctx.closePath(); ctx.fill(); ctx.beginPath(); ctx.moveTo(x - 6, h); ctx.lineTo(x + 6, h); ctx.lineTo(x, h - 6); ctx.closePath(); ctx.fill(); }
+        break;
+      }
+      default: f.draw();
+    }
+    if (s.focus && kind !== 'field') { ctx.save(); ctx.setLineDash([4, 3]); ctx.strokeStyle = CARD.red; ctx.lineWidth = 2; ctx.strokeRect(-4, -4, w + 8, h + 8); ctx.restore(); }
+  },
+};
+// #endregion punch
+
+// ------------------------------------------------------------------------------------- oscilloscope
+// #region scope
+const BEAM = '#7dffe0';
+const SCOPE_TYPE = `color: ${BEAM}; color-scheme: dark; font-family: "Helvetica Neue", "DIN Alternate", "Segoe UI", system-ui, sans-serif;`;
+// The current path drawn by the beam: a wide dim line, a narrow bright one.
+function trace(ctx, f, path, bright = 1, width = 1.6) {
+  ctx.save(); ctx.lineCap = ctx.lineJoin = 'round'; path();
+  ctx.strokeStyle = BEAM; ctx.shadowColor = BEAM; ctx.shadowBlur = 7 * f.scale; ctx.globalAlpha *= 0.55 * bright; ctx.lineWidth = width * 2.4; ctx.stroke();
+  ctx.shadowBlur = 0; ctx.globalAlpha /= 0.55; ctx.strokeStyle = '#eafff9'; ctx.lineWidth = width; ctx.stroke();
+  ctx.restore();
+}
+// A wave from x0 to x1 about the line y: fn(phase) gives the height, -1 to 1.
+const wave = (ctx, x0, x1, y, amp, period, fn, shift = 0) => { ctx.beginPath(); for (let x = x0; x <= x1; x += 1.5) ctx.lineTo(x, y - amp * fn(((x - x0) / period + shift) * TAU)); };
+
+const scope = {
+  label: 'Oscilloscope',
+  type: SCOPE_TYPE,
+  root: `${SCOPE_TYPE} background-color: #04100e; background-image: linear-gradient(rgb(125 255 224 / .16) 1px, rgb(125 255 224 / 0) 1px), linear-gradient(90deg, rgb(125 255 224 / .16) 1px, rgb(125 255 224 / 0) 1px), radial-gradient(90% 70% at 50% 40%, rgb(20 80 70 / .5), rgb(0 0 0 / .4)); background-size: 40px 40px, 40px 40px, auto;`,
+  css: `caret-color: ${BEAM}; & ::placeholder { color: rgb(125 255 224 / .5); }`,
+  filters: `
+    <filter id="scope-lines" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feColorMatrix in="SourceGraphic" type="saturate" values="0" result="grey"/>
+      <feConvolveMatrix in="grey" order="3" kernelMatrix="-1 -1 -1 -1 8 -1 -1 -1 -1" preserveAlpha="true" result="edge"/>
+      <feColorMatrix in="edge" type="matrix" values="0 0 0 0 .5  0 0 0 0 1  0 0 0 0 .88  3 3 3 0 0" result="lines"/>
+      <feGaussianBlur in="lines" stdDeviation="2" result="glow"/>
+      <feMerge><feMergeNode in="glow"/><feMergeNode in="lines"/></feMerge>
+    </filter>
+    <filter id="scope-glow" x="-10%" y="-30%" width="120%" height="160%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>`,
+
+  paint(ctx, f) {
+    const { width: w, height: h, kind, state: s, bleed: b } = f;
+    // The beam sweeps across once and leaves the element behind it.
+    if (f.t < 1) { const x = lerp(-b, w + b, f.t); ctx.save(); circle(ctx, x, h / 2, 3); ctx.fillStyle = '#fff'; ctx.shadowColor = BEAM; ctx.shadowBlur = 12 * f.scale; ctx.fill(); ctx.restore(); ctx.beginPath(); ctx.rect(-b, -b, x + b, h + 2 * b); ctx.clip(); }
+    const bright = s.active ? 1.5 : s.hover ? 1.2 : 1;
+    switch (kind) {
+      case 'button': trace(ctx, f, () => rr(ctx, 1, 1, w - 2, h - 2, 6), bright); if (f.primary) trace(ctx, f, () => wave(ctx, 8, w - 8, h - 7, 2.5, 14, Math.sin), 0.8, 1); f.draw({ filter: 'url(#scope-glow)' }); break;
+      case 'field': trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(0, h - 10); ctx.lineTo(0, h - 1); ctx.lineTo(w, h - 1); ctx.lineTo(w, h - 10); }, s.focus ? 1.5 : 1); if (f.el.localName === 'select') trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(w - 28, h / 2 - 3); ctx.lineTo(w - 22, h / 2 + 3); ctx.lineTo(w - 16, h / 2 - 3); }); f.draw({ filter: 'url(#scope-glow)' }); break;
+      case 'card': trace(ctx, f, () => rr(ctx, 1, 1, w - 2, h - 2, 3), 0.5, 1); f.draw({ filter: 'url(#scope-glow)' }); break;
+      case 'media': f.draw({ filter: 'url(#scope-lines)' }); trace(ctx, f, () => rr(ctx, 0, 0, w, h, 2), 0.6, 1); break;
+      // A check box is one pulse: flat when off, a square pulse when on.
+      case 'check': trace(ctx, f, () => { const up = h * 0.62 * s.on; ctx.beginPath(); ctx.moveTo(0, h - 5); ctx.lineTo(w * 0.28, h - 5); ctx.lineTo(w * 0.28, h - 5 - up); ctx.lineTo(w * 0.72, h - 5 - up); ctx.lineTo(w * 0.72, h - 5); ctx.lineTo(w, h - 5); }, bright); break;
+      // A radio is a circle, and a figure of eight inside it when it is chosen.
+      case 'radio': trace(ctx, f, () => circle(ctx, w / 2, h / 2, h / 2 - 2), bright); if (s.on > 0.05) trace(ctx, f, () => { ctx.beginPath(); for (let a = 0; a <= TAU + 0.1; a += 0.15) ctx.lineTo(w / 2 + Math.sin(a) * (h / 2 - 6) * s.on, h / 2 + Math.sin(2 * a) * (h / 2 - 8) * s.on); }, 1, 1.3); break;
+      // A switch is a step: low on the left of the knob, high on the right when on.
+      case 'switch': { const x = knobX(f, s.on, 12), lift = (h - 12) * s.on; trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(0, h - 5); ctx.lineTo(x, h - 5); ctx.lineTo(x, h - 5 - lift); ctx.lineTo(w, h - 5 - lift); }, bright); ctx.save(); circle(ctx, x, h - 5 - lift / 2, 3); ctx.fillStyle = '#fff'; ctx.fill(); ctx.restore(); break; }
+      // A range is a sine wave. Its frequency is the value, and the wave ends at the knob.
+      case 'range': { const x = knobX(f, s.value, 12); trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(x, h / 2); ctx.lineTo(w, h / 2); }, 0.35, 1); trace(ctx, f, () => wave(ctx, 0, x, h / 2, h / 2 - 4, lerp(46, 9, s.value), Math.sin), bright); ctx.save(); circle(ctx, x, h / 2, 4.5); ctx.fillStyle = '#fff'; ctx.shadowColor = BEAM; ctx.shadowBlur = 10 * f.scale; ctx.fill(); ctx.restore(); break; }
+      // A bar is a square wave up to the value.
+      case 'bar': trace(ctx, f, () => { ctx.beginPath(); ctx.moveTo(w * s.value, h / 2); ctx.lineTo(w, h / 2); }, 0.35, 1); trace(ctx, f, () => wave(ctx, 0, w * s.value, h / 2, h / 2 - 2, 16, (p) => (Math.sin(p) >= 0 ? 1 : -1))); break;
+      default: f.draw({ filter: 'url(#scope-glow)' });
+    }
+    if (s.focus && kind !== 'field') { ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = BEAM; ctx.lineWidth = 1.2; ctx.strokeRect(-4, -4, w + 8, h + 8); ctx.restore(); }
+  },
+};
+// #endregion scope
+
+// -------------------------------------------------------------------------------------------- X-ray
+// #region xray
+const XRAY_TYPE = 'color: #dff1ff; color-scheme: dark; font-family: "Helvetica Neue", "Segoe UI", Roboto, system-ui, sans-serif;';
+const xray = {
+  label: 'X-ray',
+  type: XRAY_TYPE,
+  root: `${XRAY_TYPE} background-color: #050b12; background-image: radial-gradient(90% 60% at 50% 35%, rgb(40 80 120 / .45), rgb(0 0 0 / .5));`,
+  css: 'caret-color: #fff; & ::placeholder { color: rgb(223 241 255 / .5); }',
+  filters: `
+    <filter id="xray-film" x="-5%" y="-10%" width="110%" height="120%" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="-.3 -.59 -.11 0 1  -.3 -.59 -.11 0 1  -.25 -.5 -.1 0 1.05  0 0 0 .9 0" result="neg"/>
+      <feGaussianBlur in="neg" stdDeviation="2.5" result="soft"/>
+      <feMerge><feMergeNode in="soft"/><feMergeNode in="neg"/></feMerge>
+    </filter>
+    <filter id="xray-glow" x="-10%" y="-30%" width="120%" height="160%" color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>`,
+
+  paint(ctx, f) {
+    const { width: w, height: h, kind, state: s, bleed: b } = f;
+    // Something dense on the film: bright at its edge, where the rays cross most material, and faint inside.
+    const dense = (path, amount = 1) => {
+      ctx.save(); path(); ctx.fillStyle = `rgb(200 230 255 / ${0.1 * amount})`; ctx.fill();
+      ctx.clip(); ctx.shadowColor = `rgb(220 240 255 / ${Math.min(1, 0.9 * amount)})`; ctx.shadowBlur = 7 * f.scale; ctx.strokeStyle = `rgb(235 246 255 / ${Math.min(1, 0.85 * amount)})`; ctx.lineWidth = 2.5; path(); ctx.stroke(); ctx.restore();
+    };
+    const what = parts(ctx, f, (path, role) => {
+      if (role === 'mark') { ctx.save(); path(); ctx.strokeStyle = '#fff'; ctx.lineWidth = kind === 'check' ? 3 : 2; ctx.lineCap = ctx.lineJoin = 'round'; ctx.shadowColor = '#cfe8ff'; ctx.shadowBlur = 5 * f.scale; ctx.stroke(); ctx.restore(); return; }
+      dense(path, { body: s.active ? 1.5 : 1, primary: 1.6, well: 0.6, frame: 0.35, track: 0.5, fill: 1.4, knob: 2.2, dot: 2.4 }[role]);
+      if (role === 'primary' || role === 'fill' || role === 'knob' || role === 'dot') { ctx.save(); path(); ctx.fillStyle = `rgb(225 242 255 / ${role === 'primary' ? 0.22 : 0.55})`; ctx.fill(); ctx.restore(); }
+    }, { radius: 9 });
+    if (what === 'media') f.draw({ filter: 'url(#xray-film)' });
+    else if (what !== 'control') f.draw({ filter: 'url(#xray-glow)' });
+    // What the element is: its tag, and its size, as a radiographer's label.
+    if ((kind === 'button' || kind === 'field' || kind === 'media' || kind === 'card') && w > 90) {
+      ctx.save(); ctx.font = '8px ui-monospace, monospace'; ctx.fillStyle = 'rgb(160 205 240 / .8)'; ctx.textAlign = 'right';
+      ctx.fillText(`<${f.el.localName}> ${Math.round(w)}×${Math.round(h)}`, w - 4, -3); ctx.restore();
+    }
+    if (s.focus) { ctx.save(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; rr(ctx, -4, -4, w + 8, h + 8, 12); ctx.stroke(); ctx.restore(); }
+    if (f.t < 1) {
+      // The plate is exposed from the top: a bright bar passes, and nothing shows below it yet.
+      const y = lerp(-b, h + b, f.t);
+      ctx.save(); ctx.globalCompositeOperation = 'destination-out'; ctx.fillRect(-b, y, w + 2 * b, h + 2 * b); ctx.restore();
+      ctx.save(); ctx.fillStyle = 'rgb(220 240 255 / .8)'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 8 * f.scale; ctx.fillRect(-b, y - 1.5, w + 2 * b, 3); ctx.restore();
+    }
+  },
+};
+// #endregion xray
+
+export const skins = { thermal, neon, embroidery, christmas, seaside, led, punch, scope, xray };

@@ -2,7 +2,7 @@
 
 Measured in headless Chromium 157 (C157) on 2026-11-22, at 412 px wide, device scale 2 and 2.625, with taps sent as touch events. Not run on a phone.
 
-`<canvas-skin>` wraps one element in a small drawable 2D canvas. A `skin` attribute on an ancestor chooses how every wrapper under it draws. Nineteen skins are built in: glass, pencil, gel, terminal, blueprint, thermal camera, neon sign, embroidery, Christmas, seaside, brushed metal (aluminium, steel, brass, copper, chrome), underwater, gravity, holographic foil, screen print, crayon, impressionist, old master and native (the browser's own drawing).
+`<canvas-skin>` wraps one element in a small drawable 2D canvas. A `skin` attribute on an ancestor chooses how every wrapper under it draws. 25 skins are built in: glass, pencil, gel, terminal, blueprint, thermal camera, neon sign, embroidery, Christmas, seaside, LED board, punch card, oscilloscope, X-ray, stained glass, clay, brushed metal (aluminium, steel, brass, copper, chrome), underwater, gravity, holographic foil, screen print, crayon, impressionist, old master and native (the browser's own drawing).
 
 | Question | Result | Reason or detail |
 |---|---|---|
@@ -41,7 +41,7 @@ Measured in headless Chromium 157 (C157) on 2026-11-22, at 412 px wide, device s
 
 Owner's notes from the phone, 2026-11-22 (Chrome 159, Android): the first underwater skin was "pretty slow". It drew, copied and uploaded every near wrapper 20 times a second. It now uploads only on change, paints 15 times a second on screen and 2 off it. Not measured again on the phone. The first space skin (a ring of bent stars round each box over tiled dot stars) and the first metal skin (chrome with a horizon) were not liked, and were replaced by gravity and brushed metal.
 
-Problems met: a grain of 0.6 on the metal normal made the reflection unreadable noise and hid the field text; 0.07 reads as brushing. A cross-stitched heading at 2.2 px cells was not legible, so only pictures are cross-stitched and text is drawn through a lighting filter.
+Problems met: LED lamps 3 px apart made 16 px text unreadable, and 2 px apart reads as a dot-matrix sign. Dark lettering over the lead lines of the stained glass was unreadable until an SVG filter put a pale ground round each letter. A grain of 0.6 on the metal normal made the reflection unreadable noise and hid the field text; 0.07 reads as brushing. A cross-stitched heading at 2.2 px cells was not legible, so only pictures are cross-stitched and text is drawn through a lighting filter.
 
 ## Not verified
 
