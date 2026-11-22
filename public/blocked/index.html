@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blocked ideas, tested: a picker in a scene, PDF pages, cross-origin pictures, a popover, a permission button and an overscroll drawer</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  canvas.idea-canvas[hidden] { display: none; }
+  canvas.idea-canvas:not([hidden]) { display: block; }
+  canvas.idea-canvas { width: 100%; max-width: 560px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); touch-action: pan-y; }
+  .idea output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 4.5em; overflow-wrap: anywhere; margin: 8px 0; }
+  .idea .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 10px 0 0; min-height: 44px; }
+  .idea .controls button { min-height: 40px; font: inherit; }
+  .idea .controls label { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; }
+  p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* The elements as plain HTML, after a canvas lost its context. */
+  .plain-controls { display: flex; flex-wrap: wrap; gap: 10px; align-content: start; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .plain-note { margin: 0; flex-basis: 100%; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .plain-controls > button { min-height: 40px; font: inherit; }
+
+  .idea .controls button[aria-pressed="true"] { outline: 2px solid var(--accent); }
+  .idea .controls input[type=range] { width: 150px; }
+  dl.routes { margin: 8px 0; font-size: 14px; display: grid; gap: 2px; max-width: 72ch; }
+  dl.routes dt { font-weight: 600; margin-top: 6px; }
+  dl.routes dd { margin: 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); min-height: 3em; overflow-wrap: anywhere; }
+  dl.routes dd[data-state="works"] { border-left-color: var(--ok); color: var(--fg); }
+  dl.routes dd[data-state="blocked"] { border-left-color: var(--bad); color: var(--fg); }
+  .perm-stack { position: relative; max-width: 560px; }
+  /* #region blocked-css */
+  #pickerSelect, #pickerSelect::picker(select) { appearance: base-select; }
+  #pickerSelect { box-sizing: border-box; width: 220px; min-height: 46px; margin: 0; padding: 6px 12px; font: 16px system-ui, sans-serif; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--fg); }
+  /* The picker has a colour of its own, so the measurement can look for it in the canvas. */
+  #pickerSelect::picker(select) { background: rgb(124, 58, 237); color: #fff; border: 0; border-radius: 10px; padding: 4px; }
+  #pickerSelect option { min-height: 44px; padding: 10px 12px; font: 16px system-ui, sans-serif; background: transparent; color: #fff; }
+  #pickerList { box-sizing: border-box; width: 132px; margin: 0; padding: 0; font: 16px system-ui, sans-serif; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); overflow: hidden; }
+  #pickerList option { padding: 5px 10px; min-height: 22px; }
+  .pdf-page { box-sizing: border-box; width: 165px; height: 220px; margin: 0; background: rgb(253, 246, 227); overflow: hidden; }
+  .pdf-page embed, .pdf-page iframe { display: block; width: 165px; height: 220px; border: 0; }
+  #wallCanvas img { display: block; width: 104px; height: 78px; object-fit: cover; }
+  #popCard { box-sizing: border-box; width: 236px; height: 150px; margin: 0; padding: 12px 14px; background: rgb(253, 230, 138); color: #1c1917; border: 2px solid #92400e; border-radius: 6px; font: 15px/1.35 system-ui, sans-serif; }
+  #popCard h3 { margin: 0 0 4px; font-size: 18px; }
+  #popCard p { margin: 0 0 8px; }
+  #popCard button { min-height: 40px; padding: 0 14px; font: inherit; }
+  #popCard:popover-open { position: fixed; inset: 0; margin: auto; }
+  #popCard::backdrop { background: rgba(0, 0, 0, .25); }
+  #permIn, #permOver { font: 16px system-ui, sans-serif; }
+  #permOver { position: absolute; left: 24px; top: 188px; }
+  #permOver.moved { left: 96px; }
+  #permOver.tilted { transform: rotate(4deg); }
+  #drawerList { box-sizing: border-box; width: 330px; height: 250px; margin: 0; padding: 0; list-style: none; overflow-y: auto; overscroll-behavior: contain; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; font: 15px/1.3 system-ui, sans-serif; }
+  #drawerList li { padding: 12px 12px; border-bottom: 1px solid var(--line); }
+  #drawerList time { font: 13px var(--mono); color: var(--muted); margin-right: 8px; }
+  #drawerSheet { box-sizing: border-box; width: 330px; margin: 0; padding: 12px 14px 16px; background: var(--fg); color: var(--bg); border-radius: 12px 12px 0 0; font: 15px/1.35 system-ui, sans-serif; }
+  #drawerSheet h3 { margin: 0 0 4px; font-size: 17px; }
+  #drawerSheet p { margin: 0 0 10px; }
+  #drawerSheet button { min-height: 40px; padding: 0 14px; font: inherit; }
+  /* #endregion blocked-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Blocked ideas, tested: a picker in a scene, PDF pages, cross-origin pictures, a popover, a permission button and an overscroll drawer</h1>
+  <p class="lede">
+    Six ideas from the backlog were marked as blocked by the browser. Each one is tried here anyway. Every section runs the
+    blocked route and the routes that could stand in for it, in the browser that opens the page, and says which of them
+    worked. A route that reads pixels waits for a tap on its Measure button.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#picker">Picker in the scene</a><a href="#pdf">PDF pages as a book</a><a href="#wall">Cross-origin image wall</a><a href="#popover">Popover in the canvas</a><a href="#permit">Permission button in a scene</a><a href="#drawer">Drawer on the overscroll area</a>
+  </nav>
+
+  <section class="idea" id="picker">
+    <h2>Customisable select with the picker in the scene</h2>
+    <p>A select at the top chooses the colour of the sail. Its picker opens in the top layer. On the panel below it is the same list as a list box, drawn sheared by the canvas. Tap a row on the panel, then open the select.</p>
+    <canvas id="pickerCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 300px">
+      <!-- #region picker-html -->
+      <select id="pickerSelect" drawable aria-label="Sail colour"><button><selectedcontent></selectedcontent></button><option value="red">Red</option><option value="tan" selected>Tan</option><option value="white">White</option><option value="blue">Blue</option><option value="green">Green</option></select>
+      <select id="pickerList" drawable size="5" aria-label="Sail colour, as a list"><option value="red">Red</option><option value="tan" selected>Tan</option><option value="white">White</option><option value="blue">Blue</option><option value="green">Green</option></select>
+      <!-- #endregion picker-html -->
+    </canvas>
+    <div class="controls"><button type="button" id="pickerMeasure">Open the picker and measure</button></div>
+    <output class="line" id="pickerOut"></output>
+    <dl class="routes">
+      <dt>The picker of a customisable select, drawn by the canvas</dt><dd id="pickerR1" data-state="unknown">Not measured yet. Tap the button.</dd>
+      <dt>A list box (<code>size="5"</code>) drawn sheared, taking taps</dt><dd id="pickerR2" data-state="unknown">No choice made on the panel yet.</dd>
+    </dl>
+    <p class="found">The picker is in the top layer, and a canvas draws only its own children. A list box has no picker: its rows are in its own picture. <a href="/select/">/select/</a> takes a third route and draws the options itself from <code>select.options</code> inside the picker.</p>
+    <details class="show-code">
+      <summary>Show the code</summary>
+      <code-listing src="index.html" region="picker-html" label="The two selects"></code-listing>
+      <code-listing src="picker.js" region="picker" label="The scene"></code-listing>
+      <code-listing src="picker.js" region="picker-measure" label="The measurement"></code-listing>
+      <code-listing src="probe.js" region="copy" label="Reading a pixel from a copy"></code-listing>
+    </details>
+  </section>
+
+  <section class="idea" id="pdf">
+    <h2>PDF pages as a book</h2>
+    <p>Two pages of one PDF file as the pages of an open book: page 1 in an <code>&lt;embed&gt;</code>, page 2 in an <code>&lt;iframe&gt;</code>. The file is fetched when you tap the button, because a browser with no PDF viewer may offer to download it.</p>
+    <canvas id="pdfCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 320px">
+      <!-- #region pdf-html -->
+      <div id="pdfLeft" class="pdf-page" drawable><embed title="Page 1 of the PDF"></div>
+      <div id="pdfRight" class="pdf-page" drawable><iframe title="Page 2 of the PDF"></iframe></div>
+      <!-- #endregion pdf-html -->
+    </canvas>
+    <div class="controls"><button type="button" id="pdfMeasure">Load the PDF and measure</button><label>Open <input type="range" id="pdfOpen" min="20" max="100" value="82" aria-label="How far the book is open"></label></div>
+    <output class="line" id="pdfOut"></output>
+    <dl class="routes">
+      <dt><code>&lt;embed type="application/pdf"&gt;</code> in a drawable block</dt><dd id="pdfR1" data-state="unknown">Not measured yet. Tap the button.</dd>
+      <dt><code>&lt;iframe&gt;</code> with the PDF as its document</dt><dd id="pdfR2" data-state="unknown">Not measured yet. Tap the button.</dd>
+    </dl>
+    <p class="found">The PDF viewer is a separate document that the page cannot read, like a frame from another origin, so the expectation is blank paper. Chrome has no API that turns a PDF page into pixels for a page. A site that needs this ships a PDF renderer written in JavaScript and draws into its own canvas.</p>
+    <details class="show-code">
+      <summary>Show the code</summary>
+      <code-listing src="index.html" region="pdf-html" label="The two pages"></code-listing>
+      <code-listing src="pdf.js" region="pdf" label="The book"></code-listing>
+      <code-listing src="pdf.js" region="pdf-measure" label="The measurement"></code-listing>
+    </details>
+  </section>
+
+  <section class="idea" id="wall">
+    <h2>Cross-origin image wall</h2>
+    <p>Nine pictures. The first row is from this origin. The other two rows are the same files from a second origin. Row 3 asks for them with the <code>crossorigin</code> attribute and row 2 does not.</p>
+    <canvas id="wallCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 340px"></canvas>
+    <div class="controls"><button type="button" id="wallFix" aria-pressed="false">Load row 2 again with crossorigin</button><button type="button" id="wallMeasure">Measure</button></div>
+    <output class="line" id="wallOut"></output>
+    <dl class="routes">
+      <dt>Row 2: a picture from a second origin</dt><dd id="wallR1" data-state="unknown">Not measured yet. Tap Measure.</dd>
+      <dt>Row 3: the same with <code>crossorigin="anonymous"</code> and a CORS header</dt><dd id="wallR2" data-state="unknown">Not measured yet. Tap Measure.</dd>
+    </dl>
+    <p class="found">A drawable canvas is never tainted. Instead, a picture the page may not read is left out of the element's picture, and the canvas is told nothing. The page can still work it out from the URL and the attribute, and it draws the alt text on a hatched card in those places. The wall is not blocked when the other server sends <code>Access-Control-Allow-Origin</code>.</p>
+    <details class="show-code">
+      <summary>Show the code</summary>
+      <code-listing src="wall.js" region="wall" label="The wall"></code-listing>
+      <code-listing src="wall.js" region="wall-measure" label="The measurement"></code-listing>
+      <code-listing src="probe.js" region="copy" label="Reading a pixel from a copy"></code-listing>
+    </details>
+  </section>
+
+  <section class="idea" id="popover">
+    <h2>Popover drawn into the canvas</h2>
+    <p>A warning card that hangs from a string in the canvas. Tap beside it to push it. The button moves it to the top layer as a popover, where the browser draws it. Closing the popover drops it back on its string.</p>
+    <canvas id="popoverCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 250px">
+      <!-- #region popover-html -->
+      <div id="popCard" drawable>
+        <h3>Gale warning</h3>
+        <p>South-west force 8 expected in sea area Malin at 18:00.</p>
+        <button type="button" id="popAck">Acknowledge</button>
+      </div>
+      <!-- #endregion popover-html -->
+    </canvas>
+    <div class="controls"><button type="button" id="popToggle">Move it to the top layer</button><button type="button" id="popoverMeasure">Measure</button></div>
+    <output class="line" id="popoverOut"></output>
+    <dl class="routes">
+      <dt>An open popover that is a child of the canvas, drawn with <code>drawElementImage()</code></dt><dd id="popoverR1" data-state="unknown">Not measured yet. Tap Measure.</dd>
+      <dt>The same element with no <code>popover</code> attribute, drawn and taking taps</dt><dd id="popoverR2" data-state="unknown">The button on the card has not been tapped yet.</dd>
+    </dl>
+    <p class="found">An element is in the top layer or in the canvas, not both. The same element can change home: the attribute is removed to draw it and set to show it over everything. <a href="/top-layer/">/top-layer/</a> draws tooltips, a dialog and toasts this way, and <a href="/popovers/">/popovers/</a> keeps real popovers anchored to buttons drawn in perspective.</p>
+    <details class="show-code">
+      <summary>Show the code</summary>
+      <code-listing src="index.html" region="popover-html" label="The card"></code-listing>
+      <code-listing src="popover.js" region="popover" label="The two homes"></code-listing>
+      <code-listing src="popover.js" region="popover-measure" label="The measurement"></code-listing>
+    </details>
+  </section>
+
+  <section class="idea" id="permit">
+    <h2>Permission button in a scene</h2>
+    <p>Two <code>&lt;geolocation&gt;</code> buttons. The canvas draws the first one. The second lies over the canvas. The ring round each is solid when the browser says it would accept a tap. Move or turn the second one and watch its ring.</p>
+    <div class="perm-stack">
+      <canvas id="permitCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 300px">
+        <!-- #region permit-html -->
+        <geolocation id="permIn" drawable>Use my location</geolocation>
+        <!-- #endregion permit-html -->
+      </canvas>
+      <geolocation id="permOver">Use my location</geolocation>
+    </div>
+    <div class="controls"><button type="button" id="permMove">Move the second button</button><label><input type="checkbox" id="permTilt"> Turn it 4 degrees</label></div>
+    <output class="line" id="permitOut"></output>
+    <dl class="routes">
+      <dt>A permission button drawn by the canvas</dt><dd id="permitR1" data-state="unknown">Waiting for the browser's answer.</dd>
+      <dt>A permission button outside the canvas, positioned over it</dt><dd id="permitR2" data-state="unknown">Waiting for the browser's answer.</dd>
+    </dl>
+    <p class="found">A permission button works only if the browser can be sure the person saw it as it is: not covered, not distorted, not just moved. A picture of it in a canvas fails that test by design, even drawn flat at full size. The route that works keeps the button out of the canvas and draws the scene round it.</p>
+    <details class="show-code">
+      <summary>Show the code</summary>
+      <code-listing src="index.html" region="permit-html" label="The two buttons"></code-listing>
+      <code-listing src="permit.js" region="permit" label="The scene and the rings"></code-listing>
+    </details>
+  </section>
+
+  <section class="idea" id="drawer">
+    <h2>A drawer on the overscroll area</h2>
+    <p>A ship's log in a list that scrolls. Scroll to the end and keep pulling up: a drawer of older entries rises from the bottom, and opens if you pull far enough. With a mouse, scroll the wheel past the end.</p>
+    <canvas id="drawerCanvas" class="idea-canvas" content="drawable" layoutsubtree style="height: 330px">
+      <!-- #region drawer-html -->
+      <ol id="drawerList" drawable tabindex="0" aria-label="Log of the passage"><li><time>06:10</time> Slipped the mooring at Oban</li><li><time>06:45</time> Lismore light abeam</li><li><time>07:30</time> Wind south-west, force 4</li><li><time>08:15</time> One reef in the main</li><li><time>09:00</time> Duart Castle to port</li><li><time>09:40</time> Tide turned in the Sound</li><li><time>10:20</time> Lochaline abeam</li><li><time>11:05</time> Wind backed, force 5</li><li><time>11:50</time> Second reef</li><li><time>12:30</time> Calve Island in sight</li><li><time>13:10</time> Sails down off Tobermory</li><li><time>13:25</time> Alongside the pontoon</li></ol>
+      <div id="drawerSheet" drawable>
+        <h3>Yesterday</h3>
+        <p>Crinan to Oban, 31 miles, 7 hours 20 minutes under sail.</p>
+        <button type="button" id="drawerClose">Close</button>
+      </div>
+      <!-- #endregion drawer-html -->
+    </canvas>
+    <div class="controls"><button type="button" id="drawerOpen">Open or close the drawer</button></div>
+    <output class="line" id="drawerOut"></output>
+    <dl class="routes">
+      <dt>CSS <code>overscroll-area</code></dt><dd id="drawerR1" data-state="unknown">Waiting.</dd>
+      <dt>The pull measured by the page from touch and wheel events</dt><dd id="drawerR2" data-state="unknown">No pull has opened the drawer yet.</dd>
+    </dl>
+    <p class="found">With no <code>overscroll-area</code> the browser gives the page no number for how far a scroller was pulled past its end. Touch events keep arriving while the list scrolls and after it stops at its end, so the page takes the finger's travel from that moment as the pull. <code>overscroll-behavior: contain</code> keeps the pull from scrolling the page.</p>
+    <details class="show-code">
+      <summary>Show the code</summary>
+      <code-listing src="index.html" region="drawer-html" label="The list and the drawer"></code-listing>
+      <code-listing src="drawer.js" region="drawer" label="The pull"></code-listing>
+    </details>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <p>Each demo is a canvas with <code>content="drawable"</code> whose children are ordinary elements. A demo starts when its section comes near the screen. The paint handler draws the elements with <code>drawElementImage()</code> and draws everything else with canvas calls.</p>
+  <p>A measurement that needs pixels runs after a tap. It copies the canvas into a plain 2D canvas with <code>drawImage()</code> and reads single pixels from the copy. The permission buttons and the overscroll property need no pixels: the browser reports them.</p>
+  <details class="show-code">
+    <summary>Show the code</summary>
+    <code-listing src="/form-state/kit.js" region="mount" label="The paint loop"></code-listing>
+    <code-listing src="index.html" region="start" label="Starting a demo when it is near the screen"></code-listing>
+    <code-listing src="index.html" region="blocked-css" label="The styles of the elements"></code-listing>
+  </details>
+
+  <h2 id="checks">Live checks</h2>
+  <p>These run on their own fixtures, after a tap.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>Measured in headless Chromium 157 on 2026-11-22. Not yet run on a phone.</p>
+  <ul class="findings">
+    <li>Picker in the scene: blocked. With the picker of a customisable select open over the canvas, 0 of 15 points on its rows had the picker's colour in the canvas. A list box (<code>size="5"</code>) drawn with a shear took a touch tap on a row, and the element under a sheared row was its <code>option</code>.</li>
+    <li>PDF pages: not measured where it matters. The test browser has no PDF viewer (<code>navigator.pdfViewerEnabled</code> is false): 0 of 192 points on each page had the colour of the PDF, the embed drew only its "Couldn't load plugin" text, and a tap in the middle of each page landed on the embed and the iframe. The button measures a browser that has a viewer.</li>
+    <li>Cross-origin pictures: blocked without CORS, not blocked with it. Three pictures from a second origin loaded and 0 of 3 were in the canvas (alpha 0). The same files with <code>crossorigin="anonymous"</code> and an <code>Access-Control-Allow-Origin</code> header: 3 of 3 (alpha 255). Loading row 2 again with the attribute changed it from 0 to 3.</li>
+    <li>Popover: blocked. <code>drawElementImage()</code> of an open popover that is a child of the canvas threw <code>InvalidStateError</code> and 0 of 9 points had its colour. The same element with the attribute removed was drawn swinging, and its button took a tap. The open popover was shown on the screen at the place the canvas last gave it (71, 62 from the canvas corner, where <code>updateElementGeometry()</code> had put it), not in the middle of the window.</li>
+    <li>Permission button: blocked inside the canvas, works over it. The drawn <code>&lt;geolocation&gt;</code> reported <code>isValid</code> false, with <code>intersection_out_of_viewport_or_clipped</code> in the demo and <code>intersection_occluded_or_distorted</code> in the live check. The one positioned over the canvas reported true, went false (<code>intersection_changed</code>) for under 1.6 s after it was moved, and stayed true when turned 4 degrees. A tap on it, with the permission granted to the test browser, gave a position.</li>
+    <li>Overscroll drawer: <code>CSS.supports('overscroll-area', '--drawer')</code> is false. The page's own measure works by touch: a drag of 120 px past the end of the list read as a pull of 103 px, opened the drawer on release, and did not scroll the page.</li>
+    <li>One <code>contextlost</code> event stops the six canvases and shows the elements as plain HTML. Tested by dispatching the event.</li>
+    <li>Not verified: Chrome 159 on Android for all six, and a desktop Chrome with a PDF viewer.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, supported, testStage } from '/shared/support.js';
+  banner();
+  // #region start
+  const watch = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      watch.unobserve(e.target);
+      import(`./${e.target.id}.js`).then((m) => m.default()).catch((err) => console.error(e.target.id, err));
+    }
+  }, { rootMargin: '100px 0px' });
+  if (supported) document.querySelectorAll('section.idea').forEach((s) => watch.observe(s));
+  // #endregion start
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // A fixture canvas on the test stage. draw(ctx, canvas, event) runs on each paint. With no draw, every
+  // child is drawn at (0, 0).
+  async function rig(html, draw, wait = 400) {
+    if (!supported) throw new Error('this browser has no HTML-in-canvas API');
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable'); canvas.setAttribute('layoutsubtree', '');
+    canvas.width = 300; canvas.height = 200;
+    canvas.style.cssText = 'flex:none;width:300px;height:200px';
+    canvas.innerHTML = html;
+    testStage().append(canvas);
+    const ctx = canvas.getContext('2d');
+    const all = (c) => { for (const el of canvas.children) { try { c.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight); } catch {} } };
+    canvas.addEventListener('paint', (e) => { ctx.reset(); (draw ?? all)(ctx, canvas, e); });
+    canvas.requestPaint();
+    await sleep(wait);
+    canvas.requestPaint();
+    await sleep(200);
+    return { canvas, ctx, at: (x, y) => { const r = canvas.getBoundingClientRect(); return document.elementFromPoint(r.left + x, r.top + y); } };
+  }
+  const put = (c, el, x, y) => { try { c.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight); } catch {} };
+
+  // A copy of the fixture in a plain canvas, to read pixels from.
+  const copyOf = (canvas) => { const c = document.createElement('canvas'); c.width = canvas.width; c.height = canvas.height; const g = c.getContext('2d'); g.drawImage(canvas, 0, 0); return g; };
+
+  const other = (() => { const u = new URL(location.href); if (u.hostname === 'localhost') { u.hostname = '127.0.0.1'; return u.origin; } if (u.hostname === '127.0.0.1') { u.hostname = 'localhost'; return u.origin; } return u.hostname === 'html-in-canvas.page' ? 'https://html-in-canvas-demos.kinlan-test.workers.dev' : 'https://html-in-canvas.page'; })();
+  const pixel = (g, x, y) => [...g.getImageData(x, y, 1, 1).data];
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'A list box (select with size) is in the picture of the canvas and its rows take a hit test under a shear',
+      why: 'The route the first demo uses in place of a picker. The fixture is a green list box drawn with a shear of -0.16.',
+      run: async () => {
+        const { canvas, at } = await rig('<select drawable size="3" style="width:120px;margin:0;background:rgb(0,200,0);font:16px system-ui"><option>One</option><option>Two</option><option>Three</option></select>', (c, cv) => { c.setTransform(1, -0.16, 0, 1, 20, 60); put(c, cv.firstElementChild, 0, 0); });
+        const p = pixel(copyOf(canvas), 110, 60 - 0.16 * 90 + 50);
+        const hit = at(60, 60 - 0.16 * 40 + 10);
+        if (p[1] < 150 || p[0] > 80) throw new Error(`the pixel inside the sheared list is ${p}`);
+        if (hit?.localName !== 'option' && hit?.localName !== 'select') throw new Error(`the hit test gave ${hit?.localName}`);
+        return `Pixel inside the sheared list: ${p.slice(0, 3).join(', ')}. The element at its first row is the ${hit.localName}${hit.localName === 'option' ? ` "${hit.textContent}"` : ''}.`;
+      },
+    },
+    {
+      name: 'A picture from a second origin is left out of the canvas without the crossorigin attribute and is drawn with it',
+      why: 'The image wall. The fixture loads one file from the second origin twice.',
+      run: async () => {
+        const src = `${other}/block-play/img/harbour.svg`;
+        const { canvas } = await rig(`<img drawable width="60" height="45" src="${src}?a" style="display:block"><img drawable width="60" height="45" crossorigin="anonymous" src="${src}?b" style="display:block">`, (c, cv) => { put(c, cv.children[0], 10, 10); put(c, cv.children[1], 100, 10); }, 1500);
+        const [a, b] = canvas.children;
+        if (!a.naturalWidth || !b.naturalWidth) throw new Error(`the pictures from ${other} did not load (${a.naturalWidth}, ${b.naturalWidth}), so nothing was measured`);
+        const g = copyOf(canvas), pa = pixel(g, 40, 32), pb = pixel(g, 130, 32);
+        if (pa[3] !== 0 || pb[3] === 0) throw new Error(`alpha without CORS ${pa[3]}, with CORS ${pb[3]}`);
+        return `Both loaded from ${other}. Alpha in the canvas: ${pa[3]} without the attribute, ${pb[3]} with it.`;
+      },
+    },
+    {
+      name: 'An open popover that is a child of the canvas is not in the picture, and the same element with no popover attribute is',
+      why: 'The popover demo. The fixture is a magenta block shown with showPopover(), then with the attribute removed.',
+      run: async () => {
+        let threw = 'did not throw';
+        const { canvas } = await rig('<div drawable popover="manual" style="width:80px;height:50px;margin:0;padding:0;border:0;background:rgb(255,0,255);inset:auto;left:-9999px;top:0"></div>', (c, cv) => { try { c.drawElementImage(cv.firstElementChild, 10, 10, 80, 50); } catch (e) { threw = `threw ${e.name}`; } });
+        const el = canvas.firstElementChild;
+        el.showPopover(); canvas.requestPaint(); await sleep(300);
+        const open = el.matches(':popover-open'), p1 = pixel(copyOf(canvas), 40, 30);
+        el.hidePopover(); el.removeAttribute('popover'); el.style.cssText = 'width:80px;height:50px;margin:0;background:rgb(255,0,255)';
+        await sleep(200); canvas.requestPaint(); await sleep(300);
+        const p2 = pixel(copyOf(canvas), 40, 30);
+        if (!open) throw new Error('showPopover() did not open it');
+        if (p1[0] > 200 && p1[2] > 200 && p1[1] < 60) throw new Error('the open popover was drawn by the canvas');
+        if (!(p2[0] > 200 && p2[2] > 200)) throw new Error(`with no popover attribute the pixel is ${p2}`);
+        return `Open popover: drawElementImage() ${threw}, pixel ${p1.join(', ')}. With the attribute removed: pixel ${p2.join(', ')}.`;
+      },
+    },
+    {
+      name: 'A geolocation element drawn by a canvas reports that it would not accept a tap',
+      why: 'The permission demo. The fixture draws the element flat at full size.',
+      run: async () => {
+        if (!('HTMLGeolocationElement' in window)) throw new Error('this browser has no geolocation element, so nothing was measured');
+        const { canvas } = await rig('<geolocation drawable>Use my location</geolocation>', (c, cv) => put(c, cv.firstElementChild, 10, 10), 1300);
+        const el = canvas.firstElementChild;
+        if (el.isValid) throw new Error('isValid is true: a permission button drawn by a canvas would be accepted');
+        return `isValid is false, invalidReason is "${el.invalidReason}". The element is ${el.offsetWidth} by ${el.offsetHeight} px. The test stage is off screen, so the reason can differ from the one the demo shows.`;
+      },
+    },
+    {
+      name: 'CSS has no overscroll-area property, and has overscroll-behavior',
+      why: 'The drawer demo measures the pull itself. This check fails when the property arrives, which is the time to rebuild the drawer with it.',
+      run: async () => {
+        const a = CSS.supports('overscroll-area', '--drawer'), b = CSS.supports('overscroll-behavior', 'contain');
+        if (a) throw new Error('overscroll-area is supported in this browser');
+        if (!b) throw new Error('overscroll-behavior is not supported');
+        return `CSS.supports('overscroll-area', '--drawer') is ${a}. CSS.supports('overscroll-behavior', 'contain') is ${b}.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
