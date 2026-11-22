@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Peel this page back to read its live DOM</title>
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<link rel="stylesheet" href="/view-source/page.css">
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+
+<!-- #region markup -->
+<!-- Two layers in one box. #under is first, so it is below: it holds the source text and nothing else.
+     #sheet holds the whole page and carries fx="page-peel". -->
+<div id="desk" data-peel-desk>
+<section id="under" aria-label="The DOM of this page as it is now"></section>
+<div id="sheet" fx="page-peel">
+<main>
+<!-- #endregion markup -->
+  <div id="support"></div>
+
+  <header class="hero">
+    <p class="label">View source</p>
+    <h1>Peel this page back to read <em>its live DOM</em></h1>
+    <p class="lede">A canvas draws this whole page. Drag the turned corner at the top right towards the bottom left, or press the first button. Under the page is its DOM as it is now, written out as HTML, and nothing else. The text is written again when the page changes. <a href="/view-source/">A second page</a> has the HTML as the server sent it under it.</p>
+    <div class="row">
+      <button type="button" class="main" id="do-open">Peel the page</button>
+      <button type="button" id="do-away">Take the page off</button>
+    </div>
+    <p class="note" id="peel-status" role="status">The page is flat. Its top right corner is turned over.</p>
+    <div id="route"></div>
+    <figure class="stack">
+      <div class="scene">
+        <div class="layer l-under"><b>DOM as text</b><span>text in a shadow root</span></div>
+        <div class="layer l-page"><b>This page</b><span>a child of the canvas</span></div>
+        <div class="layer l-canvas"><b>Canvas</b><span>draws the page through a shader</span></div>
+        <div class="layer l-handle"><b>Handle</b></div>
+      </div>
+      <figcaption>The four layers of this page, from the bottom.</figcaption>
+    </figure>
+  </header>
+
+  <h2>The DOM now</h2>
+  <p class="note">Counted by a <code>MutationObserver</code> on the document since this page's script started. Changes to this table are left out of the counts, and the table stands still while the page is peeled back, so that it is not itself a change in the text under the page.</p>
+  <div class="card receipt" id="dom-stats">
+    <dl>
+      <div><dt>Changes</dt><dd id="d-total">0</dd></div>
+      <div><dt>To attributes</dt><dd id="d-attributes">0</dd></div>
+      <div><dt>To text</dt><dd id="d-text">0</dd></div>
+      <div><dt>To lists of children</dt><dd id="d-children">0</dd></div>
+      <div class="wide"><dt>Last change</dt><dd class="small" id="d-last">none yet</dd></div>
+      <div class="wide"><dt>Last written out under the page</dt><dd class="small" id="d-written">not yet: it is written only while the page is peeled back</dd></div>
+    </dl>
+  </div>
+
+  <h2>Change the page</h2>
+  <p class="note">Each block changes the DOM in one way. Peel the page and use a block: the lines that changed are marked, and the text scrolls to the first of them unless you have just scrolled it yourself.</p>
+  <!-- #region blocks -->
+  <div class="changes">
+    <article>
+      <h3>A clock</h3>
+      <p><time id="clock" datetime="">00:00:00</time></p>
+      <p class="what">Every second: one text node and the <code>datetime</code> attribute.</p>
+    </article>
+    <article>
+      <h3>A counter</h3>
+      <p><button type="button" id="count" data-count="0">Add one</button><output id="count-out" for="count">0</output></p>
+      <p class="what">Each press: the <code>data-count</code> attribute and the text of an <code>&lt;output&gt;</code>.</p>
+    </article>
+    <article>
+      <h3>A list</h3>
+      <ol id="list"><li>Row 1, sent by the server</li><li>Row 2, sent by the server</li></ol>
+      <p><button type="button" id="list-add">Add a row</button> <button type="button" id="list-turn">Reverse</button> <button type="button" id="list-drop">Remove the last</button></p>
+      <p class="what">Elements are added, moved and removed.</p>
+    </article>
+    <article>
+      <h3>A colour</h3>
+      <p id="swatches" role="group" aria-label="Colour of this page">
+        <button type="button" data-hue="28" style="--h: 28" aria-pressed="true" aria-label="Orange"></button>
+        <button type="button" data-hue="145" style="--h: 145" aria-pressed="false" aria-label="Green"></button>
+        <button type="button" data-hue="235" style="--h: 235" aria-pressed="false" aria-label="Blue"></button>
+        <button type="button" data-hue="305" style="--h: 305" aria-pressed="false" aria-label="Purple"></button>
+        <button type="button" data-hue="350" style="--h: 350" aria-pressed="false" aria-label="Pink"></button>
+      </p>
+      <p class="what">One custom property in the <code>style</code> attribute of <code>#sheet</code>. The canvas draws the whole page again.</p>
+    </article>
+    <article>
+      <h3>A <code>&lt;details&gt;</code> element</h3>
+      <details id="more"><summary>Open this</summary><p>The browser adds the <code>open</code> attribute when the element opens and removes it when it closes.</p></details>
+      <p class="what">One attribute, written by the browser.</p>
+    </article>
+    <article>
+      <h3>A text field and a checkbox</h3>
+      <p><label>Name <input id="field" value="as sent" autocomplete="off" enterkeyhint="done"></label></p>
+      <p><label><input type="checkbox" id="tick"> Ticked</label></p>
+      <p><button type="button" id="reflect">Write both to their attributes</button></p>
+      <p class="what">Typing and ticking change properties. The attributes, and so the live DOM text, keep what the server sent until the button copies them.</p>
+    </article>
+    <article>
+      <h3>Editable text</h3>
+      <p id="editable" contenteditable="plaintext-only" enterkeyhint="done" aria-label="Editable sentence">Change this sentence.</p>
+      <p class="what">Each key press changes a text node.</p>
+    </article>
+    <article>
+      <h3>A canvas inside the page</h3>
+      <canvas id="twice" content="drawable" layoutsubtree aria-label="One block of HTML drawn twice">
+        <div id="twice-block" drawable><b>Drawn twice</b><button type="button" id="twice-press">Pressed 0 times</button></div>
+      </canvas>
+      <p class="what">A second drawable canvas, drawn into the picture of the first. Its button changes its own text.</p>
+    </article>
+  </div>
+  <!-- #endregion blocks -->
+
+  <details class="show-code">
+    <summary>Show the code <small>the layers, the shader, the drag, and writing out the DOM as it changes</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The markup.</b> The source text and the page share one box. The page carries <code>fx="page-peel"</code>, so the fx library moves it into a canvas.</li>
+      <li data-code="/view-source/page.css#layout"><b>The layout.</b> The page scrolls inside a box one screen tall.</li>
+      <li data-code="/view-source/peel-page.js#start"><b>Starting the page.</b> Load the fx library and make the page peel.</li>
+      <li data-code="/lib/page-peel.js#shader" data-lang="glsl"><b>The shader.</b> GLSL for WebGL and the same function in WGSL for WebGPU. Where the paper is gone it writes clear pixels.</li>
+      <li data-code="/lib/page-peel.js#geometry"><b>The same roll as outlines.</b> Script needs to know where the paper is, for input.</li>
+      <li data-code="/lib/page-peel.js#apply"><b>Splitting input along the roll.</b> A <code>clip-path</code> on the canvas host, and two more on the handle.</li>
+      <li data-code="/lib/page-peel.js#drag"><b>The drag.</b></li>
+      <li data-code="/view-source/sources.js#serialise"><b>The DOM as text.</b></li>
+      <li data-code="/view-source/sources.js#watch"><b>Knowing when it changed.</b></li>
+      <li data-code="/view-source/under.js#live"><b>Writing it out again, at most four times a second.</b></li>
+      <li data-code="/view-source/markup.js#patch"><b>Replacing only the lines that changed.</b></li>
+      <li data-code="#under"><b>This page's part.</b> Put the text under the page and the counts in the page.</li>
+      <li data-code="/view-source/widgets.js#changes"><b>The blocks that change the page.</b></li>
+      <li data-code="/view-source/widgets.js#nested"><b>The canvas inside the page.</b></li>
+      <li data-code="/view-source/peel-page.js#measure"><b>Counting frames on the device.</b></li>
+      <li data-code="/lib/shader-fx.js#render"><b>Inside the fx library: the upload and the draw.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>The document does not scroll. <code>#sheet</code> is a scrolling box as tall as the window below the menu bar, and it holds everything from the banner to the findings. The <a href="/shader-css/">fx library</a> wraps it in <code>&lt;fx-surface&gt;</code>, whose shadow root holds a canvas with <code>content="drawable"</code>. The canvas is one screen in size whatever the length of the page.</li>
+    <li>The effect <code>page-peel</code> is one fragment shader. It gets the picture of the page and one point, the position of the paper's corner, from the CSS properties <code>--fx-x</code> and <code>--fx-y</code>. It rolls the paper round a cylinder that lies across the direction the corner has travelled, and draws the peeled paper mirrored and faded on top of the page. Where no paper is left it writes transparent pixels and a shadow.</li>
+    <li>The layer under the page is ordinary DOM below the canvas: a scrolling box of text lines with no controls. It is seen through the transparent pixels.</li>
+    <li>Transparent pixels still take input. A <code>clip-path</code> polygon on the canvas host, computed in script from the same numbers as the shader, cuts the canvas along the roll. Taps, scrolling and text selection beyond it go to the source text.</li>
+    <li>The paper lying on the page is pixels. The part of the page under it would take the tap. A handle element with the same outline lies over it and takes the drag instead. A round button on the paper's corner does the same job for a keyboard: Enter peels the page and puts it back, Escape puts it back.</li>
+    <li>"Take the page off" rolls the page into the bottom left corner. The roll stays there to be pressed, because the layer under the page has no button of its own.</li>
+    <li>The text is <code>document.documentElement.getHTML()</code> with the shadow root of the canvas host passed in, so the canvas that draws the page is in it. It is written again at most four times a second while a <code>MutationObserver</code> reports changes and the page is peeled back.</li>
+    <li>Lines that are equal at the start and at the end of the old and new text keep their elements. The lines between are replaced and marked for a moment.</li>
+    <li>The text lines are built in a shadow root that is not passed to <code>getHTML()</code>. So the text does not contain itself, and the observer on the document is not told about its updates.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own fixture in a corner of the window. The page is not peeled or changed by them.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">From Chromium 157 with software rendering, 412 px wide, on 2026-11-22. The rows above say what your browser does.</p>
+  <p class="note" id="measured" style="min-height:4.5em">On this device: move the paper and scroll the page, and the number of frames the canvas drew is written here.</p>
+  <ul class="findings" id="findings">
+    <li><strong>Works: one canvas draws a whole scrolling page.</strong> The page is a scrolling box inside the canvas. Scrolling it by touch, by wheel and from script raises a new frame, and elements are found at their scrolled positions. At 412 px wide and scale 2.625 the canvas is 2.24 megapixels, whatever the length of the page.</li>
+    <li><strong>Works: a <code>clip-path</code> on the canvas host splits input along the roll.</strong> A shader can make pixels transparent but the element behind them still takes the tap. With the host clipped, <code>elementFromPoint()</code> gives the layer under the page, and a touch swipe there scrolls the source and not the page.</li>
+    <li><strong>Works: the text is the page as it is.</strong> It contains <code>&lt;fx-surface&gt;</code>, its canvas with <code>content="drawable"</code>, the menu that a script built, and the <code>--fx-x</code> and <code>--fx-y</code> values, which change while the paper is dragged.</li>
+    <li><strong>Limit: the text is attributes and text, not state.</strong> A typed value, a ticked checkbox, a scroll position and the pixels of a canvas are not in it. <code>outerHTML</code> also leaves out every shadow root. <code>getHTML({ shadowRoots })</code> writes the ones it is given.</li>
+    <li><strong>As built: setting <code>textContent</code> is reported as a change to the list of children.</strong> The clock replaces its text node each second, so the count of changes "to text" stays at 0 until the editable sentence is typed in.</li>
+    <li><strong>As built: a view of the DOM that is in the DOM would show itself.</strong> The text is in a shadow root, which <code>getHTML()</code> skips unless asked and which a <code>MutationObserver</code> on the document does not report. The table of counts is in the page, so the observer leaves its changes out by hand.</li>
+    <li><strong>Not verified here:</strong> the WebGPU route on a screen, and how many frames a second a phone draws while the paper is dragged and while the page scrolls. The line above this list reports both on the device that opens the page. Also open on a phone: text selection handles in the source text, and the on-screen keyboard over a document that does not scroll.</li>
+  </ul>
+</main>
+</div>
+</div>
+
+<script type="module">
+  import { banner, runTests, testStage } from '/shared/support.js';
+  import { startPage } from '/view-source/peel-page.js';
+  import { mountLive } from '/view-source/under.js';
+  import { serialise } from '/view-source/sources.js';
+  import { fixture, need, sleep } from '/view-source/check-fixture.js';
+  banner();
+
+  const $ = (id) => document.getElementById(id);
+  let live = null;
+  const { peel, surface } = await startPage({ onState: () => live?.refresh() });
+
+  // #region under
+  // Under the page: the document written out as text, with the shadow root of the canvas host.
+  const n = (value) => value.toLocaleString('en');
+  let shownAt = 0, waiting = 0;
+  live = mountLive($('under'), {
+    roots: () => [surface()?.shadowRoot].filter(Boolean),
+    shown: () => peel.state !== 'rest',
+    ignore: $('dom-stats'),
+    onStats: () => { waiting ||= setTimeout(showStats, Math.max(0, shownAt + 1000 - performance.now())); },
+  });
+  // The counts are part of the page, and changing the page makes the canvas take a new picture of it.
+  // So they are written once a second at most, and not while the paper is being moved.
+  function showStats() {
+    waiting = 0;
+    // The table is part of the DOM. Written while the page is peeled, each new count would be a changed
+    // line in the text under the page. It is brought up to date when the page is put back.
+    if (peel.state !== 'rest') return void (waiting = setTimeout(showStats, 300));
+    shownAt = performance.now();
+    const { counts, last, characters, lines } = live.stats;
+    $('d-total').textContent = n(counts.total);
+    $('d-attributes').textContent = n(counts.attributes);
+    $('d-text').textContent = n(counts.characterData);
+    $('d-children').textContent = n(counts.childList);
+    $('d-last').textContent = last || 'none yet';
+    if (characters) $('d-written').textContent = `${n(characters)} characters, ${n(lines)} lines`;
+  }
+  // #endregion under
+  window.viewSource = { peel, surface, under: live };
+
+  // ---- live checks: every one on its own fixture ----
+  runTests($('results'), [
+    {
+      name: 'Input goes to the layer under the page where the paper is gone',
+      why: 'The canvas host gets a clip-path polygon along the roll. A button of the page and a button of the layer under it are in the same place, in the corner that is peeled. elementFromPoint() is asked before and after.',
+      run: async () => {
+        need();
+        const f = await fixture();
+        const before = f.at(215, 12);
+        await f.set(150, 90);
+        const after = f.at(215, 12), kept = f.at(40, 150);
+        if (before?.className !== 'top') throw new Error(`before the peel the point gave ${before?.className || before?.localName}`);
+        if (after?.className !== 'ub') throw new Error(`after the peel the point gave ${after?.className || after?.localName}`);
+        if (!f.sheet.contains(kept)) throw new Error(`the flat part gave ${kept?.localName}`);
+        return 'the page\'s button before, the lower layer\'s button after, and the page still answers in its flat part';
+      },
+    },
+    {
+      name: 'A scrolling box drawn by the canvas scrolls, and is drawn again',
+      why: 'The whole page is a scrolling box inside the canvas. The fixture is scrolled by 100 px from script. A button 250 px down must be found 100 px higher, and the canvas must have drawn a new frame.',
+      run: async () => {
+        need();
+        const f = await fixture();
+        const frames = f.surface.frames;
+        const top = () => f.sheet.querySelector('.low').getBoundingClientRect().top - f.desk.getBoundingClientRect().top;
+        const y0 = top();
+        f.sheet.scrollTop = 100;
+        await sleep(200);
+        const y1 = top();
+        const hit = f.at(40, y1 + 20);
+        if (Math.abs(y0 - y1 - 100) > 1) throw new Error(`the button moved ${(y0 - y1).toFixed(0)} px`);
+        if (hit?.className !== 'low') throw new Error(`the point gave ${hit?.className || hit?.localName}`);
+        if (f.surface.frames === frames) throw new Error('no new frame was drawn');
+        return `the button moved 100 px, is found there, and ${f.surface.frames - frames} new frames were drawn`;
+      },
+    },
+    {
+      name: 'A change to an attribute reaches the live text, and a typed value does not',
+      why: 'A text field on the fixture stage gets a new attribute, then a new value as typing sets it (the property), then the same value as an attribute. The document is written out after each step.',
+      run: async () => {
+        const input = document.createElement('input');
+        input.setAttribute('aria-label', 'check');
+        testStage().append(input);
+        const has = (text) => serialise(document).includes(text);
+        input.setAttribute('data-probe', 'probe-1');
+        const attribute = has('data-probe="probe-1"');
+        // The value is made here, so that the text of this script does not contain it.
+        const typed = `typed-${Date.now()}`;
+        input.value = typed;
+        const property = has(typed);
+        input.setAttribute('value', input.value);
+        const copied = has(`value="${typed}"`);
+        if (!attribute) throw new Error('the new attribute is not in the text');
+        if (property) throw new Error('the typed value is in the text');
+        if (!copied) throw new Error('the copied value is not in the text');
+        return 'the attribute is in the text at once, the value property is not, and it is after setAttribute("value")';
+      },
+    },
+    {
+      name: 'outerHTML leaves the canvas out, and getHTML() with its shadow root writes it',
+      why: 'The canvas that draws a page is in the shadow root of <fx-surface>. The fixture is written both ways.',
+      run: async () => {
+        need();
+        const f = await fixture();
+        const host = f.surface;
+        const outer = host.outerHTML;
+        const full = host.getHTML({ shadowRoots: [host.shadowRoot] });
+        if (/<canvas/.test(outer)) throw new Error('outerHTML contains a canvas');
+        if (!/<template shadowrootmode="open">/.test(full) || !/<canvas[^>]*content="drawable"/.test(full)) throw new Error('getHTML() did not write the canvas');
+        return `outerHTML: ${outer.length} characters and no canvas. getHTML(): ${full.length} characters, with <template shadowrootmode="open"> and <canvas content="drawable">`;
+      },
+    },
+    {
+      name: 'Changes inside a shadow root are not reported to an observer on the document',
+      why: 'The source view is in a shadow root so that it does not report its own updates. A fixture with a shadow root is changed inside and then outside while a MutationObserver watches the document.',
+      run: async () => {
+        const host = document.createElement('div');
+        testStage().append(host);
+        const inside = host.attachShadow({ mode: 'open' });
+        // The page changes on its own account (the clock), so only records about the fixture are counted.
+        let seen = 0;
+        const observer = new MutationObserver((records) => { for (const r of records) if (r.target === host || r.target.getRootNode() === inside) seen++; });
+        observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+        inside.innerHTML = '<p>one</p>';
+        inside.firstChild.setAttribute('data-x', '1');
+        await sleep(30);
+        const fromInside = seen;
+        host.setAttribute('data-y', '1');
+        await sleep(30);
+        observer.disconnect();
+        if (fromInside) throw new Error(`${fromInside} records came from inside the shadow root`);
+        if (seen !== 1) throw new Error(`${seen} records came from the change outside`);
+        return 'no record for two changes inside, one record for the change to the host';
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
