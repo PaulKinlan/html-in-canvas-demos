@@ -9,7 +9,7 @@
 //
 // The listing has a fixed height and scrolls inside itself, so the page does
 // not move when the source arrives.
-const LIVE = 'https://html-in-canvas-demos.kinlan-test.workers.dev';
+const LIVE = 'https://html-in-canvas.page';
 
 const css = new CSSStyleSheet();
 css.replaceSync(`

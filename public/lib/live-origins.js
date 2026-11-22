@@ -6,6 +6,8 @@ export function otherOrigin(from = location.href) {
   if (u.hostname === 'localhost' || u.hostname === '127.0.0.1') {
     if (u.port !== '8001' && u.port !== '8002') return null;
     u.port = u.port === '8001' ? '8002' : '8001';
+  } else if (u.hostname === 'html-in-canvas.page') {
+    return 'https://html-in-canvas-remote.kinlan-test.workers.dev';
   } else if (u.hostname.startsWith('html-in-canvas-demos.')) {
     u.hostname = u.hostname.replace('html-in-canvas-demos.', 'html-in-canvas-remote.');
   } else if (u.hostname.startsWith('html-in-canvas-remote.')) {

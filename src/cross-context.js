@@ -4,7 +4,7 @@
 //                           between everyone in it: WebRTC signalling, and the
 //                           frames themselves when WebRTC can't connect.
 //   GET  /api/x/ice         ICE servers for RTCPeerConnection. STUN always; TURN
-//                           (Cloudflare Realtime, credentials that last an hour)
+//                           (Cloudflare Realtime, credentials that last five minutes)
 //                           if TURN_KEY_ID and TURN_KEY_API_TOKEN secrets are set.
 //   POST /api/x/vision      A frame of shared DOM plus a question, answered by a
 //                           vision model on Workers AI (binding: AI).
@@ -13,6 +13,8 @@
 const MAX_PEERS = 8;
 const MAX_TEXT = 64 * 1024; // signalling and input messages
 const MAX_BINARY = 400 * 1024; // one relayed frame
+const ICE_TTL = 300; // 5 minutes
+const ICE_PER_MINUTE = 20; // per IP, counted in this isolate
 // Tried in order. Checked against a real shared frame on 2026-11-20: Mistral
 // Small answered in about a second, Llama 4 Scout in about twelve.
 const VISION_MODELS = ['@cf/mistralai/mistral-small-3.1-24b-instruct', '@cf/meta/llama-4-scout-17b-16e-instruct'];
@@ -70,6 +72,9 @@ export async function handleCrossContextApi(request, env, ctx, url) {
     // a same-origin fetch (no Origin header on a GET) or an allowed origin.
     const origin = request.headers.get('origin');
     const ours = origin ? allowedOrigin(origin, request) : request.headers.get('sec-fetch-site') === 'same-origin';
+    if (ours && iceTooMany(request)) {
+      return json({ iceServers: STUN, turn: false, note: 'TURN rate limit reached; try again in a minute' }, { status: 429, request });
+    }
     return json(await iceServers(env, ours), { request });
   }
 
@@ -82,6 +87,18 @@ export async function handleCrossContextApi(request, env, ctx, url) {
 }
 
 const STUN = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
+const iceHits = new Map();
+function iceTooMany(request) {
+  const who = request.headers.get('cf-connecting-ip') || 'local';
+  const minute = Math.floor(Date.now() / 60_000);
+  const h = iceHits.get(who);
+  if (!h || h.minute !== minute) {
+    if (iceHits.size > 5000) iceHits.clear();
+    iceHits.set(who, { minute, n: 1 });
+    return false;
+  }
+  return ++h.n > ICE_PER_MINUTE;
+}
 
 async function iceServers(env, ours) {
   if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return { iceServers: STUN, turn: false, note: 'This deployment has no TURN key' };
@@ -90,7 +107,7 @@ async function iceServers(env, ours) {
     const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
       method: 'POST',
       headers: { authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ ttl: 3600 }),
+      body: JSON.stringify({ ttl: ICE_TTL }),
     });
     if (!res.ok) return { iceServers: STUN, turn: false, note: `The TURN service refused the key (HTTP ${res.status})` };
     const data = await res.json();

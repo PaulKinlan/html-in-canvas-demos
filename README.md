@@ -2,7 +2,7 @@
 
 Pushing on the experimental [HTML-in-canvas](https://github.com/WICG/html-in-canvas) API: reprojecting real, interactive DOM through slots, workers, tabs and origins.
 
-Live: https://html-in-canvas-demos.kinlan-test.workers.dev (second origin for the cross-origin demo: https://html-in-canvas-remote.kinlan-test.workers.dev)
+Live: https://html-in-canvas.page (second origin for the cross-origin demo: https://html-in-canvas-remote.kinlan-test.workers.dev)
 
 Needs Chrome 148+ (desktop or Android) with `chrome://flags/#canvas-draw-element` set to Enabled, or the `html-in-canvas` origin trial. Without it the site is plain HTML. The demos are tested in Chromium 157 and in Chrome 159 on Android.
 
@@ -19,7 +19,7 @@ Needs Chrome 148+ (desktop or Android) with `chrome://flags/#canvas-draw-element
 
 ## Learn the API
 
-[`/start/`](https://html-in-canvas-demos.kinlan-test.workers.dev/start/) is a tutorial: how to enable the API, a 60-line page that draws one element ([`public/start/hello.html`](public/start/hello.html)), common errors with their fixes, and a glossary.
+[`/start/`](https://html-in-canvas.page/start/) is a tutorial: how to enable the API, a 60-line page that draws one element ([`public/start/hello.html`](public/start/hello.html)), common errors with their fixes, and a glossary.
 
 The minimum code:
 
@@ -201,3 +201,7 @@ npm run check:merge   # does this branch merge with main and with the other open
 ```
 
 Pushes to `main` deploy both Workers through Workers Builds. Its install step runs the `postinstall` script, which is the build. [ARCHITECTURE.md](ARCHITECTURE.md), "Files that parallel branches share", says which files a pull request should and should not edit.
+
+## Licence
+
+This project is licensed under the Apache License 2.0 ([LICENSE](LICENSE)). Vendored libraries under `public/vendor/` and compiled native UI binaries (including the Qt WebAssembly binaries in `public/native-ui/qt/`, `public/qt-textfield/` and `public/qt-widgets-dom/`, statically linked against open-source Qt under LGPL-3.0 / GPL-3.0) remain under their own licences.

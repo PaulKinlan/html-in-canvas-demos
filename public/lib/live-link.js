@@ -166,10 +166,10 @@ function joinBc(room, role) {
 
 const FALLBACK_ICE = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }];
 let icePromise;
-/** { iceServers, turn, from }: STUN always, TURN when the deployment has a key. Credentials last an hour, so ask again per session. */
+/** { iceServers, turn, from }: STUN always, TURN when the deployment has a key. Credentials last five minutes, so ask again after two. */
 export function iceConfig() {
   const now = Date.now();
-  if (icePromise && now - icePromise.at < 20 * 60_000) return icePromise;
+  if (icePromise && now - icePromise.at < 2 * 60_000) return icePromise;
   icePromise = fetch(new URL('ice', apiBase), { cache: 'no-store' })
     .then((r) => r.json())
     .then((d) => ({ iceServers: d.iceServers, turn: !!d.turn, from: apiBase.host, note: d.note ?? '' }))
