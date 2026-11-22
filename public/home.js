@@ -1,65 +1,175 @@
-// Progressive enhancement for the demo index.
-// Without HTML-in-canvas (Safari, Firefox, Chrome without the flag) nothing
-// here runs and the page is a plain CSS grid of links.
-// With it, the same <a> elements are slotted into a canvas in a shadow root
-// and drawn with a pointer-driven tilt, glare and a reactive dot field.
-// They remain real links: hover, focus, Tab, Enter, middle-click, context menu.
+// Progressive enhancement, topic filters and search for the demo index.
+// Without HTML-in-canvas (Safari, Firefox, Chrome without the API) every card
+// is a plain CSS grid of links. With it, the links in each open group are
+// slotted into a canvas in a shadow root and drawn with a pointer-driven tilt,
+// glare and dot field while staying real links (hover, focus, Tab, middle-click).
 
 const supported =
   'drawElementImage' in CanvasRenderingContext2D.prototype &&
   !new URLSearchParams(location.search).has('plain');
 
 const mode = document.getElementById('mode');
+const root = document.getElementById('demos');
+const chipsEl = document.getElementById('cat-chips');
+const filterEl = document.getElementById('filter');
+const toggleBtn = document.getElementById('toggle-groups');
+const emptyEl = document.getElementById('empty');
 mode.hidden = false;
 
-// Build the index from the shared list: for each group, one or more grids of links.
-// With the API, each grid becomes one canvas, so a grid holds a whole number of rows: a grid of four cards in
-// three columns left the fourth card alone in a row with two empty cells. One row per canvas from three
-// columns up. In one column on a phone a group of 20 cards was a canvas 8,500 device pixels tall and
-// 9 megapixels, more than a phone GPU takes as one texture, so a narrow page gets a few cards per canvas.
-// Without the API there is no canvas and a group is one CSS grid.
-const GAP = 16, MIN_CARD = 270;
-const root = document.getElementById('demos');
-const columns = () => Math.max(1, Math.floor((root.clientWidth + GAP) / (MIN_CARD + GAP)));
-const perCanvas = (cols) => (!supported ? Infinity : cols === 1 ? 3 : cols === 2 ? 4 : cols);
-let grids = [];
+const GAP = 16, MIN_CARD = 260;
+const DEFAULT_OPEN = new Set(['primitives', 'forms']);
+const esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const stripHtml = (t) => String(t ?? '').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ');
+
+const allGroups = (window.DEMO_GROUPS ?? []).filter(([key]) => key !== 'start');
+const allDemos = (window.DEMOS ?? []).filter((d) => d.group !== 'start');
+const numbered = new Map(allDemos.map((d, i) => [d.href, i + 1]));
+
+let activeGroup = 'all';
+let query = '';
+let grids = []; // { grid, fold, enhanced, resize }
 let builtFor = 0;
+
+const columns = () => Math.max(1, Math.floor((Math.max(260, root.clientWidth - 32) + GAP) / (MIN_CARD + GAP)));
+// Keep at most 2 cards per canvas in a single column on phones (DPR 3 stays under 4 MP).
+const perCanvas = (cols) => (!supported ? Infinity : cols === 1 ? 2 : cols === 2 ? 4 : cols);
+
+function matches(d, terms) {
+  if (activeGroup !== 'all' && d.group !== activeGroup) return false;
+  if (!terms.length) return true;
+  const hay = (d.title + ' ' + d.href + ' ' + stripHtml(d.blurb) + ' ' + (d.tags ?? []).join(' ')).toLowerCase();
+  return terms.every((t) => hay.includes(t));
+}
+
+function buildChips() {
+  if (!chipsEl) return;
+  const counts = new Map();
+  for (const d of allDemos) counts.set(d.group, (counts.get(d.group) ?? 0) + 1);
+  const make = (key, label, count) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.dataset.group = key;
+    b.setAttribute('aria-pressed', String(key === activeGroup));
+    b.innerHTML = `${esc(label)} <span class="n">${count}</span>`;
+    b.addEventListener('click', () => {
+      activeGroup = key;
+      for (const c of chipsEl.querySelectorAll('.chip')) c.setAttribute('aria-pressed', String(c.dataset.group === activeGroup));
+      build();
+    });
+    return b;
+  };
+  const nodes = [make('all', 'All', allDemos.length)];
+  for (const [key, label] of allGroups) {
+    const n = counts.get(key) ?? 0;
+    if (n) nodes.push(make(key, label, n));
+  }
+  chipsEl.replaceChildren(...nodes);
+}
+
+function updateToggleButton() {
+  if (!toggleBtn) return;
+  const folds = [...root.querySelectorAll('details.group-fold')];
+  const allOpen = folds.length > 0 && folds.every((f) => f.open);
+  toggleBtn.textContent = allOpen ? 'Collapse all groups' : 'Expand all groups';
+  toggleBtn.hidden = folds.length <= 1;
+}
+
 function build() {
   builtFor = perCanvas(columns());
-  for (const g of grids) window.__gfx?.retire(g.shadowRoot?.querySelector('canvas') ?? g);
+  for (const entry of grids) window.__gfx?.retire(entry.grid.shadowRoot?.querySelector('canvas') ?? entry.grid);
   grids = [];
   root.replaceChildren();
-  const demos = window.DEMOS ?? [];
-  let n = 0;
-  for (const [key, label] of window.DEMO_GROUPS ?? []) {
-    if (key === 'start') continue; // the tutorial has its own section below the list
-    const items = demos.filter((d) => d.group === key);
+
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const filtering = activeGroup !== 'all' || terms.length > 0;
+  let totalShown = 0;
+
+  for (const [key, label] of allGroups) {
+    const items = allDemos.filter((d) => d.group === key && matches(d, terms));
     if (!items.length) continue;
-    const h = document.createElement('h2');
-    h.className = 'group-title';
-    h.textContent = label;
-    const group = document.createElement('nav');
-    group.setAttribute('aria-label', label);
+    totalShown += items.length;
+
+    const fold = document.createElement('details');
+    fold.className = 'group-fold';
+    fold.dataset.group = key;
+    if (filtering || DEFAULT_OPEN.has(key)) fold.open = true;
+
+    const summary = document.createElement('summary');
+    summary.innerHTML = `<span class="g-name">${esc(label)}</span><span class="g-count">${items.length}</span>`;
+    const body = document.createElement('div');
+    body.className = 'group-body';
+    const nav = document.createElement('nav');
+    nav.setAttribute('aria-label', label);
+
+    const foldGrids = [];
     let grid = null;
     for (const d of items) {
       if (!grid || grid.childElementCount >= builtFor) {
         grid = document.createElement('div');
         grid.className = 'demos';
-        group.append(grid);
-        grids.push(grid);
+        nav.append(grid);
+        const entry = { grid, fold, enhanced: false, resize: null };
+        grids.push(entry);
+        foldGrids.push(entry);
       }
       const a = document.createElement('a');
       a.className = 'demo';
       a.href = d.href;
-      const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-      a.innerHTML = `<span class="num">${String(++n).padStart(2, '0')}</span><h2>${esc(d.title)}</h2><p>${d.blurb ?? ''}</p><span class="tags">${(d.tags ?? []).map((t) => `<span>${esc(t)}</span>`).join('')}</span>`;
+      const num = numbered.get(d.href) ?? 0;
+      a.innerHTML = `<span class="num">${String(num).padStart(2, '0')}</span><h3>${esc(d.title)}</h3><p>${d.blurb ?? ''}</p><span class="tags">${(d.tags ?? []).map((t) => `<span>${esc(t)}</span>`).join('')}</span>`;
       grid.append(a);
     }
-    root.append(h, group);
+
+    body.append(nav);
+    fold.append(summary, body);
+    root.append(fold);
+
+    if (supported) {
+      const activate = () => {
+        for (const entry of foldGrids) {
+          if (!entry.enhanced) {
+            entry.enhanced = true;
+            entry.resize = enhance(entry.grid, fold);
+          } else {
+            entry.resize?.();
+          }
+        }
+      };
+      if (fold.open) activate();
+      fold.addEventListener('toggle', () => {
+        updateToggleButton();
+        if (fold.open) activate();
+        else for (const entry of foldGrids) entry.resize?.();
+      });
+    } else {
+      fold.addEventListener('toggle', updateToggleButton);
+    }
   }
-  if (supported) grids.forEach(enhance);
+
+  if (emptyEl) emptyEl.hidden = totalShown > 0;
+  updateToggleButton();
 }
+
+buildChips();
 build();
+
+if (filterEl) {
+  filterEl.addEventListener('input', () => {
+    query = filterEl.value;
+    build();
+  });
+}
+
+if (toggleBtn) {
+  toggleBtn.addEventListener('click', () => {
+    const folds = [...root.querySelectorAll('details.group-fold')];
+    const wantOpen = !folds.every((f) => f.open);
+    for (const f of folds) f.open = wantOpen;
+    updateToggleButton();
+  });
+}
+
 // When the window is resized to a different number of columns, group the cards again.
 if (supported) {
   let timer = 0;
@@ -68,7 +178,7 @@ if (supported) {
     timer = setTimeout(() => {
       if (perCanvas(columns()) === builtFor || root.contains(document.activeElement)) return;
       const height = root.offsetHeight;
-      root.style.minHeight = height + 'px'; // hold the page height while the cards are grouped again
+      root.style.minHeight = height + 'px';
       build();
       requestAnimationFrame(() => (root.style.minHeight = ''));
     }, 200);
@@ -76,7 +186,6 @@ if (supported) {
 }
 
 // The table of API calls and the experiments that use them, from /shared/learn.js.
-// It runs before the first paint (nav.js holds the page until the scripts have built it).
 {
   const body = document.getElementById('uses');
   const titles = new Map((window.DEMOS ?? []).map((d) => [d.href, d.title]));
@@ -105,22 +214,22 @@ if (!supported) {
   const forced = new URLSearchParams(location.search).has('plain');
   mode.innerHTML = forced
     ? '<span><b>Plain HTML mode.</b> The canvas index is switched off.</span> <a href="/">Turn it back on</a>'
-    : '<span><b>Plain HTML mode.</b> This browser has no HTML-in-canvas, so the index is a normal grid of links. The demos need Chrome with <code>chrome://flags/#canvas-draw-element</code>: <a href="/start/#enable">how to turn it on</a>.</span>';
+    : '<span><b>Plain HTML mode.</b> This browser has no HTML-in-canvas, so the index is a normal grid of links. <a href="/start/#enable">How to enable it</a>.</span>';
 } else {
   mode.innerHTML =
-    '<span><b>Canvas mode.</b> These cards are real links drawn into a canvas with <code>drawElementImage()</code>. Tab through them.</span> <a href="/?plain">See the plain HTML version</a>';
+    '<span><b>Canvas mode.</b> Cards below are real links drawn into a canvas with <code>drawElementImage()</code>. Tab through them.</span> <a href="/?plain">See the plain HTML version</a>';
 }
 
-function enhance(nav) {
+function enhance(nav, fold) {
   const cards = [...nav.querySelectorAll('.demo')];
-  const root = nav.attachShadow({ mode: 'open' });
-  root.innerHTML = `<canvas content="drawable" layoutsubtree style="display:block;width:100%"><slot></slot></canvas>`;
-  const canvas = root.querySelector('canvas');
+  const shadow = nav.attachShadow({ mode: 'open' });
+  shadow.innerHTML = `<canvas content="drawable" layoutsubtree style="display:block;width:100%"><slot></slot></canvas>`;
+  const canvas = shadow.querySelector('canvas');
   const ctx = canvas.getContext('2d');
   for (const c of cards) c.setAttribute('drawable', '');
   nav.classList.add('enhanced');
 
-  const PAD = 28; // room for tilt and shadows; .enhanced has a matching negative margin
+  const PAD = 16; // room for tilt and shadows; .enhanced has a matching negative margin
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const state = cards.map(() => ({ x: 0, y: 0, w: 0, h: 0, hover: 0, target: 0, enter: 0 }));
   let dpr = devicePixelRatio;
@@ -130,11 +239,12 @@ function enhance(nav) {
   const t0 = performance.now();
 
   function layout() {
+    if (!fold.open) return;
     const W = nav.clientWidth - PAD * 2;
+    if (W <= 0) return;
     const cols = Math.max(1, Math.floor((W + GAP) / (MIN_CARD + GAP)));
     const cw = Math.floor((W - GAP * (cols - 1)) / cols);
     nav.style.setProperty('--cw', cw + 'px');
-    // Read heights after the width applies.
     let y = PAD;
     for (let i = 0; i < cards.length; i += cols) {
       const row = cards.slice(i, i + cols);
@@ -147,21 +257,23 @@ function enhance(nav) {
   }
 
   new ResizeObserver(([entry]) => {
+    if (!fold.open) return;
     const box = entry.devicePixelContentBoxSize?.[0];
     layout();
     dpr = box ? box.inlineSize / Math.max(1, entry.contentRect.width) : devicePixelRatio;
     size();
   }).observe(nav, { box: 'device-pixel-content-box' });
 
-  // The canvas has pixels only while it is within one screen of the viewport. Further away it is 0 by 0 and
-  // holds no memory. All the grids together would hold over 200 MB on a phone.
+  // The canvas has pixels only while its group is open and within one screen of the viewport.
   let near = (() => { const r = nav.getBoundingClientRect(); return r.top < innerHeight * 2 && r.bottom > -innerHeight; })();
   function size() {
-    const r = canvas.getBoundingClientRect();
-    const w = near ? Math.round(r.width * dpr) : 0, h = near ? Math.round(r.height * dpr) : 0;
+    const active = near && fold.open;
+    const r = active ? canvas.getBoundingClientRect() : null;
+    const w = active ? Math.round(r.width * dpr) : 0;
+    const h = active ? Math.round(r.height * dpr) : 0;
     if (canvas.width !== w) canvas.width = w;
     if (canvas.height !== h) canvas.height = h;
-    if (near) kick();
+    if (active) kick();
   }
   new IntersectionObserver(([entry]) => { near = entry.isIntersecting; size(); }, { rootMargin: '100% 0px' }).observe(nav);
 
@@ -178,7 +290,6 @@ function enhance(nav) {
     ctx.reset();
     ctx.scale(dpr, dpr);
 
-    // Ease pointer and hover values.
     let moving = false;
     const k = reduced ? 1 : 0.16;
     if (pointer) {
@@ -189,7 +300,6 @@ function enhance(nav) {
     pointerEase.on += (onTarget - pointerEase.on) * k;
     if (Math.abs(onTarget - pointerEase.on) > 0.005 || (pointer && Math.hypot(pointer.x - pointerEase.x, pointer.y - pointerEase.y) > 0.3)) moving = true;
 
-    // Dot field that swells toward the pointer.
     const step = 22;
     for (let y = step / 2; y < H; y += step) {
       for (let x = step / 2; x < W; x += step) {
@@ -209,13 +319,11 @@ function enhance(nav) {
       const s = state[i];
       s.hover += (s.target - s.hover) * k;
       if (Math.abs(s.target - s.hover) > 0.004) moving = true;
-      // Staggered entrance.
       const e = reduced ? 1 : Math.min(1, Math.max(0, (now - t0 - i * 70) / 520));
       s.enter = 1 - Math.pow(1 - e, 3);
       if (e < 1) moving = true;
 
       const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
-      // Pointer position relative to the card centre, -1..1.
       const px = Math.max(-1, Math.min(1, (pointerEase.x - cx) / (s.w / 2)));
       const py = Math.max(-1, Math.min(1, (pointerEase.y - cy) / (s.h / 2)));
       const tilt = reduced ? 0 : s.hover;
@@ -223,7 +331,6 @@ function enhance(nav) {
       ctx.save();
       ctx.globalAlpha = s.enter;
       ctx.translate(cx, cy + (1 - s.enter) * 26 - tilt * 5);
-      // A cheap perspective tilt: opposite shears plus a slight squeeze.
       ctx.transform(1 - Math.abs(px) * 0.025 * tilt, py * px * 0.035 * tilt, px * py * 0.035 * tilt, 1 - Math.abs(py) * 0.03 * tilt, 0, 0);
       ctx.rotate(px * 0.012 * tilt);
       ctx.scale(1 + 0.035 * tilt, 1 + 0.035 * tilt);
@@ -233,14 +340,12 @@ function enhance(nav) {
       ctx.shadowBlur = 10 + tilt * 26;
       ctx.shadowOffsetY = (3 + tilt * 14) * dpr;
       try {
-        // Updates the link's geometry too, so hit testing and focus rings follow.
         ctx.drawElementImage(card, 0, 0, s.w, s.h);
       } catch {
-        moving = true; // no snapshot yet; try again next frame
+        moving = true;
       }
       ctx.shadowColor = 'transparent';
 
-      // Glare that tracks the pointer, clipped to the card.
       if (tilt > 0.01) {
         ctx.beginPath();
         ctx.roundRect(0, 0, s.w, s.h, 14);
@@ -263,8 +368,6 @@ function enhance(nav) {
     return moving;
   }
 
-  // The paint event fires when a card's rendering changes (focus ring, fonts
-  // loading, theme) or when we ask for it while animating.
   canvas.addEventListener('paint', () => {
     if (!canvas.width || !canvas.height) return;
     const moving = draw();
@@ -290,7 +393,6 @@ function enhance(nav) {
     state.forEach((s) => (s.target = 0));
     kick();
   });
-  // Keyboard users get the same lift on focus.
   nav.addEventListener('focusin', (e) => {
     if (!e.target.matches?.(':focus-visible')) return;
     cards.forEach((c, i) => (state[i].target = c === e.target ? 1 : 0));
@@ -305,6 +407,10 @@ function enhance(nav) {
   });
 
   layout();
-  kick();
+  size();
   window.__enhanced = true;
+  return () => {
+    layout();
+    size();
+  };
 }

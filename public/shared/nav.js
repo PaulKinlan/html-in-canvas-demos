@@ -21,29 +21,55 @@
   }
 
   var css = '\
-#site-nav{position:sticky;top:0;z-index:2147483000;font:14px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1d1c1a;background:rgba(246,244,239,.92);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:1px solid #ddd8cf;}\
+#site-nav{position:sticky;top:0;z-index:2147483000;font:14px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1d1c1a;background:rgba(246,244,239,.94);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:1px solid #ddd8cf;}\
 #site-nav *{box-sizing:border-box}\
 html.page-loading body>:not(#site-nav){opacity:0}\
 #site-nav .bar{display:flex;align-items:center;gap:6px;max-width:1100px;margin:0 auto;padding:4px 12px;height:48px}\
 #site-nav a{color:inherit;text-decoration:none}\
 #site-nav .home{font-weight:700;white-space:nowrap;padding:8px 6px;margin-right:auto;overflow:hidden;text-overflow:ellipsis}\
+#site-nav .top-links{display:flex;align-items:center;gap:2px;margin-right:6px}\
+#site-nav .top-links a{padding:6px 9px;border-radius:7px;font-size:13.5px;color:#6b6760;white-space:nowrap}\
+#site-nav .top-links a:hover{color:#1d1c1a;background:rgba(127,127,127,.14)}\
+#site-nav .top-links a[aria-current]{color:#1d1c1a;font-weight:600}\
 #site-nav .step{display:inline-flex;align-items:center;justify-content:center;min-width:40px;height:40px;border-radius:8px;font-size:18px}\
-#site-nav .step:hover,#site-nav summary:hover{background:rgba(127,127,127,.16)}\
+#site-nav .step:hover,#site-nav summary.menu-btn:hover{background:rgba(127,127,127,.16)}\
 #site-nav .step[aria-disabled=true]{opacity:.3;pointer-events:none}\
-#site-nav details{position:static}\
-#site-nav summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 12px;border-radius:8px;border:1px solid #ddd8cf;font-weight:600;white-space:nowrap;max-width:52vw;user-select:none}\
-#site-nav summary::-webkit-details-marker{display:none}\
-#site-nav summary span{overflow:hidden;text-overflow:ellipsis}\
-#site-nav summary::after{content:"▾";font-size:12px;opacity:.7}\
-#site-nav details[open] summary::after{content:"▴"}\
-#site-nav .panel{position:absolute;left:0;right:0;top:100%;max-height:calc(100vh - 60px);max-height:calc(100dvh - 60px);overflow:auto;overscroll-behavior:contain;background:#fbfaf7;border-bottom:1px solid #ddd8cf;box-shadow:0 18px 40px rgba(0,0,0,.18)}\
-#site-nav .panel-in{max-width:1100px;margin:0 auto;padding:10px 12px 18px;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:4px 24px}\
-#site-nav h2{font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6b6760;margin:14px 8px 6px}\
-#site-nav .panel a{display:block;padding:10px 8px;border-radius:8px;min-height:40px}\
-#site-nav .panel a:hover{background:rgba(127,127,127,.14)}\
-#site-nav .panel a[aria-current]{background:#1d1c1a;color:#f6f4ef}\
-#site-nav a:focus-visible,#site-nav summary:focus-visible{outline:2px solid #d2491f;outline-offset:1px}\
-@media (prefers-color-scheme:dark){#site-nav{color:#eeebe5;background:rgba(22,21,20,.9);border-color:#3a3733}#site-nav summary{border-color:#3a3733}#site-nav .panel{background:#1d1c1a;border-color:#3a3733}#site-nav h2{color:#a19c93}#site-nav .panel a[aria-current]{background:#eeebe5;color:#161514}}\
+#site-nav details.menu{position:static}\
+#site-nav summary.menu-btn{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 12px;border-radius:8px;border:1px solid #ddd8cf;font-weight:600;white-space:nowrap;max-width:52vw;user-select:none}\
+#site-nav summary.menu-btn::-webkit-details-marker{display:none}\
+#site-nav summary.menu-btn span{overflow:hidden;text-overflow:ellipsis}\
+#site-nav summary.menu-btn::after{content:"▾";font-size:12px;opacity:.7}\
+#site-nav details.menu[open] summary.menu-btn::after{content:"▴"}\
+#site-nav .panel{position:absolute;left:0;right:0;top:100%;max-height:calc(100vh - 54px);max-height:calc(100dvh - 54px);overflow:auto;overscroll-behavior:contain;background:#fbfaf7;border-bottom:1px solid #ddd8cf;box-shadow:0 18px 40px rgba(0,0,0,.18)}\
+#site-nav .panel-in{max-width:1100px;margin:0 auto;padding:0 12px 18px}\
+#site-nav .panel-head{position:sticky;top:0;z-index:2;background:#fbfaf7;padding:12px 0 10px;border-bottom:1px solid #ddd8cf;display:grid;gap:8px}\
+#site-nav .panel-quick{display:flex;flex-wrap:wrap;gap:6px;align-items:center}\
+#site-nav .panel-quick a{font-size:13px;font-weight:600;padding:6px 11px;border-radius:99px;border:1px solid #ddd8cf;background:#fff}\
+#site-nav .panel-quick a:hover{border-color:#1d1c1a}\
+#site-nav .panel-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}\
+#site-nav .panel-filter{flex:1 1 220px;min-width:0;height:40px;padding:0 12px;border-radius:8px;border:1px solid #ddd8cf;background:#fff;color:#1d1c1a;font:inherit}\
+#site-nav .panel-filter:focus{outline:2px solid #d2491f;outline-offset:1px}\
+#site-nav .panel-count{font:12px ui-monospace,Menlo,Consolas,monospace;color:#6b6760;white-space:nowrap}\
+#site-nav .panel-toggle{height:36px;padding:0 10px;border-radius:7px;border:1px solid #ddd8cf;background:#fff;color:#1d1c1a;font:600 12.5px system-ui,-apple-system,sans-serif;cursor:pointer}\
+#site-nav .panel-toggle:hover{border-color:#1d1c1a}\
+#site-nav .panel-groups{display:grid;gap:6px;padding-top:10px}\
+#site-nav details.nav-group{border:1px solid #ddd8cf;border-radius:10px;background:#fff}\
+#site-nav details.nav-group[hidden]{display:none}\
+#site-nav details.nav-group>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;min-height:42px;padding:8px 12px;font-weight:600;user-select:none}\
+#site-nav details.nav-group>summary::-webkit-details-marker{display:none}\
+#site-nav details.nav-group>summary::after{content:"▾";margin-left:auto;opacity:.65;font-size:12px}\
+#site-nav details.nav-group[open]>summary::after{content:"▴"}\
+#site-nav details.nav-group[open]>summary{border-bottom:1px solid #ddd8cf}\
+#site-nav .nav-count{font:600 11px ui-monospace,Menlo,Consolas,monospace;color:#6b6760;border:1px solid #ddd8cf;border-radius:99px;padding:2px 7px}\
+#site-nav .nav-links{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 10px;padding:6px 8px 10px}\
+#site-nav .nav-links a{display:flex;align-items:center;padding:8px 8px;border-radius:7px;min-height:40px;font-size:13.5px;line-height:1.3}\
+#site-nav .nav-links a[hidden]{display:none}\
+#site-nav .nav-links a:hover{background:rgba(127,127,127,.14)}\
+#site-nav .nav-links a[aria-current]{background:#1d1c1a;color:#f6f4ef;font-weight:600}\
+#site-nav .panel-empty{padding:16px 4px;color:#6b6760;font-size:14px}\
+#site-nav a:focus-visible,#site-nav summary:focus-visible,#site-nav button:focus-visible{outline:2px solid #d2491f;outline-offset:1px}\
+@media (prefers-color-scheme:dark){#site-nav{color:#eeebe5;background:rgba(22,21,20,.92);border-color:#3a3733}#site-nav .top-links a{color:#a19c93}#site-nav .top-links a:hover,#site-nav .top-links a[aria-current]{color:#eeebe5}#site-nav summary.menu-btn{border-color:#3a3733}#site-nav .panel,#site-nav .panel-head{background:#1b1918;border-color:#3a3733}#site-nav .panel-quick a,#site-nav .panel-filter,#site-nav .panel-toggle,#site-nav details.nav-group{background:#211f1d;border-color:#3a3733;color:#eeebe5}#site-nav .panel-quick a:hover,#site-nav .panel-toggle:hover{border-color:#eeebe5}#site-nav details.nav-group[open]>summary{border-color:#3a3733}#site-nav .panel-count,#site-nav .nav-count,#site-nav .panel-empty{color:#a19c93;border-color:#3a3733}#site-nav .nav-links a[aria-current]{background:#eeebe5;color:#161514}}\
+@media (max-width:740px){#site-nav .top-links{display:none}}\
 @media (max-width:520px){#site-nav .home .long{display:none}}';
 
   // A page's module scripts run after the HTML is parsed, and most of them build
@@ -83,6 +109,7 @@ html.page-loading body>:not(#site-nav){opacity:0}\
   }
 
   function norm(p) { return p.replace(/index\.html$/, ''); }
+  function stripHtml(s) { return String(s || '').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' '); }
 
   // The bar goes into the page the moment this script runs, at its final
   // height, so nothing below it moves when the list of demos arrives. The menu
@@ -94,7 +121,7 @@ html.page-loading body>:not(#site-nav){opacity:0}\
     document.head.appendChild(style);
     var nav = document.createElement('nav');
     nav.id = 'site-nav';
-    nav.setAttribute('aria-label', 'Demos');
+    nav.setAttribute('aria-label', 'Site navigation');
     nav.innerHTML = '<div class="bar"><a class="home" href="/"><span class="long">HTML-in-canvas </span>experiments</a></div>';
     document.body.insertBefore(nav, document.body.firstChild);
   }
@@ -102,38 +129,148 @@ html.page-loading body>:not(#site-nav){opacity:0}\
   function fill() {
     mount();
     var nav = document.getElementById('site-nav');
-    if (nav.querySelector('details')) return;
+    if (nav.querySelector('details.menu')) return;
     var demos = window.DEMOS || [];
     var groups = window.DEMO_GROUPS || [];
     var here = norm(location.pathname);
     var idx = -1;
     for (var i = 0; i < demos.length; i++) if (norm(demos[i].href) === here) idx = i;
+    var activeGroup = idx >= 0 ? demos[idx].group : (groups[0] ? groups[0][0] : '');
 
     var esc = function (s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
     var step = function (d, label, glyph) {
       return d ? '<a class="step" href="' + esc(d.href) + '" title="' + label + ': ' + esc(d.title) + '" aria-label="' + label + ': ' + esc(d.title) + '">' + glyph + '</a>'
                : '<a class="step" aria-disabled="true" aria-hidden="true">' + glyph + '</a>';
     };
+
+    var groupHtml = function (key, label, items) {
+      var isOpen = key === activeGroup;
+      return '<details class="nav-group" data-group="' + esc(key) + '"' + (isOpen ? ' open' : '') + '>' +
+        '<summary><span>' + esc(label) + '</span><span class="nav-count">' + items.length + '</span></summary>' +
+        '<div class="nav-links">' + items.map(function (d) {
+          var hay = (d.title + ' ' + d.href + ' ' + stripHtml(d.blurb) + ' ' + (d.tags || []).join(' ')).toLowerCase();
+          return '<a href="' + esc(d.href) + '" data-search="' + esc(hay) + '"' + (norm(d.href) === here ? ' aria-current="page"' : '') + '>' + esc(d.title) + '</a>';
+        }).join('') + '</div></details>';
+    };
+
     var panel = '';
     for (var g = 0; g < groups.length; g++) {
       var items = demos.filter(function (d) { return d.group === groups[g][0]; });
       if (!items.length) continue;
-      panel += '<div><h2>' + esc(groups[g][1]) + '</h2>' + items.map(function (d) {
-        return '<a href="' + esc(d.href) + '"' + (norm(d.href) === here ? ' aria-current="page"' : '') + '>' + esc(d.title) + '</a>';
-      }).join('') + '</div>';
+      panel += groupHtml(groups[g][0], groups[g][1], items);
     }
     var other = demos.filter(function (d) { return !groups.some(function (g) { return g[0] === d.group; }); });
-    if (other.length) panel += '<div><h2>More</h2>' + other.map(function (d) { return '<a href="' + esc(d.href) + '">' + esc(d.title) + '</a>'; }).join('') + '</div>';
+    if (other.length) panel += groupHtml('more', 'More', other);
+
+    var topLinks = '<div class="top-links">' +
+      '<a href="/#examples">Examples</a>' +
+      '<a href="/#libraries">Libraries</a>' +
+      '<a href="/start/"' + (here === '/start/' ? ' aria-current="page"' : '') + '>Start</a>' +
+      '<a href="/about/"' + (here === '/about/' ? ' aria-current="page"' : '') + '>About</a>' +
+      '</div>';
+
+    var quickLinks = '<div class="panel-quick">' +
+      '<a href="/#examples">Examples</a>' +
+      '<a href="/#libraries">Libraries</a>' +
+      '<a href="/#all">All experiments</a>' +
+      '<a href="/start/">Start here</a>' +
+      '<a href="/use-it/">Use it</a>' +
+      '<a href="/about/">About</a>' +
+      '</div>';
 
     nav.querySelector('.bar').insertAdjacentHTML('beforeend',
-        step(idx > 0 ? demos[idx - 1] : null, 'Previous', '‹') +
-        '<details><summary><span>' + (idx >= 0 ? esc(demos[idx].title) : 'All demos (' + demos.length + ')') + '</span></summary>' +
-          '<div class="panel"><div class="panel-in">' + panel + '</div></div></details>' +
-        step(idx >= 0 ? demos[idx + 1] : demos[0], 'Next', '›'));
+      topLinks +
+      step(idx > 0 ? demos[idx - 1] : null, 'Previous', '‹') +
+      '<details class="menu"><summary class="menu-btn"><span>' + (idx >= 0 ? esc(demos[idx].title) : 'All demos (' + demos.length + ')') + '</span></summary>' +
+        '<div class="panel"><div class="panel-in">' +
+          '<div class="panel-head">' +
+            quickLinks +
+            '<div class="panel-tools">' +
+              '<input class="panel-filter" type="search" placeholder="Filter ' + demos.length + ' pages by title, topic or API…" aria-label="Filter pages">' +
+              '<span class="panel-count">' + demos.length + ' pages</span>' +
+              '<button type="button" class="panel-toggle">Expand all</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="panel-groups">' + panel + '</div>' +
+          '<p class="panel-empty" hidden>No pages match that filter.</p>' +
+        '</div></div></details>' +
+      step(idx >= 0 ? demos[idx + 1] : demos[0], 'Next', '›'));
 
-    var details = nav.querySelector('details');
+    var details = nav.querySelector('details.menu');
+    var filter = nav.querySelector('.panel-filter');
+    var countEl = nav.querySelector('.panel-count');
+    var toggleBtn = nav.querySelector('.panel-toggle');
+    var emptyEl = nav.querySelector('.panel-empty');
+    var groupEls = Array.prototype.slice.call(nav.querySelectorAll('details.nav-group'));
+
+    function applyFilter() {
+      var q = filter.value.trim().toLowerCase();
+      var terms = q ? q.split(/\s+/) : [];
+      var shown = 0;
+      for (var i = 0; i < groupEls.length; i++) {
+        var ge = groupEls[i];
+        var links = ge.querySelectorAll('.nav-links a');
+        var hits = 0;
+        for (var j = 0; j < links.length; j++) {
+          var hay = links[j].getAttribute('data-search') || '';
+          var ok = true;
+          for (var t = 0; t < terms.length; t++) if (hay.indexOf(terms[t]) === -1) { ok = false; break; }
+          links[j].hidden = !ok;
+          if (ok) hits++;
+        }
+        ge.hidden = hits === 0;
+        var badge = ge.querySelector('.nav-count');
+        if (badge) badge.textContent = q ? hits + '/' + links.length : String(links.length);
+        if (q) ge.open = hits > 0;
+        else ge.open = ge.getAttribute('data-group') === activeGroup;
+        shown += hits;
+      }
+      countEl.textContent = q ? shown + ' of ' + demos.length : demos.length + ' pages';
+      emptyEl.hidden = shown > 0;
+      updateToggleLabel();
+    }
+
+    function updateToggleLabel() {
+      var visible = groupEls.filter(function (g) { return !g.hidden; });
+      var allOpen = visible.length > 0 && visible.every(function (g) { return g.open; });
+      toggleBtn.textContent = allOpen ? 'Collapse all' : 'Expand all';
+    }
+
+    filter.addEventListener('input', applyFilter);
+    toggleBtn.addEventListener('click', function () {
+      var visible = groupEls.filter(function (g) { return !g.hidden; });
+      var wantOpen = !visible.every(function (g) { return g.open; });
+      for (var i = 0; i < visible.length; i++) visible[i].open = wantOpen;
+      updateToggleLabel();
+    });
+    for (var k = 0; k < groupEls.length; k++) groupEls[k].addEventListener('toggle', updateToggleLabel);
+
+    // Close the menu when following an in-page jump link.
+    nav.querySelector('.panel').addEventListener('click', function (e) {
+      var a = e.target.closest && e.target.closest('a[href]');
+      if (a && a.getAttribute('href').indexOf('/#') === 0 && here === '/') details.open = false;
+    });
+
+    details.addEventListener('toggle', function () {
+      if (details.open) {
+        updateToggleLabel();
+        if (window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+          setTimeout(function () { try { filter.focus({ preventScroll: true }); } catch (e) {} }, 0);
+        }
+      }
+    });
+
     document.addEventListener('click', function (e) { if (details.open && !nav.contains(e.target)) details.open = false; });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && details.open) { details.open = false; nav.querySelector('summary').focus(); } });
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape' || !details.open) return;
+      if (document.activeElement === filter && filter.value) {
+        filter.value = '';
+        applyFilter();
+        return;
+      }
+      details.open = false;
+      nav.querySelector('summary.menu-btn').focus();
+    });
   }
 
   function ready(fn) {
