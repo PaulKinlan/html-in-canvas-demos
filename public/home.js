@@ -17,7 +17,6 @@ const emptyEl = document.getElementById('empty');
 mode.hidden = false;
 
 const GAP = 16, MIN_CARD = 260;
-const DEFAULT_OPEN = new Set(['primitives', 'forms']);
 const esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const stripHtml = (t) => String(t ?? '').replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ');
 
@@ -82,7 +81,6 @@ function build() {
   root.replaceChildren();
 
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const filtering = activeGroup !== 'all' || terms.length > 0;
   let totalShown = 0;
 
   for (const [key, label] of allGroups) {
@@ -93,7 +91,7 @@ function build() {
     const fold = document.createElement('details');
     fold.className = 'group-fold';
     fold.dataset.group = key;
-    if (filtering || DEFAULT_OPEN.has(key)) fold.open = true;
+    fold.open = true;
 
     const summary = document.createElement('summary');
     summary.innerHTML = `<span class="g-name">${esc(label)}</span><span class="g-count">${items.length}</span>`;
