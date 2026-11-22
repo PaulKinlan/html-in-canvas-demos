@@ -255,7 +255,7 @@ function fingerStep() {
   fingerFrame = 0;
   finger.mass += (finger.target - finger.mass) * 0.22;
   if (finger.target === 0 && finger.mass < 4) finger.mass = 0;
-  for (const m of masses) if (Math.hypot(m.x - finger.x, m.y - finger.y) < 300 + m.reach) m.el.request?.();
+  for (const m of masses) if (Math.hypot(m.x - finger.x, m.y - finger.y) < 190 + m.reach) (m.el.requestSoon ?? m.el.request)?.call(m.el);   // within the frame budget
   if (Math.abs(finger.target - finger.mass) > 2) fingerFrame = requestAnimationFrame(fingerStep);
 }
 function listenForFinger() {
@@ -285,7 +285,12 @@ const space = {
     const swing = 1 + 4 * (1 - outCubic(f.t)) * Math.cos(f.t * 9);      // the element settles into the field
     const values = { uFinger: [finger.x, finger.y, finger.mass * space.settings.finger] };
     for (let i = 0; i < 4; i++) values[`uM${i}`] = near[i] ? [near[i].m.x, near[i].m.y, near[i].m.mass * swing * space.settings.pull] : [0, 0, 0];
-    painted(ctx, f, SPACE_LOOK, 'gravity', GRAVITY, values);
+    // The element's picture is drawn, copied and sent to the shader only when the element changed. While
+    // only the masses move (a finger passing, a neighbour settling) the shader reads the texture it has.
+    const { width: w, height: h, state: s, bleed: b } = f;
+    const sig = f.t < 1 || s.focus ? null : ['space', w, h, f.scale, s.on, s.value, s.hover, s.active, s.disabled, s.open, f.el.value ?? '', (f.el.textContent ?? '').slice(0, 80)].join('|');
+    if (sig && holds(f.el, sig) && panel(ctx, f, 'gravity', GRAVITY, { x: -b, y: -b, w: w + 2 * b, h: h + 2 * b, r: 0 }, { uOrigin: origin, ...values }, null, { el: f.el, sig })) return;
+    painted(ctx, f, SPACE_LOOK, 'gravity', GRAVITY, values, { keep: { el: f.el, sig: sig ?? `moving ${f.time}` } });
   },
 };
 // #endregion space
@@ -374,7 +379,7 @@ const foil = {
 // The four skins below work the same way. The shapes are filled with flat colour and the element's own
 // picture is drawn over them, in 2D. grab() takes that as a plain canvas, and one shader pass over the
 // whole wrapper turns it into the picture that is shown.
-function painted(ctx, f, look, name, body, values, { through = true, wait = 0 } = {}) {
+function painted(ctx, f, look, name, body, values, { through = true, wait = 0, keep = null } = {}) {
   const { width: w, height: h, kind, state: s, bleed: b } = f;
   const { list, rest } = shapes(ctx, f, { radius: look.radius ?? 10, pill: look.pill });
   for (const box of list) {
@@ -388,7 +393,7 @@ function painted(ctx, f, look, name, body, values, { through = true, wait = 0 } 
   else if (rest !== 'control' && (through || rest === 'media')) f.draw();
   const shot = grab(ctx, f, false);
   const whole = { x: -b, y: -b, w: w + 2 * b, h: h + 2 * b, r: 0 };
-  if (panel(ctx, f, name, body, whole, { uOrigin: pagePoint(f), ...values }, shot)) f.wait = wait;
+  if (panel(ctx, f, name, body, whole, { uOrigin: pagePoint(f), ...values }, shot, keep)) f.wait = wait;
   else { ctx.save(); ctx.resetTransform(); ctx.drawImage(shot.image, 0, 0, shot.sw, shot.sh, 0, 0, shot.sw, shot.sh); ctx.restore(); }
   if (rest !== 'control' && rest !== 'media' && !through) f.draw();     // text that the shader must not touch
   if (s.focus && kind !== 'button' && kind !== 'field') { ctx.save(); rr(ctx, -4, -4, w + 8, h + 8, 12); ctx.strokeStyle = look.focus; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); }
