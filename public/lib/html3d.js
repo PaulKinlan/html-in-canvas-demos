@@ -76,6 +76,48 @@ export function installThreeShims({ srgb = true } = {}) {
   return done;
 }
 
+/**
+ * Backing-store size that drawElementImageToTexture() / texElementSubImage2D()
+ * draw an element at. three.js r187's Textures.getSize() returns CSS pixels
+ * (offsetWidth × offsetHeight), which crops the right and bottom of every
+ * HTMLTexture on HiDPI screens where the canvas backing scale > 1.
+ */
+function elementTextureSize(canvas, el) {
+  if (canvas.getElementImageDefaultSize) {
+    try {
+      const s = canvas.getElementImageDefaultSize(el);
+      if (s && s.width > 0 && s.height > 0) {
+        return { width: Math.max(1, Math.ceil(s.width)), height: Math.max(1, Math.ceil(s.height)) };
+      }
+    } catch { /* no paint record yet */ }
+  }
+  const sx = canvas.clientWidth ? canvas.width / canvas.clientWidth : (typeof devicePixelRatio === 'number' ? devicePixelRatio : 1);
+  const sy = canvas.clientHeight ? canvas.height / canvas.clientHeight : sx;
+  return {
+    width: Math.max(1, Math.ceil((el.offsetWidth || 1) * sx)),
+    height: Math.max(1, Math.ceil((el.offsetHeight || 1) * sy)),
+  };
+}
+
+/** Patch three WebGPURenderer's texture manager so HTMLTextures allocate at backing-store size. */
+function patchWebGPUHTMLTextureSize(renderer, canvas) {
+  const textures = renderer?._textures;
+  if (!textures || textures.__hicGetSizePatched || typeof textures.getSize !== 'function') return;
+  const origGetSize = textures.getSize.bind(textures);
+  textures.getSize = (texture, target) => {
+    const out = origGetSize(texture, target);
+    if (texture?.isHTMLTexture && texture.image) {
+      const sz = elementTextureSize(canvas, texture.image);
+      out.width = sz.width;
+      out.height = sz.height;
+      out.depth = 1;
+      texture.userData._gpuSize = sz;
+    }
+    return out;
+  };
+  textures.__hicGetSizePatched = true;
+}
+
 const OFFSTAGE = typeof DOMMatrix !== 'undefined' ? new DOMMatrix().translate(-100000, -100000) : null;
 const _v = new Vector3(), _a = new Vector3(), _b = new Vector3(), _c = new Vector3();
 const _m = new Matrix4(), _m2 = new Matrix4();
@@ -107,7 +149,10 @@ export class HTMLSurfaces {
     // Scroll anchoring treats a focused text field as its anchor. Moving that field's geometry
     // (an orbiting camera, a tracked curved surface) would then scroll the page to compensate.
     canvas.style.overflowAnchor = 'none';
-    if (this.backend === 'webgpu') installThreeShims();
+    if (this.backend === 'webgpu') {
+      installThreeShims();
+      patchWebGPUHTMLTextureSize(renderer, canvas);
+    }
 
     this._onPaint = (event) => this.#paint(event);
     this._onMove = (event) => {
@@ -235,9 +280,25 @@ export class HTMLSurfaces {
     this.stats.paints++;
     const changed = event.changedElements ? new Set(event.changedElements) : null;
     if (this.backend === 'webgpu') {
+      patchWebGPUHTMLTextureSize(this.renderer, this.canvas);
       // three's HTMLTexture uploads during render; it only needs to be told.
+      // If the element's backing-store size changed (for example after the first paint
+      // or a resize), replace the HTMLTexture so three allocates a GPUTexture at the new size.
       for (const s of this.surfaces) {
         if (!changed || changed.has(s.element) || s.dirty) {
+          const sz = elementTextureSize(this.canvas, s.element);
+          const prev = s.texture.userData?._gpuSize;
+          if (prev && (prev.width !== sz.width || prev.height !== sz.height)) {
+            const next = new HTMLTexture(s.element);
+            next.colorSpace = s.texture.colorSpace;
+            s.texture.dispose();
+            s.texture = next;
+            s.mesh.material.map = next;
+            s.mesh.material.needsUpdate = true;
+            s.last = null;
+          }
+          s.width = sz.width;
+          s.height = sz.height;
           s.texture.needsUpdate = true;
           s.dirty = false;
           s.uploads++;
