@@ -31,6 +31,14 @@
   .tiles > div > canvas-skin[kind="range"] { justify-self: stretch; }
   @media (min-width: 760px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } .skin-stage { padding: 28px; } .skin-stage.form { max-width: 460px; } }
   .ticket { display: grid; gap: 12px; }
+  .glass-set { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 4px 18px; margin: 14px 0; padding: 10px 14px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); min-width: 0; }
+  .glass-set legend { font-weight: 600; padding: 0 6px; }
+  .glass-set label { display: grid; grid-template-columns: 8.2em minmax(0, 1fr) 4.2em; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; }
+  .glass-set input[type="range"] { width: 100%; min-width: 0; height: 32px; margin: 0; touch-action: pan-y; }
+  .glass-set output { font: 13px var(--mono); text-align: right; }
+  .glass-set button { min-height: 40px; justify-self: start; }
+  .glass-modes { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+  .glass-modes button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
   p.found { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
 </style>
 </head>
@@ -86,6 +94,29 @@
     <div class="skin-bar" id="skinBar" role="group" aria-label="Skin"></div>
   </div>
   <output class="line" id="status"></output>
+
+  <!-- #region glass-controls -->
+  <fieldset class="glass-set" id="glassSet">
+    <legend>Glass settings</legend>
+    <div class="glass-modes" id="glassModes" role="group" aria-label="Glass mode">
+      <button type="button" data-mode="regular" aria-pressed="true">Regular</button>
+      <button type="button" data-mode="clear" aria-pressed="false">Clear</button>
+      <button type="button" data-mode="frosted" aria-pressed="false">Frosted</button>
+      <button type="button" data-mode="lens" aria-pressed="false">Thick lens</button>
+      <button type="button" data-mode="prism" aria-pressed="false">Prism</button>
+    </div>
+    <label>Light from <input type="range" data-key="light" min="0" max="360" step="1"><output></output></label>
+    <label>Rim width <input type="range" data-key="rim" min="2" max="30" step="1"><output></output></label>
+    <label>Thickness <input type="range" data-key="thickness" min="0" max="60" step="1"><output></output></label>
+    <label>Refractive index <input type="range" data-key="ior" min="1" max="2.4" step="0.01"><output></output></label>
+    <label>Dispersion <input type="range" data-key="dispersion" min="0" max="0.3" step="0.01"><output></output></label>
+    <label>Frost <input type="range" data-key="frost" min="0" max="8" step="0.1"><output></output></label>
+    <label>Highlights <input type="range" data-key="specular" min="0" max="2" step="0.05"><output></output></label>
+    <label>Tint <input type="range" data-key="tint" min="0" max="2" step="0.05"><output></output></label>
+    <button type="button" id="glassReset">Reset</button>
+  </fieldset>
+  <!-- #endregion glass-controls -->
+  <p class="found">The glass skin is a fragment shader. It models each element as a slab of glass with a flat middle and a rounded rim, bends the line of sight into the glass with Snell's law, once each for red, green and blue, and reads the page background where each ray lands. The sliders are the shader's inputs and apply to every glass element at once. The five mode buttons are sets of slider values: Regular and Clear are named after the two variants Apple documents for Liquid Glass, and the values are this page's own, not Apple's. A refractive index of 1 is air and bends nothing. With dispersion above 0 the three colours land in different places and the lines in the background get coloured edges at the rim.</p>
   <p class="found">Each element changes at the moment a circle growing from the tap reaches it. Before it changes, the wrapper copies its canvas into a plain canvas, and the copy fades out over the new drawing while the new skin plays its own entrance: the pencil lines are drawn on, the gel controls wobble, the terminal types the element from left to right, the blueprint extends its construction lines and counts up the size. Wrappers that are off screen change with no animation.</p>
 
   <details class="show-code"><summary>Show the code</summary><ol>
@@ -97,7 +128,11 @@
     <li data-code="/lib/canvas-skin.js#apply"><b>A change of skin is ordered by distance from a point.</b></li>
     <li data-code="/lib/canvas-skin.js#change"><b>One wrapper changing: copy the old drawing, then switch.</b></li>
     <li data-code="/lib/canvas-skin.js#page-css"><b>The CSS that gives each kind of element the same box in every skin.</b></li>
-    <li data-code="/lib/canvas-skin-themes.js#glass"><b>The glass skin, with the background it shows through each element.</b></li>
+    <li data-code="/lib/glass-gl.js#shader"><b>The glass shader: surface shape, refraction for three colours, frost, light.</b></li>
+    <li data-code="/lib/glass-gl.js#render"><b>One WebGL context for every glass element. The background behind the element is the texture.</b></li>
+    <li data-code="/lib/canvas-skin-themes.js#glass"><b>The glass skin: the background as canvas calls, the call to the shader, and the 2D version used without WebGL.</b></li>
+    <li data-code="/canvas-skin/page.js#glass-controls"><b>The sliders write the shader's settings and ask every wrapper to paint.</b></li>
+    <li data-code="/lib/glass-gl.js#lost"><b>If the shared WebGL context is lost, glass is drawn in 2D from then on.</b></li>
     <li data-code="/lib/canvas-skin-themes.js#pencil"><b>The pencil skin.</b></li>
     <li data-code="/lib/canvas-skin-themes.js#gel"><b>The gel skin.</b></li>
     <li data-code="/lib/canvas-skin-themes.js#terminal"><b>The terminal skin.</b></li>
@@ -147,8 +182,9 @@
     <li><b>The wrapper has the element's size.</b> The canvas is positioned 14 px outside the wrapper on every side, which gives a skin room for a shadow or a line that overshoots. The canvas has <code>pointer-events: none</code> and the slotted element has <code>pointer-events: auto</code>, so the extra 14 px never takes a tap that belongs to a neighbour.</li>
     <li><b>A skin is CSS plus a paint function.</b> The CSS sets the font and colours and removes the browser's own drawing of a control (<code>appearance: none</code>, no border, no background). The paint function draws the surface, then the element's own picture with <code>drawElementImage()</code>, sometimes through an SVG filter set as <code>ctx.filter</code>.</li>
     <li><b>Checkboxes, radios, switches, sliders and progress bars are drawn from their state.</b> For these the skin never draws the element's picture. It reads <code>checked</code> or <code>value</code> and draws the whole control. The native control is still drawn once per paint inside an empty clip, which puts its hit region where it lies in the layout and adds no pixels.</li>
-    <li><b>The glass skin bends the page background at the rim of each element.</b> The background is a set of CSS gradients with straight diagonal lines, and the skin has the same picture as canvas calls. It draws that picture once into a shared plain canvas. The middle of the element shows it 1.1 times larger. The rim is cut into 12 rings, and each ring shows the copy enlarged further about the centre, up to 44 px of shift at the edge, so a line that crosses the edge curls as it does at the edge of a lens.</li>
-    <li><b>2D only.</b> An element can be drawn only by a canvas it is inside, so the wrappers cannot share one WebGL context, and Android allows about 8 WebGL contexts in a tab. The effects that would be shaders on other pages are SVG filters here. A wrapper that is more than one screen away sets its canvas to 0 by 0.</li>
+    <li><b>The glass skin is a shader that every wrapper shares.</b> The page background is a set of CSS gradients with straight diagonal lines, and the skin has the same picture as canvas calls. For each glass element it draws the part of that picture behind the element into a plain canvas, uploads it as a texture to one WebGL context on a canvas that is not in the document, runs the shader, and copies the result into the element's own 2D canvas with <code>drawImage()</code>. The shader computes a signed distance to the element's rounded rectangle, a surface height from it, the surface normal from the slope, and <code>refract()</code> for red, green and blue.</li>
+    <li><b>One 2D context per element, and one WebGL context for the page.</b> An element's picture can be drawn only by a canvas the element is inside, so the wrappers cannot share a WebGL context for their own pictures, and Android allows about 8 WebGL contexts in a tab. The glass shader can be shared because its input is the background, which is an ordinary canvas. The element's own picture (its text) is drawn over the glass in 2D. The effects of the other skins are SVG filters. A wrapper that is more than one screen away sets its canvas to 0 by 0.</li>
+    <li><b>The glass sees the root's background and nothing else.</b> A canvas cannot read the pixels behind it, so a glass element does not refract another element that lies under it. Glass over arbitrary content needs that content as a texture, which is the one-canvas-for-the-page design this page avoids.</li>
   </ul>
 
   <h2 id="checks">Live checks</h2>
@@ -156,8 +192,9 @@
   <table class="results"><tbody id="tests"></tbody></table>
 
   <h2 id="findings">Findings</h2>
-  <p>Measured in headless Chromium 157 on 2026-11-22, at 412 px wide and device scale 2. Not yet run on a phone.</p>
+  <p>Measured in headless Chromium 157 on 2026-11-22, at 412 px wide and device scale 2, with WebGL rendered in software. Not yet run on a phone.</p>
   <ul class="findings" id="findingsList">
+    <li><b>One WebGL context can serve every wrapper when its input is not an element.</b> The glass shader ran for 31 elements at load from one context, with a <code>texImage2D()</code> of a sub-rectangle of a 2D canvas and a <code>drawImage()</code> of the WebGL canvas for each. The WebGL route has no WebGPU version yet.</li>
     <li><b>A page can be themed with one small drawable canvas per element.</b> The form has 32 wrappers, and the page has 53 with the tiles and the nested card. Each control took taps, clicks and typing at its place in the layout in every skin.</li>
     <li><b>A child of a drawable canvas is as wide as its content.</b> A block <code>&lt;div&gt;</code> directly inside <code>&lt;canvas layoutsubtree&gt;</code> did not fill the canvas: a heading in it was 211 px wide in a 380 px canvas. It needs an explicit width.</li>
     <li><b>A block wrapper has no width of its own.</b> Its only in-flow content is the box that holds the canvas, so in a place that sizes to content (a flex row, a grid cell with <code>justify-items: start</code>) it is 0 px wide and gets no paint event. Wrappers of buttons, checkboxes, radios, switches, labels and outputs are inline and take the element's own width. The others need a container that gives them a width.</li>

@@ -33,6 +33,7 @@
 // is far from the screen sets its canvas to 0 by 0.
 
 import * as themes from './canvas-skin-themes.js';
+import { onGlassLost, glassRoute } from './glass-gl.js';
 
 const SUPPORTED =
   typeof CanvasRenderingContext2D !== 'undefined' && 'drawElementImage' in CanvasRenderingContext2D.prototype;
@@ -344,7 +345,7 @@ export class CanvasSkin extends HTMLElement {
     }
 
     const frame = {
-      width: w, height: h, kind, el, t, time: now / 1000, seed: this.#seed, bleed: BLEED,
+      width: w, height: h, kind, el, t, time: now / 1000, seed: this.#seed, bleed: BLEED, scale: canvas.width / this.#cssW,
       primary: el.matches('.primary, [type="submit"]'),
       heading: /^h[1-6]$/.test(el.localName),
       state: {
@@ -429,6 +430,11 @@ export class CanvasSkin extends HTMLElement {
   /** Register a skin: { label, type, root, css, filters, backdrop(ctx, root, region), paint(ctx, frame) }. */
   static define(name, skin) { skins[name] = skin; writeSheet(); for (const el of live) el.request(); }
 
+  /** Paint every wrapper again, after a skin's settings changed. */
+  static redraw() { for (const el of live) el.request(); }
+  /** 'webgl' when the glass skin is drawn by its shader, 'not started' before the first glass element, or the reason it is not. */
+  static get glassRoute() { return glassRoute(); }
+
   // #region wrap
   /** Put a <canvas-skin> round every matching element under `root` that is not inside one already. */
   static wrap(root, selector = 'button, input, select, textarea, progress, meter, img, table, details, fieldset, h1, h2, h3, h4, p, label, output') {
@@ -495,6 +501,8 @@ function registerRadius() {
 }
 
 for (const [name, skin] of Object.entries(themes.skins)) skins[name] = skin;
+// If the shared WebGL context is lost, the glass elements are painted again and take the 2D route.
+onGlassLost((why) => { CanvasSkin.redraw(); document.dispatchEvent(new CustomEvent('canvas-skin-route', { detail: { why } })); });
 writeSheet();
 
 if (typeof document !== 'undefined') {

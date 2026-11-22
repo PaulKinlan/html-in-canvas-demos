@@ -29,6 +29,8 @@
 // For the kinds check, radio, switch, range and bar the skins below never call frame.draw(): they draw
 // the control from frame.state.
 
+import { glass, GLASS_DEFAULTS } from './glass-gl.js';
+
 const TAU = Math.PI * 2;
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -85,6 +87,7 @@ const native = {
 // ------------------------------------------------------------------------------------------- glass
 // #region glass
 const GLASS_TILE = 640;
+const GLASS_PAD = 28;     // how much of the background round the element the shader is given
 const GLASS_LINES = 44;   // diagonal lines this far apart. Straight lines show where the glass bends them
 // Each blob is listed three times, one tile apart, so the background has no seam where a tile ends.
 const GLASS_BLOBS = [
@@ -102,7 +105,7 @@ const GLASS_TYPE = 'color: #fff; color-scheme: dark; font-family: -apple-system,
 // ring is a drawImage() of that copy, scaled about the centre and clipped to the ring.
 const RINGS = 12;
 function refract(ctx, f, x, y, w, h, r) {
-  const copy = f.backdropCopy(f.bleed);
+  const copy = f.backdropCopy(GLASS_PAD);
   if (!copy) return false;
   const cx = x + w / 2, cy = y + h / 2;
   const put = (kx, ky) => {
@@ -133,28 +136,44 @@ function refract(ctx, f, x, y, w, h, r) {
   return true;
 }
 
+const tintCss = ([r, g, b, a]) => `rgb(${Math.round(r * 255)} ${Math.round(g * 255)} ${Math.round(b * 255)} / ${a})`;
+// A band of light that crosses the element once after a change of skin.
+function glassBand(ctx, f, x, y, w, h) {
+  if (f.t >= 1) return;
+  const bx = lerp(x - 80, x + w + 80, smooth(f.t));
+  const band = ctx.createLinearGradient(bx - 60, 0, bx + 60, 0);
+  band.addColorStop(0, 'rgb(255 255 255 / 0)'); band.addColorStop(0.5, `rgb(255 255 255 / ${0.6 * (1 - f.t)})`); band.addColorStop(1, 'rgb(255 255 255 / 0)');
+  ctx.transform(1, 0, -0.4, 1, 0, 0);
+  ctx.fillStyle = band; ctx.fillRect(x - 200, y, w + 400, h);
+}
+
+// One piece of glass. tint is [r, g, b, a] with each from 0 to 1.
 function glassPanel(ctx, f, x, y, w, h, r, tint) {
-  // The shadow, under an opaque shape that the backdrop then covers.
+  // The shadow, under an opaque shape that the glass then covers.
   ctx.save();
   ctx.shadowColor = 'rgb(20 0 60 / .4)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
-  rr(ctx, x, y, w, h, r); ctx.fillStyle = '#2a1a5e'; ctx.fill();
+  rr(ctx, x + 1, y + 1, w - 2, h - 2, r); ctx.fillStyle = '#2a1a5e'; ctx.fill();
   ctx.restore();
 
+  // The shader: the background behind the element goes to the shared WebGL context as a texture, and
+  // the refracted, lit result comes back with one drawImage().
+  const copy = f.backdropCopy(GLASS_PAD);
+  const out = copy && glass(copy.image, copy, { x, y, width: w, height: h, radius: r, tint }, glassSkin.settings, f.scale);
+  if (out) {
+    ctx.drawImage(out.canvas, out.sx, out.sy, out.sw, out.sh, x, y, w, h);
+    ctx.save(); rr(ctx, x, y, w, h, r); ctx.clip(); glassBand(ctx, f, x, y, w, h); ctx.restore();
+    return;
+  }
+
+  // No WebGL: the 2D version. Rings for the rim, gradients for the light.
   ctx.save();
   rr(ctx, x, y, w, h, r); ctx.clip();
   if (!refract(ctx, f, x, y, w, h, r)) { ctx.fillStyle = '#5b4a9c'; ctx.fillRect(x, y, w, h); }
-  ctx.fillStyle = tint; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = tintCss([tint[0], tint[1], tint[2], Math.min(1, tint[3] * (glassSkin.settings.tint ?? 1))]); ctx.fillRect(x, y, w, h);
   const shine = ctx.createLinearGradient(0, y, 0, y + h);
   shine.addColorStop(0, 'rgb(255 255 255 / .2)'); shine.addColorStop(0.4, 'rgb(255 255 255 / 0)'); shine.addColorStop(1, 'rgb(255 255 255 / .08)');
   ctx.fillStyle = shine; ctx.fillRect(x, y, w, h);
-  if (f.t < 1) {
-    // A band of light crosses the element once after a change of skin.
-    const bx = lerp(x - 80, x + w + 80, smooth(f.t));
-    const band = ctx.createLinearGradient(bx - 60, 0, bx + 60, 0);
-    band.addColorStop(0, 'rgb(255 255 255 / 0)'); band.addColorStop(0.5, `rgb(255 255 255 / ${0.6 * (1 - f.t)})`); band.addColorStop(1, 'rgb(255 255 255 / 0)');
-    ctx.transform(1, 0, -0.4, 1, 0, 0);
-    ctx.fillStyle = band; ctx.fillRect(x - 200, y, w + 400, h);
-  }
+  glassBand(ctx, f, x, y, w, h);
   ctx.restore();
 
   rr(ctx, x + 0.6, y + 0.6, w - 1.2, h - 1.2, r);
@@ -169,8 +188,10 @@ function glassKnob(ctx, x, y, r) {
   ctx.restore();
 }
 
-const glass = {
+const glassSkin = {
   label: 'Glass',
+  // Light angle, rim width, thickness, refractive index, dispersion, frost and highlight strength. See glass-gl.js.
+  settings: { ...GLASS_DEFAULTS },
   type: GLASS_TYPE,
   root: `${GLASS_TYPE} background-color: #2a1a5e; background-image: linear-gradient(135deg, rgb(255 255 255 / 0) calc(50% - 1px), rgb(255 255 255 / .2) calc(50% - 1px), rgb(255 255 255 / .2) calc(50% + 1px), rgb(255 255 255 / 0) calc(50% + 1px)), radial-gradient(circle at 11px 11px, rgb(255 255 255 / .3) 1.4px, rgb(255 255 255 / 0) 2px), ${
     GLASS_BLOBS.map((b) => `radial-gradient(circle ${b.r}px at ${b.x * 100}% ${b.y}px, rgb(${b.c} / .85), rgb(${b.c} / 0))`).join(', ')
@@ -214,38 +235,38 @@ const glass = {
     if (f.t < 1 && kind !== 'text') { const k = lerp(0.94, 1, outCubic(f.t)); ctx.translate(w / 2, h / 2); ctx.scale(k, k); ctx.translate(-w / 2, -h / 2); }
     switch (kind) {
       case 'button':
-        glassPanel(ctx, f, 0, 0, w, h, h / 2, s.active ? 'rgb(255 255 255 / .34)' : f.primary ? 'rgb(60 140 255 / .42)' : 'rgb(255 255 255 / .08)');
+        glassPanel(ctx, f, 0, 0, w, h, h / 2, s.active ? [1, 1, 1, 0.34] : f.primary ? [0.24, 0.55, 1, 0.42] : [1, 1, 1, 0.08]);
         f.draw(); ring(ctx, f, h / 2, '#fff'); break;
       case 'field':
-        glassPanel(ctx, f, 0, 0, w, h, 16, 'rgb(20 0 60 / .14)');
+        glassPanel(ctx, f, 0, 0, w, h, 16, [0.08, 0, 0.24, 0.14]);
         f.draw(); chevron(ctx, f, '#fff'); ring(ctx, f, 16, '#fff', 0, 2); break;
       case 'card':
-        glassPanel(ctx, f, 0, 0, w, h, 24, 'rgb(255 255 255 / .05)');
+        glassPanel(ctx, f, 0, 0, w, h, 24, [1, 1, 1, 0.05]);
         f.draw(); break;
       case 'media':
         ctx.save(); rr(ctx, 0, 0, w, h, 18); ctx.clip(); f.draw(); ctx.restore();
         rr(ctx, 0.6, 0.6, w - 1.2, h - 1.2, 18); ctx.strokeStyle = 'rgb(255 255 255 / .7)'; ctx.lineWidth = 1.2; ctx.stroke(); break;
       case 'check':
-        glassPanel(ctx, f, 0, 0, w, h, 9, `rgb(255 255 255 / ${0.14 + 0.7 * s.on})`);
+        glassPanel(ctx, f, 0, 0, w, h, 9, [1, 1, 1, 0.14 + 0.7 * s.on]);
         ctx.strokeStyle = '#2a1a5e'; ctx.lineWidth = 3; ctx.lineCap = ctx.lineJoin = 'round'; if (s.on > 0.05) tick(ctx, 0, 0, h, s.on);
         ring(ctx, f, 9, '#fff'); break;
       case 'radio':
-        glassPanel(ctx, f, 0, 0, w, h, h / 2, 'rgb(255 255 255 / .14)');
+        glassPanel(ctx, f, 0, 0, w, h, h / 2, [1, 1, 1, 0.14]);
         circle(ctx, w / 2, h / 2, h * 0.24 * s.on); ctx.fillStyle = '#fff'; ctx.fill();
         ring(ctx, f, h / 2, '#fff'); break;
       case 'switch':
-        glassPanel(ctx, f, 0, 0, w, h, h / 2, `rgb(52 199 89 / ${0.9 * s.on})`);
+        glassPanel(ctx, f, 0, 0, w, h, h / 2, [0.2, 0.78, 0.35, 0.9 * s.on]);
         glassKnob(ctx, knobX(f, s.on), h / 2, h / 2 - 3);
         ring(ctx, f, h / 2, '#fff'); break;
       case 'range': {
         const x = knobX(f, s.value);
-        glassPanel(ctx, f, 0, h / 2 - 4, w, 8, 4, 'rgb(20 0 60 / .2)');
+        glassPanel(ctx, f, 0, h / 2 - 4, w, 8, 4, [0.08, 0, 0.24, 0.2]);
         rr(ctx, 0, h / 2 - 4, x, 8, 4); ctx.fillStyle = 'rgb(255 255 255 / .9)'; ctx.fill();
         glassKnob(ctx, x, h / 2, h / 2 - (s.active ? 0 : 2));
         ring(ctx, f, h / 2, '#fff'); break;
       }
       case 'bar':
-        glassPanel(ctx, f, 0, 0, w, h, h / 2, 'rgb(20 0 60 / .2)');
+        glassPanel(ctx, f, 0, 0, w, h, h / 2, [0.08, 0, 0.24, 0.2]);
         rr(ctx, 2, 2, (w - 4) * s.value, h - 4, h / 2); ctx.fillStyle = 'rgb(255 255 255 / .92)'; ctx.fill(); break;
       default: f.draw();
     }
@@ -719,4 +740,4 @@ const blueprint = {
 };
 // #endregion blueprint
 
-export const skins = { native, glass, pencil, gel, terminal, blueprint };
+export const skins = { native, glass: glassSkin, pencil, gel, terminal, blueprint };

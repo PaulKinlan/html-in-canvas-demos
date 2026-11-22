@@ -32,6 +32,43 @@ for (const [name, skin] of Object.entries(CanvasSkin.skins)) {
 }
 // #endregion wrap
 
+// #region glass-controls
+// The glass shader's inputs. Every glass element reads the same settings object when it paints.
+const glassSettings = CanvasSkin.skins.glass.settings, glassDefaults = { ...glassSettings };
+const glassUnits = { light: '°', rim: ' px', thickness: ' px', frost: ' px' };
+function showGlass() {
+  for (const input of document.querySelectorAll('#glassSet input')) {
+    const key = input.dataset.key;
+    input.value = glassSettings[key];
+    input.nextElementSibling.textContent = `${glassSettings[key]}${glassUnits[key] ?? ''}`;
+  }
+}
+document.getElementById('glassSet').addEventListener('input', (event) => {
+  const key = event.target.dataset.key;
+  if (!key) return;
+  glassSettings[key] = Number(event.target.value);
+  showGlass();
+  CanvasSkin.redraw();
+});
+// A mode is a set of values for the same settings.
+const glassModes = {
+  regular: {},
+  clear: { frost: 0, tint: 0.35, specular: 0.8 },
+  frosted: { frost: 6, tint: 1.3, thickness: 14, dispersion: 0.02 },
+  lens: { rim: 26, thickness: 52, ior: 1.7, frost: 0.4, tint: 0.5 },
+  prism: { rim: 20, thickness: 40, ior: 1.6, dispersion: 0.28, frost: 0.3, tint: 0.4, specular: 1.4 },
+};
+function glassMode(name) {
+  Object.assign(glassSettings, glassDefaults, glassModes[name]);
+  for (const b of document.querySelectorAll('#glassModes button')) b.setAttribute('aria-pressed', String(b.dataset.mode === name));
+  showGlass();
+  CanvasSkin.redraw();
+}
+document.getElementById('glassModes').addEventListener('click', (event) => { const mode = event.target.dataset?.mode; if (mode) glassMode(mode); });
+document.getElementById('glassReset').addEventListener('click', () => glassMode('regular'));
+showGlass();
+// #endregion glass-controls
+
 // The form does something, to show that the controls are the page's own.
 const people = document.getElementById('fPeople'), peopleOut = document.getElementById('fPeopleOut'), result = document.getElementById('fResult');
 people.addEventListener('input', () => { peopleOut.textContent = people.value; });
@@ -49,11 +86,12 @@ function report() {
   const all = [...document.querySelectorAll('canvas-skin')];
   if (!supported) { status.textContent = `This browser has no HTML-in-canvas API. The ${all.length} wrapped elements are shown as plain HTML with each skin's font and colours.`; return; }
   const sized = all.filter((w) => w.canvas?.width > 0).length, plain = all.filter((w) => w.plain).length;
-  const memory = window.__gfx?.memory?.();
-  status.textContent = `Skin: ${CanvasSkin.skins[stage.getAttribute('skin')]?.label}. ${all.length} wrapped elements, ${sized} canvases with pixels now (the rest are off screen), ${memory ? `${(memory.bytes / 1048576).toFixed(1)} MB of canvas memory by the page's estimate` : 'no memory estimate'}, 0 WebGL contexts.`
+  const memory = window.__gfx?.memory?.(), route = CanvasSkin.glassRoute;
+  status.textContent = `Skin: ${CanvasSkin.skins[stage.getAttribute('skin')]?.label}. ${all.length} wrapped elements, ${sized} canvases with pixels now (the rest are off screen), ${memory ? `${(memory.bytes / 1048576).toFixed(1)} MB of canvas memory by the page's estimate` : 'no memory estimate'}. Glass is drawn by ${route === 'webgl' ? 'the shader, in one shared WebGL context' : route === 'not started' ? 'the shader when a glass element is first painted' : `the 2D version: ${route}`}.`
     + (plain ? ` ${plain} shown as plain HTML: ${fallen.at(-1) ?? ''}` : '');
 }
 document.addEventListener('canvas-skin-plain', (e) => { fallen.push(e.detail.why); report(); });
+document.addEventListener('canvas-skin-route', report);
 setTimeout(report, 600);
 let scrollTimer = 0;
 addEventListener('scroll', () => { clearTimeout(scrollTimer); scrollTimer = setTimeout(report, 400); }, { passive: true });
@@ -134,6 +172,27 @@ const tests = [
       if (on !== button) throw new Error(`the centre of the button found <${on?.localName}>`);
       if (beside !== root) throw new Error(`6 px to the right of the button found <${beside?.localName}>, not the element under the canvas`);
       return 'the centre found the <button>; 6 px outside it, over the canvas, found the <div> under the canvas';
+    },
+  },
+  {
+    name: 'The glass shader bends the background, and a refractive index of 1 does not',
+    why: 'The check draws a glass button with the index at 1 (air) and at 1.5, and compares the pixels of the rim. It fails if the shared WebGL context is not in use.',
+    timeout: 8000,
+    run: async () => {
+      const keep = { ...glassSettings };
+      try {
+        Object.assign(glassSettings, { ior: 1, dispersion: 0, frost: 0, specular: 0 });
+        const { first } = await mount('<button>Save for later</button>', 'glass');
+        if (CanvasSkin.glassRoute !== 'webgl') throw new Error(`glass is drawn in 2D: ${CanvasSkin.glassRoute}`);
+        const flat = sum(first);
+        glassSettings.ior = 1.5; CanvasSkin.redraw(); await sleep(250);
+        const bent = sum(first);
+        glassSettings.dispersion = 0.2; CanvasSkin.redraw(); await sleep(250);
+        const split = sum(first);
+        if (flat === bent) throw new Error('the pixels are the same at index 1 and 1.5');
+        if (bent === split) throw new Error('dispersion changed nothing');
+        return 'drawn by the shader in the shared WebGL context; the pixels differ between index 1, index 1.5, and index 1.5 with dispersion 0.2';
+      } finally { Object.assign(glassSettings, keep); CanvasSkin.redraw(); }
     },
   },
   {
