@@ -1,0 +1,1570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Sanitised HTML, cross-shadow selection and Temporal snapshots</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Insert untrusted markup into a drawable canvas with Element.setHTML(), trace a selection across a shadow-root canvas with getComposedRanges(), and stamp captureElementImage() frames with Temporal.">
+<link rel="canonical" href="https://html-in-canvas.page/sanitized-stream/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Sanitised HTML, cross-shadow selection and Temporal snapshots">
+<meta property="og:description" content="Insert untrusted markup into a drawable canvas with Element.setHTML(), trace a selection across a shadow-root canvas with getComposedRanges(), and stamp captureElementImage() frames with Temporal.">
+<meta property="og:url" content="https://html-in-canvas.page/sanitized-stream/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Sanitised HTML, cross-shadow selection and Temporal snapshots&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Sanitised HTML, cross-shadow selection and Temporal snapshots">
+<meta name="twitter:description" content="Insert untrusted markup into a drawable canvas with Element.setHTML(), trace a selection across a shadow-root canvas with getComposedRanges(), and stamp captureElementImage() frames with Temporal.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Sanitised HTML, cross-shadow selection and Temporal snapshots&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/sanitized-stream/",
+   "url": "https://html-in-canvas.page/sanitized-stream/",
+   "mainEntityOfPage": "https://html-in-canvas.page/sanitized-stream/",
+   "headline": "Sanitised HTML, cross-shadow selection and Temporal snapshots",
+   "name": "Sanitised HTML, cross-shadow selection and Temporal snapshots",
+   "description": "Insert untrusted markup into a drawable canvas with Element.setHTML\u0028), trace a selection across a shadow-root canvas with getComposedRanges\u0028), and stamp captureElementImage\u0028) frames with Temporal.",
+   "abstract": "Do Element.setHTML\u0028), getSelection\u0028).getComposedRanges\u0028) and Temporal work alongside a drawable 2D canvas without losing interactivity or leaking snapshots?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "setHTML, Sanitizer, getComposedRanges, Temporal, captureElementImage, Element.setHTML\u0028), Selection.getComposedRanges\u0028), Temporal.Now, drawElementImage\u0028), captureElementImage\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Sanitised HTML, cross-shadow selection and Temporal snapshots",
+     "item": "https://html-in-canvas.page/sanitized-stream/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 900px; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0; }
+  .controls button { min-height: 40px; }
+  .controls label.toggle {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 40px;
+    padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--card); font-size: 14px; cursor: pointer;
+  }
+  .controls label.toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .notice {
+    margin: 10px 0; padding: 10px 12px; border: 1px solid var(--warn);
+    border-radius: 8px; font-size: 14px; background: color-mix(in srgb, var(--warn) 10%, transparent);
+  }
+  .notice[hidden] { display: none; }
+  .mono-status { font: 13px/1.5 var(--mono); color: var(--muted); margin: 8px 0; overflow-wrap: anywhere; }
+
+  /* Demo 1: Element.setHTML() into a drawable canvas */
+  .san-editor {
+    width: 100%; min-height: 118px; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--card); color: var(--fg);
+    font: 13px/1.45 var(--mono); resize: vertical;
+  }
+  .san-stage {
+    position: relative; height: 270px; padding: 0; overflow: hidden;
+  }
+  .san-stage canvas { display: block; width: 100%; height: 100%; }
+  #san-doc {
+    box-sizing: border-box; width: 100%; height: 100%; overflow-y: auto;
+    padding: 14px 16px; color: var(--fg); font: 15px/1.5 system-ui, sans-serif;
+    overscroll-behavior: contain;
+  }
+  .san-stage.plain #san-doc { position: absolute; inset: 0; }
+  #san-doc h3 { margin: 0 0 8px; font-size: 18px; }
+  #san-doc p { margin: 0 0 10px; }
+  #san-doc button { min-height: 36px; padding: 6px 12px; }
+  #san-doc img { max-width: 120px; max-height: 48px; vertical-align: middle; }
+  .diff-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;
+  }
+  .diff-box {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+    padding: 12px; font-size: 14px; min-width: 0;
+  }
+  .diff-box h3 { margin: 0 0 6px; font-size: 14px; }
+  .diff-box.removed h3 { color: var(--bad); }
+  .diff-box.kept h3 { color: var(--ok); }
+  .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; padding: 0; list-style: none; }
+  .chip {
+    font: 12px/1.3 var(--mono); padding: 2px 8px; border-radius: 99px;
+    border: 1px solid var(--line); background: var(--bg); overflow-wrap: anywhere;
+  }
+  .chip.removed { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); color: var(--bad); }
+  .chip.kept { border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); color: var(--ok); }
+
+  /* Demo 2: getSelection().getComposedRanges() across a shadow-root canvas */
+  .sel-prose {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--card);
+    padding: 16px; line-height: 1.65;
+  }
+  .sel-prose > p { margin: 0; }
+  .sel-prose > p + shadow-sel-box,
+  .sel-prose > shadow-sel-box + p { margin-top: 12px; }
+  shadow-sel-box { display: block; width: 100%; }
+  .compare-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px;
+  }
+  .compare-box {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+    padding: 12px; font-size: 13px; min-width: 0;
+  }
+  .compare-box h3 { margin: 0 0 8px; font-size: 14px; }
+  .compare-box dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; }
+  .compare-box dt { color: var(--muted); font: 12px/1.5 var(--mono); }
+  .compare-box dd { margin: 0; font: 12px/1.5 var(--mono); overflow-wrap: anywhere; }
+
+  /* Demo 3: Temporal timestamps on captureElementImage() snapshots */
+  .snap-stage {
+    position: relative; height: 320px; padding: 0; overflow: hidden;
+  }
+  .snap-stage canvas { display: block; width: 100%; height: 100%; }
+  #note-card {
+    box-sizing: border-box; width: calc(100% - 24px); max-width: 100%;
+    padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--card); color: var(--fg); font: 14px/1.4 system-ui, sans-serif;
+  }
+  .snap-stage.plain { height: auto; padding: 12px; }
+  .snap-stage.plain #note-card { width: 100%; }
+  .note-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: nowrap; }
+  #note-title {
+    flex: 1 1 0; min-width: 0; font: 600 15px system-ui, sans-serif;
+    padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--fg);
+  }
+  #note-bump { min-height: 36px; font-size: 13px; flex: none; }
+  #note-body {
+    width: 100%; box-sizing: border-box; font: 14px/1.4 system-ui, sans-serif;
+    padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--fg); resize: none;
+  }
+  .snap-log {
+    margin: 12px 0 0; padding: 0; list-style: none;
+    display: grid; gap: 8px;
+  }
+  .snap-log li {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+    padding: 8px 12px; font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 620px) {
+    .diff-grid, .compare-grid { grid-template-columns: 1fr; }
+    .snap-stage { height: 390px; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Sanitised HTML, cross-shadow selection and Temporal snapshots</h1>
+  <p class="lede">
+    I wanted to test three newer browser APIs directly alongside a drawable 2D canvas: inserting untrusted markup with <code>Element.setHTML()</code>, reading a cross-shadow selection with <code>getSelection().getComposedRanges()</code>, and stamping <code>captureElementImage()</code> frames with <code>Temporal</code>.
+  </p>
+
+  <h2>1. <code>Element.setHTML()</code> into a drawable canvas</h2>
+  <p>
+    Edit the untrusted HTML below, toggle which safe tags the <code>Sanitizer</code> keeps, and press Sanitise and draw. The clean markup goes straight into a <code>drawable</code> child of a 2D canvas, a scan line sweeps across the new DOM, and the diff lists what <code>setHTML()</code> stripped and what stayed.
+  </p>
+  <label for="san-input" class="note">Untrusted HTML input</label>
+  <textarea id="san-input" class="san-editor" spellcheck="false"></textarea>
+  <div class="controls">
+    <button id="san-run" type="button">Sanitise and draw</button>
+    <button id="san-reset" type="button">Reset sample</button>
+    <label class="toggle"><input id="opt-b" type="checkbox" checked> Allow <code>&lt;b&gt;</code></label>
+    <label class="toggle"><input id="opt-a" type="checkbox" checked> Allow <code>&lt;a&gt;</code></label>
+    <label class="toggle"><input id="opt-button" type="checkbox" checked> Allow <code>&lt;button&gt;</code></label>
+  </div>
+  <div id="san-stage" class="stage san-stage">
+    <!-- #region sanitizer-markup -->
+    <canvas id="san-canvas" content="drawable" layoutsubtree>
+      <article id="san-doc" drawable aria-live="polite"></article>
+    </canvas>
+    <!-- #endregion sanitizer-markup -->
+  </div>
+  <p id="san-notice" class="notice" hidden></p>
+  <p id="san-status" class="mono-status">Ready.</p>
+  <div class="diff-grid" aria-live="polite">
+    <div class="diff-box removed">
+      <h3>Removed by <code>setHTML()</code></h3>
+      <ul id="diff-removed" class="chip-list"></ul>
+    </div>
+    <div class="diff-box kept">
+      <h3>Kept in the drawable DOM</h3>
+      <ul id="diff-kept" class="chip-list"></ul>
+    </div>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>setHTML(), Sanitizer config, scan-line paint</small></summary>
+    <ol>
+      <li data-code="#sanitizer-markup"><b>The sanitised target is a drawable child of a 2D canvas.</b></li>
+      <li data-code="#sanitizer-apply"><b>Apply <code>Element.setHTML()</code> with optional removed elements and diff against a parsed inert copy.</b></li>
+      <li data-code="#sanitizer-paint"><b>Paint the clean DOM at its CSS size and sweep a 700 ms scan line over it.</b></li>
+    </ol>
+  </details>
+
+  <h2>2. Shadow-crossing selection with <code>getComposedRanges()</code></h2>
+  <p>
+    Drag a selection from the top paragraph through the framed shadow-root canvas into the bottom paragraph, or use the buttons below on a phone. The canvas hides the browser's native selection colour inside the shadow root and paints a glowing ribbon across the range returned by <code>getSelection().getComposedRanges()</code>.
+  </p>
+  <div class="controls">
+    <button id="sel-btn-fwd" type="button">Light to shadow (forward)</button>
+    <button id="sel-btn-bwd" type="button">Shadow to light (backward)</button>
+    <button id="sel-btn-across" type="button">Across whole host</button>
+    <button id="sel-btn-clear" type="button">Clear selection</button>
+  </div>
+  <div id="sel-prose" class="sel-prose">
+    <p id="sel-before">This paragraph starts in the light DOM and runs straight into an open shadow root drawn by a 2D canvas.</p>
+    <!-- #region shadow-markup -->
+    <shadow-sel-box id="sel-host"></shadow-sel-box>
+    <!-- #endregion shadow-markup -->
+    <p id="sel-after">The passage finishes back in the light DOM here, so a selection can cross both shadow boundaries in either direction.</p>
+  </div>
+  <p id="sel-notice" class="notice" hidden></p>
+  <div class="compare-grid" aria-live="polite">
+    <div class="compare-box">
+      <h3><code>getSelection().getRangeAt(0)</code></h3>
+      <dl id="range-std">
+        <dt>state</dt><dd>no selection</dd>
+      </dl>
+    </div>
+    <div class="compare-box">
+      <h3><code>getComposedRanges({ shadowRoots })</code></h3>
+      <dl id="range-composed">
+        <dt>state</dt><dd>no selection</dd>
+      </dl>
+    </div>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>shadow-root canvas, getComposedRanges(), ribbon highlight</small></summary>
+    <ol>
+      <li data-code="#shadow-markup"><b>A custom element sits inline in the passage between two light-DOM paragraphs.</b></li>
+      <li data-code="#shadow-element"><b>The custom element keeps a drawable 2D canvas in an open shadow root and paints the ribbon under the text.</b></li>
+      <li data-code="#shadow-ranges"><b>Measure client rectangles from the cross-shadow <code>StaticRange</code> returned by <code>getComposedRanges()</code>.</b></li>
+    </ol>
+  </details>
+
+  <h2>3. <code>Temporal</code> timestamps on captured DOM snapshots</h2>
+  <p>
+    Edit the note card inside the canvas or press Mark edit, then capture single frames or a 1-second burst of 4 frames. Each capture calls <code>canvas.captureElementImage()</code>, stamps the snapshot with <code>Temporal.Now.instant()</code> and <code>Temporal.Now.zonedDateTimeISO()</code>, and draws the last 4 frames along the filmstrip while closing every evicted <code>ElementImage</code>.
+  </p>
+  <div class="controls">
+    <button id="snap-one" type="button">Capture frame</button>
+    <button id="snap-burst" type="button">Burst (4 frames in 1 s)</button>
+    <button id="snap-clear" type="button">Clear filmstrip</button>
+  </div>
+  <div id="snap-stage" class="stage snap-stage">
+    <!-- #region temporal-markup -->
+    <canvas id="snap-canvas" content="drawable" layoutsubtree>
+      <div id="note-card" drawable>
+        <div class="note-head">
+          <label class="sr-only" for="note-title">Note title</label>
+          <input id="note-title" type="text" value="Field note">
+          <button id="note-bump" type="button">Mark edit #1</button>
+        </div>
+        <label class="sr-only" for="note-body">Note body</label>
+        <textarea id="note-body" rows="2">Edit this text or press Mark edit, then capture a frame.</textarea>
+      </div>
+    </canvas>
+    <!-- #endregion temporal-markup -->
+  </div>
+  <p id="snap-notice" class="notice" hidden></p>
+  <p id="snap-status" class="mono-status">Open snapshots: 0 / 4. Evicted and closed: 0.</p>
+  <ol id="snap-log" class="snap-log" aria-live="polite"></ol>
+
+  <details class="show-code">
+    <summary>Show the code <small>captureElementImage(), Temporal stamps, ring eviction</small></summary>
+    <ol>
+      <li data-code="#temporal-markup"><b>The editable note card is a drawable child of the same 2D canvas that draws the filmstrip.</b></li>
+      <li data-code="#temporal-capture"><b>Stamp each snapshot with <code>Temporal.Now</code> and call <code>close()</code> on evicted frames and on <code>pagehide</code>.</b></li>
+      <li data-code="#temporal-paint"><b>Draw the frozen filmstrip frames first and the live note card last so clicks land on the live inputs.</b></li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Every canvas on this page uses a 2D context scaled to its backing device pixels via a <code>ResizeObserver</code>. Each <code>ctx.drawElementImage()</code> call passes explicit CSS width and height so elements stay at 1:1 size on high-density screens instead of scaling by <code>devicePixelRatio</code> twice.
+  </p>
+  <p>
+    In the first experiment, <code>Element.setHTML()</code> parses and sanitises untrusted markup directly into the drawable <code>&lt;article&gt;</code> child. A separate inert <code>DOMParser</code> parse of the raw string computes the tag and attribute diff without running scripts or fetching images. For 700 ms after each sanitisation, <code>requestAnimationFrame</code> calls <code>requestPaint()</code> so the scan line sweeps across the newly painted DOM and then stops.
+  </p>
+  <p>
+    In the second experiment, <code>&lt;shadow-sel-box&gt;</code> puts its drawable canvas inside an open shadow root. When <code>selectionchange</code> fires, the page compares <code>getSelection().getRangeAt(0)</code> with <code>getSelection().getComposedRanges({ shadowRoots: [shadow] })</code>. Because a <code>StaticRange</code> has no <code>getClientRects()</code> method and a single live <code>Range</code> can't span a shadow boundary, the script slices the composed range against the shadow root's text nodes to collect line rectangles and paints a ribbon behind the text before calling <code>drawElementImage()</code>.
+  </p>
+  <p>
+    In the third experiment, pressing Capture frame sets a pending flag and requests a paint so <code>captureElementImage()</code> runs right after the latest edit paints. The filmstrip holds at most 4 <code>ElementImage</code> objects; adding a fifth calls <code>close()</code> on the oldest snapshot, and <code>pagehide</code> closes every remaining snapshot. During <code>paint</code>, the filmstrip thumbnails draw first and the live note card draws last, because the last <code>drawElementImage()</code> call for an element determines its hit box.
+  </p>
+
+  <h2>Live checks</h2>
+  <p>
+    Each check builds its own fixture on the off-screen test stage and leaves the three demos above alone. Press the button below to run them in this browser.
+  </p>
+  <table class="results">
+    <thead><tr><th>Status</th><th>Check</th><th>Detail</th></tr></thead>
+    <tbody id="checks-body"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Not verified yet in headless Chromium 157 or on Chrome for Android: run the live checks on this page to verify <code>Element.setHTML()</code>, <code>getSelection().getComposedRanges()</code>, <code>selection.direction</code> and <code>Temporal.Now</code> alongside <code>drawElementImage()</code> and <code>captureElementImage()</code> in your browser.</li>
+    <li><code>StaticRange</code> from <code>getComposedRanges()</code> doesn't expose <code>getClientRects()</code>, so painting a canvas highlight across a shadow boundary still requires projecting the composed endpoints onto live <code>Range</code> instances inside each tree.</li>
+    <li>Drawing captured <code>ElementImage</code> thumbnails before the live editable card on the same canvas keeps clicks and typing aligned with the live controls while avoiding a second canvas context.</li>
+    <li>Calling <code>close()</code> on every evicted <code>ElementImage</code> and on <code>pagehide</code> caps open snapshots at 4 during normal use and returns open count to 0 when cleared.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint, inkFraction, stillDrawn } from '/shared/support.js';
+
+  banner();
+
+  const REDUCED_MOTION = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const hasCapture = typeof HTMLCanvasElement !== 'undefined' && 'captureElementImage' in HTMLCanvasElement.prototype;
+  const hasSetHTML = typeof Element !== 'undefined' && 'setHTML' in Element.prototype;
+  const hasTemporal = typeof globalThis.Temporal !== 'undefined' && typeof globalThis.Temporal.Now?.instant === 'function';
+
+  function themeColor(token, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(token).trim() || fallback;
+  }
+
+  function syncCanvasSize(canvas) {
+    const cssW = canvas.clientWidth;
+    const cssH = canvas.clientHeight;
+    if (!cssW || !cssH) return null;
+    const dpr = (devicePixelRatio || 1) * (canvas.currentCSSZoom || 1);
+    const pxW = Math.max(1, Math.round(cssW * dpr));
+    const pxH = Math.max(1, Math.round(cssH * dpr));
+    if (canvas.width !== pxW) canvas.width = pxW;
+    if (canvas.height !== pxH) canvas.height = pxH;
+    return { cssW, cssH, dprX: pxW / cssW, dprY: pxH / cssH };
+  }
+
+  function copyInk(canvas) {
+    if (!canvas || !canvas.width || !canvas.height) return 0;
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const cc = copy.getContext('2d', { willReadFrequently: true });
+    cc.drawImage(canvas, 0, 0);
+    const f = inkFraction(cc);
+    copy.width = 0;
+    copy.height = 0;
+    window.__gfx?.retire(copy);
+    return f;
+  }
+
+  // =========================================================================
+  // DEMO 1: Element.setHTML() into a drawable 2D canvas
+  // =========================================================================
+  const SAMPLE_UNTRUSTED = [
+    '<h3>Incoming untrusted note</h3>',
+    '<p>This markup mixes <b>bold text</b>, <em>emphasis</em>, a <a href="https://html-in-canvas.page/">safe link</a> and a <a href="javascript:window.__xss=3">javascript: link</a>.</p>',
+    '<p><button type="button" onclick="window.__xss=4">Press me</button> <span onmouseover="window.__xss=5">Hover trap</span></p>',
+    '<script>window.__xss = 1;</' + 'script>',
+    '<img src="x" onerror="window.__xss = 2" alt="broken image">',
+    '<iframe src="javascript:alert(1)"></iframe>',
+  ].join('\n');
+
+  const sanInput = document.getElementById('san-input');
+  const sanStage = document.getElementById('san-stage');
+  const sanCanvas = document.getElementById('san-canvas');
+  const sanDoc = document.getElementById('san-doc');
+  const sanNotice = document.getElementById('san-notice');
+  const sanStatus = document.getElementById('san-status');
+  const diffRemoved = document.getElementById('diff-removed');
+  const diffKept = document.getElementById('diff-kept');
+  const optB = document.getElementById('opt-b');
+  const optA = document.getElementById('opt-a');
+  const optButton = document.getElementById('opt-button');
+
+  sanInput.value = SAMPLE_UNTRUSTED;
+
+  const sanCtx = supported ? sanCanvas.getContext('2d') : null;
+  let sanPlain = !supported || !sanCtx;
+  let sanButtonClicks = 0;
+  let scanStart = -1e9;
+  let scanRaf = 0;
+  const SCAN_MS = 700;
+
+  function showSanPlain(reason) {
+    sanPlain = true;
+    if (!sanStage.classList.contains('plain')) {
+      sanStage.classList.add('plain');
+      sanStage.append(sanDoc);
+      sanCanvas.hidden = true;
+    }
+    sanNotice.hidden = false;
+    sanNotice.textContent = reason;
+  }
+
+  function showSanCanvas() {
+    if (!supported || !sanCtx) return;
+    sanPlain = false;
+    if (sanStage.classList.contains('plain')) {
+      sanStage.classList.remove('plain');
+      sanCanvas.hidden = false;
+      sanCanvas.append(sanDoc);
+    }
+    if (hasSetHTML) sanNotice.hidden = true;
+  }
+
+  if (sanPlain) {
+    showSanPlain('HTML-in-canvas is not available in this browser, so the sanitised output is shown as plain HTML.');
+  } else {
+    sanCanvas.addEventListener('contextlost', () => {
+      showSanPlain('The browser took this 2D canvas context away. The sanitised DOM is shown as plain HTML until it returns.');
+    });
+    sanCanvas.addEventListener('contextrestored', () => {
+      showSanCanvas();
+      sanCanvas.requestPaint?.();
+    });
+  }
+
+  // Safe delegated click listener for the sanitised button inside the canvas.
+  sanDoc.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('button');
+    if (!btn) return;
+    sanButtonClicks++;
+    btn.textContent = `Pressed ${sanButtonClicks} ${sanButtonClicks === 1 ? 'time' : 'times'}`;
+    sanCanvas.requestPaint?.();
+    updateSanDiff(sanInput.value);
+  });
+
+  // #region sanitizer-apply
+  function buildSanitizerOption(removeList) {
+    if (!removeList.length) return undefined;
+    if (typeof window.Sanitizer === 'function') {
+      try {
+        const s = new Sanitizer();
+        if (typeof s.removeElement === 'function') {
+          for (const tag of removeList) s.removeElement(tag);
+          return { sanitizer: s };
+        }
+      } catch {}
+    }
+    return { sanitizer: { removeElements: removeList } };
+  }
+
+  function applySetHTML(target, raw, removeList) {
+    const opt = buildSanitizerOption(removeList);
+    if (!opt) {
+      target.setHTML(raw);
+      return 'default Sanitizer';
+    }
+    try {
+      target.setHTML(raw, opt);
+      return opt.sanitizer instanceof window.Sanitizer ? 'new Sanitizer().removeElement()' : 'SanitizerConfig.removeElements';
+    } catch {
+      target.setHTML(raw, { sanitizer: { removeElements: removeList } });
+      return 'SanitizerConfig.removeElements';
+    }
+  }
+
+  function inventoryTree(root) {
+    const tags = new Map();
+    const attrs = new Map();
+    for (const el of root.querySelectorAll('*')) {
+      const tag = el.tagName.toLowerCase();
+      tags.set(tag, (tags.get(tag) ?? 0) + 1);
+      for (const a of el.attributes) {
+        const key = a.name.toLowerCase() === 'href' && /^\s*javascript:/i.test(a.value)
+          ? `${tag}[href="javascript:..."]`
+          : `${tag}[${a.name.toLowerCase()}]`;
+        attrs.set(key, (attrs.get(key) ?? 0) + 1);
+      }
+    }
+    return { tags, attrs };
+  }
+  // #endregion sanitizer-apply
+
+  function renderChips(listEl, items, cls, emptyText) {
+    listEl.replaceChildren();
+    if (!items.length) {
+      const li = document.createElement('li');
+      li.className = 'chip';
+      li.textContent = emptyText;
+      listEl.append(li);
+      return;
+    }
+    for (const text of items) {
+      const li = document.createElement('li');
+      li.className = `chip ${cls}`;
+      li.textContent = text;
+      listEl.append(li);
+    }
+  }
+
+  function updateSanDiff(raw) {
+    // Parse raw input in an inert document so scripts never run and images never fetch.
+    const inert = new DOMParser().parseFromString(raw, 'text/html');
+    const before = inventoryTree(inert.body);
+    const after = inventoryTree(sanDoc);
+
+    const removed = [];
+    const kept = [];
+
+    for (const [tag, count] of before.tags) {
+      const left = after.tags.get(tag) ?? 0;
+      if (left < count) removed.push(`<${tag}> ×${count - left}`);
+    }
+    for (const [attr, count] of before.attrs) {
+      const left = after.attrs.get(attr) ?? 0;
+      if (left < count) removed.push(`${attr} ×${count - left}`);
+    }
+    for (const [tag, count] of after.tags) kept.push(`<${tag}> ×${count}`);
+    for (const [attr, count] of after.attrs) kept.push(`${attr} ×${count}`);
+    if (sanButtonClicks > 0) kept.push(`button clicks: ${sanButtonClicks}`);
+
+    renderChips(diffRemoved, removed, 'removed', 'nothing removed');
+    renderChips(diffKept, kept, 'kept', 'empty');
+    return { removedCount: removed.length, keptCount: kept.length };
+  }
+
+  function sanitiseAndDraw({ animate = true } = {}) {
+    delete window.__xss;
+    const raw = sanInput.value;
+    const removeList = [];
+    if (!optB.checked) removeList.push('b');
+    if (!optA.checked) removeList.push('a');
+    if (!optButton.checked) removeList.push('button');
+
+    if (!hasSetHTML) {
+      sanNotice.hidden = false;
+      sanNotice.textContent = 'Element.prototype.setHTML() is not available in this browser, so untrusted markup was inserted as plain escaped text instead of running innerHTML.';
+      sanDoc.textContent = raw;
+      sanStatus.textContent = 'Element.setHTML() unavailable; rendered as plain text.';
+      updateSanDiff(raw);
+      sanCanvas.requestPaint?.();
+      return;
+    }
+
+    let mode = '';
+    try {
+      mode = applySetHTML(sanDoc, raw, removeList);
+    } catch (err) {
+      sanNotice.hidden = false;
+      sanNotice.textContent = `Element.setHTML() threw ${err.name}: ${err.message}`;
+      sanStatus.textContent = `setHTML() error: ${err.message}`;
+      return;
+    }
+
+    if (!sanPlain) sanNotice.hidden = true;
+    const { removedCount, keptCount } = updateSanDiff(raw);
+    const xssStatus = typeof window.__xss === 'undefined' ? 'window.__xss is undefined (0 payloads ran)' : `window.__xss = ${window.__xss}`;
+    sanStatus.textContent = `${mode}. Removed ${removedCount} entries, kept ${keptCount}. ${xssStatus}.`;
+
+    if (sanPlain) return;
+    if (animate && !REDUCED_MOTION()) {
+      scanStart = performance.now();
+      if (!scanRaf) {
+        const tick = () => {
+          if (performance.now() - scanStart < SCAN_MS) {
+            sanCanvas.requestPaint?.();
+            scanRaf = requestAnimationFrame(tick);
+          } else {
+            scanRaf = 0;
+            sanCanvas.requestPaint?.();
+          }
+        };
+        scanRaf = requestAnimationFrame(tick);
+      }
+    } else {
+      scanStart = -1e9;
+    }
+    sanCanvas.requestPaint?.();
+  }
+
+  // #region sanitizer-paint
+  function paintSanCanvas() {
+    if (sanPlain || !sanCtx) return;
+    const size = syncCanvasSize(sanCanvas);
+    if (!size) return;
+    const { cssW, cssH, dprX, dprY } = size;
+
+    sanCtx.reset();
+    sanCtx.scale(dprX, dprY);
+
+    // Draw the sanitised DOM at its CSS size so hit testing stays aligned.
+    try {
+      sanCtx.drawElementImage(sanDoc, 0, 0, sanDoc.offsetWidth, sanDoc.offsetHeight);
+    } catch {
+      return;
+    }
+
+    const elapsed = performance.now() - scanStart;
+    if (elapsed >= 0 && elapsed < SCAN_MS) {
+      const t = elapsed / SCAN_MS;
+      const sweepY = t * cssH;
+      const accent = themeColor('--accent', '#d2491f');
+      const cardBg = themeColor('--card', '#ffffff');
+
+      // Translucent veil below the scan line that clears as the sweep moves down.
+      sanCtx.save();
+      sanCtx.fillStyle = cardBg;
+      sanCtx.globalAlpha = 0.72 * (1 - t * 0.25);
+      sanCtx.fillRect(0, sweepY, cssW, Math.max(0, cssH - sweepY));
+
+      // Soft accent trail above the scan line.
+      const grad = sanCtx.createLinearGradient(0, Math.max(0, sweepY - 36), 0, sweepY);
+      grad.addColorStop(0, 'transparent');
+      grad.addColorStop(1, accent);
+      sanCtx.globalAlpha = 0.26 * (1 - t * 0.3);
+      sanCtx.fillStyle = grad;
+      sanCtx.fillRect(0, Math.max(0, sweepY - 36), cssW, Math.min(36, sweepY));
+
+      // Crisp scan bar.
+      sanCtx.globalAlpha = 0.95;
+      sanCtx.fillStyle = accent;
+      sanCtx.fillRect(0, sweepY - 1.5, cssW, 3);
+      sanCtx.restore();
+    }
+  }
+  // #endregion sanitizer-paint
+
+  if (sanCtx) {
+    sanCanvas.addEventListener('paint', paintSanCanvas);
+    new ResizeObserver(() => sanCanvas.requestPaint?.()).observe(sanCanvas);
+  }
+
+  document.getElementById('san-run').addEventListener('click', () => sanitiseAndDraw({ animate: true }));
+  document.getElementById('san-reset').addEventListener('click', () => {
+    sanInput.value = SAMPLE_UNTRUSTED;
+    optB.checked = optA.checked = optButton.checked = true;
+    sanButtonClicks = 0;
+    sanitiseAndDraw({ animate: true });
+  });
+  for (const box of [optB, optA, optButton]) {
+    box.addEventListener('change', () => sanitiseAndDraw({ animate: true }));
+  }
+  sanitiseAndDraw({ animate: false });
+
+  // =========================================================================
+  // DEMO 2: getSelection().getComposedRanges() across a shadow-root canvas
+  // =========================================================================
+  // #region shadow-element
+  class ShadowSelBox extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' });
+      this.rects = [];
+      this.entersTop = false;
+      this.exitsBottom = false;
+      this.plain = !supported;
+    }
+
+    connectedCallback() {
+      this.shadowRoot.innerHTML = `
+        <style>
+          :host { display: block; }
+          .wrap {
+            position: relative; border: 1px dashed var(--accent, #d2491f);
+            border-radius: 10px; background: var(--bg, #f6f4ef); overflow: hidden;
+          }
+          .badge {
+            font: 600 11px/1.2 var(--mono, monospace); text-transform: uppercase;
+            letter-spacing: 0.06em; color: var(--accent, #d2491f);
+            padding: 6px 12px 0; user-select: none;
+          }
+          .stage-box { position: relative; height: 124px; }
+          @media (max-width: 620px) { .stage-box { height: 176px; } }
+          canvas { display: block; width: 100%; height: 100%; }
+          .shadow-doc {
+            box-sizing: border-box; width: 100%; height: 100%;
+            padding: 8px 12px 12px; color: var(--fg, #1d1c1a);
+            font: 16px/1.6 system-ui, sans-serif;
+          }
+          .shadow-doc p { margin: 0; }
+          /* Hide the browser highlight inside the shadow root so the canvas ribbon is visible. */
+          .wrap:not(.plain) .shadow-doc ::selection { background: transparent; color: inherit; }
+          .wrap.plain .shadow-doc { position: relative; }
+        </style>
+        <div class="wrap">
+          <div class="badge">Open shadow root, drawn by a 2D canvas</div>
+          <div class="stage-box">
+            <canvas content="drawable" layoutsubtree>
+              <div class="shadow-doc" drawable>
+                <p>This middle passage lives inside an open shadow root and is painted through a drawable 2D canvas. Drag a selection from the paragraph above right through these words into the paragraph below.</p>
+              </div>
+            </canvas>
+          </div>
+        </div>
+      `;
+      this.wrap = this.shadowRoot.querySelector('.wrap');
+      this.stageBox = this.shadowRoot.querySelector('.stage-box');
+      this.canvas = this.shadowRoot.querySelector('canvas');
+      this.doc = this.shadowRoot.querySelector('.shadow-doc');
+      this.textNode = this.doc.querySelector('p').firstChild;
+      this.ctx = supported ? this.canvas.getContext('2d') : null;
+
+      if (!this.ctx) {
+        this.showPlain('HTML-in-canvas is not available here, so the shadow-root passage is shown as plain HTML.');
+        return;
+      }
+
+      this.canvas.addEventListener('paint', () => this.paint());
+      this.canvas.addEventListener('contextlost', () => {
+        this.showPlain('The shadow-root 2D canvas lost its context. Showing plain HTML until it returns.');
+      });
+      this.canvas.addEventListener('contextrestored', () => {
+        this.showCanvas();
+        this.canvas.requestPaint?.();
+      });
+      this.ro = new ResizeObserver(() => this.canvas.requestPaint?.());
+      this.ro.observe(this.canvas);
+    }
+
+    disconnectedCallback() {
+      this.ro?.disconnect();
+    }
+
+    showPlain(reason) {
+      this.plain = true;
+      if (!this.wrap.classList.contains('plain')) {
+        this.wrap.classList.add('plain');
+        this.stageBox.append(this.doc);
+        this.canvas.hidden = true;
+      }
+      if (reason) {
+        selNotice.hidden = false;
+        selNotice.textContent = reason;
+      }
+    }
+
+    showCanvas() {
+      if (!supported || !this.ctx) return;
+      this.plain = false;
+      if (this.wrap.classList.contains('plain')) {
+        this.wrap.classList.remove('plain');
+        this.canvas.hidden = false;
+        this.canvas.append(this.doc);
+      }
+    }
+
+    setHighlight(rects, entersTop, exitsBottom) {
+      this.rects = rects;
+      this.entersTop = entersTop;
+      this.exitsBottom = exitsBottom;
+      this.canvas.requestPaint?.();
+    }
+
+    paint() {
+      if (this.plain || !this.ctx) return;
+      const size = syncCanvasSize(this.canvas);
+      if (!size) return;
+      const { cssW, cssH, dprX, dprY } = size;
+      const ctx = this.ctx;
+      const accent = themeColor('--accent', '#d2491f');
+
+      ctx.reset();
+      ctx.scale(dprX, dprY);
+
+      if (this.rects.length) {
+        ctx.save();
+        // Continuous glowing ribbon connectors between selected lines.
+        ctx.fillStyle = accent;
+        ctx.globalAlpha = 0.22;
+        for (let i = 0; i < this.rects.length - 1; i++) {
+          const a = this.rects[i];
+          const b = this.rects[i + 1];
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y + a.h);
+          ctx.lineTo(a.x + a.w, a.y + a.h);
+          ctx.lineTo(b.x + b.w, b.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.closePath();
+          ctx.fill();
+        }
+        // Entry and exit ribbon tabs when selection crosses the shadow boundary.
+        if (this.entersTop) {
+          const first = this.rects[0];
+          ctx.fillRect(first.x, 0, Math.min(first.w, cssW - first.x), first.y + 4);
+        }
+        if (this.exitsBottom) {
+          const last = this.rects[this.rects.length - 1];
+          ctx.fillRect(last.x, last.y + last.h - 4, Math.min(last.w, cssW - last.x), cssH - (last.y + last.h) + 4);
+        }
+
+        // Glowing pills behind each selected line.
+        ctx.shadowColor = accent;
+        ctx.shadowBlur = 12;
+        ctx.globalAlpha = 0.34;
+        for (const r of this.rects) {
+          ctx.beginPath();
+          ctx.roundRect(r.x - 4, r.y - 2, r.w + 8, r.h + 4, 6);
+          ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 0.78;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 1.5;
+        for (const r of this.rects) {
+          ctx.beginPath();
+          ctx.roundRect(r.x - 4, r.y - 2, r.w + 8, r.h + 4, 6);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      try {
+        ctx.drawElementImage(this.doc, 0, 0, this.doc.offsetWidth, this.doc.offsetHeight);
+      } catch { /* wait for first paint */ }
+    }
+  }
+  customElements.define('shadow-sel-box', ShadowSelBox);
+  // #endregion shadow-element
+
+  const selBefore = document.getElementById('sel-before');
+  const selHost = document.getElementById('sel-host');
+  const selAfter = document.getElementById('sel-after');
+  const selNotice = document.getElementById('sel-notice');
+  const rangeStdDl = document.getElementById('range-std');
+  const rangeCompDl = document.getElementById('range-composed');
+
+  // #region shadow-ranges
+  function getComposedSafe(sel, shadow) {
+    if (typeof sel.getComposedRanges !== 'function') return null;
+    try {
+      return sel.getComposedRanges({ shadowRoots: [shadow] });
+    } catch {
+      try { return sel.getComposedRanges(shadow); } catch { return null; }
+    }
+  }
+
+  function comparePoint(aNode, aOff, bNode, bOff) {
+    const rA = new Range();
+    rA.setStart(aNode, aOff);
+    rA.collapse(true);
+    const rB = new Range();
+    rB.setStart(bNode, bOff);
+    rB.collapse(true);
+    return rA.compareBoundaryPoints(Range.START_TO_START, rB);
+  }
+
+  function mergeLineRects(rects) {
+    const sorted = [...rects].sort((a, b) => a.y - b.y || a.x - b.x);
+    const merged = [];
+    for (const r of sorted) {
+      const prev = merged.find((l) => {
+        const overlap = Math.min(l.y + l.h, r.y + r.h) - Math.max(l.y, r.y);
+        return overlap > 0.5 * Math.min(l.h, r.h) && r.x <= l.x + l.w + 4 && r.x + r.w >= l.x - 4;
+      });
+      if (!prev) {
+        merged.push({ ...r });
+      } else {
+        const x1 = Math.min(prev.x, r.x);
+        const y1 = Math.min(prev.y, r.y);
+        const x2 = Math.max(prev.x + prev.w, r.x + r.w);
+        const y2 = Math.max(prev.y + prev.h, r.y + r.h);
+        prev.x = x1; prev.y = y1; prev.w = x2 - x1; prev.h = y2 - y1;
+      }
+    }
+    return merged;
+  }
+
+  function shadowRectsFromComposed(sr, host, shadow, container, canvas) {
+    if (!sr || sr.collapsed) return { rects: [], entersTop: false, exitsBottom: false };
+    const startRoot = sr.startContainer.getRootNode();
+    const endRoot = sr.endContainer.getRootNode();
+
+    const beforeHost = new Range();
+    beforeHost.setStartBefore(host);
+    beforeHost.collapse(true);
+    const afterHost = new Range();
+    afterHost.setStartAfter(host);
+    afterHost.collapse(true);
+
+    let entersTop = false;
+    let exitsBottom = false;
+
+    // Determine whether the composed range overlaps the shadow root at all.
+    if (startRoot !== shadow) {
+      const startPt = new Range();
+      startPt.setStart(sr.startContainer, sr.startOffset);
+      startPt.collapse(true);
+      if (startPt.compareBoundaryPoints(Range.START_TO_START, afterHost) >= 0) {
+        return { rects: [], entersTop: false, exitsBottom: false };
+      }
+      entersTop = true;
+    }
+    if (endRoot !== shadow) {
+      const endPt = new Range();
+      endPt.setStart(sr.endContainer, sr.endOffset);
+      endPt.collapse(true);
+      if (endPt.compareBoundaryPoints(Range.START_TO_START, beforeHost) <= 0) {
+        return { rects: [], entersTop: false, exitsBottom: false };
+      }
+      exitsBottom = true;
+    }
+
+    const box = canvas.getBoundingClientRect();
+    const rawRects = [];
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const part = new Range();
+
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      let sOff = 0;
+      let eOff = node.length;
+      if (startRoot === shadow) {
+        if (comparePoint(node, node.length, sr.startContainer, sr.startOffset) <= 0) continue;
+        if (node === sr.startContainer) sOff = sr.startOffset;
+        else if (comparePoint(node, 0, sr.startContainer, sr.startOffset) < 0) sOff = 0;
+      }
+      if (endRoot === shadow) {
+        if (comparePoint(node, 0, sr.endContainer, sr.endOffset) >= 0) continue;
+        if (node === sr.endContainer) eOff = sr.endOffset;
+        else if (comparePoint(node, node.length, sr.endContainer, sr.endOffset) > 0) eOff = node.length;
+      }
+      if (eOff <= sOff) continue;
+      part.setStart(node, sOff);
+      part.setEnd(node, eOff);
+      for (const q of part.getClientRects()) {
+        if (q.width > 0.5 && q.height > 0.5) {
+          rawRects.push({ x: q.left - box.left, y: q.top - box.top, w: q.width, h: q.height });
+        }
+      }
+    }
+    return { rects: mergeLineRects(rawRects), entersTop, exitsBottom };
+  }
+  // #endregion shadow-ranges
+
+  function describeNode(node, shadow) {
+    if (!node) return 'none';
+    const root = node.getRootNode?.();
+    const tree = root === shadow ? 'shadow' : 'light';
+    if (node.nodeType === Node.TEXT_NODE) {
+      const sample = node.textContent.trim().slice(0, 20);
+      return `${tree}: #text ("${sample}...")`;
+    }
+    return `${tree}: <${node.nodeName.toLowerCase()}>`;
+  }
+
+  function fillDL(dl, pairs) {
+    dl.replaceChildren();
+    for (const [k, v] of pairs) {
+      const dt = document.createElement('dt');
+      dt.textContent = k;
+      const dd = document.createElement('dd');
+      dd.textContent = v;
+      dl.append(dt, dd);
+    }
+  }
+
+  const hasComposedRanges = typeof Selection !== 'undefined' && typeof Selection.prototype.getComposedRanges === 'function';
+  if (!hasComposedRanges) {
+    selNotice.hidden = false;
+    selNotice.textContent = 'Selection.prototype.getComposedRanges() is not available in this browser, so only getRangeAt(0) can be shown.';
+  }
+
+  function updateSelectionReadout() {
+    const sel = window.getSelection();
+    const shadow = selHost.shadowRoot;
+    const direction = sel && 'direction' in sel ? sel.direction : 'unsupported';
+
+    if (!sel || sel.rangeCount === 0) {
+      fillDL(rangeStdDl, [['state', 'no selection']]);
+      fillDL(rangeCompDl, [['state', 'no selection'], ['direction', direction]]);
+      selHost.setHighlight([], false, false);
+      return;
+    }
+
+    const std = sel.getRangeAt(0);
+    const stdText = std.toString().replace(/\s+/g, ' ').trim();
+    fillDL(rangeStdDl, [
+      ['start', `${describeNode(std.startContainer, shadow)} @ ${std.startOffset}`],
+      ['end', `${describeNode(std.endContainer, shadow)} @ ${std.endOffset}`],
+      ['collapsed', String(std.collapsed)],
+      ['text', stdText ? `${stdText.length} chars ("${stdText.slice(0, 36)}${stdText.length > 36 ? '...' : ''}")` : '0 chars'],
+    ]);
+
+    const composed = getComposedSafe(sel, shadow);
+    if (!composed) {
+      fillDL(rangeCompDl, [['state', 'getComposedRanges() missing'], ['direction', direction]]);
+      selHost.setHighlight([], false, false);
+      return;
+    }
+
+    if (!composed.length) {
+      fillDL(rangeCompDl, [['state', 'empty array'], ['direction', direction]]);
+      selHost.setHighlight([], false, false);
+      return;
+    }
+
+    const sr = composed[0];
+    const { rects, entersTop, exitsBottom } = shadowRectsFromComposed(sr, selHost, shadow, selHost.doc, selHost.canvas);
+    selHost.setHighlight(rects, entersTop, exitsBottom);
+
+    fillDL(rangeCompDl, [
+      ['start', `${describeNode(sr.startContainer, shadow)} @ ${sr.startOffset}`],
+      ['end', `${describeNode(sr.endContainer, shadow)} @ ${sr.endOffset}`],
+      ['collapsed', String(sr.collapsed)],
+      ['shadow rects', `${rects.length} line box${rects.length === 1 ? '' : 'es'}`],
+      ['direction', direction],
+    ]);
+  }
+
+  document.addEventListener('selectionchange', updateSelectionReadout);
+
+  document.getElementById('sel-btn-fwd').addEventListener('click', () => {
+    const sel = window.getSelection();
+    if (!sel?.setBaseAndExtent) return;
+    sel.setBaseAndExtent(selBefore.firstChild, 15, selHost.textNode, 98);
+    updateSelectionReadout();
+  });
+  document.getElementById('sel-btn-bwd').addEventListener('click', () => {
+    const sel = window.getSelection();
+    if (!sel?.setBaseAndExtent) return;
+    sel.setBaseAndExtent(selAfter.firstChild, 46, selHost.textNode, 24);
+    updateSelectionReadout();
+  });
+  document.getElementById('sel-btn-across').addEventListener('click', () => {
+    const sel = window.getSelection();
+    if (!sel?.setBaseAndExtent) return;
+    sel.setBaseAndExtent(selBefore.firstChild, 15, selAfter.firstChild, 46);
+    updateSelectionReadout();
+  });
+  document.getElementById('sel-btn-clear').addEventListener('click', () => {
+    window.getSelection()?.removeAllRanges();
+    updateSelectionReadout();
+  });
+
+  // =========================================================================
+  // DEMO 3: Temporal timestamps on captureElementImage() snapshots
+  // =========================================================================
+  const snapStage = document.getElementById('snap-stage');
+  const snapCanvas = document.getElementById('snap-canvas');
+  const noteCard = document.getElementById('note-card');
+  const noteTitle = document.getElementById('note-title');
+  const noteBody = document.getElementById('note-body');
+  const noteBump = document.getElementById('note-bump');
+  const snapNotice = document.getElementById('snap-notice');
+  const snapStatus = document.getElementById('snap-status');
+  const snapLog = document.getElementById('snap-log');
+
+  const snapCtx = supported ? snapCanvas.getContext('2d') : null;
+  let snapPlain = !supported || !snapCtx;
+  let editSeq = 1;
+  let frameSeq = 0;
+  let evictedClosed = 0;
+  let pendingCapture = false;
+  let burstTimer = 0;
+  const MAX_FRAMES = 4;
+  const frames = []; // { seq, img, w, h, instant, zdt, wall, tz, deltaMs }
+
+  function showSnapPlain(reason) {
+    snapPlain = true;
+    if (!snapStage.classList.contains('plain')) {
+      snapStage.classList.add('plain');
+      snapStage.append(noteCard);
+      snapCanvas.hidden = true;
+    }
+    snapNotice.hidden = false;
+    snapNotice.textContent = reason;
+  }
+
+  function showSnapCanvas() {
+    if (!supported || !snapCtx) return;
+    snapPlain = false;
+    if (snapStage.classList.contains('plain')) {
+      snapStage.classList.remove('plain');
+      snapCanvas.hidden = false;
+      snapCanvas.append(noteCard);
+    }
+  }
+
+  if (snapPlain) {
+    showSnapPlain('HTML-in-canvas is not available here, so the note card is shown as plain HTML.');
+  } else {
+    if (!hasCapture) {
+      snapNotice.hidden = false;
+      snapNotice.textContent = 'captureElementImage() is not available in this browser, so frames cannot be frozen.';
+    } else if (!hasTemporal) {
+      snapNotice.hidden = false;
+      snapNotice.textContent = 'Temporal is not available in this browser, so snapshots fall back to Date.toISOString().';
+    }
+    snapCanvas.addEventListener('contextlost', () => {
+      showSnapPlain('The browser took this 2D canvas context away. Showing the note card as plain HTML until it returns.');
+    });
+    snapCanvas.addEventListener('contextrestored', () => {
+      showSnapCanvas();
+      snapCanvas.requestPaint?.();
+    });
+  }
+
+  // #region temporal-capture
+  function makeStamp(prev) {
+    if (hasTemporal) {
+      const instant = Temporal.Now.instant();
+      const zdt = Temporal.Now.zonedDateTimeISO();
+      const deltaMs = prev?.instant ? instant.since(prev.instant).total({ unit: 'millisecond' }) : null;
+      return {
+        instant,
+        zdt,
+        instantText: instant.toString(),
+        zdtText: zdt.toString(),
+        wall: zdt.toPlainTime().toString({ fractionalSecondDigits: 3 }),
+        tz: zdt.timeZoneId,
+        deltaMs,
+      };
+    }
+    const nowMs = Date.now();
+    const d = new Date(nowMs);
+    return {
+      instant: null,
+      zdt: null,
+      instantText: d.toISOString(),
+      zdtText: `${d.toISOString()} (Date fallback)`,
+      wall: d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0'),
+      tz: 'Date',
+      deltaMs: prev?.nowMs != null ? nowMs - prev.nowMs : null,
+      nowMs,
+    };
+  }
+
+  function closeAllFrames() {
+    while (frames.length) {
+      const old = frames.shift();
+      old.img?.close?.();
+      evictedClosed++;
+    }
+    renderSnapLog();
+  }
+
+  function captureNow() {
+    if (snapPlain || !hasCapture) return;
+    let img = null;
+    try {
+      img = snapCanvas.captureElementImage(noteCard);
+    } catch {
+      return;
+    }
+    const prev = frames[frames.length - 1] ?? null;
+    const stamp = makeStamp(prev);
+    frames.push({
+      seq: ++frameSeq,
+      img,
+      w: noteCard.offsetWidth || 300,
+      h: noteCard.offsetHeight || 110,
+      ...stamp,
+    });
+    // Strictly keep at most 4 open ElementImage snapshots.
+    while (frames.length > MAX_FRAMES) {
+      const evicted = frames.shift();
+      evicted.img?.close?.();
+      evictedClosed++;
+    }
+    renderSnapLog();
+  }
+
+  window.addEventListener('pagehide', closeAllFrames);
+  // #endregion temporal-capture
+
+  function renderSnapLog() {
+    const openTracked = window.__gfx?.snapshots?.open;
+    const guardNote = typeof openTracked === 'number' ? ` (context-guard open: ${openTracked})` : '';
+    snapStatus.textContent = `Open snapshots: ${frames.length} / ${MAX_FRAMES}. Evicted and closed: ${evictedClosed}.${guardNote}`;
+    snapLog.replaceChildren();
+    for (const f of frames) {
+      const li = document.createElement('li');
+      const delta = f.deltaMs == null ? 'first frame' : `+${f.deltaMs.toFixed(1)} ms`;
+      li.textContent = `#${f.seq} (${delta}) | instant: ${f.instantText} | zoned: ${f.zdtText}`;
+      snapLog.append(li);
+    }
+  }
+
+  // #region temporal-paint
+  function paintSnapCanvas() {
+    if (snapPlain || !snapCtx) return;
+    if (pendingCapture) {
+      pendingCapture = false;
+      captureNow();
+    }
+    const size = syncCanvasSize(snapCanvas);
+    if (!size) return;
+    const { cssW, cssH, dprX, dprY } = size;
+    const ctx = snapCtx;
+
+    const pad = 12;
+    const cardW = noteCard.offsetWidth;
+    const cardH = noteCard.offsetHeight;
+    const stripTop = pad + cardH + 14;
+    const stripH = Math.max(80, cssH - stripTop - pad);
+    const cols = cssW < 520 ? 2 : 4;
+    const rows = Math.ceil(MAX_FRAMES / cols);
+    const gap = 8;
+    const cellW = (cssW - pad * 2 - gap * (cols - 1)) / cols;
+    const cellH = (stripH - gap * (rows - 1)) / rows;
+
+    const line = themeColor('--line', '#ddd8cf');
+    const muted = themeColor('--muted', '#6b6760');
+    const bg = themeColor('--bg', '#f6f4ef');
+    const accent = themeColor('--accent', '#d2491f');
+
+    ctx.reset();
+    ctx.scale(dprX, dprY);
+
+    // Draw filmstrip snapshots FIRST so the live card drawn last keeps its hit box.
+    for (let i = 0; i < MAX_FRAMES; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const x = pad + col * (cellW + gap);
+      const y = stripTop + row * (cellH + gap);
+      const frame = frames[i];
+
+      ctx.save();
+      ctx.fillStyle = bg;
+      ctx.strokeStyle = frame ? accent : line;
+      ctx.lineWidth = 1;
+      if (!frame) ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.roundRect(x, y, cellW, cellH, 8);
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const labelH = 26;
+      const innerPad = 6;
+      const availW = Math.max(10, cellW - innerPad * 2);
+      const availH = Math.max(10, cellH - labelH - innerPad);
+
+      if (frame) {
+        const scale = Math.min(availW / frame.w, availH / frame.h);
+        const drawW = frame.w * scale;
+        const drawH = frame.h * scale;
+        const dx = x + (cellW - drawW) / 2;
+        const dy = y + innerPad + (availH - drawH) / 2;
+        try {
+          ctx.drawElementImage(frame.img, dx, dy, drawW, drawH);
+        } catch { /* closed */ }
+        ctx.fillStyle = muted;
+        ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, monospace';
+        const delta = frame.deltaMs == null ? '' : ` (+${Math.round(frame.deltaMs)}ms)`;
+        ctx.fillText(`#${frame.seq} ${frame.wall}${delta}`, x + 6, y + cellH - 8, cellW - 12);
+      } else {
+        ctx.fillStyle = muted;
+        ctx.font = '12px system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Slot ${i + 1}`, x + cellW / 2, y + cellH / 2 + 4);
+      }
+      ctx.restore();
+    }
+
+    // Draw the live editable note card LAST so inputs and buttons stay interactive.
+    try {
+      ctx.drawElementImage(noteCard, pad, pad, cardW, cardH);
+    } catch { /* wait for first paint */ }
+  }
+  // #endregion temporal-paint
+
+  if (snapCtx) {
+    snapCanvas.addEventListener('paint', paintSnapCanvas);
+    new ResizeObserver(() => snapCanvas.requestPaint?.()).observe(snapCanvas);
+  }
+
+  noteBump.addEventListener('click', () => {
+    editSeq++;
+    noteBump.textContent = `Mark edit #${editSeq}`;
+    snapCanvas.requestPaint?.();
+  });
+  noteTitle.addEventListener('input', () => snapCanvas.requestPaint?.());
+  noteBody.addEventListener('input', () => snapCanvas.requestPaint?.());
+
+  document.getElementById('snap-one').addEventListener('click', () => {
+    if (snapPlain || !hasCapture) return;
+    pendingCapture = true;
+    snapCanvas.requestPaint?.();
+  });
+
+  document.getElementById('snap-burst').addEventListener('click', () => {
+    if (snapPlain || !hasCapture) return;
+    if (burstTimer) clearInterval(burstTimer);
+    let left = 4;
+    const step = () => {
+      editSeq++;
+      noteBump.textContent = `Mark edit #${editSeq}`;
+      pendingCapture = true;
+      snapCanvas.requestPaint?.();
+      left--;
+      if (left <= 0) {
+        clearInterval(burstTimer);
+        burstTimer = 0;
+      }
+    };
+    step();
+    burstTimer = setInterval(step, 250);
+  });
+
+  document.getElementById('snap-clear').addEventListener('click', () => {
+    if (burstTimer) { clearInterval(burstTimer); burstTimer = 0; }
+    closeAllFrames();
+    snapCanvas.requestPaint?.();
+  });
+
+  // =========================================================================
+  // LIVE CHECKS (isolated fixtures on testStage; never touch visible demos)
+  // =========================================================================
+  const checksBody = document.getElementById('checks-body');
+
+  function makeDrawableFixture(w = 240, h = 90) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = `display:block;width:${w}px;height:${h}px;background:#fff;`;
+    const dpr = devicePixelRatio || 1;
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
+    return { c, dpr, w, h };
+  }
+
+  runTests(checksBody, [
+    {
+      name: 'Element.setHTML() strips scripts and handlers before painting',
+      why: 'Untrusted markup inserted via setHTML() into a drawable canvas child must strip <script>, <iframe> and on* handlers while still painting safe DOM.',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas drawElementImage() is unavailable');
+        if (!hasSetHTML) throw new Error('Element.prototype.setHTML() is unavailable in this browser');
+        delete window.__xssCheck;
+        const { c, dpr, w, h } = makeDrawableFixture(240, 80);
+        const el = document.createElement('div');
+        el.setAttribute('drawable', '');
+        el.style.cssText = `box-sizing:border-box;width:${w}px;height:${h}px;padding:8px;color:#111;background:#fff;font:14px system-ui;`;
+        c.append(el);
+        testStage().append(c);
+
+        el.setHTML(
+          '<p>Safe <b>markup</b></p>' +
+          '<script>window.__xssCheck=1</' + 'script>' +
+          '<img src="x" onerror="window.__xssCheck=2">' +
+          '<iframe src="javascript:alert(1)"></iframe>' +
+          '<button onclick="window.__xssCheck=3">OK</button>'
+        );
+
+        const ctx = c.getContext('2d');
+        await nextPaint(c);
+        ctx.reset();
+        ctx.scale(dpr, dpr);
+        ctx.drawElementImage(el, 0, 0, el.offsetWidth, el.offsetHeight);
+
+        if (el.querySelector('script, iframe')) throw new Error('script or iframe survived setHTML()');
+        if (el.querySelector('[onclick], [onerror]')) throw new Error('inline event handler survived setHTML()');
+        if (typeof window.__xssCheck !== 'undefined') throw new Error(`XSS payload executed: ${window.__xssCheck}`);
+        const ink = copyInk(c);
+        if (ink <= 0.005) throw new Error(`canvas drew no visible ink (${(ink * 100).toFixed(2)}%)`);
+        return `stripped script, iframe and handlers; window.__xssCheck undefined; ink ${(ink * 100).toFixed(1)}%`;
+      },
+    },
+    {
+      name: 'Element.setHTML() removes tags listed in sanitizer options',
+      why: 'Unchecking <b> or <a> passes a Sanitizer option to remove those safe elements while keeping paragraphs.',
+      run: async () => {
+        if (!hasSetHTML) throw new Error('Element.prototype.setHTML() is unavailable in this browser');
+        const el = document.createElement('div');
+        testStage().append(el);
+        const mode = applySetHTML(el, '<p>Keep <b>bold</b> and <a href="https://example.com/">link</a></p>', ['b', 'a']);
+        if (el.querySelector('b')) throw new Error('<b> was not removed');
+        if (el.querySelector('a')) throw new Error('<a> was not removed');
+        if (!el.querySelector('p')) throw new Error('<p> was unexpectedly removed');
+        return `${mode}: removed <b> and <a>, kept <p>`;
+      },
+    },
+    {
+      name: 'getSelection().getComposedRanges() crosses a shadow-root canvas',
+      why: 'A cross-shadow selection from light DOM into a drawable canvas inside a shadow root should expose its shadow endpoint via getComposedRanges({ shadowRoots }).',
+      run: async () => {
+        if (!supported) throw new Error('HTML-in-canvas drawElementImage() is unavailable');
+        if (!hasComposedRanges) throw new Error('Selection.prototype.getComposedRanges() is unavailable');
+
+        const box = document.createElement('div');
+        box.style.cssText = 'width:260px;font:14px system-ui;';
+        const before = document.createElement('p');
+        before.textContent = 'Light before shadow root.';
+        const host = document.createElement('div');
+        const shadow = host.attachShadow({ mode: 'open' });
+        const { c, dpr, w, h } = makeDrawableFixture(240, 56);
+        const inner = document.createElement('div');
+        inner.setAttribute('drawable', '');
+        inner.style.cssText = `box-sizing:border-box;width:${w}px;height:${h}px;padding:6px;color:#111;font:14px system-ui;`;
+        inner.textContent = 'Shadow text inside canvas.';
+        c.append(inner);
+        shadow.append(c);
+        box.append(before, host);
+        testStage().append(box);
+
+        const ctx = c.getContext('2d');
+        await nextPaint(c);
+        ctx.reset();
+        ctx.scale(dpr, dpr);
+        ctx.drawElementImage(inner, 0, 0, inner.offsetWidth, inner.offsetHeight);
+
+        const sel = window.getSelection();
+        try {
+          sel.setBaseAndExtent(before.firstChild, 6, inner.firstChild, 11);
+          const composed = getComposedSafe(sel, shadow);
+          if (!composed || !composed.length) throw new Error('getComposedRanges() returned no ranges');
+          const sr = composed[0];
+          const std = sel.rangeCount ? sel.getRangeAt(0) : null;
+          if (sr.endContainer !== inner.firstChild || sr.endOffset !== 11) {
+            throw new Error(`expected shadow end offset 11, got ${sr.endContainer?.nodeName}@${sr.endOffset}`);
+          }
+          const stdEnd = std ? `${std.endContainer.getRootNode() === shadow ? 'shadow' : 'light'}@${std.endOffset}` : 'none';
+          return `composed end=shadow@11; getRangeAt(0) end=${stdEnd}; direction=${sel.direction ?? 'n/a'}`;
+        } finally {
+          sel.removeAllRanges();
+        }
+      },
+    },
+    {
+      name: 'selection.direction reports forward and backward across a shadow root',
+      why: 'Selection.direction should switch between forward and backward when a cross-shadow selection is extended in either direction.',
+      run: async () => {
+        const sel = window.getSelection();
+        if (!('direction' in sel)) throw new Error('Selection.direction is unavailable in this browser');
+        const box = document.createElement('div');
+        const before = document.createElement('p');
+        before.textContent = 'Before host text.';
+        const host = document.createElement('div');
+        const shadow = host.attachShadow({ mode: 'open' });
+        const inner = document.createElement('p');
+        inner.textContent = 'Inside shadow root.';
+        shadow.append(inner);
+        box.append(before, host);
+        testStage().append(box);
+
+        try {
+          sel.setBaseAndExtent(before.firstChild, 0, inner.firstChild, 10);
+          const fwd = sel.direction;
+          sel.setBaseAndExtent(inner.firstChild, 10, before.firstChild, 0);
+          const bwd = sel.direction;
+          if (fwd !== 'forward' || bwd !== 'backward') {
+            throw new Error(`expected forward/backward, got ${fwd}/${bwd}`);
+          }
+          return `forward="${fwd}", backward="${bwd}"`;
+        } finally {
+          sel.removeAllRanges();
+        }
+      },
+    },
+    {
+      name: 'Temporal stamps a captureElementImage() snapshot and close() releases it',
+      why: 'Capturing an ElementImage, stamping it with Temporal.Now, drawing it at explicit size, and calling close() should leave open snapshots unchanged.',
+      run: async () => {
+        if (!supported || !hasCapture) throw new Error('captureElementImage() is unavailable');
+        if (!hasTemporal) throw new Error('Temporal.Now is unavailable in this browser');
+
+        const openBefore = window.__gfx?.snapshots?.open ?? 0;
+        const { c, dpr, w, h } = makeDrawableFixture(220, 70);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = `box-sizing:border-box;width:${w}px;height:${h}px;padding:8px;background:#1f3a5f;color:#fff;font:600 14px system-ui;`;
+        card.textContent = 'Captured card';
+        c.append(card);
+        testStage().append(c);
+
+        const ctx = c.getContext('2d');
+        await nextPaint(c);
+        const t0 = Temporal.Now.instant();
+        const zdt = Temporal.Now.zonedDateTimeISO();
+        let img = null;
+        let ink = 0;
+        try {
+          img = c.captureElementImage(card);
+          ctx.reset();
+          ctx.scale(dpr, dpr);
+          ctx.drawElementImage(img, 0, 0, card.offsetWidth, card.offsetHeight);
+          ink = copyInk(c);
+        } finally {
+          img?.close?.();
+        }
+        const openAfter = window.__gfx?.snapshots?.open ?? 0;
+        if (ink <= 0.05) throw new Error(`drawn snapshot had too little ink (${(ink * 100).toFixed(1)}%)`);
+        if (openAfter !== openBefore) throw new Error(`open snapshots changed from ${openBefore} to ${openAfter}`);
+        return `instant=${t0.toString()}, tz=${zdt.timeZoneId}, ink=${(ink * 100).toFixed(1)}%, open=${openAfter}`;
+      },
+    },
+    stillDrawn(() => [
+      {
+        name: 'Sanitiser canvas',
+        ink: async () => (sanPlain ? null : copyInk(sanCanvas)),
+        note: 'plain HTML',
+        rescue: () => showSanPlain('Switched to plain HTML after the checks found a blank canvas.'),
+      },
+      {
+        name: 'Shadow selection canvas',
+        ink: async () => (selHost.plain ? null : copyInk(selHost.canvas)),
+        note: 'plain HTML',
+        rescue: () => selHost.showPlain('Switched to plain HTML after the checks found a blank canvas.'),
+      },
+      {
+        name: 'Temporal filmstrip canvas',
+        ink: async () => (snapPlain ? null : copyInk(snapCanvas)),
+        note: 'plain HTML',
+        rescue: () => showSnapPlain('Switched to plain HTML after the checks found a blank canvas.'),
+      },
+    ]),
+  ]);
+</script>
+</body>
+</html>

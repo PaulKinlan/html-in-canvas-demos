@@ -215,6 +215,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | Immutable sRGB storage (`SRGB8_ALPHA8`), `UNPACK_FLIP_Y_WEBGL` and `generateMipmap` work. RGBA8 washes out sRGB colours. | measured | C157 | `/three-form/` | 3D and spatial |
 | Toolkits that blend premultiplied alpha need `UNPACK_PREMULTIPLY_ALPHA_WEBGL`. | measured | C157 | `/native-ui/` | Native UI toolkits |
 | three.js r187 calls older method names, so its `HTMLTexture` draws nothing until `installThreeShims()` maps them. | measured | C157 | `/three-form/` | 3D and spatial |
+| three.js r187 `WebGPURenderer` allocates an `HTMLTexture` from CSS pixels (`offsetWidth` × `offsetHeight`), while `GPUQueue.drawElementImageToTexture()` writes backing pixels at `getElementImageDefaultSize()`, cropping the bottom-right at `devicePixelRatio > 1`. Patching `renderer._textures.getSize` in `html3d.js` to return `getElementImageDefaultSize()` fixes the crop. | reported and fixed | desktop Chrome (HiDPI) | `/three-form/?renderer=webgpu` | 3D and spatial |
 | A page gets about 16 WebGL contexts. Past six to eight shaded elements, sharing one context (draw to 2D, upload, shade, copy back) gives pixel-identical output. | measured | C157 | `/shader-css/`, `/slot-effects/` | UI primitives; Named effects and shader slots |
 | A canvas keeps its first context type. Switching between 2D, WebGL and WebGPU means swapping the canvas. | measured | C157 | `/slot-effects/` | Named effects and shader slots |
 | A dying WebGL context fails shader compiles with an empty log before `isContextLost()` is true. | measured | C157 | `/shader-css/` | UI primitives, Touch, top layer and live checks |
@@ -252,6 +253,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `importExternalTexture()` and `copyExternalImageToTexture(video)` fail on the software adapter. `createImageBitmap(video)` or a 2D canvas in between works. | measured, software adapter | C157 | `/gpu-video/`, `/video-text/` | A video as a WebGPU external texture under HTML cards |
 | On the phone a plain float16 Display P3 2D canvas, a drawable one filled by `drawElementImage()`, and a WebGPU `rgba16float` canvas with tone mapping `extended` each show 4.0 brighter than 1.0. | reported | A159 | `/hdr-glow/repro.html` | HDR interface |
 | The probe-colour measurement of the native video controls works through `copyTextureToBuffer()` when the destination texture of `drawElementImageToTexture()` has `COPY_SRC`. | measured | C157, software adapter | `/video-lab/` | Video, second batch |
+| `GPUTextureView` from `drawElementImageToTexture()` bound to a WGSL `texture_external` slot alongside `importExternalTexture({ source: video })`, and per-element 48-byte uniforms via `pass.setImmediateData()` / `setImmediates()` with zero uniform buffers. | not verified | | `/webgpu-immediates/` | WebGPU immediates, external textures and MediaStreamTrack speech |
 
 ### What is in an element's picture
 
@@ -299,6 +301,7 @@ One row per main result. "Section" is the title of the file in [findings/](findi
 | `caption` and `tfoot` have offset boxes inside a drawable table with `position: relative`. The `datetime` and `value` attributes and the `title` tooltip of an `abbr` are not in the picture. | measured | C157 | `/table-data/`, `/text-marks/` | Table data; Text marks |
 | `br` has one client rectangle 0 px wide, `wbr` has none, and `q` has a rectangle for each of its two generated marks as well as one per line. | measured | C157 | `/text-marks/` | Text marks |
 | A `<title>` moved into a canvas with `display: block` is drawn and still sets `document.title`. | measured | C157 | `/field-heads/` | Field heads |
+| Linear-light 2D canvases (`srgb-linear` / `display-p3-linear`), CSS `contrast-color(var(--tint))`, `CanvasTextDrawingStyles.lang` alongside `<span lang>`, `@container scroll-state(scrolled)`, `:target-before`/`:target-after` on `::scroll-marker`, rounded `polygon(round ...)`, `Element.setHTML()`, `getSelection().getComposedRanges()` across a shadow-root canvas, and `Temporal` timestamps on `captureElementImage()` snapshots. | not verified | | `/linear-color/`, `/scroll-directions/`, `/sanitized-stream/` | Linear-light colour spaces; Scroll direction and rounded `polygon()`; Sanitised HTML, cross-shadow selection and Temporal snapshots |
 
 ### Slots and shadow DOM
 

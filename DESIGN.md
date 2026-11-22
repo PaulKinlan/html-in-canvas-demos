@@ -120,21 +120,22 @@ Built by `shared/nav.js`, which carries its own CSS.
 
 - Sticky at the top, 48 px high, `z-index: 2147483000`, blurred translucent background, 1 px bottom border.
 - Left: a Home link reading "HTML-in-canvas experiments". Below 520 px wide it reads "experiments".
-- Right: a previous arrow, a `<details>` whose summary is the current page's title (or "All demos (N)"), and a next arrow. The arrows are 40×40 px.
-- The open panel lists every group from `DEMO_GROUPS` with its pages in a grid of 240 px columns. Links are at least 40 px high. The current page is inverted (`aria-current="page"`).
+- Right: a previous arrow, a `<details>` whose summary is the current page's title (or "Browse (N)"), and a next arrow. The arrows are 40×40 px.
+- The open panel has a live search filter, quick links (`Home`, `Examples`, `Libraries`, `Learn the API`, `About`), and collapsible `<details>` groups from `DEMO_GROUPS` (the current page's group opens automatically; typing a filter opens matching groups). Links are at least 40 px high. The current page is inverted (`aria-current="page"`).
 - The panel closes on a click outside it and on Escape.
-- Group order is experiments first and the tutorial last: workers, tabs and origins; slots; UI primitives; transitions and motion; video and sound; 3D and shaders; measurements; then "Learn the API".
+- Group order puts visual and interactive experiments first across 14 focused groups (Shaders, lenses and visual UI; Custom form controls and pickers; Transitions, text and motion; 3D, spatial and WebXR; Video and sound; Windows, tabs and cross-origin; Native UI toolkits in the browser; Slots (where this started); AI, voice and controllers; Foldables, peripherals and app windows; Developer tools in a canvas; HTML elements in a canvas; Benchmarks, audits and limits; Learn, libraries and about).
 - Do not use a class named `.bar` in a page. The menu uses it.
 
 ## The homepage
 
-`public/index.html` with `public/home.js`. Section order, set by the project owner:
+`public/index.html` with `public/home.js`. Section order:
 
-1. A hero heading and lede, with links to the experiments and the tutorial.
-2. "Experiments": the full grouped list from the page files (`shared/pages.js`), as cards (number, title, blurb, tag chips). With the API available, `home.js` slots the same links into a canvas in a shadow root and draws them with a hover effect. Without it the cards are a plain grid.
-3. "Examples": cards with a 3:2 picture each, from `public/shared/thumbs/*.jpg` (720×480). The cross-context pages (remote, tear-off, time scrubber, picture-in-picture) lead this section.
-4. "Learn the API": a link to `/start/` and the table of which experiments use each API call (`LEARN.uses`).
-5. "The building block" and "Limits of the API".
+1. A hero heading and lede with quick jump links (`Examples`, `Libraries`, `All experiments`, `Learn the API`, `Limits`, `About`).
+2. "Examples": 31 visual highlights with a 3:2 picture each, from `public/shared/thumbs/*.jpg` (720×480), leading with per-element themes, peel-to-view-source, conveyor belt virtualised list, translate lens, shaders, lenses, physical meshes and form instruments.
+3. "Drop-in libraries": cards for the standalone ES modules and custom elements under `/lib/` (plus links to `/use-it/` and GitHub).
+4. "All experiments": filter bar (search input, group chips with counts, Expand/Collapse all) and 14 `<details class="group-fold" open>` sections (all open by default) generated from `shared/pages.js`. With the API available, `home.js` slots the links into a canvas in a shadow root and draws them with a hover effect. Without it the cards are a plain grid.
+5. "Learn the API": a link to `/start/` and the table of which experiments use each API call (`LEARN.uses`).
+6. "The building block" and "Limits of the API".
 
 ## Section order on a page
 

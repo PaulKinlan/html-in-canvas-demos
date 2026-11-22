@@ -4,7 +4,7 @@ Pushing on the experimental [HTML-in-canvas](https://github.com/WICG/html-in-can
 
 Live: https://html-in-canvas.page (second origin for the cross-origin demo: https://html-in-canvas-remote.kinlan-test.workers.dev)
 
-Needs Chrome 148+ (desktop or Android) with `chrome://flags/#canvas-draw-element` set to Enabled, or the `html-in-canvas` origin trial. Without it the site is plain HTML. The demos are tested in Chromium 157 and in Chrome 159 on Android.
+Chrome 157+ (desktop or Android) ships HTML-in-canvas enabled by default. On Chrome 148 to 156, `html-in-canvas.page` sends the `Origin-Trial` header (or enable `chrome://flags/#canvas-draw-element`). Without it the site is plain HTML. The demos are tested in Chromium 157 and in Chrome 159 on Android.
 
 ## Project documents
 
@@ -39,7 +39,7 @@ The minimum code:
 
 ## Two kinds of page
 
-[`/start/`](public/start/) is a tutorial for the API: how to enable it, a 60-line page that draws one element, common errors and a glossary. It is the only page written as a lesson.
+[`/start/`](public/start/) is a tutorial for the API: how to enable it, a 60-line page that draws one element, common errors and a glossary. It is the only page written as a lesson. [`/about/`](public/about/) tells the story of how the site began as a `<slot>` experiment and grew into the current set of experiments and libraries.
 
 Every other page is an experiment. Each one asks a question about the API (for example, whether a `<slot>` works inside a canvas, or whether one element can be drawn in two places) and reports what worked and what did not. The slot pages, `<canvas-slot>` and `<dom-portal>` are experiments, not recommended patterns. Experiments have no reading order.
 
@@ -92,11 +92,11 @@ The results of each experiment are in [findings/](findings/), one file per page 
 
 ## Worker
 
-`src/index.js` routes `/api/*`; everything else is static. `src/cross-context.js` serves `/api/x/room/<id>` (WebSocket relay rooms in a Durable Object), `/api/x/ice` and `/api/x/vision` (Workers AI). Bindings are in `wrangler.jsonc`. Optional secrets `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` (a Cloudflare Realtime TURN key) add TURN servers for networks where WebRTC can't connect directly; without them the demos fall back to relayed frames.
+`src/index.js` routes `/api/*`; everything else is static (with `public/404.html` served via `not_found_handling: "404-page"`). `src/cross-context.js` serves `/api/x/room/<id>` (WebSocket relay rooms in a Durable Object), `/api/x/ice` (rate-limited, 5-minute TURN credentials cached on the client for 2 minutes) and `/api/x/vision` (Workers AI). `src/reports.js` serves `/api/reports` (D1-backed crash and context-loss reports). Bindings are in `wrangler.jsonc`. Optional secrets `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` (a Cloudflare Realtime TURN key) add TURN servers for networks where WebRTC can't connect directly; without them the demos fall back to relayed frames.
 
 ## Plan for new platform features
 
-`/chrome-apis/` is a plan, not a demo: every feature that chromestatus.com lists for Chrome 130 to 160, an idea for combining it with a drawable canvas, and a ranked list of demos to build. `npm run build` generates the page data and the one-document version, `public/chrome-apis/plan.md`, from `tools/chrome-apis/ideas.json` and `demos.json`. Neither output is committed. `npm run build:plan -- --fetch` downloads the feature lists again. When a planned demo is built, put `"plan": "<demo key>"` in the `page.json` of the page that builds it. `npm run record:probes` runs `/chrome-apis/probes.html` in Chromium and records the results that the plan cites.
+`/chrome-apis/` surveys every feature that chromestatus.com lists for Chrome 130 to 160, pairs it with an idea for a drawable canvas, and tracks 33 planned demos (all 33 are now built). `npm run build` generates the page data and the one-document version, `public/chrome-apis/plan.md`, from `tools/chrome-apis/ideas.json` and `demos.json`. Neither output is committed. `npm run build:plan -- --fetch` downloads the feature lists again. When a planned demo is built, put `"plan": "<demo key>"` in the `page.json` of the page that builds it. `npm run record:probes` runs `/chrome-apis/probes.html` in Chromium and records the results that the plan cites.
 
 ## Pages must hold still
 

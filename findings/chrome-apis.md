@@ -1,6 +1,6 @@
 # Recent platform features on drawn elements (`/chrome-apis/`)
 
-`/chrome-apis/` lists the 678 features that chromestatus.com records for Chrome 130 to 160 with an idea for 359 of them and a ranked plan of 28 demos; the same content as one document is `/chrome-apis/plan.md` (`public/chrome-apis/plan.md` after `npm run build`). `/chrome-apis/probes.html` holds 27 probes, each of which draws one small element with one feature on and reads the result back. `npm run record:probes` runs them with real mouse and keyboard input in the two Chromium builds installed beside Playwright: the 157 headless shell and the 153 full browser with the `canvas-draw-element` flag.
+`/chrome-apis/` lists the 678 features that chromestatus.com records for Chrome 130 to 160 with an idea for 359 of them and 33 planned demos (all 33 built as of 2026-11-22); the same content as one document is `/chrome-apis/plan.md` (`public/chrome-apis/plan.md` after `npm run build`). `/chrome-apis/probes.html` holds 27 probes, each of which draws one small element with one feature on and reads the result back. `npm run record:probes` runs them with real mouse and keyboard input in the two Chromium builds installed beside Playwright: the 157 headless shell and the 153 full browser with the `canvas-draw-element` flag.
 
 | Experiment | Result | Why |
 |---|---|---|

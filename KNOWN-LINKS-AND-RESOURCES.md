@@ -31,6 +31,7 @@ Related files: [FINDINGS.md](FINDINGS.md), [PLAN.md](PLAN.md), [ARCHITECTURE.md]
 |---|---|
 | Repository | https://github.com/PaulKinlan/html-in-canvas-demos |
 | Live site, custom domain | https://html-in-canvas.page/ |
+| About page | https://html-in-canvas.page/about/ |
 | Live site, workers.dev name | https://html-in-canvas-demos.kinlan-test.workers.dev/ |
 | Second origin for the cross-origin demos | https://html-in-canvas-remote.kinlan-test.workers.dev/ |
 | Branch previews | `https://<alias>-html-in-canvas-preview.kinlan-test.workers.dev/`. The alias is the branch name in lower case, non-alphanumerics turned into `-`, a leading `claude-` removed, cut to 36 characters. Static files only. |
@@ -61,8 +62,8 @@ Every page is at `https://html-in-canvas.page/<name>/`. `npm run pages` prints t
 
 ## How to turn the API on
 
-- Chrome 148 or later, desktop or Android: set `chrome://flags/#canvas-draw-element` to Enabled.
-- A site can enable it for its visitors with the origin trial named `html-in-canvas`.
+- Chrome 157 or later, desktop or Android: HTML-in-canvas is enabled by default.
+- Chrome 148 to 156: `https://html-in-canvas.page` sends the `Origin-Trial` header for `HTMLInCanvas` automatically, or set `chrome://flags/#canvas-draw-element` to Enabled.
 - Chromium command line: `--enable-features=CanvasDrawElement --enable-blink-features=CanvasDrawElement`. To turn it off: `--disable-blink-features=CanvasDrawElement`.
 - The floor of Chrome 148 is what the pages state. Nothing older than Chromium 153 was tested in this project.
 - The site's own instructions: https://html-in-canvas.page/start/#enable

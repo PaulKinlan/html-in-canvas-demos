@@ -149,9 +149,9 @@ const cell = (s) => String(s).replace(/\|/g, '\\|').replace(/</g, '&lt;').replac
 const stageNote = (f) => (f.stage === 'shipped' ? `${f.milestone}` : `${f.milestone} (${f.stage})`);
 const demoTitle = Object.fromEntries(demos.map((d, i) => [d.key, `${i + 1}`]));
 const TIERS = [
-  ['next', 'Build next', 'These run in Chrome 157 to 159 today, and most have a measured result behind them.'],
-  ['then', 'Then', 'These depend on a model, a trial, a newer Chrome or a larger build.'],
-  ['hardware', 'Needs hardware the test browser does not have', 'A headset, a foldable, a real GPU, a peripheral or an installed app.'],
+  ['next', 'Core web platform demos', 'CSS, colour, text, scrolling, shapes, popovers and streaming combined with a drawable canvas.'],
+  ['then', 'AI, media, transport and DOM demos', 'Built-in AI, speech, navigation, focus, transports, capture, media states, sanitisation and custom elements.'],
+  ['hardware', 'Hardware, WebGPU and installed-app demos', 'Headsets, foldables, real GPUs, peripherals, WebAssembly toolkits and installed app windows (each with a simulated fallback where needed).'],
 ];
 
 let md = `# New platform features and HTML-in-canvas: a plan

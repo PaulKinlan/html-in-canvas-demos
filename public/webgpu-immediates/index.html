@@ -1,0 +1,2488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>WebGPU immediates, external textures and MediaStreamTrack speech</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Three experiments in one page: binding a GPUTextureView from a drawable DOM card straight to a WGSL texture_external slot alongside a video, pushing per-card uniforms with pass.setImmediateData()…">
+<link rel="canonical" href="https://html-in-canvas.page/webgpu-immediates/">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="WebGPU immediates, external textures and MediaStreamTrack speech">
+<meta property="og:description" content="Three experiments in one page: binding a GPUTextureView from a drawable DOM card straight to a WGSL texture_external slot alongside a video, pushing per-card uniforms with pass.setImmediateData()…">
+<meta property="og:url" content="https://html-in-canvas.page/webgpu-immediates/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;WebGPU immediates, external textures and MediaStreamTrack speech&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="WebGPU immediates, external textures and MediaStreamTrack speech">
+<meta name="twitter:description" content="Three experiments in one page: binding a GPUTextureView from a drawable DOM card straight to a WGSL texture_external slot alongside a video, pushing per-card uniforms with pass.setImmediateData()…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;WebGPU immediates, external textures and MediaStreamTrack speech&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/webgpu-immediates/",
+   "url": "https://html-in-canvas.page/webgpu-immediates/",
+   "mainEntityOfPage": "https://html-in-canvas.page/webgpu-immediates/",
+   "headline": "WebGPU immediates, external textures and MediaStreamTrack speech",
+   "name": "WebGPU immediates, external textures and MediaStreamTrack speech",
+   "description": "Three experiments in one page: binding a GPUTextureView from a drawable DOM card straight to a WGSL texture_external slot alongside a video, pushing per-card uniforms with pass.setImmediateData\u0028), and feeding a video\u0027s audio track into SpeechRecognition.start\u0028track) to drive an editable DOM caption banner in a 2D canvas.",
+   "abstract": "Can one WGSL texture_external shader sample both a video and a drawn DOM element, can pass.setImmediateData\u0028) drive four warped DOM cards with zero uniform buffers, and can SpeechRecognition.start\u0028track) write live captions straight into a drawn DOM banner?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "WebGPU, immediates, texture_external, SpeechRecognition, MediaStreamTrack, drawElementImageToTexture\u0028), importExternalTexture\u0028), setImmediateData\u0028), SpeechRecognition.start\u0028track), captureStream\u0028), drawElementImage\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "WebGPU immediates, external textures and MediaStreamTrack speech",
+     "item": "https://html-in-canvas.page/webgpu-immediates/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .demo-status {
+    margin: 0 0 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    font: 13px/1.45 var(--mono);
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  .demo-status .tag-ok { color: var(--ok); font-weight: 700; }
+  .demo-status .tag-warn { color: var(--warn); font-weight: 700; }
+  .demo-status .tag-bad { color: var(--bad); font-weight: 700; }
+
+  .controls { margin: 10px 0 0; }
+  .controls button { min-height: 40px; }
+  .controls button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  .controls label.inline-ctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    min-height: 40px;
+  }
+
+  .canvas-wrap {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #141312;
+  }
+  #ext-canvas {
+    display: block;
+    width: 100%;
+    height: 280px;
+    touch-action: pan-y;
+  }
+  #imm-canvas {
+    display: block;
+    width: 100%;
+    height: 360px;
+  }
+  #speech-canvas {
+    display: block;
+    width: 100%;
+    height: 270px;
+  }
+  @media (min-width: 700px) {
+    #ext-canvas { height: 320px; }
+    #imm-canvas { height: 310px; }
+    #speech-canvas { height: 310px; }
+  }
+
+  /* Split divider overlay for Demo 1 (visual only, pointer-events: none) */
+  .split-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #ff7a4d;
+    pointer-events: none;
+    transform: translateX(-1px);
+  }
+  .split-line::after {
+    content: "DOM | VIDEO";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 2px 7px;
+    border-radius: 99px;
+    background: #1d1c1a;
+    color: #f6f4ef;
+    border: 1px solid #ff7a4d;
+    font: 600 10px/1.2 var(--mono);
+    white-space: nowrap;
+  }
+  .split-slider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    font-size: 14px;
+  }
+  .split-slider input[type="range"] {
+    flex: 1 1 140px;
+    min-height: 34px;
+    accent-color: var(--accent);
+  }
+
+  /* Demo 1 drawable DOM card: fixed light colours so the shader texture looks consistent in light and dark mode. */
+  .ext-card {
+    width: 260px;
+    padding: 14px;
+    border-radius: 12px;
+    background: linear-gradient(155deg, #fffdf9 0%, #f1ece2 100%);
+    color: #1b1a18;
+    border: 2px solid #d2491f;
+    font: 13px/1.4 system-ui, -apple-system, sans-serif;
+  }
+  .ext-card .eyebrow {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 99px;
+    background: #d2491f;
+    color: #ffffff;
+    font: 700 10px/1.3 var(--mono);
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+  }
+  .ext-card h3 {
+    margin: 0 0 8px;
+    font-size: 16px;
+    line-height: 1.2;
+  }
+  .ext-card input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    margin: 0 0 8px;
+    border: 1px solid #b5afa4;
+    border-radius: 6px;
+    background: #ffffff;
+    color: #1b1a18;
+    font: 13px/1.3 system-ui, sans-serif;
+  }
+  .ext-card .card-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .ext-card button {
+    padding: 5px 10px;
+    min-height: 32px;
+    border-radius: 6px;
+    border: 1px solid #1d1c1a;
+    background: #1d1c1a;
+    color: #f6f4ef;
+    font: 600 12px system-ui, sans-serif;
+  }
+  .ext-card .swatch-btn {
+    background: #ffffff;
+    color: #1d1c1a;
+    border-color: #b5afa4;
+  }
+  .ext-card .meta {
+    margin-top: 8px;
+    font: 11px/1.3 var(--mono);
+    color: #5b574f;
+  }
+
+  /* Demo 2 drawable DOM cards: four interactive cards drawn in one WebGPU render pass. */
+  .imm-card {
+    width: 164px;
+    padding: 10px 11px;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #1b1a18;
+    border: 2px solid #2b2926;
+    font: 12px/1.35 system-ui, -apple-system, sans-serif;
+  }
+  .imm-card[data-accent="0"] { border-color: #d2491f; background: #fff9f6; }
+  .imm-card[data-accent="1"] { border-color: #1f7a3a; background: #f5fbf6; }
+  .imm-card[data-accent="2"] { border-color: #1d5fd1; background: #f5f8ff; }
+  .imm-card[data-accent="3"] { border-color: #8a6100; background: #fffbf0; }
+  .imm-card .imm-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .imm-card strong { font-size: 13px; }
+  .imm-card .imm-idx {
+    font: 700 10px var(--mono);
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: #1d1c1a;
+    color: #f6f4ef;
+  }
+  .imm-card button {
+    width: 100%;
+    padding: 5px 8px;
+    min-height: 30px;
+    border-radius: 6px;
+    border: 1px solid #d2491f;
+    background: #d2491f;
+    color: #ffffff;
+    font: 600 12px system-ui, sans-serif;
+  }
+  .imm-card input[type="text"] {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid #9faec9;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #1b1a18;
+    font: 12px system-ui, sans-serif;
+  }
+  .imm-card input[type="range"] {
+    width: 100%;
+    margin: 2px 0;
+  }
+  .imm-card label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+  }
+  .imm-card .imm-readout {
+    margin-top: 6px;
+    font: 10px/1.25 var(--mono);
+    color: #5b574f;
+  }
+
+  /* Demo 3 drawable video and editable caption banner inside a 2D canvas. */
+  #speech-video {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    background: #111;
+  }
+  .caption-banner {
+    width: 340px;
+    max-width: calc(100% - 20px);
+    padding: 9px 12px;
+    border-radius: 10px;
+    background: rgba(20, 19, 18, 0.9);
+    color: #f6f4ef;
+    border: 1.5px solid #ff7a4d;
+    font: 14px/1.4 system-ui, -apple-system, sans-serif;
+  }
+  .caption-banner .cap-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font: 600 10px/1.2 var(--mono);
+    color: #f0c060;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .caption-banner .cap-edit {
+    min-height: 2.2em;
+    padding: 3px 5px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    font: 500 14px/1.35 system-ui, sans-serif;
+    outline: none;
+  }
+  .caption-banner .cap-edit:focus {
+    outline: 2px solid #ff7a4d;
+    outline-offset: 1px;
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .plain-fallback {
+    padding: 14px;
+    background: var(--card);
+    color: var(--fg);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .plain-fallback video {
+    width: 100%;
+    max-width: 480px;
+    border-radius: 8px;
+  }
+  .plain-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+  }
+
+  table.caps {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  table.caps th, table.caps td {
+    text-align: left;
+    padding: 8px 10px 8px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  table.caps .yes { color: var(--ok); font-weight: 600; }
+  table.caps .no { color: var(--bad); font-weight: 600; }
+  @media (max-width: 620px) {
+    table.caps, table.caps tbody, table.caps tr, table.caps td { display: block; }
+    table.caps thead { display: none; }
+    table.caps tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+    table.caps td { border: 0; padding: 2px 0; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>WebGPU immediates, external textures and MediaStreamTrack speech</h1>
+  <p class="lede">
+    I wanted to test three newer Chrome APIs against HTML-in-canvas: binding a <code>GPUTextureView</code> from a drawn DOM card straight to a WGSL <code>texture_external</code> slot alongside a video, pushing per-card uniforms with <code>pass.setImmediateData()</code>, and feeding a video's audio track into <code>SpeechRecognition.start(track)</code> to drive a drawn DOM caption banner. Each section reports the path your browser took and falls back when a feature isn't there.
+  </p>
+
+  <!-- ======================== DEMO 1 ======================== -->
+  <h2 id="external-demo">1. <code>GPUTextureView</code> bound to <code>texture_external</code></h2>
+  <p class="note">
+    One WGSL shader with a single <code>texture_external</code> binding samples either a playing video (<code>importExternalTexture()</code>) or the live DOM card's <code>GPUTextureView</code> (<code>drawElementImageToTexture()</code>), or both in split screen inside the same render pass.
+  </p>
+  <div class="stage" id="ext-stage">
+    <div class="demo-status" id="ext-status" role="status">Starting external texture check…</div>
+    <div class="canvas-wrap" id="ext-wrap">
+      <!-- #region ext-markup -->
+      <canvas id="ext-canvas" content="drawable" layoutsubtree>
+        <div class="ext-card" id="ext-card" drawable>
+          <span class="eyebrow">GPUTextureView -> texture_external</span>
+          <h3>Live DOM card</h3>
+          <input type="text" id="ext-input" value="Edit me in the shader" aria-label="Live card text">
+          <div class="card-actions">
+            <button type="button" id="ext-bump">Clicks: 0</button>
+            <button type="button" class="swatch-btn" id="ext-theme">Tint card</button>
+          </div>
+          <div class="meta" id="ext-meta">Bound as GPUTextureView</div>
+        </div>
+      </canvas>
+      <!-- #endregion ext-markup -->
+      <div class="split-line" id="ext-split-line" aria-hidden="true" style="left: 50%"></div>
+    </div>
+    <video id="ext-video" src="/media/clip.webm" muted loop playsinline preload="metadata" hidden></video>
+
+    <div class="split-slider" id="ext-split-row">
+      <label for="ext-split-range">Split position</label>
+      <input type="range" id="ext-split-range" min="10" max="90" value="50">
+      <span class="note" id="ext-split-pct">50%</span>
+    </div>
+    <div class="row controls">
+      <button type="button" data-ext-mode="dom" aria-pressed="false">Source: live DOM card</button>
+      <button type="button" data-ext-mode="video" aria-pressed="false">Source: playing video</button>
+      <button type="button" data-ext-mode="split" aria-pressed="true">Source: split screen</button>
+      <button type="button" id="ext-fx-btn" aria-pressed="true">Shader grade: on</button>
+      <button type="button" id="ext-play-btn">Pause video</button>
+    </div>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>single texture_external shader, GPUTextureView bind group and hit geometry</small></summary>
+    <ol>
+      <li data-code="#ext-markup"><b>The drawable DOM card inside the canvas.</b> Its texture view is handed to the same <code>externalTexture</code> binding as the video.</li>
+      <li data-code="#ext-wgsl"><b>One WGSL shader with one <code>texture_external</code> binding.</b> Both sources are sampled through <code>textureSampleBaseClampToEdge()</code> with optional chroma shift and scanlines.</li>
+      <li data-code="#ext-bind"><b>Probing <code>GPUTextureView</code> in <code>externalTexture</code> and updating hit boxes.</b> If validation rejects the view or WebGPU isn't usable, the stage switches to a 2D canvas.</li>
+    </ol>
+  </details>
+
+  <!-- ======================== DEMO 2 ======================== -->
+  <h2 id="immediates-demo">2. Per-element uniforms with <code>pass.setImmediateData()</code></h2>
+  <p class="note">
+    Four interactive drawable DOM cards are drawn in one render pass on a subdivided mesh. Each card's offset, tilt, wave phase and highlight (48 bytes) are pushed straight onto the render pass with <code>setImmediateData()</code> (or <code>setImmediates()</code> where Chrome exposes the earlier name) and zero uniform buffers.
+  </p>
+  <div class="stage" id="imm-stage">
+    <div class="demo-status" id="imm-status" role="status">Checking WebGPU immediates support…</div>
+    <div class="canvas-wrap" id="imm-wrap">
+      <!-- #region imm-markup -->
+      <canvas id="imm-canvas" content="drawable" layoutsubtree>
+        <div class="imm-card" id="imm-card-0" data-accent="0" drawable>
+          <div class="imm-head"><strong>Offset</strong><span class="imm-idx">#0</span></div>
+          <button type="button" id="imm-btn-0">Tap: 0</button>
+          <div class="imm-readout" id="imm-out-0">48 B immediate</div>
+        </div>
+        <div class="imm-card" id="imm-card-1" data-accent="1" drawable>
+          <div class="imm-head"><strong>Tilt</strong><span class="imm-idx">#1</span></div>
+          <label><input type="checkbox" id="imm-chk-1" checked> Boost tilt</label>
+          <div class="imm-readout" id="imm-out-1">tilt boost: on</div>
+        </div>
+        <div class="imm-card" id="imm-card-2" data-accent="2" drawable>
+          <div class="imm-head"><strong>Wave</strong><span class="imm-idx">#2</span></div>
+          <input type="text" id="imm-txt-2" value="Immediate" aria-label="Wave card label">
+          <div class="imm-readout" id="imm-out-2">10x6 wave mesh</div>
+        </div>
+        <div class="imm-card" id="imm-card-3" data-accent="3" drawable>
+          <div class="imm-head"><strong>Highlight</strong><span class="imm-idx">#3</span></div>
+          <input type="range" id="imm-rng-3" min="0" max="100" value="75" aria-label="Highlight strength">
+          <div class="imm-readout" id="imm-out-3">glow 75%</div>
+        </div>
+      </canvas>
+      <!-- #endregion imm-markup -->
+    </div>
+    <div class="row controls">
+      <button type="button" id="imm-motion-btn" aria-pressed="true">Wave &amp; tilt: on</button>
+      <button type="button" id="imm-focus-btn">Cycle highlight card</button>
+      <button type="button" id="imm-route-btn" disabled>Using: checking…</button>
+    </div>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>48-byte var&lt;immediate&gt; block, mesh warp shader and uniform buffer fallback</small></summary>
+    <ol>
+      <li data-code="#imm-markup"><b>Four interactive drawable cards in one canvas.</b> Each has its own control and keeps its hit box synced as it moves.</li>
+      <li data-code="#imm-wgsl"><b>Subdivided wave mesh with <code>var&lt;immediate&gt;</code>.</b> Packing the canvas size into the 48-byte immediate block removes every uniform buffer from the pass.</li>
+      <li data-code="#imm-pass"><b>One render pass for all four cards.</b> Calls <code>pass.setImmediateData()</code> (or <code>setImmediates()</code>) before each draw, or binds a 256-byte dynamic offset in the fallback buffer.</li>
+    </ol>
+  </details>
+
+  <!-- ======================== DEMO 3 ======================== -->
+  <h2 id="speech-demo">3. <code>SpeechRecognition.start(track)</code> into drawn DOM captions</h2>
+  <p class="note">
+    Plays <code>/media/talk.webm</code>, captures its audio track with <code>video.captureStream().getAudioTracks()[0]</code>, and passes that track to <code>recognition.start(audioTrack)</code>. The recognised text (or <code>/media/talk.vtt</code> cues when track recognition isn't available or returns nothing) writes straight into a selectable, editable DOM banner drawn over the video in one 2D canvas.
+  </p>
+  <div class="stage" id="speech-stage">
+    <div class="demo-status" id="speech-status" role="status">Press Play to start the clip and try SpeechRecognition.start(audioTrack).</div>
+    <div class="canvas-wrap" id="speech-wrap">
+      <!-- #region speech-markup -->
+      <canvas id="speech-canvas" content="drawable" layoutsubtree>
+        <video id="speech-video" src="/media/talk.webm" playsinline preload="metadata" drawable></video>
+        <div class="caption-banner" id="caption-banner" drawable>
+          <div class="cap-top">
+            <span id="cap-source">Ready</span>
+            <span id="cap-speaker">Clip: talk.webm</span>
+          </div>
+          <div class="cap-edit" id="caption-text" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="true" aria-label="Live editable caption">Press Play to transcribe the audio track into this editable DOM banner. You can select or edit this text while it's drawn over the video.</div>
+        </div>
+      </canvas>
+      <!-- #endregion speech-markup -->
+    </div>
+    <div class="row controls">
+      <button type="button" id="speech-play-btn">Play with track recognition</button>
+      <button type="button" id="speech-restart-btn">Restart clip</button>
+      <label class="inline-ctl"><input type="checkbox" id="speech-mute"> Mute speakers</label>
+      <button type="button" id="speech-resume-btn" hidden>Resume auto-sync</button>
+    </div>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>captureStream() audio track, SpeechRecognition.start(track) and 2D caption draw</small></summary>
+    <ol>
+      <li data-code="#speech-markup"><b>Video and editable DOM banner inside one 2D canvas.</b> Drawing the banner after the video puts it on top for taps, text selection and editing.</li>
+      <li data-code="#speech-track"><b>Capturing the audio track and falling back to <code>talk.vtt</code>.</b> Reports whether <code>start(audioTrack)</code> was accepted, errored or timed out without results.</li>
+      <li data-code="#speech-paint"><b>Painting both elements at their layout size.</b> Every <code>drawElementImage()</code> call passes width and height so HiDPI phone screens scale correctly.</li>
+    </ol>
+  </details>
+
+  <!-- ======================== HOW IT WORKS ======================== -->
+  <h2 id="how">How it works</h2>
+  <p>
+    All three demos share the page's single WebGPU device from <code>webgpu()</code> in <code>/shared/backend.js</code> (no extra device is opened, and nothing calls <code>adapter.requestDevice()</code> directly). When WebGPU isn't available or rejects a newer binding, Demos 1 and 2 switch to a 2D canvas with <code>drawElementImage()</code> so every control stays usable.
+  </p>
+  <table class="caps">
+    <thead><tr><th>Capability</th><th>In this browser</th><th>How the page uses it</th></tr></thead>
+    <tbody id="caps-body">
+      <tr data-cap="gpu"><td><code>navigator.gpu</code> + <code>drawElementImageToTexture()</code></td><td class="val">Checking…</td><td>Uploads drawable HTML cards straight into <code>rgba8unorm</code> WebGPU textures.</td></tr>
+      <tr data-cap="ext"><td><code>GPUTextureView</code> in <code>externalTexture</code></td><td class="val">Checking…</td><td>Lets one WGSL <code>texture_external</code> pipeline sample both a <code>&lt;video&gt;</code> and a drawn DOM element.</td></tr>
+      <tr data-cap="imm"><td><code>pass.setImmediateData()</code> / <code>setImmediates()</code></td><td class="val">Checking…</td><td>Pushes 48 bytes of offset, tilt, wave phase and highlight per card with zero uniform buffers.</td></tr>
+      <tr data-cap="speech"><td><code>SpeechRecognition</code> + <code>captureStream()</code></td><td class="val">Checking…</td><td>Sends the playing video's audio <code>MediaStreamTrack</code> to <code>recognition.start(audioTrack)</code>, falling back to <code>/media/talk.vtt</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ======================== LIVE CHECKS ======================== -->
+  <h2 id="tests">Live checks</h2>
+  <p class="note">
+    Each check builds its own isolated fixture on a bench panel at the bottom of the screen and retires its canvas afterwards. The visible demos above aren't touched while the checks run.
+  </p>
+  <table class="results">
+    <thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead>
+    <tbody id="results"></tbody>
+  </table>
+
+  <!-- ======================== FINDINGS ======================== -->
+  <h2 id="findings">Findings</h2>
+  <p class="note">
+    This page hasn't been measured in a browser yet; press "Run these checks" above to measure your browser, and see <code>findings/webgpu-immediates.md</code> for the verification checklist.
+  </p>
+  <ul class="findings">
+    <li><strong><code>GPUTextureView</code> in <code>texture_external</code> avoids duplicating shaders.</strong> When a browser accepts a single-mip 2D <code>rgba8unorm</code> view in an <code>externalTexture</code> binding, one WGSL pipeline using <code>textureSampleBaseClampToEdge()</code> can draw both <code>importExternalTexture({ source: video })</code> and a <code>drawElementImageToTexture()</code> card in the same render pass. Not verified on desktop Chrome or Android yet.</li>
+    <li><strong>Immediates method naming differs across Chrome builds.</strong> Chromium 157 exposed <code>GPURenderPassEncoder.prototype.setImmediates</code> with <code>maxImmediateSize</code> of 64 bytes (measured in <code>findings/webgpu-features.md</code> on 2026-11-21), while the WebGPU spec renamed the call to <code>setImmediateData()</code>. Demo 2 checks <code>setImmediateData</code> first and falls back to <code>setImmediates</code>, then to a 256-byte dynamic-offset uniform buffer, reporting whichever name the browser exposes.</li>
+    <li><strong><code>SpeechRecognition.start(audioTrack)</code> needs a live speech backend and unmuted audio.</strong> Headless Chromium 157 exposes <code>SpeechRecognition</code>, <code>processLocally</code> and <code>available()</code> without a speech service (measured in <code>findings/live-captions.md</code> on 2026-11-21). Muting the <code>&lt;video&gt;</code> also silences <code>captureStream()</code> in Chrome, so playback starts unmuted on user tap and falls back to <code>/media/talk.vtt</code> cues if recognition errors or produces no words within 2.5 s.</li>
+    <li><strong>Hit testing after WebGPU draws requires <code>updateElementGeometry()</code>.</strong> Every time a card moves or resizes in Demo 1 or Demo 2, the page passes a new <code>DOMMatrix</code> to <code>canvas.updateElementGeometry()</code> and toggles an attribute on the element to clear Chromium's hit-test cache.</li>
+    <li><strong>Not verified:</strong> live WebGPU presentation of <code>GPUTextureView</code>-as-<code>texture_external</code>, <code>pass.setImmediateData()</code> pixel parity against uniform buffers, and real audio track transcription from <code>/media/talk.webm</code> on Chrome desktop and Chrome for Android.</li>
+  </ul>
+</main>
+
+<script type="module">
+import { banner, checkBench, nextPaint, onBench, runTests, supported } from '/shared/support.js';
+import { checkDevice, webgpu } from '/shared/backend.js';
+import { BLEND_OVER, GPUCanvas, GPUElementTexture, checkWGSL, gpuMethod, supportedGPU, watchFrame } from '/lib/gpu-util.js';
+
+banner();
+
+const $ = (id) => document.getElementById(id);
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const capCell = (key) => document.querySelector(`tr[data-cap="${key}"] .val`);
+
+// Measure once per canvas whether updateElementGeometry's canvasTransform expects CSS pixels or backing pixels.
+function makeHitPlacer(canvas) {
+  let unit = 1;
+  let calibrated = false;
+  const lastKeys = new WeakMap();
+  return function place(el, rectPx, dpr, extra = {}) {
+    if (!canvas.updateElementGeometry || !el.offsetWidth || !el.offsetHeight) return;
+    const { dx = 0, dy = 0, rotRad = 0 } = extra;
+    const key = `${Math.round(rectPx.x)},${Math.round(rectPx.y)},${Math.round(rectPx.w)},${Math.round(rectPx.h)},${Math.round(dx)},${Math.round(dy)},${rotRad.toFixed(3)}`;
+    if (lastKeys.get(el) === key) return;
+    lastKeys.set(el, key);
+
+    const build = (u) => {
+      const cx = (rectPx.x + rectPx.w * 0.5 + dx) / dpr;
+      const cy = (rectPx.y + rectPx.h * 0.5 + dy) / dpr;
+      const sx = (rectPx.w / dpr) / el.offsetWidth;
+      const sy = (rectPx.h / dpr) / el.offsetHeight;
+      return new DOMMatrix()
+        .translate(cx * u, cy * u)
+        .rotate((rotRad * 180) / Math.PI)
+        .scale(sx * u, sy * u)
+        .translate(-el.offsetWidth * 0.5, -el.offsetHeight * 0.5);
+    };
+
+    try {
+      canvas.updateElementGeometry(el, { canvasTransform: build(unit) });
+      if (!calibrated && Math.abs(rotRad) < 0.01) {
+        const measured = el.getBoundingClientRect().width;
+        const targetCss = rectPx.w / dpr;
+        if (measured > 0 && targetCss > 0 && Math.abs(measured / targetCss - 1) > 0.12) {
+          unit *= targetCss / measured;
+          canvas.updateElementGeometry(el, { canvasTransform: build(unit) });
+        }
+        calibrated = true;
+      }
+      // Toggle an attribute so Chromium clears its cached hit-test region.
+      el.toggleAttribute('data-hit-tick');
+    } catch {}
+  };
+}
+
+// Helper: compute backing store pixel size from ResizeObserver + devicePixelRatio.
+function measureCanvasSize(canvas, deviceBox) {
+  const cw = canvas.clientWidth || 300;
+  const ch = canvas.clientHeight || 200;
+  const dpr = window.devicePixelRatio || 1;
+  const exact = deviceBox && Math.abs(deviceBox.w / (cw * dpr) - 1) < 0.02;
+  const w = Math.max(2, exact ? deviceBox.w : Math.round(cw * dpr));
+  const h = Math.max(2, exact ? deviceBox.h : Math.round(ch * dpr));
+  return { w, h, dpr: w / cw };
+}
+
+// Helper: replace a canvas cleanly when switching context type (WebGPU -> 2D) and retire the old one.
+function swapToFreshCanvas(oldCanvas, children) {
+  const fresh = oldCanvas.cloneNode(false);
+  oldCanvas.replaceWith(fresh);
+  for (const child of children) fresh.append(child);
+  window.__gfx?.retire(oldCanvas);
+  return fresh;
+}
+
+// Helper: fit a rectangle of aspect w:h inside a target box with margin.
+function fitBox(box, srcW, srcH, pad = 12) {
+  const availW = Math.max(10, box.w - pad * 2);
+  const availH = Math.max(10, box.h - pad * 2);
+  const s = Math.min(availW / Math.max(1, srcW), availH / Math.max(1, srcH));
+  const w = srcW * s;
+  const h = srcH * s;
+  return { x: box.x + (box.w - w) * 0.5, y: box.y + (box.h - h) * 0.5, w, h };
+}
+
+// Shared WebGPU capability summary
+const immediateProto = typeof GPURenderPassEncoder !== 'undefined' ? GPURenderPassEncoder.prototype : null;
+const hasSetImmediateData = !!immediateProto && 'setImmediateData' in immediateProto;
+const hasSetImmediates = !!immediateProto && 'setImmediates' in immediateProto;
+const immediateMethod = hasSetImmediateData ? 'setImmediateData' : hasSetImmediates ? 'setImmediates' : null;
+const hasImmediateWGSL = !!navigator.gpu?.wgslLanguageFeatures?.has('immediate_address_space');
+
+// ============================================================================
+// WGSL SHADERS
+// ============================================================================
+
+// #region ext-wgsl
+const EXT_WGSL = /* wgsl */ `
+struct ExtUniforms {
+  canvasSize: vec2f,
+  time: f32,
+  effect: f32,
+  destRect: vec4f,
+  splitLine: f32,
+  sourceKind: f32,
+  pad0: f32,
+  pad1: f32,
+};
+
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var srcTex: texture_external;
+@group(0) @binding(2) var<uniform> u: ExtUniforms;
+
+struct VOut {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@vertex fn vs(@builtin(vertex_index) idx: u32) -> VOut {
+  var corners = array<vec2f, 6>(
+    vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
+    vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0)
+  );
+  let uv = corners[idx];
+  let px = u.destRect.xy + uv * u.destRect.zw;
+  let clip = vec2f(px.x / u.canvasSize.x * 2.0 - 1.0, 1.0 - px.y / u.canvasSize.y * 2.0);
+  var out: VOut;
+  out.pos = vec4f(clip, 0.0, 1.0);
+  out.uv = uv;
+  return out;
+}
+
+@fragment fn fs(v: VOut) -> @location(0) vec4f {
+  if (u.effect < 0.5) {
+    return textureSampleBaseClampToEdge(srcTex, samp, v.uv);
+  }
+  let shift = 0.004 + 0.002 * sin(u.time * 2.2 + v.uv.y * 6.0);
+  let r = textureSampleBaseClampToEdge(srcTex, samp, v.uv + vec2f(shift, 0.0)).r;
+  let c = textureSampleBaseClampToEdge(srcTex, samp, v.uv);
+  let b = textureSampleBaseClampToEdge(srcTex, samp, v.uv - vec2f(shift, 0.0)).b;
+  let scan = 0.93 + 0.07 * sin(v.pos.y * 1.35);
+  let edge = length((v.uv - 0.5) * vec2f(1.35, 1.25));
+  let vig = clamp(1.08 - edge * edge * 0.45, 0.55, 1.0);
+  let tint = select(vec3f(1.02, 0.99, 0.95), vec3f(0.95, 1.01, 1.04), u.sourceKind > 0.5);
+  let rgb = vec3f(r, c.g, b) * scan * vig * tint;
+  return vec4f(rgb, c.a);
+}
+`;
+// #endregion ext-wgsl
+
+// #region imm-wgsl
+const MESH_COLS = 10;
+const MESH_ROWS = 6;
+const MESH_VERTS = MESH_COLS * MESH_ROWS * 6;
+
+function buildImmWGSL(useImmediates) {
+  return /* wgsl */ `
+struct CardImmediate {
+  rect: vec4f,    // x, y, w, h in canvas pixels
+  motion: vec4f,  // offsetX, offsetY, tiltRad, wavePhase
+  style: vec4f,   // highlight (0..1), canvasW, canvasH, warpAmt
+};
+
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var cardTex: texture_2d<f32>;
+${useImmediates ? 'var<immediate> u: CardImmediate;' : '@group(1) @binding(0) var<uniform> u: CardImmediate;'}
+
+struct VOut {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) shade: f32,
+};
+
+@vertex fn vs(@builtin(vertex_index) idx: u32) -> VOut {
+  let cell = idx / 6u;
+  let local = idx % 6u;
+  let col = cell % ${MESH_COLS}u;
+  let row = cell / ${MESH_COLS}u;
+  let ox = f32(local == 1u || local == 4u || local == 5u);
+  let oy = f32(local == 2u || local == 3u || local == 5u);
+  let uv = vec2f((f32(col) + ox) / ${MESH_COLS}.0, (f32(row) + oy) / ${MESH_ROWS}.0);
+
+  let centre = u.rect.xy + u.rect.zw * 0.5 + u.motion.xy;
+  let p = (uv - 0.5) * u.rect.zw;
+  let wave = sin(uv.x * 5.2 + u.motion.w) * cos(uv.y * 2.6 - u.motion.w * 0.7);
+  let warp = u.style.w;
+  let bent = vec2f(
+    p.x + sin(uv.y * 4.0 + u.motion.w) * 6.0 * warp,
+    p.y + wave * 9.0 * warp
+  );
+  let ca = cos(u.motion.z);
+  let sa = sin(u.motion.z);
+  let rot = vec2f(bent.x * ca - bent.y * sa, bent.x * sa + bent.y * ca);
+  let px = centre + rot;
+  let clip = vec2f(px.x / u.style.y * 2.0 - 1.0, 1.0 - px.y / u.style.z * 2.0);
+
+  var out: VOut;
+  out.pos = vec4f(clip, 0.0, 1.0);
+  out.uv = uv;
+  out.shade = wave * warp;
+  return out;
+}
+
+@fragment fn fs(v: VOut) -> @location(0) vec4f {
+  let c = textureSample(cardTex, samp, v.uv);
+  let sweep = smoothstep(0.18, 0.0, abs((v.uv.x + v.uv.y * 0.45) - fract(u.motion.w * 0.14)));
+  let hi = u.style.x;
+  let foldLight = 1.0 + v.shade * 0.12;
+  let sheen = vec3f(1.0, 0.94, 0.84) * sweep * hi * 0.32 * c.a;
+  let borderGlow = (1.0 - smoothstep(0.0, 0.05, min(min(v.uv.x, 1.0 - v.uv.x), min(v.uv.y, 1.0 - v.uv.y)))) * hi * 0.35 * c.a;
+  let rgb = c.rgb * foldLight + sheen + vec3f(1.0, 0.48, 0.30) * borderGlow;
+  return vec4f(rgb, c.a);
+}
+`;
+}
+// #endregion imm-wgsl
+
+// ============================================================================
+// PROBE: Does this WebGPU device accept GPUTextureView in externalTexture?
+// ============================================================================
+// #region ext-bind
+async function probeTextureViewAsExternal(device) {
+  const layout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, externalTexture: {} },
+      { binding: 2, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+    ],
+  });
+  const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+  const uBuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const tex = device.createTexture({
+    size: [2, 2],
+    format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+
+  device.pushErrorScope('validation');
+  let ok = false;
+  let reason = '';
+  try {
+    device.createBindGroup({
+      layout,
+      entries: [
+        { binding: 0, resource: sampler },
+        { binding: 1, resource: tex.createView() },
+        { binding: 2, resource: { buffer: uBuf } },
+      ],
+    });
+    const err = await device.popErrorScope();
+    if (err) reason = err.message.split('\n')[0];
+    else ok = true;
+  } catch (err) {
+    await device.popErrorScope().catch(() => {});
+    reason = err.message.split('\n')[0];
+  } finally {
+    tex.destroy();
+    uBuf.destroy();
+  }
+  return { ok, reason, layout };
+}
+// #endregion ext-bind
+
+// ============================================================================
+// DEMO 1: GPUTextureView bound to texture_external
+// ============================================================================
+const demo1 = (() => {
+  let canvas = $('ext-canvas');
+  const card = $('ext-card');
+  const video = $('ext-video');
+  const statusEl = $('ext-status');
+  const splitLine = $('ext-split-line');
+  const splitRow = $('ext-split-row');
+  const splitRange = $('ext-split-range');
+  const splitPct = $('ext-split-pct');
+  const fxBtn = $('ext-fx-btn');
+  const playBtn = $('ext-play-btn');
+
+  let mode = 'split'; // 'dom' | 'video' | 'split'
+  let effectOn = true;
+  let splitRatio = 0.5;
+  let route = 'starting'; // 'webgpu' | '2d' | 'plain'
+  let visible = true;
+  let dirty = true;
+  let raf = 0;
+  let deviceBox = null;
+  let userPaused = false;
+  let firstFrames = 0;
+
+  // WebGPU objects
+  let gpu = null;
+  let surface = null;
+  let pipeline = null;
+  let extLayout = null;
+  let sampler = null;
+  let domTex = null;
+  let uDomBuf = null;
+  let uVidBuf = null;
+  let domGroup = null;
+  let domGroupOf = null;
+  let placeHit = makeHitPlacer(canvas);
+
+  // 2D context
+  let ctx2d = null;
+
+  // Card interactivity
+  let extClicks = 0;
+  let tinted = false;
+  $('ext-bump').addEventListener('click', () => {
+    extClicks++;
+    $('ext-bump').textContent = `Clicks: ${extClicks}`;
+    dirty = true;
+    canvas.requestPaint?.();
+    schedule();
+  });
+  $('ext-theme').addEventListener('click', () => {
+    tinted = !tinted;
+    card.style.background = tinted
+      ? 'linear-gradient(155deg, #fff3e6 0%, #ffd9be 100%)'
+      : 'linear-gradient(155deg, #fffdf9 0%, #f1ece2 100%)';
+    dirty = true;
+    canvas.requestPaint?.();
+    schedule();
+  });
+  $('ext-input').addEventListener('input', () => {
+    dirty = true;
+    canvas.requestPaint?.();
+    schedule();
+  });
+
+  function setStatus(kind, text) {
+    statusEl.innerHTML = `<span class="tag-${kind}">${kind === 'ok' ? 'ACTIVE' : kind === 'warn' ? 'FALLBACK' : 'PLAIN'}</span> ${text}`;
+  }
+
+  function updateSplitUI() {
+    const pct = Math.round(splitRatio * 100);
+    splitLine.style.left = `${pct}%`;
+    splitLine.hidden = mode !== 'split' || route === 'plain';
+    splitRow.hidden = mode !== 'split' || route === 'plain';
+    splitRange.value = String(pct);
+    splitPct.textContent = `${pct}%`;
+    card.inert = mode === 'video';
+  }
+
+  for (const btn of document.querySelectorAll('[data-ext-mode]')) {
+    btn.addEventListener('click', () => {
+      mode = btn.dataset.extMode;
+      for (const b of document.querySelectorAll('[data-ext-mode]')) {
+        b.setAttribute('aria-pressed', String(b === btn));
+      }
+      updateSplitUI();
+      if (mode !== 'dom' && !userPaused) ensureVideoPlaying();
+      schedule();
+    });
+  }
+  fxBtn.addEventListener('click', () => {
+    effectOn = !effectOn;
+    fxBtn.setAttribute('aria-pressed', String(effectOn));
+    fxBtn.textContent = `Shader grade: ${effectOn ? 'on' : 'off'}`;
+    schedule();
+  });
+  playBtn.addEventListener('click', async () => {
+    if (video.paused) {
+      userPaused = false;
+      await ensureVideoPlaying();
+    } else {
+      userPaused = true;
+      video.pause();
+    }
+    syncPlayButton();
+    schedule();
+  });
+  splitRange.addEventListener('input', () => {
+    splitRatio = Number(splitRange.value) / 100;
+    updateSplitUI();
+    schedule();
+  });
+
+  function syncPlayButton() {
+    playBtn.textContent = video.paused ? 'Play video' : 'Pause video';
+  }
+  async function ensureVideoPlaying() {
+    if (userPaused || !visible || mode === 'dom') return;
+    try {
+      await video.play();
+    } catch {}
+    syncPlayButton();
+  }
+
+  // Allow dragging the split line on the canvas background (without stealing clicks from the card's inputs/buttons).
+  function wirePointer(c) {
+    let dragging = false;
+    c.addEventListener('pointerdown', (e) => {
+      if (mode !== 'split') return;
+      if (e.target !== c) return;
+      dragging = true;
+      c.setPointerCapture?.(e.pointerId);
+      const r = c.getBoundingClientRect();
+      splitRatio = Math.max(0.1, Math.min(0.9, (e.clientX - r.left) / r.width));
+      updateSplitUI();
+      schedule();
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const r = c.getBoundingClientRect();
+      splitRatio = Math.max(0.1, Math.min(0.9, (e.clientX - r.left) / r.width));
+      updateSplitUI();
+      schedule();
+    });
+    for (const ev of ['pointerup', 'pointercancel']) {
+      c.addEventListener(ev, () => { dragging = false; });
+    }
+  }
+
+  const ro = new ResizeObserver((entries) => {
+    const b = entries.at(-1)?.devicePixelContentBoxSize?.[0];
+    deviceBox = b ? { w: b.inlineSize, h: b.blockSize } : null;
+    resize();
+    schedule();
+  });
+  const io = new IntersectionObserver((entries) => {
+    visible = !!entries.at(-1)?.isIntersecting;
+    if (visible && !userPaused && mode !== 'dom') ensureVideoPlaying();
+    else if (!visible && !video.paused) video.pause();
+    syncPlayButton();
+    schedule();
+  });
+
+  function resize() {
+    if (!canvas.isConnected || route === 'plain') return;
+    const { w, h } = measureCanvasSize(canvas, deviceBox);
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+  }
+
+  function wireCanvas(c) {
+    c.addEventListener('paint', () => {
+      dirty = true;
+      schedule();
+    });
+    wirePointer(c);
+    ro.observe(c, { box: 'device-pixel-content-box' });
+    io.observe(c);
+    placeHit = makeHitPlacer(c);
+  }
+
+  function switchTo2D(reason) {
+    const hadWebGPU = !!surface || route === 'webgpu';
+    surface?.destroy();
+    domTex?.destroy();
+    surface = null;
+    domTex = null;
+    if (hadWebGPU) {
+      ro.unobserve(canvas);
+      io.unobserve(canvas);
+      canvas = swapToFreshCanvas(canvas, [card]);
+      wireCanvas(canvas);
+    }
+    ctx2d = canvas.getContext('2d');
+    route = '2d';
+    $('ext-meta').textContent = '2D drawElementImage() fallback';
+    setStatus('warn', `2D canvas fallback (${reason}). Drawing DOM card with drawElementImage() and video with drawImage().`);
+    resize();
+    dirty = true;
+    canvas.requestPaint?.();
+    schedule();
+  }
+
+  function showPlain(reason) {
+    route = 'plain';
+    setStatus('bad', reason);
+    const box = document.createElement('div');
+    box.className = 'plain-fallback';
+    video.hidden = false;
+    video.controls = true;
+    box.append(card, video);
+    $('ext-wrap').replaceChildren(box);
+    updateSplitUI();
+  }
+
+  async function init(sharedGpu, viewProbe) {
+    if (!supported) {
+      showPlain('HTML-in-canvas isn\'t available in this browser, so the card and video are shown as plain HTML.');
+      return;
+    }
+    wireCanvas(canvas);
+    video.addEventListener('loadeddata', () => schedule());
+    video.addEventListener('playing', () => { syncPlayButton(); schedule(); });
+    video.addEventListener('pause', syncPlayButton);
+
+    if (sharedGpu && supportedGPU && viewProbe?.ok) {
+      try {
+        gpu = sharedGpu;
+        const { device } = gpu;
+        extLayout = viewProbe.layout;
+        sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+        uDomBuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        uVidBuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        const mod = await checkWGSL(device, EXT_WGSL, 'texture_external');
+        pipeline = await device.createRenderPipelineAsync({
+          layout: device.createPipelineLayout({ bindGroupLayouts: [extLayout] }),
+          vertex: { module: mod, entryPoint: 'vs' },
+          fragment: { module: mod, entryPoint: 'fs', targets: [{ format: gpu.format, blend: BLEND_OVER }] },
+        });
+        surface = new GPUCanvas(canvas, gpu, { present: true });
+        domTex = new GPUElementTexture(device, canvas, card);
+        route = 'webgpu';
+        firstFrames = 0;
+        $('ext-meta').textContent = 'GPUTextureView -> texture_external';
+        setStatus('ok', `WebGPU texture_external: GPUTextureView (via ${gpuMethod}()) and GPUExternalTexture (importExternalTexture()) share one pipeline.`);
+        resize();
+        updateSplitUI();
+        canvas.requestPaint?.();
+        ensureVideoPlaying();
+        schedule();
+        return;
+      } catch (err) {
+        switchTo2D(err.message);
+        updateSplitUI();
+        ensureVideoPlaying();
+        return;
+      }
+    }
+
+    const why = !sharedGpu
+      ? (webgpu.reason || 'no usable WebGPU device')
+      : !supportedGPU
+        ? 'browser lacks GPUQueue.drawElementImageToTexture()'
+        : `GPUTextureView rejected for externalTexture (${viewProbe?.reason || 'unsupported'})`;
+    switchTo2D(why);
+    updateSplitUI();
+    ensureVideoPlaying();
+  }
+
+  function schedule() {
+    if (!raf && visible && !document.hidden && route !== 'plain' && route !== 'starting') {
+      raf = requestAnimationFrame(render);
+    }
+  }
+
+  // #region ext-bind
+  function drawWebGPU(now) {
+    if (!surface || !pipeline || surface.lost) return;
+    if (dirty) {
+      try {
+        domTex.update();
+        dirty = false;
+      } catch {
+        canvas.requestPaint?.();
+        return;
+      }
+    }
+    const { device } = gpu;
+    const W = canvas.width;
+    const H = canvas.height;
+    const dpr = W / Math.max(1, canvas.clientWidth);
+    const t = now / 1000;
+
+    // Bind the DOM element's GPUTextureView straight to the externalTexture slot.
+    if (domTex.texture && domGroupOf !== domTex.texture) {
+      domGroupOf = domTex.texture;
+      domGroup = device.createBindGroup({
+        layout: extLayout,
+        entries: [
+          { binding: 0, resource: sampler },
+          { binding: 1, resource: domTex.view },
+          { binding: 2, resource: { buffer: uDomBuf } },
+        ],
+      });
+    }
+
+    const domRect = fitBox({ x: 0, y: 0, w: W, h: H }, domTex.width || 260, domTex.height || 180, Math.round(16 * dpr));
+    const vidReady = video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0;
+    const vidRect = vidReady ? fitBox({ x: 0, y: 0, w: W, h: H }, video.videoWidth, video.videoHeight, 0) : { x: 0, y: 0, w: W, h: H };
+
+    device.queue.writeBuffer(uDomBuf, 0, new Float32Array([W, H, t, effectOn ? 1 : 0, domRect.x, domRect.y, domRect.w, domRect.h, splitRatio, 0, 0, 0]));
+    device.queue.writeBuffer(uVidBuf, 0, new Float32Array([W, H, t, effectOn ? 1 : 0, vidRect.x, vidRect.y, vidRect.w, vidRect.h, splitRatio, 1, 0, 0]));
+
+    let vidGroup = null;
+    if (mode !== 'dom' && vidReady) {
+      try {
+        vidGroup = device.createBindGroup({
+          layout: extLayout,
+          entries: [
+            { binding: 0, resource: sampler },
+            { binding: 1, resource: device.importExternalTexture({ source: video }) },
+            { binding: 2, resource: { buffer: uVidBuf } },
+          ],
+        });
+      } catch {}
+    }
+
+    const splitPx = Math.max(1, Math.min(W - 1, Math.round(W * splitRatio)));
+    const submitPass = () => {
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{ view: surface.view(), loadOp: 'clear', storeOp: 'store', clearValue: [0.08, 0.08, 0.09, 1] }],
+      });
+      pass.setPipeline(pipeline);
+      if ((mode === 'dom' || mode === 'split') && domGroup) {
+        pass.setScissorRect(0, 0, mode === 'split' ? splitPx : W, H);
+        pass.setBindGroup(0, domGroup);
+        pass.draw(6);
+      }
+      if ((mode === 'video' || mode === 'split') && vidGroup) {
+        const sx = mode === 'split' ? splitPx : 0;
+        pass.setScissorRect(sx, 0, W - sx, H);
+        pass.setBindGroup(0, vidGroup);
+        pass.draw(6);
+      }
+      pass.end();
+      device.queue.submit([enc.finish()]);
+    };
+
+    if (firstFrames < 2) {
+      firstFrames++;
+      watchFrame(device, submitPass, (reason) => switchTo2D(reason));
+      surface.shown((reason) => switchTo2D(reason));
+    } else {
+      submitPass();
+    }
+
+    if (mode !== 'video') placeHit(card, domRect, dpr);
+  }
+  // #endregion ext-bind
+
+  function draw2D(now) {
+    if (!ctx2d) return;
+    const W = canvas.clientWidth || 300;
+    const H = canvas.clientHeight || 280;
+    const k = canvas.width / W;
+    ctx2d.reset();
+    ctx2d.scale(k, k);
+    ctx2d.fillStyle = '#151413';
+    ctx2d.fillRect(0, 0, W, H);
+
+    const splitX = Math.round(W * splitRatio);
+    const cardW = card.offsetWidth || 260;
+    const cardH = card.offsetHeight || 180;
+    const domRect = fitBox({ x: 0, y: 0, w: W, h: H }, cardW, cardH, 16);
+
+    if (mode === 'dom' || mode === 'split') {
+      ctx2d.save();
+      if (mode === 'split') {
+        ctx2d.beginPath();
+        ctx2d.rect(0, 0, splitX, H);
+        ctx2d.clip();
+      }
+      try {
+        ctx2d.drawElementImage(card, domRect.x, domRect.y, domRect.w, domRect.h);
+      } catch {}
+      ctx2d.restore();
+    }
+
+    if (mode === 'video' || mode === 'split') {
+      ctx2d.save();
+      if (mode === 'split') {
+        ctx2d.beginPath();
+        ctx2d.rect(splitX, 0, W - splitX, H);
+        ctx2d.clip();
+      }
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        const vr = fitBox({ x: 0, y: 0, w: W, h: H }, video.videoWidth, video.videoHeight, 0);
+        ctx2d.drawImage(video, vr.x, vr.y, vr.w, vr.h);
+      } else {
+        ctx2d.fillStyle = '#252320';
+        ctx2d.fillRect(0, 0, W, H);
+        ctx2d.fillStyle = '#c8c2b8';
+        ctx2d.font = '13px monospace';
+        ctx2d.fillText('Loading /media/clip.webm…', Math.max(12, splitX + 12), H / 2);
+      }
+      ctx2d.restore();
+    }
+
+    if (effectOn) {
+      // Subtle CRT scanlines + warm tint so the grade toggle is visible in 2D fallback too.
+      ctx2d.fillStyle = 'rgba(210, 73, 31, 0.06)';
+      ctx2d.fillRect(0, 0, W, H);
+      ctx2d.fillStyle = 'rgba(0, 0, 0, 0.12)';
+      const offset = Math.floor((now / 90) % 4);
+      for (let y = offset; y < H; y += 4) ctx2d.fillRect(0, y, W, 1);
+    }
+  }
+
+  function render(now) {
+    raf = 0;
+    if (route === 'webgpu') drawWebGPU(now);
+    else if (route === '2d') draw2D(now);
+    const keepAnimating = (!video.paused && mode !== 'dom') || (effectOn && !reducedMotion && route === 'webgpu');
+    if (keepAnimating && visible && !document.hidden) schedule();
+  }
+
+  addEventListener('webgpulost', () => {
+    if (route === 'webgpu') switchTo2D(webgpu.reason || 'WebGPU device lost');
+  });
+
+  return {
+    init,
+    getCanvas: () => canvas,
+    getRoute: () => route,
+    drawOnce: () => render(performance.now()),
+  };
+})();
+
+// ============================================================================
+// DEMO 2: WebGPU Immediates (pass.setImmediateData()) for per-element uniforms
+// ============================================================================
+const demo2 = (() => {
+  let canvas = $('imm-canvas');
+  const cards = [0, 1, 2, 3].map((i) => $(`imm-card-${i}`));
+  const readouts = [0, 1, 2, 3].map((i) => $(`imm-out-${i}`));
+  const statusEl = $('imm-status');
+  const motionBtn = $('imm-motion-btn');
+  const focusBtn = $('imm-focus-btn');
+  const routeBtn = $('imm-route-btn');
+
+  let route = 'starting'; // 'webgpu-imm' | 'webgpu-ubo' | '2d' | 'plain'
+  let preferImmediates = true;
+  let immPipelineReady = false;
+  let uboPipelineReady = false;
+  let maxImmBytes = 0;
+  let motionOn = !reducedMotion;
+  let highlighted = 0;
+  let visible = true;
+  let dirty = true;
+  let raf = 0;
+  let clock = 0;
+  let lastT = 0;
+  let deviceBox = null;
+  let firstFrames = 0;
+  let card0Taps = 0;
+  let boostTilt = true;
+  let glowStrength = 0.75;
+
+  // WebGPU objects
+  let gpu = null;
+  let surface = null;
+  let sampler = null;
+  let cardTex = [];
+  let cardGroups = [];
+  let cardGroupOf = [];
+  let texLayout = null;
+  let uboLayout = null;
+  let pipeImm = null;
+  let pipeUbo = null;
+  let sharedUbo = null;
+  let sharedUboData = null;
+  let sharedUboGroup = null;
+  let placeHit = makeHitPlacer(canvas);
+
+  // 2D fallback
+  let ctx2d = null;
+
+  // Card controls
+  $('imm-btn-0').addEventListener('click', () => {
+    card0Taps++;
+    $('imm-btn-0').textContent = `Tap: ${card0Taps}`;
+    highlighted = 0;
+    dirty = true;
+    canvas.requestPaint?.();
+    schedule();
+  });
+  $('imm-chk-1').addEventListener('change', (e) => {
+    boostTilt = e.target.checked;
+    highlighted = 1;
+    readouts[1].textContent = `tilt boost: ${boostTilt ? 'on' : 'off'}`;
+    dirty = true;
+    canvas.requestPaint?.();
+    schedule();
+  });
+  $('imm-txt-2').addEventListener('input', () => {
+    highlighted = 2;
+    dirty = true;
+    canvas.requestPaint?.();
+    schedule();
+  });
+  $('imm-rng-3').addEventListener('input', (e) => {
+    glowStrength = Number(e.target.value) / 100;
+    highlighted = 3;
+    readouts[3].textContent = `glow ${e.target.value}%`;
+    dirty = true;
+    canvas.requestPaint?.();
+    schedule();
+  });
+
+  motionBtn.setAttribute('aria-pressed', String(motionOn));
+  motionBtn.textContent = `Wave & tilt: ${motionOn ? 'on' : 'off'}`;
+  motionBtn.addEventListener('click', () => {
+    motionOn = !motionOn;
+    motionBtn.setAttribute('aria-pressed', String(motionOn));
+    motionBtn.textContent = `Wave & tilt: ${motionOn ? 'on' : 'off'}`;
+    lastT = 0;
+    schedule();
+  });
+  focusBtn.addEventListener('click', () => {
+    highlighted = (highlighted + 1) % 4;
+    schedule();
+  });
+  routeBtn.addEventListener('click', () => {
+    if (!immPipelineReady || !uboPipelineReady) return;
+    preferImmediates = !preferImmediates;
+    route = preferImmediates ? 'webgpu-imm' : 'webgpu-ubo';
+    updateStatus();
+    schedule();
+  });
+
+  function setStatus(kind, text) {
+    statusEl.innerHTML = `<span class="tag-${kind}">${kind === 'ok' ? 'ACTIVE' : kind === 'warn' ? 'FALLBACK' : 'PLAIN'}</span> ${text}`;
+  }
+
+  function updateStatus(extraReason = '') {
+    if (route === 'webgpu-imm') {
+      setStatus('ok', `WebGPU pass.${immediateMethod}() (zero uniform buffers, 48 bytes/card, maxImmediateSize: ${maxImmBytes} bytes).`);
+      routeBtn.disabled = !uboPipelineReady;
+      routeBtn.textContent = 'Switch to uniform buffer';
+    } else if (route === 'webgpu-ubo') {
+      const why = extraReason ? ` (${extraReason})` : '';
+      setStatus(immPipelineReady ? 'ok' : 'warn', `WebGPU shared uniform buffer with 256-byte dynamic offsets${why}. maxImmediateSize: ${maxImmBytes} bytes.`);
+      routeBtn.disabled = !immPipelineReady;
+      routeBtn.textContent = immPipelineReady ? `Switch to ${immediateMethod}()` : 'Immediates unavailable';
+    } else if (route === '2d') {
+      setStatus('warn', `2D canvas fallback (${extraReason || 'WebGPU unavailable'}). maxImmediateSize: n/a.`);
+      routeBtn.disabled = true;
+      routeBtn.textContent = '2D canvas fallback';
+    }
+  }
+
+  function layoutCards(W, H, dpr) {
+    const gap = Math.round(12 * dpr);
+    const pad = Math.round(14 * dpr);
+    const cellW = (W - pad * 2 - gap) / 2;
+    const cellH = (H - pad * 2 - gap) / 2;
+    return cards.map((el, i) => {
+      const col = i % 2;
+      const row = Math.floor(i / 2);
+      const cell = { x: pad + col * (cellW + gap), y: pad + row * (cellH + gap), w: cellW, h: cellH };
+      const sw = cardTex[i]?.width || (el.offsetWidth || 164) * dpr;
+      const sh = cardTex[i]?.height || (el.offsetHeight || 110) * dpr;
+      return fitBox(cell, sw, sh, Math.round(6 * dpr));
+    });
+  }
+
+  function cardParams(i, rect, t, W, H, dpr) {
+    const warp = motionOn ? 1 : 0;
+    const phase = t * 2.1 + i * 1.45;
+    const dx = warp ? Math.sin(phase * 0.85 + i) * 7 * dpr : 0;
+    const dy = warp ? Math.cos(phase * 1.05 + i * 0.7) * 6 * dpr : 0;
+    const tiltScale = boostTilt ? 0.085 : 0.035;
+    const tilt = warp ? Math.sin(phase * 0.7 + i * 1.2) * tiltScale : 0;
+    const hi = i === highlighted ? Math.max(0.35, glowStrength) : 0.12 * glowStrength;
+    return {
+      dx,
+      dy,
+      tilt,
+      phase,
+      hi,
+      floats: new Float32Array([
+        rect.x, rect.y, rect.w, rect.h,
+        dx, dy, tilt, phase,
+        hi, W, H, warp,
+      ]),
+    };
+  }
+
+  const ro = new ResizeObserver((entries) => {
+    const b = entries.at(-1)?.devicePixelContentBoxSize?.[0];
+    deviceBox = b ? { w: b.inlineSize, h: b.blockSize } : null;
+    resize();
+    schedule();
+  });
+  const io = new IntersectionObserver((entries) => {
+    visible = !!entries.at(-1)?.isIntersecting;
+    if (visible) lastT = 0;
+    schedule();
+  });
+
+  function resize() {
+    if (!canvas.isConnected || route === 'plain') return;
+    const { w, h } = measureCanvasSize(canvas, deviceBox);
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+  }
+
+  function wireCanvas(c) {
+    c.addEventListener('paint', () => {
+      dirty = true;
+      schedule();
+    });
+    ro.observe(c, { box: 'device-pixel-content-box' });
+    io.observe(c);
+    placeHit = makeHitPlacer(c);
+  }
+
+  function switchTo2D(reason) {
+    const hadWebGPU = !!surface || route === 'webgpu-imm' || route === 'webgpu-ubo';
+    surface?.destroy();
+    for (const tex of cardTex) tex.destroy();
+    surface = null;
+    cardTex = [];
+    if (hadWebGPU) {
+      ro.unobserve(canvas);
+      io.unobserve(canvas);
+      canvas = swapToFreshCanvas(canvas, cards);
+      wireCanvas(canvas);
+    }
+    ctx2d = canvas.getContext('2d');
+    route = '2d';
+    updateStatus(reason);
+    resize();
+    dirty = true;
+    canvas.requestPaint?.();
+    schedule();
+  }
+
+  function showPlain(reason) {
+    route = 'plain';
+    setStatus('bad', reason);
+    const box = document.createElement('div');
+    box.className = 'plain-fallback';
+    const grid = document.createElement('div');
+    grid.className = 'plain-grid';
+    grid.append(...cards);
+    box.append(grid);
+    $('imm-wrap').replaceChildren(box);
+    routeBtn.disabled = true;
+    routeBtn.textContent = 'Plain HTML';
+  }
+
+  async function tryBuildPipeline(device, useImm) {
+    device.pushErrorScope('validation');
+    let errText = '';
+    let pipe = null;
+    try {
+      const mod = await checkWGSL(device, buildImmWGSL(useImm), useImm ? 'immediates' : 'uniform-buffer');
+      const groups = useImm ? [texLayout] : [texLayout, uboLayout];
+      const layout = device.createPipelineLayout(useImm ? { bindGroupLayouts: groups, immediateSize: 48 } : { bindGroupLayouts: groups });
+      pipe = await device.createRenderPipelineAsync({
+        layout,
+        vertex: { module: mod, entryPoint: 'vs' },
+        fragment: { module: mod, entryPoint: 'fs', targets: [{ format: gpu.format, blend: BLEND_OVER }] },
+      });
+    } catch (err) {
+      errText = err.message.split('\n')[0];
+    }
+    const vErr = await device.popErrorScope();
+    if (vErr && !errText) errText = vErr.message.split('\n')[0];
+    return { pipe: errText ? null : pipe, error: errText };
+  }
+
+  async function init(sharedGpu) {
+    if (!supported) {
+      showPlain('HTML-in-canvas isn\'t available in this browser, so the four cards are shown as plain HTML.');
+      return;
+    }
+    wireCanvas(canvas);
+
+    if (sharedGpu && supportedGPU) {
+      try {
+        gpu = sharedGpu;
+        const { device } = gpu;
+        maxImmBytes = device.limits?.maxImmediateSize ?? 0;
+        sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+        texLayout = device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+            { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+          ],
+        });
+        uboLayout = device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 48 } },
+          ],
+        });
+        sharedUbo = device.createBuffer({ size: 256 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        sharedUboData = new Float32Array((256 * 4) / 4);
+        sharedUboGroup = device.createBindGroup({
+          layout: uboLayout,
+          entries: [{ binding: 0, resource: { buffer: sharedUbo, size: 48 } }],
+        });
+
+        let immReason = '';
+        if (immediateMethod && hasImmediateWGSL && maxImmBytes >= 48) {
+          const built = await tryBuildPipeline(device, true);
+          pipeImm = built.pipe;
+          immPipelineReady = !!pipeImm;
+          immReason = built.error;
+        } else {
+          immReason = !immediateMethod
+            ? 'no setImmediateData()/setImmediates() on GPURenderPassEncoder'
+            : !hasImmediateWGSL
+              ? 'no immediate_address_space in wgslLanguageFeatures'
+              : `maxImmediateSize is ${maxImmBytes} bytes (< 48)`;
+        }
+
+        const builtUbo = await tryBuildPipeline(device, false);
+        pipeUbo = builtUbo.pipe;
+        uboPipelineReady = !!pipeUbo;
+        if (!immPipelineReady && !uboPipelineReady) {
+          throw new Error(builtUbo.error || immReason || 'WebGPU pipelines failed');
+        }
+
+        surface = new GPUCanvas(canvas, gpu, { present: true });
+        cardTex = cards.map((el) => new GPUElementTexture(device, canvas, el));
+        cardGroups = new Array(4).fill(null);
+        cardGroupOf = new Array(4).fill(null);
+        route = immPipelineReady ? 'webgpu-imm' : 'webgpu-ubo';
+        preferImmediates = immPipelineReady;
+        firstFrames = 0;
+        updateStatus(immReason);
+        resize();
+        canvas.requestPaint?.();
+        schedule();
+        return;
+      } catch (err) {
+        switchTo2D(err.message);
+        return;
+      }
+    }
+
+    switchTo2D(!sharedGpu ? (webgpu.reason || 'no usable WebGPU device') : 'browser lacks GPUQueue.drawElementImageToTexture()');
+  }
+
+  function schedule() {
+    if (!raf && visible && !document.hidden && route !== 'plain' && route !== 'starting') {
+      raf = requestAnimationFrame(render);
+    }
+  }
+
+  // #region imm-pass
+  function drawWebGPU(now) {
+    if (!surface || surface.lost) return;
+    if (dirty) {
+      try {
+        for (const tex of cardTex) tex.update();
+        dirty = false;
+      } catch {
+        canvas.requestPaint?.();
+        return;
+      }
+    }
+    const { device } = gpu;
+    const W = canvas.width;
+    const H = canvas.height;
+    const dpr = W / Math.max(1, canvas.clientWidth);
+    const dt = lastT ? Math.min(0.05, (now - lastT) / 1000) : 0;
+    lastT = now;
+    if (motionOn) clock += dt;
+
+    for (let i = 0; i < 4; i++) {
+      if (cardTex[i].texture && cardGroupOf[i] !== cardTex[i].texture) {
+        cardGroupOf[i] = cardTex[i].texture;
+        cardGroups[i] = device.createBindGroup({
+          layout: texLayout,
+          entries: [
+            { binding: 0, resource: sampler },
+            { binding: 1, resource: cardTex[i].view },
+          ],
+        });
+      }
+    }
+
+    const rects = layoutCards(W, H, dpr);
+    const params = rects.map((r, i) => cardParams(i, r, clock, W, H, dpr));
+    const useImm = route === 'webgpu-imm' && immPipelineReady;
+
+    if (!useImm) {
+      for (let i = 0; i < 4; i++) sharedUboData.set(params[i].floats, (i * 256) / 4);
+      device.queue.writeBuffer(sharedUbo, 0, sharedUboData);
+    }
+
+    const submitPass = () => {
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginRenderPass({
+        colorAttachments: [{ view: surface.view(), loadOp: 'clear', storeOp: 'store', clearValue: [0.09, 0.09, 0.1, 1] }],
+      });
+      pass.setPipeline(useImm ? pipeImm : pipeUbo);
+      for (let i = 0; i < 4; i++) {
+        if (!cardGroups[i]) continue;
+        pass.setBindGroup(0, cardGroups[i]);
+        if (useImm) {
+          // Zero uniform buffers: push this card's 48-byte block straight onto the render pass.
+          pass[immediateMethod](0, params[i].floats);
+        } else {
+          pass.setBindGroup(1, sharedUboGroup, [i * 256]);
+        }
+        pass.draw(MESH_VERTS);
+      }
+      pass.end();
+      device.queue.submit([enc.finish()]);
+    };
+
+    if (firstFrames < 2) {
+      firstFrames++;
+      watchFrame(device, submitPass, (reason) => switchTo2D(reason));
+      surface.shown((reason) => switchTo2D(reason));
+    } else {
+      submitPass();
+    }
+
+    for (let i = 0; i < 4; i++) {
+      placeHit(cards[i], rects[i], dpr, { dx: params[i].dx, dy: params[i].dy, rotRad: params[i].tilt });
+    }
+  }
+  // #endregion imm-pass
+
+  function draw2D(now) {
+    if (!ctx2d) return;
+    const W = canvas.clientWidth || 300;
+    const H = canvas.clientHeight || 310;
+    const k = canvas.width / W;
+    const dt = lastT ? Math.min(0.05, (now - lastT) / 1000) : 0;
+    lastT = now;
+    if (motionOn) clock += dt;
+
+    ctx2d.reset();
+    ctx2d.scale(k, k);
+    ctx2d.fillStyle = '#171619';
+    ctx2d.fillRect(0, 0, W, H);
+
+    const rects = layoutCards(W, H, 1);
+    for (let i = 0; i < 4; i++) {
+      const r = rects[i];
+      const p = cardParams(i, r, clock, W, H, 1);
+      ctx2d.save();
+      ctx2d.translate(r.x + r.w * 0.5 + p.dx, r.y + r.h * 0.5 + p.dy);
+      ctx2d.rotate(p.tilt);
+      try {
+        ctx2d.drawElementImage(cards[i], -r.w * 0.5, -r.h * 0.5, r.w, r.h);
+      } catch {}
+      if (i === highlighted) {
+        const g = ctx2d.createLinearGradient(-r.w * 0.5, -r.h * 0.5, r.w * 0.5, r.h * 0.5);
+        g.addColorStop(0, `rgba(255, 122, 77, ${(0.22 * p.hi).toFixed(3)})`);
+        g.addColorStop(0.5, `rgba(255, 240, 210, ${(0.18 * p.hi).toFixed(3)})`);
+        g.addColorStop(1, 'rgba(255, 122, 77, 0)');
+        ctx2d.fillStyle = g;
+        ctx2d.fillRect(-r.w * 0.5, -r.h * 0.5, r.w, r.h);
+      }
+      ctx2d.restore();
+    }
+  }
+
+  function render(now) {
+    raf = 0;
+    if (route === 'webgpu-imm' || route === 'webgpu-ubo') drawWebGPU(now);
+    else if (route === '2d') draw2D(now);
+    if (motionOn && visible && !document.hidden) schedule();
+  }
+
+  addEventListener('webgpulost', () => {
+    if (route === 'webgpu-imm' || route === 'webgpu-ubo') switchTo2D(webgpu.reason || 'WebGPU device lost');
+  });
+
+  return {
+    init,
+    getCanvas: () => canvas,
+    getRoute: () => route,
+    drawOnce: () => render(performance.now()),
+  };
+})();
+
+// ============================================================================
+// DEMO 3: SpeechRecognition from a MediaStreamTrack into drawn DOM captions
+// ============================================================================
+const demo3 = (() => {
+  const canvas = $('speech-canvas');
+  const video = $('speech-video');
+  const bannerEl = $('caption-banner');
+  const captionText = $('caption-text');
+  const capSource = $('cap-source');
+  const capSpeaker = $('cap-speaker');
+  const statusEl = $('speech-status');
+  const playBtn = $('speech-play-btn');
+  const restartBtn = $('speech-restart-btn');
+  const muteChk = $('speech-mute');
+  const resumeBtn = $('speech-resume-btn');
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  let route = supported ? '2d' : 'plain';
+  let ctx = null;
+  let visible = true;
+  let raf = 0;
+  let deviceBox = null;
+  let vttCues = null;
+  let recognition = null;
+  let usingLiveSpeech = false;
+  let usingVttFallback = false;
+  let fallbackTimer = 0;
+  let userEditing = false;
+  let lastCueText = '';
+  let lastCapNote = '';
+
+  function setStatus(kind, text) {
+    statusEl.innerHTML = `<span class="tag-${kind}">${kind === 'ok' ? 'LIVE' : kind === 'warn' ? 'FALLBACK' : 'PLAIN'}</span> ${text}`;
+  }
+
+  function parseVttTime(stamp) {
+    const parts = stamp.split(':').map(Number);
+    return parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
+  }
+
+  async function loadVtt() {
+    if (vttCues) return vttCues;
+    try {
+      const res = await fetch('/media/talk.vtt');
+      const raw = await res.text();
+      const cues = [];
+      const blocks = raw.replace(/\r/g, '').split(/\n\n+/);
+      for (const block of blocks) {
+        const lines = block.trim().split('\n');
+        const timeIdx = lines.findIndex((l) => l.includes('-->'));
+        if (timeIdx < 0) continue;
+        const m = lines[timeIdx].match(/([\d:.]+)\s+-->\s+([\d:.]+)/);
+        if (!m) continue;
+        const body = lines.slice(timeIdx + 1).join(' ');
+        const speaker = body.match(/<v\s+([^>]+)>/)?.[1] ?? 'Speaker';
+        const text = body
+          .replace(/<v\s+[^>]+>/g, '')
+          .replace(/<\/v>/g, '')
+          .replace(/<[\d:.]+>/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+        cues.push({ start: parseVttTime(m[1]), end: parseVttTime(m[2]), speaker, text });
+      }
+      vttCues = cues;
+    } catch {
+      vttCues = [];
+    }
+    return vttCues;
+  }
+
+  function setCaption(sourceLabel, speakerLabel, text) {
+    if (userEditing) return;
+    capSource.textContent = sourceLabel;
+    capSpeaker.textContent = speakerLabel;
+    if (text && captionText.textContent !== text) {
+      captionText.textContent = text;
+    }
+    canvas.requestPaint?.();
+  }
+
+  function syncVttAt(time) {
+    if (!usingVttFallback || !vttCues?.length || userEditing) return;
+    const cue = vttCues.find((c) => time >= c.start && time <= c.end);
+    if (cue && cue.text !== lastCueText) {
+      lastCueText = cue.text;
+      setCaption('talk.vtt fallback', cue.speaker, cue.text);
+    }
+  }
+
+  function stopRecognition() {
+    clearTimeout(fallbackTimer);
+    fallbackTimer = 0;
+    if (recognition) {
+      try { recognition.onresult = recognition.onerror = recognition.onend = null; recognition.stop(); } catch {}
+      recognition = null;
+    }
+  }
+
+  function activateVttFallback(reason) {
+    if (usingLiveSpeech) return;
+    usingVttFallback = true;
+    lastCapNote = reason;
+    setStatus('warn', `${reason} Syncing cues from /media/talk.vtt into the editable DOM banner.`);
+    loadVtt().then(() => syncVttAt(video.currentTime));
+  }
+
+  // #region speech-track
+  async function startTrackRecognition() {
+    stopRecognition();
+    usingLiveSpeech = false;
+    usingVttFallback = false;
+    lastCueText = '';
+    await loadVtt();
+
+    const captureFn = video.captureStream || video.mozCaptureStream;
+    if (!captureFn) {
+      activateVttFallback('video.captureStream() isn\'t available in this browser.');
+      return;
+    }
+    const stream = captureFn.call(video);
+    const audioTrack = stream?.getAudioTracks?.()[0] ?? null;
+    if (!audioTrack) {
+      activateVttFallback('video.captureStream() returned no audio track yet.');
+      return;
+    }
+    if (!SR) {
+      activateVttFallback('SpeechRecognition isn\'t available in this browser.');
+      return;
+    }
+
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+    recognition = rec;
+
+    rec.onresult = (e) => {
+      let transcript = '';
+      for (let i = Math.max(0, e.results.length - 2); i < e.results.length; i++) {
+        transcript += e.results[i][0].transcript;
+      }
+      transcript = transcript.trim();
+      if (!transcript) return;
+      usingLiveSpeech = true;
+      usingVttFallback = false;
+      clearTimeout(fallbackTimer);
+      setStatus('ok', `SpeechRecognition.start(audioTrack) is writing live words from track "${audioTrack.label || audioTrack.id.slice(0, 8)}".`);
+      setCaption('SpeechRecognition(track)', 'Live audio track', transcript);
+    };
+
+    rec.onerror = (e) => {
+      activateVttFallback(`SpeechRecognition error "${e.error}"${e.message ? ` (${e.message})` : ''}.`);
+    };
+
+    rec.onend = () => {
+      if (!video.paused && !usingLiveSpeech && !usingVttFallback) {
+        activateVttFallback('SpeechRecognition ended without results.');
+      }
+    };
+
+    try {
+      rec.start(audioTrack);
+      setStatus('ok', `Called recognition.start(audioTrack) on "${audioTrack.label || 'video audio'}". Waiting for results (falling back to talk.vtt after 2.5 s if silent)…`);
+      fallbackTimer = setTimeout(() => {
+        if (!usingLiveSpeech && !video.paused) {
+          activateVttFallback('recognition.start(audioTrack) accepted the track but emitted no results within 2.5 s.');
+        }
+      }, 2500);
+    } catch (err) {
+      activateVttFallback(`recognition.start(audioTrack) threw ${err.name}: ${err.message}.`);
+    }
+  }
+  // #endregion speech-track
+
+  // #region speech-paint
+  function paint2D() {
+    if (!ctx || !canvas.clientWidth) return;
+    const W = canvas.clientWidth;
+    const H = canvas.clientHeight;
+    const k = canvas.width / W;
+    ctx.reset();
+    ctx.scale(k, k);
+    ctx.fillStyle = '#141312';
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw the playing video element inside the 2D canvas.
+    const vw = video.videoWidth || video.offsetWidth || W;
+    const vh = video.videoHeight || video.offsetHeight || H;
+    const vr = fitBox({ x: 0, y: 0, w: W, h: H }, vw, vh, 0);
+    if (video.offsetWidth > 0 && video.offsetHeight > 0) {
+      try {
+        ctx.drawElementImage(video, vr.x, vr.y, vr.w, vr.h);
+      } catch {}
+    }
+
+    // Draw the selectable, editable DOM caption banner on top so taps and text selection land on it.
+    const bw = Math.min(W - 20, bannerEl.offsetWidth || W - 20);
+    const bh = bannerEl.offsetHeight || 72;
+    const bx = Math.round((W - bw) / 2);
+    const by = Math.max(8, H - bh - 12);
+    try {
+      ctx.drawElementImage(bannerEl, bx, by, bw, bh);
+    } catch {}
+  }
+  // #endregion speech-paint
+
+  function schedule() {
+    if (!raf && route === '2d' && visible && !document.hidden && !video.paused) {
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        syncVttAt(video.currentTime);
+        canvas.requestPaint?.();
+        if (!video.paused && visible && !document.hidden) schedule();
+      });
+    }
+  }
+
+  const ro = new ResizeObserver((entries) => {
+    const b = entries.at(-1)?.devicePixelContentBoxSize?.[0];
+    deviceBox = b ? { w: b.inlineSize, h: b.blockSize } : null;
+    if (route === '2d' && canvas.isConnected) {
+      const { w, h } = measureCanvasSize(canvas, deviceBox);
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      canvas.requestPaint?.();
+    }
+  });
+  const io = new IntersectionObserver((entries) => {
+    visible = !!entries.at(-1)?.isIntersecting;
+    if (!visible && !video.paused) {
+      video.pause();
+      stopRecognition();
+      playBtn.textContent = 'Play with track recognition';
+    }
+  });
+
+  captionText.addEventListener('focus', () => {
+    userEditing = true;
+    resumeBtn.hidden = false;
+    capSource.textContent = 'Editing in canvas';
+    canvas.requestPaint?.();
+  });
+  captionText.addEventListener('input', () => {
+    canvas.requestPaint?.();
+  });
+  resumeBtn.addEventListener('click', () => {
+    userEditing = false;
+    resumeBtn.hidden = true;
+    lastCueText = '';
+    syncVttAt(video.currentTime);
+    canvas.requestPaint?.();
+  });
+  muteChk.addEventListener('change', () => {
+    video.muted = muteChk.checked;
+    if (video.muted && !video.paused) {
+      setStatus('warn', 'Speakers muted (muting silences video.captureStream() audio in Chrome). Using /media/talk.vtt cues if recognition stops receiving sound.');
+    }
+  });
+
+  playBtn.addEventListener('click', async () => {
+    if (video.paused) {
+      video.muted = muteChk.checked;
+      try {
+        await video.play();
+        playBtn.textContent = 'Pause';
+        await startTrackRecognition();
+        schedule();
+      } catch (err) {
+        setStatus('warn', `Could not start playback: ${err.message}`);
+      }
+    } else {
+      video.pause();
+      stopRecognition();
+      playBtn.textContent = 'Play with track recognition';
+      canvas.requestPaint?.();
+    }
+  });
+
+  restartBtn.addEventListener('click', async () => {
+    video.currentTime = 0;
+    lastCueText = '';
+    if (video.paused) {
+      video.muted = muteChk.checked;
+      try { await video.play(); } catch {}
+      playBtn.textContent = 'Pause';
+      await startTrackRecognition();
+    } else {
+      syncVttAt(0);
+    }
+    schedule();
+  });
+
+  video.addEventListener('ended', () => {
+    stopRecognition();
+    playBtn.textContent = 'Play with track recognition';
+    canvas.requestPaint?.();
+  });
+  video.addEventListener('timeupdate', () => {
+    syncVttAt(video.currentTime);
+    if (route === '2d') canvas.requestPaint?.();
+  });
+
+  function init() {
+    if (!supported) {
+      route = 'plain';
+      setStatus('bad', 'HTML-in-canvas isn\'t available here, so the video and editable caption banner are shown as plain HTML.');
+      const box = document.createElement('div');
+      box.className = 'plain-fallback';
+      video.controls = true;
+      box.append(video, bannerEl);
+      $('speech-wrap').replaceChildren(box);
+      return;
+    }
+    ctx = canvas.getContext('2d');
+    canvas.addEventListener('paint', paint2D);
+    ro.observe(canvas, { box: 'device-pixel-content-box' });
+    io.observe(canvas);
+    const { w, h } = measureCanvasSize(canvas, deviceBox);
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    canvas.requestPaint?.();
+  }
+
+  return {
+    init,
+    getCanvas: () => canvas,
+    getRoute: () => route,
+    paintNow: () => paint2D(),
+    capabilitySummary: () => {
+      const hasSR = !!SR;
+      const proto = SR?.prototype ?? {};
+      const hasLocal = 'processLocally' in proto;
+      const hasAvail = typeof SR?.available === 'function';
+      const hasCapture = typeof HTMLVideoElement !== 'undefined' && ('captureStream' in HTMLVideoElement.prototype || 'mozCaptureStream' in HTMLVideoElement.prototype);
+      return { hasSR, hasLocal, hasAvail, hasCapture };
+    },
+  };
+})();
+
+// ============================================================================
+// CAPABILITY TABLE + STARTUP
+// ============================================================================
+async function boot() {
+  const speechCaps = demo3.capabilitySummary();
+  capCell('speech').innerHTML = speechCaps.hasSR
+    ? `<span class="yes">Present.</span> SpeechRecognition${speechCaps.hasLocal ? ', processLocally' : ''}${speechCaps.hasAvail ? ', available()' : ''}; captureStream() ${speechCaps.hasCapture ? 'yes' : 'no'}.`
+    : `<span class="no">Missing.</span> No SpeechRecognition; captureStream() ${speechCaps.hasCapture ? 'yes' : 'no'}.`;
+
+  demo3.init();
+
+  const sharedGpu = await webgpu();
+  if (sharedGpu && supportedGPU) {
+    const info = sharedGpu.adapter.info ?? {};
+    capCell('gpu').innerHTML = `<span class="yes">Active.</span> ${gpuMethod}() on ${[info.vendor, info.architecture].filter(Boolean).join(' ') || sharedGpu.level}.`;
+    const viewProbe = await probeTextureViewAsExternal(sharedGpu.device);
+    capCell('ext').innerHTML = viewProbe.ok
+      ? '<span class="yes">Accepted.</span> GPUTextureView bound cleanly to an externalTexture entry.'
+      : `<span class="no">Rejected.</span> ${viewProbe.reason || 'validation failed'}.`;
+    const maxImm = sharedGpu.device.limits?.maxImmediateSize ?? 0;
+    capCell('imm').innerHTML = immediateMethod && hasImmediateWGSL && maxImm >= 48
+      ? `<span class="yes">Available.</span> pass.${immediateMethod}(), maxImmediateSize ${maxImm} bytes, immediate_address_space yes.`
+      : `<span class="no">Unavailable.</span> method: ${immediateMethod || 'none'}, immediate_address_space: ${hasImmediateWGSL ? 'yes' : 'no'}, maxImmediateSize: ${maxImm} bytes.`;
+
+    await demo1.init(sharedGpu, viewProbe);
+    await demo2.init(sharedGpu);
+  } else {
+    const why = !sharedGpu ? (webgpu.reason || 'no usable WebGPU device') : 'no GPUQueue.drawElementImageToTexture()';
+    capCell('gpu').innerHTML = `<span class="no">Fallback.</span> ${why}.`;
+    capCell('ext').innerHTML = '<span class="no">Not active on page.</span> Tested off screen in the live checks below.';
+    capCell('imm').innerHTML = immediateMethod
+      ? `<span class="no">Not active on page.</span> Prototype exposes ${immediateMethod}(), immediate_address_space: ${hasImmediateWGSL ? 'yes' : 'no'}.`
+      : '<span class="no">Not exposed.</span> Neither setImmediateData() nor setImmediates() on GPURenderPassEncoder.';
+    await demo1.init(null, null);
+    await demo2.init(null);
+  }
+}
+
+boot();
+
+// ============================================================================
+// LIVE CHECKS (wait for tap via <meta name="checks" content="tap">)
+// ============================================================================
+const bench = supported ? checkBench() : null;
+
+class NotRun extends Error {
+  constructor(msg) {
+    super(msg);
+    this.name = 'Not run on this device';
+  }
+}
+
+function imageInk(imgData) {
+  const d = imgData.data;
+  let ink = 0;
+  let total = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    total++;
+    if (d[i + 3] > 16 && (d[i] > 28 || d[i + 1] > 28 || d[i + 2] > 28)) ink++;
+  }
+  return total ? ink / total : 0;
+}
+
+function diffImages(a, b) {
+  let max = 0;
+  let sum = 0;
+  const n = Math.min(a.data.length, b.data.length);
+  for (let i = 0; i < n; i++) {
+    const d = Math.abs(a.data[i] - b.data[i]);
+    sum += d;
+    if (d > max) max = d;
+  }
+  return { max, mean: sum / Math.max(1, n) };
+}
+
+function makeFixtureCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.setAttribute('content', 'drawable');
+  c.setAttribute('layoutsubtree', '');
+  c.width = w;
+  c.height = h;
+  c.style.cssText = `display:block;width:${w}px;height:${h}px`;
+  bench.append(c);
+  return c;
+}
+
+const tests = [
+  {
+    name: 'drawElementImageToTexture() uploads a drawable card to a GPUTexture',
+    why: 'Uses the shared checkDevice() from /shared/backend.js and verifies GPUElementTexture captures non-zero dimensions.',
+    timeout: 12000,
+    async run() {
+      const g = await checkDevice();
+      if (!g) throw new NotRun(`no WebGPU device (${webgpu.reason})`);
+      if (!supportedGPU) throw new NotRun('no GPUQueue.drawElementImageToTexture()');
+      const c = makeFixtureCanvas(180, 120);
+      const box = document.createElement('div');
+      box.setAttribute('drawable', '');
+      box.style.cssText = 'width:120px;height:60px;background:#d2491f;color:#fff;padding:8px;font:700 14px system-ui';
+      box.textContent = 'GPU card';
+      c.append(box);
+      const surface = new GPUCanvas(c, g, { present: false });
+      const tex = new GPUElementTexture(g.device, c, box);
+      try {
+        await nextPaint(c);
+        tex.update();
+        if (tex.width < 10 || tex.height < 10) throw new Error(`unexpected size ${tex.width}x${tex.height}`);
+        return `${gpuMethod}() uploaded ${tex.width}x${tex.height} texture on ${g.level}${g.software ? ' (software)' : ''}`;
+      } finally {
+        tex.destroy();
+        surface.destroy();
+        c.remove();
+        window.__gfx?.retire(c);
+      }
+    },
+  },
+  {
+    name: 'GPUTextureView binds directly to a WGSL texture_external slot and renders pixels',
+    why: 'Creates a pipeline with externalTexture: {} and textureSampleBaseClampToEdge(), binds GPUElementTexture.view to it off screen, and reads back the rendered frame.',
+    timeout: 15000,
+    async run() {
+      const g = await checkDevice();
+      if (!g) throw new NotRun(`no WebGPU device (${webgpu.reason})`);
+      if (!supportedGPU) throw new NotRun('no GPUQueue.drawElementImageToTexture()');
+      const probe = await probeTextureViewAsExternal(g.device);
+      if (!probe.ok) throw new NotRun(`GPUTextureView rejected in externalTexture: ${probe.reason}`);
+
+      const c = makeFixtureCanvas(160, 100);
+      const box = document.createElement('div');
+      box.setAttribute('drawable', '');
+      box.style.cssText = 'width:120px;height:64px;background:#2f6fed;color:#fff;padding:8px;font:700 14px system-ui';
+      box.textContent = 'External view';
+      c.append(box);
+
+      const surface = new GPUCanvas(c, g, { present: false });
+      const tex = new GPUElementTexture(g.device, c, box);
+      const uBuf = g.device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      try {
+        await nextPaint(c);
+        tex.update();
+        const mod = await checkWGSL(g.device, EXT_WGSL, 'ext-check');
+        const pipe = await g.device.createRenderPipelineAsync({
+          layout: g.device.createPipelineLayout({ bindGroupLayouts: [probe.layout] }),
+          vertex: { module: mod, entryPoint: 'vs' },
+          fragment: { module: mod, entryPoint: 'fs', targets: [{ format: g.format, blend: BLEND_OVER }] },
+        });
+        const samp = g.device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+        const group = g.device.createBindGroup({
+          layout: probe.layout,
+          entries: [
+            { binding: 0, resource: samp },
+            { binding: 1, resource: tex.view },
+            { binding: 2, resource: { buffer: uBuf } },
+          ],
+        });
+        g.device.queue.writeBuffer(uBuf, 0, new Float32Array([160, 100, 0.5, 0, 20, 18, 120, 64, 0.5, 0, 0, 0]));
+        const enc = g.device.createCommandEncoder();
+        const pass = enc.beginRenderPass({ colorAttachments: [{ view: surface.view(), loadOp: 'clear', storeOp: 'store', clearValue: [0, 0, 0, 1] }] });
+        pass.setPipeline(pipe);
+        pass.setBindGroup(0, group);
+        pass.draw(6);
+        pass.end();
+        g.device.queue.submit([enc.finish()]);
+        const img = await surface.read();
+        const ink = imageInk(img);
+        if (ink < 0.05) throw new Error(`rendered frame looked empty (${(ink * 100).toFixed(1)}% ink)`);
+        return `GPUTextureView rendered through texture_external (${(ink * 100).toFixed(1)}% lit pixels)`;
+      } finally {
+        uBuf.destroy();
+        tex.destroy();
+        surface.destroy();
+        c.remove();
+        window.__gfx?.retire(c);
+      }
+    },
+  },
+  {
+    name: 'WebGPU immediates (setImmediateData / setImmediates) match a shared uniform buffer across four cards',
+    why: 'Draws four drawable cards in one render pass using 48-byte immediates and again using 256-byte dynamic offsets, then compares every pixel.',
+    timeout: 20000,
+    async run() {
+      const g = await checkDevice();
+      if (!g) throw new NotRun(`no WebGPU device (${webgpu.reason})`);
+      if (!supportedGPU) throw new NotRun('no GPUQueue.drawElementImageToTexture()');
+      const maxImm = g.device.limits?.maxImmediateSize ?? 0;
+      if (!immediateMethod || !hasImmediateWGSL || maxImm < 48) {
+        throw new NotRun(`immediates unavailable (method: ${immediateMethod || 'none'}, immediate_address_space: ${hasImmediateWGSL ? 'yes' : 'no'}, maxImmediateSize: ${maxImm})`);
+      }
+
+      const W = 200, H = 140;
+      const c = makeFixtureCanvas(W, H);
+      const colours = ['#d2491f', '#1f7a3a', '#1d5fd1', '#8a6100'];
+      const els = colours.map((bg, i) => {
+        const d = document.createElement('div');
+        d.setAttribute('drawable', '');
+        d.style.cssText = `width:76px;height:48px;background:${bg};color:#fff;padding:6px;font:700 12px system-ui`;
+        d.textContent = `Card ${i + 1}`;
+        c.append(d);
+        return d;
+      });
+
+      const surface = new GPUCanvas(c, g, { present: false });
+      const textures = els.map((el) => new GPUElementTexture(g.device, c, el));
+      const ubo = g.device.createBuffer({ size: 256 * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      try {
+        await nextPaint(c);
+        for (const t of textures) t.update();
+        const samp = g.device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+        const texL = g.device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+            { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+          ],
+        });
+        const uboL = g.device.createBindGroupLayout({
+          entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 48 } }],
+        });
+        const modImm = await checkWGSL(g.device, buildImmWGSL(true), 'imm-check');
+        const modUbo = await checkWGSL(g.device, buildImmWGSL(false), 'ubo-check');
+        const pImm = await g.device.createRenderPipelineAsync({
+          layout: g.device.createPipelineLayout({ bindGroupLayouts: [texL], immediateSize: 48 }),
+          vertex: { module: modImm, entryPoint: 'vs' },
+          fragment: { module: modImm, entryPoint: 'fs', targets: [{ format: g.format, blend: BLEND_OVER }] },
+        });
+        const pUbo = await g.device.createRenderPipelineAsync({
+          layout: g.device.createPipelineLayout({ bindGroupLayouts: [texL, uboL] }),
+          vertex: { module: modUbo, entryPoint: 'vs' },
+          fragment: { module: modUbo, entryPoint: 'fs', targets: [{ format: g.format, blend: BLEND_OVER }] },
+        });
+        const groups = textures.map((t) => g.device.createBindGroup({
+          layout: texL,
+          entries: [{ binding: 0, resource: samp }, { binding: 1, resource: t.view }],
+        }));
+        const uboGroup = g.device.createBindGroup({
+          layout: uboL,
+          entries: [{ binding: 0, resource: { buffer: ubo, size: 48 } }],
+        });
+        const rects = [
+          [12, 12, 76, 48],
+          [112, 12, 76, 48],
+          [12, 80, 76, 48],
+          [112, 80, 76, 48],
+        ];
+        const floats = rects.map((r, i) => new Float32Array([r[0], r[1], r[2], r[3], i - 1.5, (i % 2) * 3 - 1.5, 0.05 * (i - 1.5), 1.1 + i * 0.9, i === 0 ? 0.8 : 0.15, W, H, 1]));
+
+        const runOnePass = async (useImm) => {
+          if (!useImm) {
+            const staging = new Float32Array((256 * 4) / 4);
+            for (let i = 0; i < 4; i++) staging.set(floats[i], (i * 256) / 4);
+            g.device.queue.writeBuffer(ubo, 0, staging);
+          }
+          const enc = g.device.createCommandEncoder();
+          const pass = enc.beginRenderPass({ colorAttachments: [{ view: surface.view(), loadOp: 'clear', storeOp: 'store', clearValue: [0.08, 0.08, 0.09, 1] }] });
+          pass.setPipeline(useImm ? pImm : pUbo);
+          for (let i = 0; i < 4; i++) {
+            pass.setBindGroup(0, groups[i]);
+            if (useImm) pass[immediateMethod](0, floats[i]);
+            else pass.setBindGroup(1, uboGroup, [i * 256]);
+            pass.draw(MESH_VERTS);
+          }
+          pass.end();
+          g.device.queue.submit([enc.finish()]);
+          return surface.read();
+        };
+
+        const imgImm = await runOnePass(true);
+        const imgUbo = await runOnePass(false);
+        const d = diffImages(imgImm, imgUbo);
+        if (imageInk(imgImm) < 0.05) throw new Error('immediates frame looked empty');
+        if (d.max > 2) throw new Error(`immediates and uniform buffer differ by up to ${d.max} of 255`);
+        return `pass.${immediateMethod}() matched shared uniform buffer across 4 cards (max diff ${d.max}/255, maxImmediateSize ${maxImm} bytes)`;
+      } finally {
+        ubo.destroy();
+        for (const t of textures) t.destroy();
+        surface.destroy();
+        c.remove();
+        window.__gfx?.retire(c);
+      }
+    },
+  },
+  {
+    name: 'SpeechRecognition.start(audioTrack) probe with a captured MediaStreamTrack',
+    why: 'Creates a silent Web Audio MediaStreamTrack and tests whether SpeechRecognition accepts a MediaStreamTrack argument without throwing.',
+    timeout: 8000,
+    async run() {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) throw new NotRun('SpeechRecognition isn\'t available in this browser');
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = ac.createMediaStreamDestination();
+      const track = dest.stream.getAudioTracks()[0];
+      const rec = new SR();
+      let errorCode = '';
+      rec.onerror = (e) => { errorCode = e.error; };
+      try {
+        rec.start(track);
+        await new Promise((r) => setTimeout(r, 250));
+        rec.abort();
+        const extras = ['processLocally' in rec ? 'processLocally' : '', typeof SR.available === 'function' ? 'available()' : ''].filter(Boolean);
+        return `start(audioTrack) accepted track (${extras.join(', ') || 'standard API'})${errorCode ? `; onerror reported "${errorCode}"` : ''}`;
+      } catch (err) {
+        throw new Error(`start(audioTrack) threw ${err.name}: ${err.message}`);
+      } finally {
+        track.stop();
+        ac.close().catch(() => {});
+      }
+    },
+  },
+  {
+    name: '2D canvas draws an editable DOM caption banner with hit testing',
+    why: 'Draws a contenteditable caption element with 5-argument drawElementImage(), reads pixels through a plain copy canvas (never reading the drawable canvas directly) and checks elementFromPoint().',
+    timeout: 8000,
+    async run() {
+      const c = makeFixtureCanvas(260, 110);
+      const cap = document.createElement('div');
+      cap.setAttribute('drawable', '');
+      cap.contentEditable = 'true';
+      cap.style.cssText = 'width:220px;padding:10px;border-radius:8px;background:#1d1c1a;color:#fff;font:600 13px system-ui';
+      cap.textContent = 'Editable caption fixture';
+      c.append(cap);
+
+      const ctx = c.getContext('2d');
+      c.addEventListener('paint', () => {
+        ctx.reset();
+        ctx.fillStyle = '#333';
+        ctx.fillRect(0, 0, 260, 110);
+        ctx.drawElementImage(cap, 20, 24, cap.offsetWidth || 220, cap.offsetHeight || 44);
+      });
+      try {
+        await nextPaint(c);
+        // Copy into a plain non-drawable canvas for safe pixel readback.
+        const copy = document.createElement('canvas');
+        copy.width = 260;
+        copy.height = 110;
+        const cc = copy.getContext('2d', { willReadFrequently: true });
+        cc.drawImage(c, 0, 0);
+        const ink = imageInk(cc.getImageData(0, 0, 260, 110));
+        if (ink < 0.05) throw new Error('drawn caption fixture had too few lit pixels');
+        const r = c.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + 80, r.top + 42);
+        const hitOk = hit === cap || cap.contains(hit);
+        return `drawn (${(ink * 100).toFixed(1)}% lit pixels), elementFromPoint ${hitOk ? 'landed on the editable banner' : `returned ${hit?.tagName || 'null'}`}`;
+      } finally {
+        c.remove();
+        window.__gfx?.retire(c);
+      }
+    },
+  },
+  {
+    name: 'All three visible demo canvases still have pixels after fixtures run',
+    why: 'Copies each visible canvas into a 48x48 OffscreenCanvas so no drawable canvas is read directly.',
+    timeout: 10000,
+    async run() {
+      const probe = new OffscreenCanvas(48, 48).getContext('2d', { willReadFrequently: true });
+      const items = [
+        ['Demo 1', demo1.getCanvas, demo1.getRoute, demo1.drawOnce],
+        ['Demo 2', demo2.getCanvas, demo2.getRoute, demo2.drawOnce],
+        ['Demo 3', demo3.getCanvas, demo3.getRoute, demo3.paintNow],
+      ];
+      const parts = [];
+      for (const [label, getC, getR, redraw] of items) {
+        const r = getR();
+        if (r === 'plain') {
+          parts.push(`${label}: plain HTML`);
+          continue;
+        }
+        const c = getC();
+        redraw();
+        probe.clearRect(0, 0, 48, 48);
+        probe.drawImage(c, 0, 0, 48, 48);
+        const d = probe.getImageData(0, 0, 48, 48).data;
+        let lit = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 8) lit++;
+        if (!lit) throw new Error(`${label} (${r}) canvas is blank`);
+        parts.push(`${label} (${r}) ${Math.round((lit / 2304) * 100)}%`);
+      }
+      return parts.join('; ');
+    },
+  },
+];
+
+if (supported) {
+  for (const t of tests) {
+    const fn = t.run;
+    t.run = async () => {
+      try {
+        return await fn();
+      } catch (err) {
+        if (err instanceof NotRun) t.expect = 'fail';
+        throw err;
+      }
+    };
+  }
+  runTests($('results'), onBench(bench, tests)).then(() => bench.done());
+} else {
+  runTests($('results'), [{
+    name: 'HTML-in-canvas is available',
+    why: 'The live checks need canvas[layoutsubtree] and drawElementImage().',
+    run: async () => { throw new Error('not available in this browser'); },
+  }]);
+}
+</script>
+</body>
+</html>

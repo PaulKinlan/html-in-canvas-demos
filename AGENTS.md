@@ -22,7 +22,7 @@ This repository is a set of experiments with the HTML-in-canvas API, served as a
 | Native UI frameworks on the web (Qt, Flutter, Compose, egui and others) | [docs/native-frameworks.md](docs/native-frameworks.md) |
 | The `<slot-view>` wire protocol | [public/slot-view/PROTOCOL.md](public/slot-view/PROTOCOL.md) |
 | One row per HTML element drawn in a canvas, and 121 ideas | [ELEMENTS.md](ELEMENTS.md) |
-| 678 Chrome features with ideas, and 29 planned demos | `public/chrome-apis/plan.md` after `npm run build`, or https://html-in-canvas.page/chrome-apis/plan.md |
+| 678 Chrome features with ideas, and 33 planned demos (all built) | `public/chrome-apis/plan.md` after `npm run build`, or https://html-in-canvas.page/chrome-apis/plan.md |
 | The tags and the picture a shared link shows (description, Open Graph, Twitter card, schema.org, `social.jpg`), the sitemap | [docs/social-metadata.md](docs/social-metadata.md) |
 | The raw API in 60 lines | [public/start/hello.html](public/start/hello.html) |
 
