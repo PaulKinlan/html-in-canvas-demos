@@ -377,9 +377,14 @@ export class SelectPicker {
     canvas.setAttribute('content', 'drawable');
     canvas.setAttribute('layoutsubtree', ''); // the attribute's name in older Chrome versions
     if (!given) {
+      // While the options are outside the select none of them is its option, and when the canvas
+      // comes back the select picks one again: the last, not the one that was chosen. So the choice
+      // is kept across the move.
+      const chosen = select.selectedIndex;
       for (const option of [...select.options]) canvas.append(option);
       for (const group of select.querySelectorAll(':scope > optgroup')) group.remove(); // groups are flattened
       select.append(canvas);
+      if (chosen >= 0 && select.selectedIndex !== chosen) select.selectedIndex = chosen;
     }
     for (const option of canvas.querySelectorAll('option')) option.setAttribute('drawable', '');
     this.#adopt(canvas);
