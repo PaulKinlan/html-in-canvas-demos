@@ -259,10 +259,27 @@ export function shade(name, body, panel, scale, values = {}, source = null, copy
   if (canvas.width < pw) canvas.width = pw;
   if (canvas.height < ph) canvas.height = ph;
   gl.useProgram(made.program);
-  gl.bindTexture(gl.TEXTURE_2D, state.texture);
-  if (source && copy) {
-    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, copy.sx); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, copy.sy);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, copy.sw, copy.sh, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  // panel.keep (an element) gives the picture a texture of its own, uploaded again only when panel.sig
+  // changes. A skin that moves 20 times a second then uploads once, not 20 times a second.
+  let held = null;
+  if (panel.keep) {
+    state.kept ??= new WeakMap();
+    held = state.kept.get(panel.keep);
+    if (!held) {
+      held = { texture: gl.createTexture(), sig: null, copy: null };
+      gl.bindTexture(gl.TEXTURE_2D, held.texture);
+      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      state.kept.set(panel.keep, held);
+    }
+    if (!source) { if (held.sig !== panel.sig || !held.copy) return null; copy = held.copy; }
+  }
+  gl.bindTexture(gl.TEXTURE_2D, held ? held.texture : state.texture);
+  if (copy) {
+    if (source) {
+      gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, copy.sx); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, copy.sy);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, copy.sw, copy.sh, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      if (held) { held.sig = panel.sig; held.copy = { sx: 0, sy: 0, sw: copy.sw, sh: copy.sh, x: copy.x, y: copy.y, width: copy.width, height: copy.height }; }
+    }
     gl.uniform4f(at('uBackRect'), ((panel.x ?? 0) - copy.x) / copy.width, ((panel.y ?? 0) - copy.y) / copy.height, 1 / copy.width, 1 / copy.height);
   }
   gl.uniform1i(at('uBack'), 0);
@@ -280,3 +297,6 @@ export function shade(name, body, panel, scale, values = {}, source = null, copy
   return { canvas, sx: 0, sy: 0, sw: pw, sh: ph };
 }
 // #endregion shade
+
+/** True if shade() already holds this element's picture with this signature, so the skin need not draw it again. */
+export function holds(element, sig) { const held = state?.kept?.get(element); return !!held && held.sig === sig && !state.lost; }

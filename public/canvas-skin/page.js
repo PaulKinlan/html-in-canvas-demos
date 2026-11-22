@@ -1,5 +1,6 @@
 import { banner, runTests, supported, testStage, inkFraction, stillDrawn } from '/shared/support.js';
 import { CanvasSkin } from '/lib/canvas-skin.js';
+import { METALS } from '/lib/canvas-skin-themes-gl.js';
 banner();
 
 const stage = document.getElementById('stage');
@@ -37,6 +38,8 @@ for (const [name, skin] of Object.entries(CanvasSkin.skins)) {
 function showSettings(name) {
   document.getElementById('glassSet').hidden = name !== 'glass';
   document.getElementById('glassNote').hidden = name !== 'glass';
+  document.getElementById('metalSet').hidden = name !== 'metal';
+  document.getElementById('metalNote').hidden = name !== 'metal';
 }
 showSettings(stage.getAttribute('skin'));
 
@@ -77,6 +80,19 @@ document.getElementById('glassReset').addEventListener('click', () => glassMode(
 showGlass();
 // #endregion glass-controls
 
+// The metals of the metal skin. Every metal element reads the same setting when it paints.
+const metalModes = document.getElementById('metalModes');
+for (const [name, m] of Object.entries(METALS)) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.textContent = m.label; b.setAttribute('aria-pressed', String(name === CanvasSkin.skins.metal.settings.metal));
+  b.addEventListener('click', () => {
+    CanvasSkin.skins.metal.settings.metal = name;
+    for (const other of metalModes.children) other.setAttribute('aria-pressed', String(other === b));
+    CanvasSkin.redraw();
+  });
+  metalModes.append(b);
+}
+
 // The form does something, to show that the controls are the page's own.
 const people = document.getElementById('fPeople'), peopleOut = document.getElementById('fPeopleOut'), result = document.getElementById('fResult');
 people.addEventListener('input', () => { peopleOut.textContent = people.value; });
@@ -95,7 +111,7 @@ function report() {
   if (!supported) { status.textContent = `This browser has no HTML-in-canvas API. The ${all.length} wrapped elements are shown as plain HTML with each skin's font and colours.`; return; }
   const sized = all.filter((w) => w.canvas?.width > 0).length, plain = all.filter((w) => w.plain).length;
   const memory = window.__gfx?.memory?.(), route = CanvasSkin.glassRoute;
-  status.textContent = `Skin: ${CanvasSkin.skins[stage.getAttribute('skin')]?.label}. ${all.length} wrapped elements, ${sized} canvases with pixels now (the rest are off screen), ${memory ? `${(memory.bytes / 1048576).toFixed(1)} MB of canvas memory by the page's estimate` : 'no memory estimate'}. ${route === 'webgl' ? 'The shader skins (glass, metal, sea, space) run in one shared WebGL context' : route === 'not started' ? 'No shader skin has painted yet, so there is no WebGL context' : `The shader skins are drawn in 2D: ${route}`}.`
+  status.textContent = `Skin: ${CanvasSkin.skins[stage.getAttribute('skin')]?.label}. ${all.length} wrapped elements, ${sized} canvases with pixels now (the rest are off screen), ${memory ? `${(memory.bytes / 1048576).toFixed(1)} MB of canvas memory by the page's estimate` : 'no memory estimate'}. ${route === 'webgl' ? 'The shader skins run in one shared WebGL context' : route === 'not started' ? 'No shader skin has painted yet, so there is no WebGL context' : `The shader skins are drawn in 2D: ${route}`}.`
     + (plain ? ` ${plain} shown as plain HTML: ${fallen.at(-1) ?? ''}` : '');
 }
 document.addEventListener('canvas-skin-plain', (e) => { fallen.push(e.detail.why); report(); });

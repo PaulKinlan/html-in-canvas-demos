@@ -2,7 +2,7 @@
 
 Measured in headless Chromium 157 (C157) on 2026-11-22, at 412 px wide, device scale 2 and 2.625, with taps sent as touch events. Not run on a phone.
 
-`<canvas-skin>` wraps one element in a small drawable 2D canvas. A `skin` attribute on an ancestor chooses how every wrapper under it draws. Twelve skins are built in: glass, pencil, gel, terminal, blueprint, thermal camera, neon sign, embroidery, polished metal, sea, space and native (the browser's own drawing).
+`<canvas-skin>` wraps one element in a small drawable 2D canvas. A `skin` attribute on an ancestor chooses how every wrapper under it draws. Nineteen skins are built in: glass, pencil, gel, terminal, blueprint, thermal camera, neon sign, embroidery, Christmas, seaside, brushed metal (aluminium, steel, brass, copper, chrome), underwater, gravity, holographic foil, screen print, crayon, impressionist, old master and native (the browser's own drawing).
 
 | Question | Result | Reason or detail |
 |---|---|---|
@@ -34,6 +34,12 @@ Measured in headless Chromium 157 (C157) on 2026-11-22, at 412 px wide, device s
 | Can other shaders use the glass skin's WebGL context? | Yes. `check:jank` counts 1 WebGL context with glass, metal, sea and space all on the page. | `shade(name, body, panel, scale, values, source, copy)` in `lib/glass-gl.js` compiles a program per name in the same context. Each call is one pass into the shared canvas and one `drawImage()` into the wrapper. |
 | Can a skin animate without painting every frame? | Yes. | A skin sets `frame.wait` to a number of milliseconds and the wrapper asks for its next paint after that time. The sea skin uses 50 ms. |
 | Can a skin use where the page was touched? | Yes (seen in screenshots after synthetic pointer events, no live check yet). | The thermal skin listens for `pointerdown` and `pointermove` on the document, keeps the last 40 points for 4.5 seconds, and asks the wrapper under the pointer to paint. |
+
+| Can an element be drawn bent by the elements round it? | Yes, inside its own canvas (seen in screenshots). | The gravity skin measures every wrapper at most once in 0.8 s, gives each a mass from its size, and gives the shader the four that pull hardest on this element and the pointer. A wrapper cannot draw outside its canvas, so the displacement is capped at 13 px (the canvas has 14 px of room). The page background is CSS and is not bent. |
+| Does a sensor reach a skin? | Written, not verified: headless Chromium sends no `deviceorientation`. With a mouse the same code follows the pointer. | Foil and metal move their highlight with tilt. The wrappers are painted again at most 12 times a second and only when the tilt changed by more than 0.02. |
+| Does the shader need the element's picture each frame? | No. | `shade()` keeps one texture per element when given `keep` and `sig`. The underwater skin skips the 2D drawing, the copy and the upload while only the water moves. |
+
+Owner's notes from the phone, 2026-11-22 (Chrome 159, Android): the first underwater skin was "pretty slow". It drew, copied and uploaded every near wrapper 20 times a second. It now uploads only on change, paints 15 times a second on screen and 2 off it. Not measured again on the phone. The first space skin (a ring of bent stars round each box over tiled dot stars) and the first metal skin (chrome with a horizon) were not liked, and were replaced by gravity and brushed metal.
 
 Problems met: a grain of 0.6 on the metal normal made the reflection unreadable noise and hid the field text; 0.07 reads as brushing. A cross-stitched heading at 2.2 px cells was not legible, so only pictures are cross-stitched and text is drawn through a lighting filter.
 

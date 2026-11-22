@@ -1,5 +1,5 @@
 // canvas-skin-themes-more.js: skins for <canvas-skin> that are drawn with 2D canvas calls and SVG filters.
-// Thermal camera, neon sign, embroidery. A skin is described at the top of canvas-skin-themes.js, and the
+// Thermal camera, neon sign, embroidery, Christmas, seaside. A skin is described at the top of canvas-skin-themes.js, and the
 // shapes of each kind of element come from parts() in canvas-skin-draw.js.
 
 import { TAU, clamp, lerp, smooth, rng, rr, circle, line, knobX, parts, grab, cells, maskTile } from './canvas-skin-draw.js';
@@ -321,4 +321,194 @@ const embroidery = {
 };
 // #endregion embroidery
 
-export const skins = { thermal, neon, embroidery };
+// ---------------------------------------------------------------------------------------- christmas
+// #region christmas
+const XMAS = { red: '#b01e28', green: '#1f7a4a', pine: '#0f3a2e', gold: '#e8b923', cream: '#fff8ea' };
+const XMAS_TYPE = `color: ${XMAS.cream}; color-scheme: dark; font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;`;
+const BULBS = ['#ff4d4d', '#ffd24d', '#4dd17a', '#4da6ff'];
+// Snow lying on the top edge from x0 to x1: a row of mounds, as deep as `depth`.
+function snowCap(ctx, f, x0, x1, y, depth) {
+  if (depth < 0.3 || x1 - x0 < 10) return;
+  const rand = rng(f.seed + 11);
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(x0, y + 2);
+  let x = x0;
+  while (x < x1) { const step = Math.min(x1 - x, 9 + rand() * 14), top = y - depth * (0.55 + rand() * 0.6); ctx.quadraticCurveTo(x + step / 2, top - depth * 0.5, x + step, y - depth * 0.25 + (x + step >= x1 ? 2 + depth * 0.25 : 0)); x += step; }
+  // The lower edge hangs over the front in drips.
+  while (x > x0) { const step = Math.min(x - x0, 8 + rand() * 12); ctx.quadraticCurveTo(x - step / 2, y + 2 + depth * (0.2 + rand() * 0.5), x - step, y + 2); x -= step; }
+  ctx.closePath();
+  ctx.shadowColor = 'rgb(0 20 40 / .35)'; ctx.shadowBlur = 3 * f.scale; ctx.shadowOffsetY = 1 * f.scale;
+  ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.restore();
+}
+// A glass ball on a tree: a sphere, a point of light, a gold cap.
+function bauble(ctx, x, y, r, color) {
+  const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, 0, x, y, r);
+  g.addColorStop(0, '#fff'); g.addColorStop(0.25, color); g.addColorStop(1, '#3a0a10');
+  circle(ctx, x, y, r); ctx.fillStyle = g; ctx.fill();
+  ctx.fillStyle = XMAS.gold; ctx.fillRect(x - r * 0.22, y - r - 2, r * 0.44, 3.5);
+}
+
+const christmas = {
+  label: 'Christmas',
+  type: XMAS_TYPE,
+  root: `${XMAS_TYPE} background-color: ${XMAS.pine}; background-image: radial-gradient(circle at 20px 30px, rgb(255 255 255 / .55) 0 1.4px, rgb(255 255 255 / 0) 2px), radial-gradient(circle at 70px 80px, rgb(255 255 255 / .4) 0 1px, rgb(255 255 255 / 0) 1.6px), radial-gradient(circle at 100px 14px, rgb(255 255 255 / .3) 0 1.8px, rgb(255 255 255 / 0) 2.4px), linear-gradient(180deg, #164a3a, #0a2a20); background-size: 120px 120px, 120px 120px, 120px 120px, auto;`,
+  css: `caret-color: ${XMAS.gold}; & ::placeholder { color: rgb(255 248 234 / .55); } &[kind="button"] > .primary { color: #2a1a00; }`,
+
+  paint(ctx, f) {
+    const { width: w, height: h, kind, state: s } = f;
+    const depth = 7 * smooth(f.t);                     // the snow settles while the skin arrives
+    const what = parts(ctx, f, (path, role) => {
+      ctx.save();
+      switch (role) {
+        case 'primary': case 'body': {
+          path(); ctx.shadowColor = 'rgb(0 0 0 / .4)'; ctx.shadowBlur = 5 * f.scale; ctx.shadowOffsetY = (s.active ? 1 : 3) * f.scale;
+          ctx.fillStyle = role === 'primary' ? XMAS.gold : XMAS.red; ctx.fill(); ctx.shadowColor = 'transparent';
+          // A parcel: a ribbon down the left and across the middle.
+          ctx.clip(); ctx.fillStyle = role === 'primary' ? XMAS.red : XMAS.gold; ctx.globalAlpha *= 0.9; ctx.fillRect(14, 0, 6, h); ctx.fillRect(0, h - 9, w, 3);
+          break;
+        }
+        case 'well':
+          // A frosted window: pale glass, frost in the corners.
+          path(); ctx.fillStyle = 'rgb(200 228 255 / .16)'; ctx.fill(); ctx.strokeStyle = s.focus ? XMAS.gold : 'rgb(255 255 255 / .7)'; ctx.lineWidth = s.focus ? 2.5 : 1.5; ctx.stroke(); ctx.clip();
+          for (const [x, y] of [[0, 0], [w, 0], [w, h], [0, h]]) { const g = ctx.createRadialGradient(x, y, 0, x, y, 26); g.addColorStop(0, 'rgb(255 255 255 / .6)'); g.addColorStop(1, 'rgb(255 255 255 / 0)'); ctx.fillStyle = g; ctx.fillRect(x - 26, y - 26, 52, 52); }
+          break;
+        case 'frame': path(); ctx.fillStyle = 'rgb(0 0 0 / .18)'; ctx.fill(); ctx.strokeStyle = 'rgb(255 248 234 / .35)'; ctx.lineWidth = 1; ctx.stroke(); break;
+        case 'track': path(); ctx.fillStyle = '#082019'; ctx.fill(); ctx.strokeStyle = 'rgb(255 255 255 / .35)'; ctx.lineWidth = 1; ctx.stroke(); break;
+        case 'fill':
+          path();
+          if (kind === 'check' || kind === 'switch') { ctx.fillStyle = XMAS.green; ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke(); }
+          else { ctx.fillStyle = '#fff'; ctx.fill(); ctx.clip(); ctx.strokeStyle = '#d3202c'; ctx.lineWidth = 5; for (let x = -h; x < w + h; x += 13) line(ctx, x, h + 2, x + h + 4, -2); }   // a candy cane
+          break;
+        case 'knob': bauble(ctx, knobX(f, kind === 'range' ? s.value : s.on), h / 2 + 1, h / 2 - (kind === 'range' ? 2 : 5), kind === 'range' || s.on > 0.5 ? '#e0242f' : '#8fa3b5'); break;
+        case 'dot': bauble(ctx, w / 2, h / 2 + 1, (h / 2 - 6) * s.on, '#e0242f'); break;
+        default: path(); ctx.strokeStyle = '#fff'; ctx.lineWidth = kind === 'check' ? 3 : 2; ctx.lineCap = ctx.lineJoin = 'round'; ctx.stroke();
+      }
+      ctx.restore();
+    }, { radius: 8 });
+    if (what === 'media') { ctx.save(); rr(ctx, 0, 0, w, h, 8); ctx.clip(); f.draw(); ctx.restore(); }
+    else if (what !== 'control') f.draw();
+    if (kind === 'button' || kind === 'field' || kind === 'media') snowCap(ctx, f, 5, w - 5, 0, depth);
+    if (kind === 'card') {
+      // A string of lights along the top. Every other lamp is lit, and they change places.
+      const n = Math.max(3, Math.floor(w / 30)), phase = Math.floor(f.time / 0.7) % 2;
+      ctx.save(); ctx.strokeStyle = '#06140f'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(4, 0);
+      for (let i = 0; i < n; i++) ctx.quadraticCurveTo(4 + (i + 0.5) * ((w - 8) / n), 9, 4 + (i + 1) * ((w - 8) / n), 0);
+      ctx.stroke();
+      for (let i = 0; i < n; i++) {
+        const x = 4 + (i + 0.5) * ((w - 8) / n), lit = i % 2 === phase, color = BULBS[i % 4];
+        ctx.save(); circle(ctx, x, 7, 3.4); ctx.fillStyle = color; ctx.globalAlpha *= lit ? 1 : 0.35; if (lit) { ctx.shadowColor = color; ctx.shadowBlur = 8 * f.scale; } ctx.fill(); ctx.restore();
+      }
+      ctx.restore();
+      f.wait = 700;
+    }
+    if (f.t < 1) {
+      // Flakes fall past the element while its snow settles.
+      const rand = rng(f.seed + 5); ctx.save(); ctx.fillStyle = '#fff';
+      for (let i = 0; i < 6; i++) { const x = rand() * w, y = -10 + (h + 20) * ((f.t * (0.6 + rand()) + rand()) % 1); circle(ctx, x + Math.sin(f.t * 6 + i) * 4, y, 1 + rand() * 1.4); ctx.globalAlpha = 0.9 * (1 - f.t); ctx.fill(); }
+      ctx.restore();
+    }
+    if (s.focus && kind !== 'field') { ctx.save(); rr(ctx, -4, -4, w + 8, h + 8, 11); ctx.strokeStyle = XMAS.gold; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); }
+  },
+};
+// #endregion christmas
+
+// ------------------------------------------------------------------------------------------ seaside
+// #region seaside
+const SAND = { dry: '#ead9b0', wet: '#b99a63', ink: '#4f3b22', sea: '#2aa7c9', deep: '#1877a8', coral: '#f2685a', foam: '#ffffff' };
+const SEASIDE_TYPE = `color: ${SAND.ink}; color-scheme: light; font-family: "Avenir Next", Nunito, "Trebuchet MS", "Segoe UI", system-ui, sans-serif;`;
+// A beach ball at x, y, turned by `turn` radians.
+function beachBall(ctx, f, x, y, r, turn) {
+  ctx.save(); circle(ctx, x, y, r); ctx.shadowColor = 'rgb(80 50 10 / .4)'; ctx.shadowBlur = 3 * f.scale; ctx.shadowOffsetY = 1.5 * f.scale; ctx.fillStyle = '#fff'; ctx.fill(); ctx.restore();
+  ctx.save(); circle(ctx, x, y, r); ctx.clip();
+  const colors = ['#e8413a', '#fff', '#2a7fd6', '#fff', '#f5c531', '#fff'];
+  for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r + 1, turn + (i / 6) * TAU, turn + ((i + 1) / 6) * TAU); ctx.closePath(); ctx.fillStyle = colors[i]; ctx.fill(); }
+  const g = ctx.createRadialGradient(x - r * 0.4, y - r * 0.45, 0, x, y, r); g.addColorStop(0, 'rgb(255 255 255 / .6)'); g.addColorStop(0.5, 'rgb(255 255 255 / 0)'); g.addColorStop(1, 'rgb(0 0 0 / .22)');
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.restore();
+}
+// A starfish with its arms out by `open` (0..1).
+function starfish(ctx, x, y, r, open) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i / 10) * TAU, rad = i % 2 ? r * 0.42 : r * (0.42 + 0.58 * open); ctx.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad); }
+  ctx.closePath(); ctx.fillStyle = '#f08a3c'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#c9601d'; ctx.lineWidth = 1.5; ctx.fill(); ctx.stroke();
+}
+// Water in the current clip up to x, with a moving surface at its right-hand edge and a line of foam.
+function tide(ctx, f, x, h, top = 0) {
+  const time = f.time;
+  ctx.beginPath(); ctx.moveTo(0, top);
+  for (let y = top; y <= top + h; y += 2) ctx.lineTo(x + Math.sin(y * 0.5 + time * 3) * 2.2 + Math.sin(y * 0.21 - time * 1.7) * 1.6, y);
+  ctx.lineTo(0, top + h); ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, Math.max(1, x), 0); g.addColorStop(0, SAND.deep); g.addColorStop(1, '#6fd3e0');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = SAND.foam; ctx.lineWidth = 2.2; ctx.beginPath();
+  for (let y = top; y <= top + h; y += 2) ctx.lineTo(x + Math.sin(y * 0.5 + time * 3) * 2.2 + Math.sin(y * 0.21 - time * 1.7) * 1.6, y);
+  ctx.stroke();
+}
+
+const seaside = {
+  label: 'Seaside',
+  type: SEASIDE_TYPE,
+  root: `${SEASIDE_TYPE} background-color: ${SAND.dry}; background-image: radial-gradient(circle at 7px 9px, rgb(120 90 40 / .22) 0 .8px, rgb(120 90 40 / 0) 1.3px), radial-gradient(circle at 19px 23px, rgb(255 255 255 / .5) 0 .8px, rgb(255 255 255 / 0) 1.3px), linear-gradient(180deg, #2aa7c9 0, #7fd6de 34px, #ffffff 44px, #cdb27c 52px, ${SAND.dry} 96px); background-size: 31px 29px, 37px 41px, auto;`,
+  css: `caret-color: ${SAND.deep}; & ::placeholder { color: rgb(79 59 34 / .5); } &[kind="button"] > .primary { color: #fff; }`,
+
+  paint(ctx, f) {
+    const { width: w, height: h, kind, state: s, bleed: b } = f;
+    // A wave runs down over the element as the skin arrives, and the element is what it leaves behind.
+    const front = lerp(-b - 6, h + b + 6, f.t);
+    if (f.t < 1) { ctx.save(); ctx.beginPath(); ctx.rect(-b, -b, w + 2 * b, front + b); ctx.clip(); }
+    const what = parts(ctx, f, (path, role) => {
+      ctx.save();
+      switch (role) {
+        case 'primary': case 'body': {
+          // A beach towel: a plain middle and striped ends.
+          const base = role === 'primary' ? SAND.deep : '#fff8ea', stripe = role === 'primary' ? '#fff' : SAND.coral;
+          path(); ctx.shadowColor = 'rgb(90 60 20 / .4)'; ctx.shadowBlur = 4 * f.scale; ctx.shadowOffsetY = (s.active ? 0.5 : 2) * f.scale; ctx.fillStyle = base; ctx.fill(); ctx.shadowColor = 'transparent';
+          ctx.clip(); ctx.fillStyle = stripe; for (const x of [4, 10, w - 7, w - 13]) ctx.fillRect(x, 0, 3, h);
+          if (s.active) { ctx.fillStyle = 'rgb(0 0 0 / .1)'; ctx.fillRect(0, 0, w, h); }
+          break;
+        }
+        case 'well': {
+          // Damp sand pressed flat, darker along the top where the edge casts a shadow.
+          path(); ctx.fillStyle = 'rgb(150 115 60 / .3)'; ctx.fill(); ctx.clip();
+          const g = ctx.createLinearGradient(0, 0, 0, 9); g.addColorStop(0, 'rgb(70 45 10 / .35)'); g.addColorStop(1, 'rgb(70 45 10 / 0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, w, 9);
+          if (s.focus) { path(); ctx.strokeStyle = SAND.deep; ctx.lineWidth = 5; ctx.stroke(); }
+          break;
+        }
+        case 'frame': path(); ctx.setLineDash([7, 4]); ctx.strokeStyle = '#a07a45'; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.stroke(); break;   // a rope
+        case 'track': path(); ctx.fillStyle = kind === 'switch' ? 'rgb(150 115 60 / .45)' : 'rgb(150 115 60 / .3)'; ctx.fill(); break;
+        case 'fill':
+          if (kind === 'check') { path(); ctx.fillStyle = 'rgb(150 115 60 / .3)'; ctx.fill(); }
+          else if (kind === 'switch') { path(); ctx.fillStyle = SAND.sea; ctx.fill(); }
+          else if (kind === 'bar') { rr(ctx, 0, 0, w, h, h / 2); ctx.clip(); tide(ctx, f, w * s.value * smooth(f.t), h); f.wait = 90; }
+          else { path(); ctx.fillStyle = SAND.sea; ctx.fill(); }
+          break;
+        case 'knob': { const v = kind === 'range' ? s.value : s.on, x = knobX(f, v); beachBall(ctx, f, x, h / 2, h / 2 - (kind === 'range' ? 1 : 3), (x / (h / 2)) ); break; }   // it rolls
+        case 'dot': { const g = ctx.createRadialGradient(w / 2 - 2, h / 2 - 2, 0, w / 2, h / 2, h / 2 - 6); g.addColorStop(0, '#fff'); g.addColorStop(1, '#e7b9c9'); path(); ctx.fillStyle = g; ctx.fill(); break; }   // a pearl
+        default:
+          if (kind === 'check') starfish(ctx, w / 2, h / 2 + 1, h / 2 + 1, s.on);
+          else { path(); ctx.strokeStyle = SAND.ink; ctx.lineWidth = 2; ctx.lineCap = ctx.lineJoin = 'round'; ctx.stroke(); }
+      }
+      ctx.restore();
+    }, { radius: 10 });
+    if (what === 'media') {
+      // A postcard: a white border, turned a little.
+      ctx.save(); ctx.translate(w / 2, h / 2); ctx.rotate(-0.014); ctx.translate(-w / 2, -h / 2);
+      ctx.save(); ctx.shadowColor = 'rgb(90 60 20 / .45)'; ctx.shadowBlur = 5 * f.scale; ctx.shadowOffsetY = 2 * f.scale; ctx.fillStyle = '#fff'; ctx.fillRect(-5, -5, w + 10, h + 10); ctx.restore();
+      f.draw(); ctx.restore();
+    } else if (what !== 'control') f.draw();
+    if (s.focus && kind !== 'field') { ctx.save(); rr(ctx, -4, -4, w + 8, h + 8, 12); ctx.strokeStyle = SAND.deep; ctx.lineWidth = 2; ctx.stroke(); ctx.restore(); }
+    if (f.t < 1) {
+      ctx.restore();
+      // The front of the wave: water behind a line of foam.
+      ctx.save(); ctx.globalAlpha = 0.85 * (1 - f.t * f.t);
+      ctx.beginPath(); ctx.moveTo(-b, front - 12);
+      for (let x = -b; x <= w + b; x += 4) ctx.lineTo(x, front + Math.sin(x * 0.09 + f.seed) * 3);
+      ctx.lineTo(w + b, front - 12); ctx.closePath(); ctx.fillStyle = 'rgb(110 205 220 / .7)'; ctx.fill();
+      ctx.beginPath(); for (let x = -b; x <= w + b; x += 4) ctx.lineTo(x, front + Math.sin(x * 0.09 + f.seed) * 3);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
+    }
+  },
+};
+// #endregion seaside
+
+export const skins = { thermal, neon, embroidery, christmas, seaside };
