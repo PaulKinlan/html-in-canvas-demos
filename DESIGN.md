@@ -198,6 +198,8 @@ Use exactly the names "How it works", "Live checks" and "Findings" (PR #38). Any
 
 The project owner asked for plain technical writing after reading the heading "One element, two places" on a pull request and saying it read as generated. The rules below are the working reading of that request. They apply to page copy, headings, the README, these documents, pull request text and reports.
 
+The long form is [docs/writing.md](docs/writing.md): the habits that make text read as generated, and a description of how the project owner writes, with examples. The site's copy is written in his voice (first person, contractions, British spelling). `npm run check:writing` flags the habits a script can find.
+
 - A title or heading names the thing: the element, the API call or the task. Example: "`<dom-portal>`: draw one element in two places".
 - No slogans, no taglines, no paired or parallel phrases written for rhythm, no rhetorical questions.
 - Say what the code does, with the call names and the numbers. Cut sentences that only sell.

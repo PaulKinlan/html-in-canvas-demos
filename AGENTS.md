@@ -14,6 +14,7 @@ This repository is a set of experiments with the HTML-in-canvas API, served as a
 | Why canvases were lost on the phone, the graphics rules, their limits and exceptions | [docs/graphics-rules.md](docs/graphics-rules.md), and [docs/lost-contexts.md](docs/lost-contexts.md) for the measurements behind the first guard |
 | The repository layout, the Worker, shared modules, the check harness, scripts, local testing, deploy, how to add a page | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Colours, type, components, section order, phone rules, writing rules | [DESIGN.md](DESIGN.md) |
+| What generated text looks like, how Paul writes, and the check for it | [docs/writing.md](docs/writing.md), `npm run check:writing` |
 | The explainer, Chrome documentation, every cited source, live and preview URLs | [KNOWN-LINKS-AND-RESOURCES.md](KNOWN-LINKS-AND-RESOURCES.md) |
 | The list of pages | `npm run pages`. Each page's own `public/<name>/page.json` holds its title, question and API calls |
 | Which files a pull request may edit, and why pull requests used to conflict | [ARCHITECTURE.md](ARCHITECTURE.md), "Files that parallel branches share" |
@@ -50,6 +51,7 @@ These come from the project owner.
 Writing:
 
 - Plain, literal technical prose. No slogans, taglines, paired phrases written for rhythm, rhetorical questions or marketing tone. No em-dashes. The full rules are in [DESIGN.md](DESIGN.md), "Writing rules".
+- Page copy is in Paul's voice: first person ("I wanted to know if"), contractions, British spelling, and what failed said as plainly as what worked. [docs/writing.md](docs/writing.md) lists the habits of generated text and describes his voice. Run `npm run check:writing -- /your-page/` for every page you change, and read the page against the list, because the script finds only the mechanical ones.
 - Do not rename existing demo titles.
 
 Pages:

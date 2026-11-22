@@ -135,9 +135,9 @@
   <div id="support"></div>
   <h1>Element capture: any element to PNG, video or print</h1>
   <p class="lede">
-    One call turns an element that was never written for canvas into pixels:
+    One call turns an ordinary element into pixels:
     <code>captureElement(el)</code>, <code>recordElement(el)</code>, <code>exportVideo(el)</code>, <code>printElement(el)</code>, and <code>capturePage()</code> for a whole ordinary page.
-    Under the hood a temporary HTML-in-canvas canvas takes the element's place for one frame. The tests below say what survives that and what does not.
+    The library puts a temporary drawable canvas in the element's place for one frame. I wanted to know what survives that, and the tests below say what does and what doesn't.
   </p>
 
   <div class="bench">
@@ -170,7 +170,7 @@
         <button data-do="pagefull">This page: full</button>
         <button data-do="flicker">Flicker check (30 captures)</button>
       </div>
-      <p class="note">Type in the field, then capture: the element is live the whole time, including while it is being recorded.</p>
+      <p class="note">Type in the field, then capture. The element takes input the whole time, including while it's being recorded.</p>
     </div>
     <div>
       <div id="out"><span class="note">Output appears here.</span></div>
@@ -234,24 +234,24 @@ await printElement(el);                                   // paginated, 200 dpi<
       <li data-code="/lib/element-capture.js#print"><b><code>printElement()</code>: <code>@page</code> margin boxes for the header, footer and page numbers.</b></li>
       <li data-code="/lib/element-capture.js#folder"><b><code>pickFolder()</code>, <code>saveToFolder()</code> and <code>watchFolder()</code>.</b></li>
       <li data-code="#folder-markup"><b>The tile canvas.</b></li>
-      <li data-code="#folder"><b>One tile per file, redrawn when <code>FileSystemObserver</code> reports a change.</b> Each file is shown in an <code>&lt;iframe sandbox="allow-same-origin"&gt;</code>: its scripts do not run, and it stays same-origin so the canvas may draw it.</li>
+      <li data-code="#folder"><b>One tile per file, redrawn when <code>FileSystemObserver</code> reports a change.</b> Each file is shown in an <code>&lt;iframe sandbox="allow-same-origin"&gt;</code>: its scripts don't run, and it stays same-origin so the canvas may draw it.</li>
     </ol>
   </details>
 
   <h2>Findings</h2>
   <ul class="findings">
-    <li><strong>Yes, body can be wrapped in a canvas for one frame.</strong> The snapshot is ready in the first rendering update after the canvas goes in: the <code>paint</code> event fires in that same frame, so there is no waiting and nothing to await but one frame.</li>
-    <li><strong>The shadow-root route moves nothing.</strong> A shadow root on <code>&lt;body&gt;</code> holding <code>canvas &gt; div[drawable] &gt; slot</code> reprojects every body child without touching the light DOM: no mutation records for the page, selectors like <code>body &gt; main</code> keep matching, focus, caret, iframes and scroll position stay put. Its cost is permanent: a shadow root cannot be removed, so body keeps a bare <code>&lt;slot&gt;</code> afterwards and the page can never attach its own.</li>
+    <li><strong>The body can be wrapped in a canvas for one frame.</strong> The snapshot is ready in the first rendering update after the canvas goes in: the <code>paint</code> event fires in that same frame, so the only thing to wait for is one frame.</li>
+    <li><strong>The shadow-root route doesn't move any element.</strong> A shadow root on <code>&lt;body&gt;</code> holding <code>canvas &gt; div[drawable] &gt; slot</code> reprojects every body child without touching the light DOM: no mutation records for the page, selectors like <code>body &gt; main</code> keep matching, focus, caret, iframes and scroll position stay put. Its cost is permanent: a shadow root can't be removed, so body keeps a bare <code>&lt;slot&gt;</code> afterwards and the page can never attach its own.</li>
     <li><strong>The move route needs <code>moveBefore()</code>.</strong> With it, moving body's children into a canvas and back keeps focus, caret, form state and iframes alive. With plain <code>append</code> the iframes reload and focus is lost, and taking an iframe out of a canvas in the frame it was drawn crashed the tab.</li>
     <li><strong>CSS animations restart</strong> when an element becomes a canvas descendant, on every route. The library reads <code>currentTime</code> before and seeks the restarted animations back.</li>
     <li><strong>Fixed and sticky need a stand-in viewport.</strong> A drawable element is a containing block, so fixed elements attach to it. Wrapping the content in a viewport-sized frame with an inner scroller set to the page's scroll offset gives a faithful viewport shot. In a full-page shot fixed elements land at the end of the document and sticky ones at their static position.</li>
     <li><strong>Cross-origin iframes come out blank</strong>, by design, and so do cross-origin images without CORS. Same-origin iframes paint.</li>
-    <li><strong>Video does not have to be a screen recording.</strong> <code>exportVideo()</code> pauses the element's animations, steps them one frame at a time and encodes each frame with WebCodecs, so a 60 fps file has all 60 frames a second in the right place on any machine. The WebM container is written by a hundred lines of script.</li>
+    <li><strong>Video doesn't have to be a screen recording.</strong> <code>exportVideo()</code> pauses the element's animations, steps them one frame at a time and encodes each frame with WebCodecs, so a 60 fps file has all 60 frames a second in the right place on any machine. The WebM container is written by a hundred lines of script.</li>
     <li><strong>One clipboard item can hold the picture and the content.</strong> <code>copyElement(el, { html: true })</code> writes <code>image/png</code>, <code>text/html</code> and <code>text/plain</code> together, and <code>navigator.clipboard.read()</code> returns all three. The markup has to be read before the capture starts, because the capture adds temporary attributes to the element.</li>
     <li><strong><code>@page</code> margin boxes work for a printed capture.</strong> Chromium 157 keeps all three boxes (<code>@top-center</code>, <code>@bottom-left</code>, <code>@bottom-right</code> with <code>counter(page)</code> and <code>counter(pages)</code>) on the print document.</li>
     <li><strong>A folder can be the source and the destination.</strong> <code>FileSystemObserver</code> reported a changed file 2 to 5 ms after the write in the test browser, once per write step. A sandboxed <code>srcdoc</code> iframe is drawn only with <code>allow-same-origin</code>; with a bare <code>sandbox</code> its origin is opaque and the canvas leaves it out.</li>
     <li><strong>Open:</strong> the folder picker and <code>FileSystemObserver</code> on Android, and HEVC recording, need a real device. The test browser records VP8, VP9, AV1 and H.264 and has no HEVC encoder.</li>
-    <li><strong>Output is re-rasterized, not upscaled.</strong> <code>drawElementImage(el, 0, 0, w × 4, h × 4)</code> replays the element's paint record at the new size, so a 4× PNG has sharp text and hairlines. That is what makes print output usable.</li>
+    <li><strong>Output is rasterised again at the new size.</strong> <code>drawElementImage(el, 0, 0, w × 4, h × 4)</code> replays the element's paint record at the new size, so a 4× PNG has sharp text and hairlines, and a printed page does too.</li>
   </ul>
 
   <div id="lab" aria-hidden="true"></div>

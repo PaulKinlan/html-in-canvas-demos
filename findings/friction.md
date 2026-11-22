@@ -10,8 +10,8 @@ The page collects every place recorded so far where HTML-in-canvas, or a Chrome 
 |---|---|---|
 | Browser behaviour that looks wrong | 18 | Candidates for a Chromium bug report. None is filed. |
 | The API has no way to do it | 17 | Requests for the explainer. |
-| The API as built, where it was not what we expected | 21 | Developer friction: no error, no warning or no line in the explainer said so. |
-| Our mistakes | 8 | Developer friction: the code or the test was wrong. |
+| The API as built, where it was not what I expected | 21 | Developer friction: no error, no warning or no line in the explainer said so. |
+| My mistakes | 8 | Developer friction: the code or the test was wrong. |
 | Libraries, bindings and the test browser | 7 | Friction from outside the API. |
 | Seen, cause not found | 8 | Each needs a smaller page or a run on the device that showed it. |
 
