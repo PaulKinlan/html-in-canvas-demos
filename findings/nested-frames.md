@@ -31,6 +31,8 @@ Not known: whether the inner canvases got no `paint` event, drew into themselves
 | If dark: move the two cards out of the inner canvases to be children of the scene canvas, and let the scene run the same two effect functions inside its own transform | The widgets draw with bloom, colour split, mirror image and taps. `window.__gfx.report('nested-frames', …)` sends the paint counts. |
 | The line under the demo | Names the route and why. A button switches route by hand. |
 
+reported, 2026-11-22 08:04 UTC, the owner's phone, production with the changes above: both inner canvases draw on the nested route. His screenshot shows the lamp and the counter, mirrored, and the line "Route: nested, chosen with the button. Paint events: scene 35, lamp canvas 2, counter canvas 2. The last scene paint was raised by: #dialCanvas, #padCanvas in changedElements." No `nested-frames` report was sent in the 12 hours before, so the page's own check did not switch to the flat route: the route in the line comes from two presses of the button. So a drawable canvas nested in a drawable canvas draws on that phone. Which change made the difference is not known: the `requestPaint()` on each inner canvas, or the fix for draws with no size on high pixel ratios (PR #104), which merged in the same hour.
+
 To find the cause on the phone: open the page, read the line under the room (it holds the paint counts of the three canvases at the moment of the check), and run the first four live checks, which build the same nesting on a small fixture.
 
 ## An iframe (`srcdoc`) as the drawable child
