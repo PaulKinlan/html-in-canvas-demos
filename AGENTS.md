@@ -9,6 +9,7 @@ This repository is a set of experiments with the HTML-in-canvas API, served as a
 | The goals, what is built, what is planned, who is building it, and what still needs real hardware | [PLAN.md](PLAN.md) |
 | What the API does and does not do, with the browser and page for each result; Chromium bugs; API requests | [FINDINGS.md](FINDINGS.md) for the index, [findings/](findings/) for the tables of each page or strand |
 | Every kind of crash and lost canvas found so far, with steps and evidence for a bug report | `/crashes/` (`public/crashes/cases.js`). Add an entry there when a new one is found |
+| What did not work as expected, by kind and area | `/friction/` (`public/friction/entries.js`). Add an entry there when a new one is found |
 | What crashed, threw or lost a context on a real device, by origin and page | `npm run reports`, and [docs/crash-reports.md](docs/crash-reports.md) |
 | Why canvases were lost on the phone, the graphics rules, their limits and exceptions | [docs/graphics-rules.md](docs/graphics-rules.md), and [docs/lost-contexts.md](docs/lost-contexts.md) for the measurements behind the first guard |
 | The repository layout, the Worker, shared modules, the check harness, scripts, local testing, deploy, how to add a page | [ARCHITECTURE.md](ARCHITECTURE.md) |
