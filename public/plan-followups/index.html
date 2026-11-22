@@ -154,8 +154,8 @@
       <span>Or select part of the top line.</span>
     </div>
     <div data-for="hdr">
-      <label>Headroom <input type="range" id="headroom" min="1" max="8" step="0.5" value="4"> <output id="headroom-out">4.0×</output></label>
-      <label>Bloom <input type="range" id="strength" min="0" max="2" step="0.1" value="1"> <output id="strength-out">1.0</output></label>
+      <label>Headroom <input type="range" id="headroom" min="1" max="8" step="0.5" value="2.5"> <output id="headroom-out">2.5×</output></label>
+      <label>Bloom <input type="range" id="strength" min="0" max="2" step="0.1" value="0.4"> <output id="strength-out">0.4</output></label>
       <fieldset id="buffers">
         <label><input type="radio" name="buffer" value="float"> RGBA16F drawing buffer</label>
         <label><input type="radio" name="buffer" value="8"> 8-bit drawing buffer</label>
@@ -220,7 +220,8 @@
     <li><code>drawingBufferStorage(gl.RGBA16F, …)</code> is accepted on a drawable WebGL canvas, <code>texElementSubImage2D()</code> still uploads into the context, and a white box multiplied by 4 reads back as 4.00 from the float scene texture and from the drawing buffer. <code>drawingBufferToneMapping()</code> exists only with the experimental features flag.</li>
     <li>The test browser, which composites in software, shows nothing for a WebGL canvas with an <code>RGBA16F</code> drawing buffer: the canvas is empty on screen and the console reports an invalid <code>readPixels</code> format for each frame, although the buffer holds the picture. So the page asks for the float buffer at the start only where <code>(dynamic-range: high)</code> matches, and has a control for both.</li>
     <li>A registered <code>&lt;custom-ident&gt;</code> reads back from <code>getComputedStyle()</code> as the name. In a 1 second linear transition it read <code>none</code> at 0.25 s and <code>wave</code> at 0.75 s, while a registered number read 0.25 and 0.75.</li>
-    <li>Not verified: whether the float WebGL buffer is shown, and shown brighter than white, on a phone with an HDR screen; and what <code>Summarizer</code> returns. The test browser has no HDR output and reports the model as "downloadable".</li>
+    <li>Reported on the test phone (Chrome 159, Android, experimental features flag on) on 2026-11-22: the <code>RGBA16F</code> drawing buffer is shown, with tone mapping <code>extended</code>, and the raised parts are much brighter than white. At a headroom of 4.0 and a bloom of 1.0 the labels were hard to read, so the page now starts at 2.5 and 0.4. With the 8-bit buffer every raised pixel was cut off at white and the labels were lost. The composite now scales such a pixel down with its colour kept.</li>
+    <li>Not verified: what <code>Summarizer</code> returns. The test browser has no HDR output and reports the model as "downloadable".</li>
   </ul>
 </main>
 
@@ -430,7 +431,7 @@
   // #endregion pages
 
   // Float buffer.
-  let headroom = 4, strength = 1, view = 0, hdrBusy = 0;
+  let headroom = 2.5, strength = 0.4, view = 0, hdrBusy = 0;
   // The float drawing buffer is asked for at the start only where the screen reports that it shows values above 1.0.
   let wantFloat = matchMedia('(dynamic-range: high)').matches;
   document.querySelector(`input[name="buffer"][value="${wantFloat ? 'float' : '8'}"]`).checked = true;
@@ -454,7 +455,7 @@
 
   // #region hdr
   function paintHdr(cw, ch) {
-    bufferLine = `Drawing buffer: ${buffer.storage ? 'RGBA16F' : wantFloat ? '8-bit (RGBA16F was not accepted)' : '8-bit'}, ${buffer.colorSpace}, tone mapping: ${buffer.toneMapping}. Scene texture: ${bloom.float ? 'RGBA16F' : '8-bit'}.`;
+    bufferLine = `Drawing buffer: ${buffer.storage ? 'RGBA16F' : wantFloat ? '8-bit (RGBA16F was not accepted)' : '8-bit'}, ${buffer.colorSpace}, tone mapping: ${buffer.toneMapping}. Scene texture: ${bloom.float ? 'RGBA16F' : '8-bit'}.${buffer.storage ? '' : ' Pixels above 1.0 are scaled down to 1.0 with their colour kept.'}`;
     gl.upload(hdrp);
     bloom.beginScene(glc.width, glc.height);
     const x = Math.round((cw - hdrp.offsetWidth) / 2), y = Math.round((ch - hdrp.offsetHeight) / 2);
@@ -463,7 +464,7 @@
     const boxes = raised.flatMap((r) => inside(r.el, hdrp));
     const opts = raised.flatMap((r) => [(1 + (headroom - 1) * r.k) * (r.el.id ? pulse : 1), r.radius, r.kind, 0]);
     gl.quad(hdrp, ElementGL.rect(glc, x, y, hdrp.offsetWidth, hdrp.offsetHeight), (g, u) => setRaise(g, u, boxes, opts));
-    bloom.finish({ strength, headroom, view });
+    bloom.finish({ strength, headroom, view, clip: !buffer.storage });
     place(hdrp, x, y);
     show(`${bufferLine}\nThe element arrives as an 8-bit picture. The shader multiplies the badge by ${headroom.toFixed(1)}, the button by ${(1 + (headroom - 1) * 0.7).toFixed(1)}, and the word and the bars in the strip by ${headroom.toFixed(1)}.`);
   }
