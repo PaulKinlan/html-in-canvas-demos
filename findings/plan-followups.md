@@ -32,6 +32,7 @@ One page builds the five items of backlog group 26 on one stage. Two canvases ar
 | Is a WebGL canvas with an `RGBA16F` drawing buffer shown | yes (reported) | Status line: "Drawing buffer: RGBA16F, display-p3, tone mapping: extended". The page chose it at the start, so `(dynamic-range: high)` matches. |
 | Are the raised parts brighter than white | yes (reported) | "Searing white". At a headroom of 4.0 and a bloom of 1.0 the labels were hard to make out. The page now starts at 2.5 and 0.4. |
 | The same scene with the 8-bit drawing buffer | flat white where raised, labels lost (reported, screenshot) | Each channel was cut off at 1.0, so the button, the badge and their white labels were all 1.0. The composite now divides such a pixel by its largest channel, which keeps the hue. Measured by screenshot in C157 after the change: blue button, red badge, white labels. Not yet seen on the phone. |
+| Labels on the float buffer route | "Deploy", the "7" and the word BRIGHTER in the strip are readable; the word is "very clear" (reported, 09:59) | The word is at the headroom value on a strip of 1.0, so a difference above white alone carries it. The report came within a minute of the preview with the lower defaults (2.5 and 0.4) being deployed, so which defaults it was read at is not certain. |
 
 ## Things that bit
 
@@ -42,7 +43,7 @@ One page builds the five items of backlog group 26 on one stage. Two canvases ar
 
 ## Not verified
 
-- A159 on the test phone: the other four experiments, and the float buffer after the change of 2026-11-22 (are the labels readable at 2.5, and is the word in the strip readable).
+- A159 on the test phone: the other four experiments, and the 8-bit drawing buffer after the change of 2026-11-22.
 - What `Summarizer` returns for the six tiles, and how long the model download takes. To verify: press "Use the Summarizer API" in a Chrome that has the model.
 - `TextMetrics.getSelectionRects()` in Chrome 160 without a flag.
 - Touch selection of the top line of "Text rectangles" and of the book text.
