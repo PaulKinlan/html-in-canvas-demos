@@ -599,8 +599,15 @@ export class PrismPicker extends FeedControl {
         fade.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},${alpha})`);
         fade.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},${k ? 0 : alpha * 0.8})`);
         ctx.fillStyle = fade; ctx.strokeStyle = fade; ctx.lineWidth = 1.1;
-        ctx.beginPath(); ctx.moveTo(a.p.x, a.p.y); ctx.lineTo(ea.x, ea.y); ctx.lineTo(eb.x, eb.y); ctx.lineTo(b.p.x, b.p.y); ctx.closePath();
-        ctx.fill(); ctx.stroke();
+        // Two neighbouring wavelengths are only the two edges of one slice of light if they left the glass
+        // together: from nearly the same point, in nearly the same direction, and to the same end. Near a corner
+        // one can leave by one face and the next by another, or one can stop at the screen and the next miss
+        // it, and filling between those paints a sheet of colour across the bench where there is no light.
+        const together = dot(a.d, b.d) > 0.99 && Math.hypot(a.p.x - b.p.x, a.p.y - b.p.y) < 8
+          && Math.hypot(ea.x - eb.x, ea.y - eb.y) < 60;
+        ctx.beginPath(); ctx.moveTo(a.p.x, a.p.y); ctx.lineTo(ea.x, ea.y);
+        if (together) { ctx.lineTo(eb.x, eb.y); ctx.lineTo(b.p.x, b.p.y); ctx.closePath(); ctx.fill(); }
+        ctx.stroke();
       }
     }
     // a soft bloom around the beam that leaves
