@@ -34,7 +34,7 @@ Paul opened the first version on A157 on 2026-11-23 and said it was "a bit janky
 - The time step was capped at 1/30 s, so any paint rate under 30 a second also slowed the movement down. It now uses real time, capped at 0.25 s.
 - Each strip was a new draw of the element at its own scale, up to 92 a frame. The default is now the copy route.
 
-The page now sends a `genie` report after each movement (route, strips, paints, ms, rate, longest gap, scale). Whether the copy route is smooth on the phone is not verified until one of those arrives.
+The page now sends a `genie` report after each movement (route, strips, paints, ms, rate, longest gap, scale). Paul tried the second version on A159 the same day and said it was faster. Three reports arrived from that visit, all by the copy route: 34, 34 and 35 paints in 0.55 to 0.57 s (61 or 62 a second), longest gap 18 or 19 ms, 92 strips. No report has come from the phone for the source rectangle or clip routes, so how much slower they are there is not measured.
 
 ## Things that bit
 
@@ -46,7 +46,7 @@ The page now sends a `genie` report after each movement (route, strips, paints, 
 
 ## Not verified
 
-- The paint rate of each of the three routes on a phone. Read the `genie` reports.
+- The paint rate of the source rectangle and clip routes on a phone. The copy route is measured above.
 - Whether the on-screen keyboard stays down when a window comes back by touch. The page focuses the minimise button.
 - What a screen reader says when a window closes. The dock buttons have `aria-expanded` and `aria-controls`.
 - Why 4 of 20 points still hit after the clip route. My guess is that the last clipped draw leaves a whole-sized box under the last strip's transform.
@@ -60,7 +60,7 @@ The page now sends a `genie` report after each movement (route, strips, paints, 
 
 ## For the index
 
-- 2D drawing: strips copied with `drawImage()` from one picture of an element (drawn once, then copied from the drawable canvas into a plain one) draw the same shape as strips drawn from the element. measured, C157, `/genie/`. Faster on a phone: not verified.
+- 2D drawing: strips copied with `drawImage()` from one picture of an element (drawn once, then copied from the drawable canvas into a plain one) draw the same shape as strips drawn from the element. measured, C157, `/genie/`. On A159 the copy route ran at 61 paints a second with a longest gap of 19 ms (three reports).
 - Focus: `dialog.show()` on a dialog whose hit box is parked scrolls the page to the parked place. measured, C157, `/genie/`.
 - 2D drawing: a window can be bent into a funnel with one nine-argument `drawElementImage()` for each 2 px row. 92 strips a frame drew at 60 paints a second in software, and a clip for each row cost the same. measured, C157, `/genie/`.
 - Hit testing: after many source-rectangle draws of an element none of its layout box is hit. One whole draw restores it. `updateElementGeometry()` scaled to a point takes it out of hit testing meanwhile. measured, C157, `/genie/`.

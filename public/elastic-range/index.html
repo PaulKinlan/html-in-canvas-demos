@@ -125,6 +125,7 @@
   .demo p { margin: 4px 0 10px; }
   .tools { display: flex; gap: 8px 12px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
   .tools button { min-height: 40px; font: inherit; }
+  .tools label { display: flex; align-items: center; gap: 6px; min-height: 40px; }
   .tools output, #status { font: 13px var(--mono); color: var(--muted); }
   #status { min-height: 1.4em; margin: 6px 0; }
 </style>
@@ -154,7 +155,8 @@
         <li data-code="#string"><b>The markup.</b> One range input.</li>
         <li data-code="#pull"><b>The pull.</b> How far the pointer is above or below the track while the browser drags the thumb.</li>
         <li data-code="#paint-string"><b>The paint.</b> Strips 3 px wide, each raised and sheared to follow a string held at both ends and pulled at the thumb.</li>
-        <li data-code="/lib/slice-draw.js#slices"><b>Drawing strips.</b> One clipped draw of the whole input for each.</li>
+        <li data-code="/lib/slice-draw.js#copy"><b>One picture.</b> The input drawn once and copied into a plain canvas.</li>
+      <li data-code="/lib/slice-draw.js#slices"><b>Drawing strips.</b> A piece of that copy for each, or one clipped draw of the whole input.</li>
       </ol>
     </details>
   </section>
@@ -199,6 +201,7 @@
     </details>
   </section>
   <p id="status">&nbsp;</p>
+  <div class="tools"><label><input type="checkbox" id="direct"> Draw every strip from the element, as the first version did</label></div>
 
   <details class="show-code">
     <summary>Show the code <small>the styles and the whole library</small></summary>
@@ -209,12 +212,13 @@
   </details>
 
   <h2>How it works</h2>
-  <p>A 2D context has one transform for a whole draw, so it can move, scale and shear a picture and can't bend one. What it can do is draw the picture many times. Each draw is clipped to one vertical strip and has its own transform. With strips 2 or 3 pixels wide the steps between them can't be seen.</p>
+  <p>A 2D context has one transform for a whole draw, so it can move, scale and shear a picture and can't bend one. What it can do is draw the picture many times. Each draw shows one vertical strip under its own transform. With strips 2 or 3 pixels wide the steps between them can't be seen.</p>
+  <p>The first version drew the input itself for every strip, clipped, 100 to 150 times a frame. <a href="/genie/">The genie page</a> did the same and was slow on my phone, so this page now does what fixed that one. Each frame it draws the input once, copies those pixels into a plain canvas with <code>drawImage()</code>, clears, and draws the strips as pieces of the copy. The box under the demos switches back to the first way, and the line above it reports the paints and the longest gap between two of them.</p>
   <p>All three demos are the same loop with a different rule for where a strip goes.</p>
   <p><b>The string.</b> While you drag, the page reads how far the pointer is above or below the track, to 46 pixels at most. A strip is raised by that much at the thumb and by less towards each end, where the string is held. Each strip is sheared by the slope of the string at that point, so it meets the next one. When you let go the pull goes to zero on a spring with little damping, which is the twang. The arrow keys pluck it too.</p>
   <p><b>The bars.</b> The input is styled as a block 44 pixels tall. The canvas shows 5 pixels of every 8, which makes the bars, and draws a bar lower and shorter the nearer it is to the dip. The dip follows the thumb on a spring, so a quick drag leaves it behind for a moment. The thumb is drawn once more on top, whole.</p>
   <p><b>The ruler.</b> A strip near the thumb is drawn up to 1.9 times wider and 1.5 times taller, and every strip beyond it is pushed along by the extra width. The ends of the ruler move out by about 30 pixels. The <code>&lt;output&gt;</code> is a second element in the same canvas, drawn above the thumb.</p>
-  <p><b>Input.</b> Every strip is a draw of the whole input, and an element's hit box is where its last draw put it. So each frame ends with one more draw, with no alpha, at the input's place in the layout. The browser's own drag then works on a straight slider while the picture bends. Under the lens the thumb's picture and its hit box are in the same place, because the lens is centred on the thumb.</p>
+  <p><b>Input.</b> An element's hit box is where its last draw put it. With the copy, the only draw of the input is the one at its place in the layout, so the box is already right. When every strip is a draw of the input, each frame ends with one more draw, with no alpha, at that place. The browser's own drag then works on a straight slider while the picture bends. Under the lens the thumb's picture and its hit box are in the same place, because the lens is centred on the thumb.</p>
 
   <h2>Live checks</h2>
   <p>These run on their own inputs in the corner of the window.</p>
@@ -223,7 +227,8 @@
   <h2 id="findings">Findings</h2>
   <ul class="findings">
     <li>In Chromium 157 a range input styled with <code>::-webkit-slider-runnable-track</code> and <code>::-webkit-slider-thumb</code> is drawn with those styles by <code>drawElementImage()</code>.</li>
-    <li>100 strips of a 300 pixel input (150 for the ruler) drew at 60 paints a second in the test browser. The line under the demos reports the number for the device you're using.</li>
+    <li>100 strips of a 300 pixel input (150 for the ruler) drew at 60 paints a second in the test browser, from a copy and from the element. The test browser renders in software, so that says little about a phone. The line under the demos reports the number for the device you're using and sends it to this site's report log.</li>
+    <li>The movement used to be stepped by at most a thirtieth of a second a frame, so a slow device also played it slowly. It's now stepped by real time.</li>
     <li>After any number of clipped, sheared and scaled draws, one draw at alpha 0 at the layout place puts the hit box back on the straight line. Native dragging and the arrow keys work while the picture is bent.</li>
     <li>A change to <code>value</code> raises a <code>paint</code> event with no help from the page.</li>
     <li>The bend is a picture only. If the string is pulled 46 pixels up, the thumb you see is 46 pixels away from the place a new press has to land. It lasts while a drag is already under way, so I didn't find a case where it matters. A slider that stayed bent would need its input mapped by script.</li>
@@ -237,7 +242,7 @@
   import { banner, runTests, testStage, nextPaint } from '/shared/support.js';
   import { mount, put, hitOnly, supported, clamp, reducedMotion, inkIn, fixtureCanvas } from '/lib/stage-2d.js';
   import { spring } from '/lib/liquid-field.js';
-  import { drawSlices, gauss } from '/lib/slice-draw.js';
+  import { drawSlices, copyOf, gauss } from '/lib/slice-draw.js';
   banner();
 
   const $ = (id) => document.getElementById(id);
@@ -245,19 +250,28 @@
   // The centre of the thumb, in pixels from the input's left edge. The thumb stops half its width from each end.
   const thumbAt = (input, thumbWidth) => thumbWidth / 2 + (input.value - input.min) / (input.max - input.min) * (input.offsetWidth - thumbWidth);
   const percent = (input, thumbWidth) => `${(thumbAt(input, thumbWidth) / input.offsetWidth * 100).toFixed(2)}%`;
+  const direct = $('direct');
   function clock(name) {
-    const c = { last: 0, moving: false, paints: 0, since: 0 };
-    c.step = (now) => { const dt = Math.min(1 / 30, (now - c.last) / 1000); c.last = now; return dt; };
+    const c = { last: 0, moving: false, paints: 0, since: 0, gap: 0, buffer: document.createElement('canvas') };
+    // Real time since the last paint, so a slow frame doesn't slow the movement. The first frame of a movement counts as one sixtieth.
+    c.step = (now) => { const gap = now - c.last, dt = c.moving ? Math.min(0.25, gap / 1000) : 1 / 60; if (c.moving) c.gap = Math.max(c.gap, gap); c.last = now; return dt; };
     c.done = (moving, now) => {
-      if (moving && !c.moving) { c.paints = 0; c.since = now; }
+      if (moving && !c.moving) { c.paints = 0; c.gap = 0; c.since = now; }
       if (moving) c.paints++;
-      const s = (now - c.since) / 1000;
-      if (!moving && c.moving && s > 0.3) status.textContent = `${name}: ${c.paints} paints in ${s.toFixed(1)} s (${Math.round(c.paints / s)} a second).`;
+      const ms = now - c.since;
+      if (!moving && c.moving && ms > 300) {
+        const rate = Math.round(c.paints / ms * 1000), route = direct.checked ? 'every strip from the element' : 'strips from one copy';
+        status.textContent = `${name}: ${c.paints} paints in ${(ms / 1000).toFixed(1)} s (${rate} a second), longest gap ${Math.round(c.gap)} ms, ${route}.`;
+        window.__gfx?.report?.('elastic', status.textContent, { name, route: direct.checked ? 'element' : 'copy', paints: c.paints, ms: Math.round(ms), rate, longest: Math.round(c.gap), scale: devicePixelRatio });
+      }
       c.moving = moving;
       return moving;
     };
     return c;
   }
+  // A spring moved in steps of 1/120 s at most, so a long frame doesn't make it unstable.
+  const run = (s, target, dt, stiffness, damping) => { let moving = false; for (let t = dt; t > 1e-6; t -= 1 / 120) moving = spring(s, target, Math.min(t, 1 / 120), stiffness, damping); return moving; };
+  direct.addEventListener('change', () => stages.forEach((st) => st.request()));
 
   // ---------------------------------------------------------------- the string
   const cString = $('c-string'), string = $('string');
@@ -284,9 +298,12 @@
     let moving = false;
     if (dragging) { bend.x = pull; bend.v = 0; }                 // held: the string goes where the pointer is
     else if (reducedMotion()) { bend.x = bend.v = 0; }
-    else moving = spring(bend, 0, dt, 520, 8);                   // let go: stiff, with little damping
+    else moving = run(bend, 0, dt, 520, 8);                   // let go: stiff, with little damping
     if (Math.abs(bend.x) < 0.3 && !moving) { put(ctx, string, x, y); return stringClock.done(false, now); }
     const t = clamp(thumbAt(string, 26), 30, W - 30);            // the string is pulled at the thumb
+    // One draw of the input, copied into a plain canvas. The strips are pieces of that copy.
+    const from = direct.checked ? null : copyOf(ctx, string, x, y, stringClock.buffer);
+    if (!from && !direct.checked) { put(ctx, string, x, y); return stringClock.done(moving, now); }   // no picture yet
     drawSlices(ctx, string, x, y, 3, (u) => {
       const mid = u + 1.5, a = t - 14, b = t + 14;               // the thumb rides flat between a and b
       if (mid > a && mid < b) return { y: bend.x };
@@ -294,8 +311,8 @@
       const share = left ? mid / a : (W - mid) / (W - b);        // 0 at each end, 1 at the thumb
       const slope = bend.x * (left ? 1 / a : -1 / (W - b));
       return { y: bend.x * share - slope * 1.5, shear: slope };
-    });
-    hitOnly(ctx, string, x, y);                                  // input goes to the straight slider
+    }, from);
+    if (!from) hitOnly(ctx, string, x, y);                       // input goes to the straight slider. copyOf() has done it already
     return stringClock.done(moving, now);
   });
   // #endregion paint-string
@@ -319,18 +336,24 @@
     const dt = barsClock.step(now), x = bars.offsetLeft, y = bars.offsetTop;
     const t = thumbAt(bars, 8), still = reducedMotion();
     if (!dipSet || still) { dip.x = t; dip.v = 0; dipSet = true; }
-    const m1 = still ? false : spring(dip, t, dt, 90, 9);        // the dip follows the thumb, a little late
+    const m1 = still ? false : run(dip, t, dt, 90, 9);        // the dip follows the thumb, a little late
     const want = barsHeld || bars.matches(':focus-visible, :hover') ? 1 : 0.35;
-    const m2 = still ? (depth.x = want, false) : spring(depth, want, dt, 140, 14);
+    const m2 = still ? (depth.x = want, false) : run(depth, want, dt, 140, 14);
+    const from = direct.checked ? null : copyOf(ctx, bars, x, y, barsClock.buffer);
+    if (!from && !direct.checked) { put(ctx, bars, x, y); return barsClock.done(m1 || m2, now); }
     drawSlices(ctx, bars, x, y, 8, (u) => {
       const near = gauss(u + 2.5 - dip.x, 30) * depth.x;         // 1 at the dip, 0 far from it
       return { y: 10 * near, sy: 1 - 0.55 * near, w: 5 };        // lower and shorter. 5 px of every 8 is shown
-    });
-    ctx.save();                                                  // the thumb once more, whole
-    ctx.beginPath(); ctx.rect(x + t - 4, y, 8, bars.offsetHeight); ctx.clip();
-    put(ctx, bars, x, y);
-    ctx.restore();
-    hitOnly(ctx, bars, x, y);
+    }, from);
+    const H = bars.offsetHeight;                                 // the thumb once more, whole
+    if (from) ctx.drawImage(from.image, (t - 4) * from.scale, 0, 8 * from.scale, H * from.scale, x + t - 4, y, 8, H);
+    else {
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x + t - 4, y, 8, H); ctx.clip();
+      put(ctx, bars, x, y);
+      ctx.restore();
+      hitOnly(ctx, bars, x, y);
+    }
     return barsClock.done(m1 || m2, now);
   });
   // #endregion paint-bars
@@ -351,7 +374,7 @@
   const rulerStage = mount(cRuler, (ctx, w, h, now) => {
     const dt = rulerClock.step(now), x = ruler.offsetLeft, y = ruler.offsetTop + 14, W = ruler.offsetWidth;
     const want = rulerHeld || ruler.matches(':focus-visible, :hover') ? 1 : 0;
-    const moving = reducedMotion() ? (swell.x = want, false) : spring(swell, want, dt, 160, 16);
+    const moving = reducedMotion() ? (swell.x = want, false) : run(swell, want, dt, 160, 16);
     const t = thumbAt(ruler, 4), STEP = 2;
     const grow = (u) => 0.9 * swell.x * gauss(u + STEP / 2 - t, 26);     // how much wider a strip at u is drawn
     // Where each strip starts: the thumb stays put, and the extra width pushes the others outwards.
@@ -361,11 +384,12 @@
     for (let i = first; i > 0; i--) starts[i - 1] = starts[i] - STEP * (1 + grow((i - 1) * STEP));
     if (swell.x < 0.01) put(ctx, ruler, x, y);
     else {
-      drawSlices(ctx, ruler, x, y, STEP, (u) => {
+      const from = direct.checked ? null : copyOf(ctx, ruler, x, y, rulerClock.buffer);
+      if (from || direct.checked) drawSlices(ctx, ruler, x, y, STEP, (u) => {
         const g = grow(u);
         return { x: starts[u / STEP], sx: 1 + g, sy: 1 + g * 0.55, y: -g * 12 };   // wider, taller, and raised so the feet stay level
-      });
-      hitOnly(ctx, ruler, x, y);
+      }, from);
+      if (!from) hitOnly(ctx, ruler, x, y);
     }
     // The output is a second element. It sits above the thumb and grows with the lens.
     const s = 1 + 0.35 * swell.x, rw = reading.offsetWidth, rh = reading.offsetHeight;
@@ -411,6 +435,18 @@
         f.ctx.reset(); drawSlices(f.ctx, f.input, 30, 60, 4, () => ({ y: -30, shear: 0.5 }));
         const raised = inkIn(f.ctx, 40, 34, 180, 30), below = inkIn(f.ctx, 40, 82, 180, 16);
         return need(raised > 0.85 && below < 0.1, `${pct(raised)} ink 30 px up, ${pct(below)} in the lower part of the layout place.`);
+      } },
+    { name: 'Strips copied from one picture of the input draw the same shape', expect: 'pass', why: 'copyOf() draws the input once and copies it into a plain canvas. The same raised, sheared strips from the copy, and elementFromPoint() on the straight line.',
+      run: async () => {
+        const f = await fixture();
+        f.ctx.reset();
+        const from = copyOf(f.ctx, f.input, 30, 60, document.createElement('canvas'));
+        need(from, 'copyOf() returned nothing.');
+        drawSlices(f.ctx, f.input, 30, 60, 4, () => ({ y: -30, shear: 0.5 }), from);
+        const raised = inkIn(f.ctx, 40, 34, 180, 30), below = inkIn(f.ctx, 40, 82, 180, 16);
+        f.input.toggleAttribute('data-a');
+        const box = f.cv.getBoundingClientRect(), hit = document.elementFromPoint(box.left + 60, box.top + 80) === f.input;
+        return need(raised > 0.85 && below < 0.1 && hit, `${pct(raised)} ink 30 px up, ${pct(below)} in the lower part of the layout place. The input is hit on the straight line: ${hit}.`);
       } },
     { name: 'A strip drawn at twice the width covers twice the width', expect: 'pass', why: 'The left half of the input in strips 2 px wide with sx 2, each placed at twice its distance. Ink across the full 200 px, and the thumb\'s place.',
       run: async () => {

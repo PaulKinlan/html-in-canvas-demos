@@ -20,6 +20,16 @@ The page comes from the weekly search for interface work (`docs/ui-watch/2026-11
 | `<rangegroup>` | not in C157 | `document.createElement('rangegroup')` is an `HTMLUnknownElement`. The check is on the page and will pass where the element exists. |
 | `npm run check:jank` | passes | cls 0, no flashes, 0 reads, 7.9 MB in canvases. |
 
+## Second version (2026-11-23)
+
+`/genie/` drew its strips the same way and Paul found it janky and slow on his phone (A159). It was fixed by moving in real time and by copying strips from one picture, after which the phone reported 61 paints a second. Paul didn't report on this page, and no report came from it, but it had both faults, so it has the same two changes:
+
+- The time step was capped at 1/30 s. It is now real time, capped at 0.25 s, with the springs stepped at 1/120 s.
+- Each frame draws the input once, copies it into a plain canvas (`copyOf()` in `lib/slice-draw.js`) and draws the strips with `drawImage()` from the copy. Live check: the same ink as strips drawn from the element, and the input is hit on the straight line with no extra draw.
+- A checkbox draws every strip from the element as before. After each movement the page sends an `elastic` report (route, paints, ms, rate, longest gap, scale).
+
+In C157 both routes run at 60 paints a second with a longest gap of 17 to 24 ms. On a phone: not verified. `npm run reports -- --page /elastic-range/` will show it after a visit.
+
 ## Things that bit
 
 - With one slope on each side of the thumb, the thumb's picture was cut down the middle and each half was sheared a different way. The strips within 14 px of the thumb's centre are now raised and not sheared.
