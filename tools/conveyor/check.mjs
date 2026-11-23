@@ -130,6 +130,17 @@ await p.touchscreen.tap(...await mid('#beltMotor')); await p.waitForTimeout(900)
   expect(`a tap on the checkbox of moving row ${first}`, await txt('beltOut'), 'Ticked: 3.');
   await shot('belt-5');
 }
+// The page stays where it is while the belt runs. With the top of the canvas above the top of the screen,
+// scroll anchoring took a row as its anchor and moved the page with it, until the canvas had overflow-anchor: none.
+{
+  const y = await p.evaluate(() => { const c = document.getElementById('beltCanvas'); const to = Math.round(c.getBoundingClientRect().top + scrollY + 60); window.scrollTo(0, to); return to; });
+  await p.waitForTimeout(400);
+  await p.evaluate(() => { window.__pageScrolls = []; addEventListener('scroll', () => window.__pageScrolls.push(Math.round(scrollY))); });
+  await p.waitForTimeout(2500);
+  const got = await p.evaluate(() => ({ n: window.__pageScrolls.length, min: Math.min(scrollY, ...window.__pageScrolls), max: Math.max(scrollY, ...window.__pageScrolls) }));
+  report(got.n === 0, `page scroll events in 2.5 s with the motor on and the page at ${y}`, got.n ? `${got.n}, between ${got.min} and ${got.max}` : 0, 0);
+  await show('conveyor');
+}
 await p.touchscreen.tap(...await mid('#beltMotor')); await p.waitForTimeout(900);
 await still('the belt stops with the motor', 'beltOut');
 

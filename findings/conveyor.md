@@ -1,6 +1,6 @@
 # Conveyor belt list (`/conveyor/`)
 
-Asked for by the project owner on 2026-11-22: a virtualised endless list as a conveyor belt, where rows appear from the underside round the bottom roller and disappear over the top roller. Measured in headless Chromium 157 (C157) on 2026-11-22 at 412 px wide. The page's four live checks pass there, and `node tools/conveyor/check.mjs` drives the belt by touch (22 steps, all pass). Nothing here has been run on a phone.
+Asked for by the project owner on 2026-11-22: a virtualised endless list as a conveyor belt, where rows appear from the underside round the bottom roller and disappear over the top roller. Measured in headless Chromium 157 (C157) on 2026-11-22 at 412 px wide. The page's four live checks pass there, and `node tools/conveyor/check.mjs` drives the belt by touch (23 steps on 2026-11-23, all pass). Nothing here has been run on a phone.
 
 The question: can an endless list be drawn as a conveyor belt from a fixed number of real elements that still take taps while they move?
 
@@ -20,6 +20,7 @@ How it is built: ten `drawable` row elements. Row i is shown by element i mod 10
 | `updateElementGeometry()` for an element drawn at 0, 0 and wiped (fixture) | found at the new place (160, 110), canvas pixel there 0, 0, 0, 0; not found at the old place | Live check. |
 | `drawImage()` of the drawable canvas into a plain canvas inside the paint handler, then a wipe | copy 0, 160, 0, 255; drawable canvas 0, 0, 0, 0 | Live check. |
 | A paint event after a text change of an element the last paint left nothing of | 1 event naming 1 element | Live check. This is how the belt knows which slot to copy again. |
+| The page's scroll position with the motor on and the top of the canvas 60 px above the top of the screen, for 2.5 s (2026-11-23) | before: 87 scroll events, the page between 578 and 836 px. With `overflow-anchor: none` on the canvas: 0 | Scroll anchoring. See "Things that bit". |
 | A lost context | plain HTML | One `contextlost` event shows the ten rows as plain HTML. Tested by dispatching the event. |
 
 ## Things that bit
@@ -28,9 +29,11 @@ How it is built: ten `drawable` row elements. Row i is shown by element i mod 10
 - A slow test drag still ended as a flick, because the last move was under 80 ms before the release. A real finger that stops before lifting does not flick.
 - The lazy loader imports a module named after the section id. The section was first called `belt`, which loaded `belt.js` (no default export) and started nothing.
 - Row numbers of seven digits were cut off in a 54 px column. The column is 72 px with a 12 px font.
+- The moving belt scrolled the page (reported by a reader on 2026-11-23). `getBoundingClientRect()` reports a drawable child where `updateElementGeometry()` last put it, so the rows move in the page's layout as the belt runs. When the top of the canvas was at or above the top of the screen, scroll anchoring took a row as its anchor and changed the page's scroll position on each frame to keep that row still. When the row went over the roller and was parked at the middle of the canvas, the page jumped back. Nothing in the page calls `scrollIntoView()`, `scrollTo()` or `focus()`. `overflow-anchor: none` on the canvas leaves it and its rows out of anchoring. With the canvas wholly below the top of the screen the anchor was an element above it and the page held still, which is why the first tests missed it. `node tools/conveyor/check.mjs` now has a step for it (23 steps, all pass; the new step fails without the CSS).
 
 ## Not verified
 
+- That the page holds still on Chrome 159 on Android with `overflow-anchor: none`. Measured only in headless Chromium 157 with touch emulation at 412 px. To verify: start the motor, scroll until the top roller is off the top of the screen, and lift the finger.
 - Chrome 159 on Android: drag, flick and taps with a real finger, and the frame rate. The canvas has `touch-action: none`, so a drag that starts on the belt does not scroll the page.
 - The cost on a phone of about 60 `drawImage()` slices a frame while the belt moves.
 - A screen reader: the canvas has `role="feed"` and rows have `aria-posinset`, but the rows are reused and their order in the document is not their order on the belt.
@@ -41,6 +44,7 @@ How it is built: ten `drawable` row elements. Row i is shown by element i mod 10
 - Hit testing: `updateElementGeometry()` places the hit box of an element that the canvas shows only as a `drawImage()` copy. C157, `/conveyor/`.
 - Paint: `changedElements` names an element whose content changed even if the last paint wiped it from the canvas.
 - Pattern: draw an element once per change, copy it to a plain canvas, and draw frames from the copy. A drag of 190 px cost 6 element draws.
+- Scroll anchoring: a drawable child whose place is set by `updateElementGeometry()` on each frame can become the page's scroll anchor, and the page then scrolls with it. `overflow-anchor: none` on the canvas stops it. C157, `/conveyor/`. Other pages that move hit boxes on each frame have not been checked for this, and it belongs in `/friction/` (`public/friction/entries.js`).
 
 ## Open ideas
 
