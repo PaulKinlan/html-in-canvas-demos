@@ -37,12 +37,26 @@ The pages rebuild demos from <https://ui-feed.dev/> (89 React components on 2026
 | Does `change` leave the shadow root? | measured: no | It is not composed. Each element dispatches its own from the host. |
 | Does a switch at rest draw? | measured: no | 0 paint events in 300 ms after the spring settled. |
 
+## Glass, fog and light (`/glass-controls/`, `lib/ui-feed/glass.js`)
+
+| Question | Result | Reason or detail |
+|---|---|---|
+| Can a fragment shader run over an element's picture when the shader's canvas cannot hold the element? | measured: yes, through a copy | The control draws the elements into its own drawable 2D canvas, copies that rectangle into a plain canvas with `drawImage()`, and the shared WebGL 2 context in `lib/glass-gl.js` uploads the plain canvas with `texImage2D()`. The glass over the `<select>` refracts a drawn `<div>` of CSS gradients: inside the rim 173,205,228 where just outside is 44,43,42. |
+| Does it need a readback? | measured: no | `check:jank` reports `reads 0` on the page. `drawImage()` from a drawable canvas is allowed and is not a read. |
+| Does `ctx.filter` apply to a `drawImage()` of the canvas's own pixels? | measured: yes | The fog is the pane drawn back over itself through `blur(9px) brightness(1.06)`. Over a letter the fogged pane is 247,251,252 against 215,227,232 on blank glass (76 of 765), and 0,0,0 after a wipe. |
+| Can a password input's own picture show the characters? | measured: no | The wiped part draws a second `<input type="text" readonly aria-hidden tabindex="-1">` with the same value, clipped to the fresh wipe discs. |
+| Does an `<input type="range">` that is never painted still drag? | measured: yes | Three controls place a range with `hit()` and draw their own track and thumb. The point over the spectrum bar answers `input[type=range]`, and the arrow keys move it. |
+| Does a native `<select>` drawn under the glass take the click? | measured: yes (the picker itself is not shown in headless) | The middle of the drawn pill answers `<select>`, and `change` reaches the form. |
+| Can `shade()` draw a panel with no background at all? | measured: yes | The foil is computed from hue, saturation, brightness and tilt uniforms, with no source canvas. 24 frames a second through `static fps`. |
+
 ## Things that bit
 
 - The inner `<form>` that vanished (above). The controls worked alone and broke when the page wrapped them in a form to show `FormData`.
 - The fixture stage of `runTests()` is a fixed box at the bottom left with `opacity: .02` and the highest `z-index`. While checks ran on load it took real clicks meant for the demo above it. Both pages have `<meta name="checks" content="tap">`.
 - `dotBoard()` first used the requested cell size for the reduced draw and the rounded device size for the board, so the right edge of each element was cut off at device scale 2.625. Both now use the rounded size.
 - An element screenshot from Playwright with a `viewport` set is taken at scale 1 even with `--force-device-scale-factor`. Use `viewport: null`.
+- `shade()` in `lib/glass-gl.js` gives a shader `sdBox(p)`, not `sdRound(p, r)`. The foil shader did not compile until it used that name, and the failure is quiet: `shade()` returns null and the control draws its 2D version.
+- A `const` arrow function used by a class method above it throws "cannot access before initialization" only when the method runs, so the foil picker drew nothing until `hsbToHex` became a function declaration.
 
 ## Not verified
 
@@ -51,6 +65,12 @@ The pages rebuild demos from <https://ui-feed.dev/> (89 React components on 2026
 - What a screen reader says for the switches and the rating.
 - Whether the text caret is missing from the picture on a real GPU build, or only in headless.
 
+The glass page:
+
+- Whether a tap on the drawn pill opens Chrome's own select picker on Android, and whether wiping the fog by touch scrolls the page.
+- The look of the glass on a real GPU. The test browser renders WebGL in software (`--enable-unsafe-swiftshader`).
+- The frame rate of the foil on the phone.
+
 ## For the index
 
 - Custom elements and slots: a `<form>` in a shadow root's `innerHTML` is dropped when the host is inside a form (C157).
@@ -58,7 +78,9 @@ The pages rebuild demos from <https://ui-feed.dev/> (89 React components on 2026
 - Drawing: a reduced `drawElementImage()` plus a `drawImage()` copy gives a per-cell picture with no readback (dot boards, pixelation).
 - Hit testing: an unpainted control (`opacity: 0`, drawn at `globalAlpha = 0`) is hit at the draw rectangle, at any size.
 - Text: the caret is not in a textarea's picture in C157 headless.
+- WebGL: a fragment shader can run over an element's picture through a `drawImage()` copy into a plain canvas, with one shared context for the page.
+- Drawing: `ctx.filter` applies to a `drawImage()` of the canvas's own pixels, which is how the fog is made.
 
 ## Open ideas
 
-77 of the 89 ui-feed demos are not rebuilt yet. Next groups by technique: glass and fog (fogged glass password, spatial glass select, hologram and prism colour pickers), flaps and blinds (tumble calendar, riffle pagination, destination blind, lift indicator), light (pendant lamp hover card, candles rating), print (two-colour calendar, kinetic poster tabs, crossword OTP, paint chart).
+73 of the 89 ui-feed demos are not rebuilt yet. Next groups by technique: flaps and blinds (tumble calendar, riffle pagination, destination blind, lift indicator), light (pendant lamp hover card, candles rating), print (two-colour calendar, kinetic poster tabs, crossword OTP, paint chart).
