@@ -1,5 +1,5 @@
 // The tags a shared link and a search engine read, made from a page's page.json:
-// description, canonical URL, Open Graph, Twitter card and schema.org JSON-LD.
+// description, canonical URL, the feed's address, Open Graph, Twitter card and schema.org JSON-LD.
 // tools/social/site-build.mjs writes them into each page during `npm run build`.
 import path from 'node:path';
 
@@ -12,6 +12,8 @@ export const SITE = {
   repo: 'https://github.com/PaulKinlan/html-in-canvas-demos',
   author: { name: 'Paul Kinlan', url: 'https://paul.kinlan.me/', twitter: '@Paul_Kinlan', sameAs: ['https://github.com/PaulKinlan'] },
   image: { width: 1200, height: 630, type: 'image/jpeg' },
+  // The RSS feed that tools/feed/site-build.mjs writes. Every page names it in a <link rel="alternate">.
+  feed: { path: '/feed.xml', title: 'HTML-in-canvas experiments: new pages' },
 };
 
 export const START = '<!-- social:start';
@@ -110,6 +112,7 @@ export function describe(page, { hasImage = false, ownDescription = false } = {}
     `${START} (written by \`npm run build\` from page.json, see tools/social/; do not edit) -->`,
     ownDescription ? null : `<meta name="description" content="${attr(description)}">`,
     `<link rel="canonical" href="${attr(url)}">`,
+    `<link rel="alternate" type="application/rss+xml" title="${attr(SITE.feed.title)}" href="${SITE.origin}${SITE.feed.path}">`,
     `<meta name="author" content="${attr(SITE.author.name)}">`,
     `<meta property="og:type" content="${home ? 'website' : 'article'}">`,
     `<meta property="og:site_name" content="${attr(SITE.name)}">`,
