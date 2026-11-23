@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Native controls on dot and tube displays</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Six controls from the ui-feed collection, rebuilt as custom elements with native inputs inside a canvas: a cinema list on an LED board, a paged departures table, a message counter, flip-dot stars, a VCR timer and a teletext command list.">
+<link rel="canonical" href="https://html-in-canvas.page/dot-controls/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Native controls on dot and tube displays">
+<meta property="og:description" content="Six controls from the ui-feed collection, rebuilt as custom elements with native inputs inside a canvas: a cinema list on an LED board, a paged departures table, a message counter, flip-dot stars, a VCR timer and a teletext command list.">
+<meta property="og:url" content="https://html-in-canvas.page/dot-controls/">
+<meta property="og:image" content="https://html-in-canvas.page/dot-controls/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Native controls on dot and tube displays&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-23">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Native controls on dot and tube displays">
+<meta name="twitter:description" content="Six controls from the ui-feed collection, rebuilt as custom elements with native inputs inside a canvas: a cinema list on an LED board, a paged departures table, a message counter, flip-dot stars, a VCR timer and a teletext command list.">
+<meta name="twitter:image" content="https://html-in-canvas.page/dot-controls/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Native controls on dot and tube displays&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/dot-controls/",
+   "url": "https://html-in-canvas.page/dot-controls/",
+   "mainEntityOfPage": "https://html-in-canvas.page/dot-controls/",
+   "headline": "Native controls on dot and tube displays",
+   "name": "Native controls on dot and tube displays",
+   "description": "Six controls from the ui-feed collection, rebuilt as custom elements with native inputs inside a canvas: a cinema list on an LED board, a paged departures table, a message counter, flip-dot stars, a VCR timer and a teletext command list. The canvas draws each element at one pixel a dot and enlarges it through a mask, with no readback.",
+   "abstract": "Can a native control keep its own CSS and behaviour and be shown as an LED board, a flip-dot panel or a tube picture by the canvas that holds it, with no getImageData\u0028)?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/dot-controls/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-23",
+   "keywords": "drawElementImage, custom elements, ElementInternals, slots, form controls, drawElementImage\u0028), paint, requestPaint\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Native controls on dot and tube displays",
+     "item": "https://html-in-canvas.page/dot-controls/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<meta name="checks" content="tap">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  section.idea { margin-top: 56px; }
+  section.idea > h2 { margin-bottom: 4px; }
+  section.idea > p { max-width: 72ch; }
+  /* The room a control takes is fixed here, so nothing moves when its script defines the element. */
+  .stage { box-sizing: border-box; width: 100%; max-width: calc(var(--w) * 1px); aspect-ratio: var(--w) / var(--h); margin: 12px 0 0; padding: 0; border: 0; background: none; border-radius: 0; box-shadow: none; }
+  .stage > * { display: block; }
+  .idea output.line { display: block; font: 13px/1.5 var(--mono); color: var(--muted); min-height: 3em; overflow-wrap: anywhere; margin: 8px 0; }
+  p.credit { font-size: 14px; color: var(--muted); }
+  nav.jump { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; }
+
+  /* #region departures-css */
+  /* The table is in the page's DOM, so the page styles its cells. The shadow tree of <led-pager> can only
+     reach the <table> itself, with ::slotted(table). */
+  led-pager th { text-align: left; font-size: 15px; }
+  led-pager :is(th, td):nth-child(1) { width: 76px; }
+  led-pager :is(th, td):nth-child(3) { width: 30px; }
+  led-pager :is(th, td):nth-child(4) { width: 118px; text-align: right; }
+  /* #endregion departures-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Native controls on dot and tube displays</h1>
+  <p class="lede">
+    Six controls from <a href="https://ui-feed.dev/">ui-feed.dev</a>, rebuilt with HTML-in-canvas. The originals are React components. Here
+    each one is a custom element with a drawable canvas in its shadow root, and inside the canvas are ordinary radio inputs, a
+    <code>&lt;textarea&gt;</code>, a <code>&lt;table&gt;</code>, date and time inputs. The canvas draws those elements at one pixel for each
+    dot of the display, copies that small picture with <code>drawImage()</code> and enlarges it through a mask of dots. I wanted to know if
+    a control could keep its own CSS and its own behaviour and still end up as an LED board, with no <code>getImageData()</code>. Tap, type
+    and use the arrow keys on any of them.
+  </p>
+  <p class="credit">
+    Credit: every control on this page is a rebuild of a demo on <a href="https://ui-feed.dev/">ui-feed.dev</a>, and each section links to
+    the original it came from. The originals are far higher fidelity than these, so go and look at them. These are examples of what
+    HTML-in-canvas makes possible with a native form control underneath, not replacements. I worked from the published demos rather than
+    their source: I looked at what each one does, worked out the mechanism and built it again. The designs and the ideas are theirs.
+  </p>
+  <nav class="jump" aria-label="Demos on this page">
+    <a href="#cinema">Cinema showings</a><a href="#departures">Station departures</a><a href="#counter">LED message counter</a>
+    <a href="#stars">Flip-dot stars</a><a href="#vcr">VCR timer</a><a href="#teletext">Teletext</a>
+  </nav>
+
+  <section class="idea" id="cinema">
+    <h2>Cinema showings</h2>
+    <p>A native <code>&lt;select size="5"&gt;</code>, which is the listbox the platform already has, drawn as an LED board. The rows, the
+      selection highlight, the arrow keys, type-ahead and the scrolling are the browser's. The rows are built from the element's
+      <code>&lt;option&gt;</code> children, and the sold-out showing is a disabled option.</p>
+    <form class="stage" style="--w:360;--h:270">
+      <!-- #region cinema-html -->
+      <led-listbox name="showing">
+        <option value="19:20" data-time="7:20" data-meta="Screen 2  1h47" data-note="Last 6" selected>Glass Orchard</option>
+        <option value="19:45" data-time="7:45" data-meta="Screen 1  1h41" data-note="57 seats">Kestrel</option>
+        <option value="20:10" data-time="8:10" data-meta="Screen 3  2h08" data-note="38 seats">Owed to the river</option>
+        <option value="20:30" data-time="8:30" data-meta="Screen 5  1h54" data-note="Sold out" disabled>Salt Hymn</option>
+        <option value="21:00" data-time="9:00" data-meta="Screen 4  1h32" data-note="23 seats">Moths</option>
+      </led-listbox>
+      <!-- #endregion cinema-html -->
+    </form>
+    <output class="line"></output>
+    <p class="credit">After <a href="https://ui-feed.dev/p/listbox-cinema-showings-1dm7wo">cinema showings</a> (listbox) on ui-feed.dev.</p>
+    <details class="show-code">
+      <summary>Show the code <small>the markup, the element and the dot board</small></summary>
+      <ol>
+        <li data-code="#cinema-html"><b>The options are the data.</b> The element reads its <code>&lt;option&gt;</code> children and watches them for changes.</li>
+        <li data-code="/lib/ui-feed/dots.js#led-listbox"><b>The element.</b> One <code>&lt;select size&gt;</code> styled with CSS, one <code>dotBoard()</code> call, then an invisible draw that puts the list's hit region over the board.</li>
+        <li data-code="/lib/ui-feed/kit.js#dots"><b>The dot board.</b> A reduced draw, a copy to a plain canvas, and an enlarged draw through a mask.</li>
+        <li data-code="/lib/ui-feed/kit.js#base"><b>The base class.</b> The shadow root, the canvas, the paint loop, the form value and the plain HTML fallback.</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="idea" id="departures">
+    <h2>Station departures</h2>
+    <p>Pagination over a table that stays in the page. The <code>&lt;table&gt;</code> is slotted into a drawable <code>&lt;div&gt;</code> in the
+      canvas, and a page of the board is five clipped draws of that one picture. No row is hidden or moved. The page buttons are
+      <code>&lt;button&gt;</code>s in a <code>&lt;nav&gt;</code>, and each line of the board changes a little after the one above it.</p>
+    <form class="stage" style="--w:360;--h:380">
+      <!-- #region departures-html -->
+      <led-pager name="page" rows="5">
+        <table>
+          <thead><tr><th>Time</th><th>Destination</th><th>Pl</th><th>Expected</th></tr></thead>
+          <tbody>
+            <tr><td>14:29</td><td>Bray</td><td>6</td><td>Due</td></tr>
+            <tr><td>14:33</td><td>Howth</td><td>5</td><td>On time</td></tr>
+            <tr><td>14:35</td><td>Maynooth</td><td>7</td><td>On time</td></tr>
+            <tr><td>14:40</td><td>Longford</td><td>3</td><td>On time</td></tr>
+            <tr><td>14:44</td><td>Bray</td><td>6</td><td>14:47</td></tr>
+            <tr><td>14:50</td><td>Malahide</td><td>5</td><td>On time</td></tr>
+            <tr><td>14:52</td><td>Sligo</td><td>4</td><td>On time</td></tr>
+            <tr><td>14:58</td><td>Greystones</td><td>6</td><td>15:03</td></tr>
+            <tr><td>15:02</td><td>Howth</td><td>5</td><td>On time</td></tr>
+            <tr><td>15:05</td><td>Drogheda</td><td>2</td><td>On time</td></tr>
+            <tr><td>15:10</td><td>Bray</td><td>6</td><td>On time</td></tr>
+            <tr><td>15:14</td><td>Maynooth</td><td>7</td><td>Delayed</td></tr>
+          </tbody>
+        </table>
+      </led-pager>
+      <!-- #endregion departures-html -->
+    </form>
+    <output class="line"></output>
+    <p class="credit">After <a href="https://ui-feed.dev/p/pagination-station-departures-1fvmol">station departures</a> (pagination) on ui-feed.dev.</p>
+    <details class="show-code">
+      <summary>Show the code <small>a slotted table paged by clipping</small></summary>
+      <ol>
+        <li data-code="#departures-html"><b>The table is light DOM.</b> It is the author's markup and it keeps the author's CSS.</li>
+        <li data-code="#departures-css" data-lang="css"><b>The page styles the cells.</b> A shadow tree can't.</li>
+        <li data-code="/lib/ui-feed/dots.js#led-pager"><b>The element.</b> Each visible line is a clip and a draw of the slot's wrapper, moved up by the row's <code>offsetTop</code>.</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="idea" id="counter">
+    <h2>LED message counter</h2>
+    <p>A <code>&lt;textarea maxlength="40"&gt;</code> typed into through the board, and a <code>&lt;meter&gt;</code> that the canvas draws as
+      one lamp for each character. Select some text: the <code>::selection</code> colours are on the board too.</p>
+    <form class="stage" style="--w:360;--h:360">
+      <!-- #region counter-html -->
+      <led-counter name="message" maxlength="40" value="Running late, save me a"></led-counter>
+      <!-- #endregion counter-html -->
+    </form>
+    <output class="line"></output>
+    <p class="credit">After <a href="https://ui-feed.dev/p/meter-led-message-counter-efdkxi">led message counter</a> (meter) on ui-feed.dev.</p>
+    <details class="show-code">
+      <summary>Show the code <small>a textarea on the board and a meter drawn from its value</small></summary>
+      <ol>
+        <li data-code="#counter-html"><b>One element, with no children.</b> The textarea and the meter are internal, and the value reaches the form through <code>ElementInternals</code>.</li>
+        <li data-code="/lib/ui-feed/dots.js#led-counter"><b>The element.</b></li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="idea" id="stars">
+    <h2>Flip-dot stars</h2>
+    <p>A rating made of five radio inputs with one name. The canvas puts each radio's hit region over a star and draws every cell of the
+      panel as a disc that turns over when its state changes. Left and right arrows move the rating, which is the radio group's own behaviour.</p>
+    <form class="stage" style="--w:360;--h:220">
+      <!-- #region stars-html -->
+      <flipdot-rating name="stars" value="3"></flipdot-rating>
+      <!-- #endregion stars-html -->
+    </form>
+    <output class="line"></output>
+    <p class="credit">After <a href="https://ui-feed.dev/p/rating-flip-dot-stars-1u3cjx">flip-dot stars</a> (rating) on ui-feed.dev.</p>
+    <details class="show-code">
+      <summary>Show the code <small>radio inputs under drawn stars</small></summary>
+      <ol>
+        <li data-code="#stars-html"><b>The markup.</b></li>
+        <li data-code="/lib/ui-feed/dots.js#flipdot-rating"><b>The element.</b> The stars are worked out on a grid. Nothing is drawn of the radios: <code>hit()</code> places them.</li>
+        <li data-code="/lib/ui-feed/kit.js#put"><b><code>put()</code> and <code>hit()</code>.</b> A draw with <code>globalAlpha = 0</code> still moves the hit region.</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="idea" id="vcr">
+    <h2>VCR timer</h2>
+    <p>An <code>&lt;input type="date"&gt;</code>, two <code>&lt;input type="time"&gt;</code> and an <code>&lt;input type="number"&gt;</code> in
+      a form, drawn as a video recorder's on-screen display. Tap a field and type, or use the up and down arrows. The picture is redrawn in
+      bands that drift sideways, with a red and a blue copy either side.</p>
+    <form class="stage" style="--w:360;--h:330">
+      <!-- #region vcr-html -->
+      <vcr-timer name="rec" date="2026-11-28" start="20:30" stop="22:05" channel="3"></vcr-timer>
+      <!-- #endregion vcr-html -->
+    </form>
+    <output class="line"></output>
+    <p class="credit">After <a href="https://ui-feed.dev/p/date-input-vcr-timer-recording-119bpc">vcr timer recording</a> (date input) on ui-feed.dev.</p>
+    <details class="show-code">
+      <summary>Show the code <small>date and time inputs behind a tube effect</small></summary>
+      <ol>
+        <li data-code="#vcr-html"><b>The markup.</b></li>
+        <li data-code="/lib/ui-feed/dots.js#vcr-timer"><b>The element.</b> <code>dotBoard()</code> with square cells returns the enlarged picture, and the element draws it in bands.</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="idea" id="teletext">
+    <h2>Teletext</h2>
+    <p>A command list: an <code>&lt;input role="combobox"&gt;</code> over a list built from <code>&lt;option&gt;</code> children. Type to filter,
+      move with the arrow keys, choose with Enter or a tap. The four coloured words at the bottom are buttons that filter by group.</p>
+    <form class="stage" style="--w:360;--h:356">
+      <!-- #region teletext-html -->
+      <teletext-command name="page">
+        <option value="101" data-group="News">Headlines</option>
+        <option value="302" data-group="Sport">Football results</option>
+        <option value="400" data-group="Weather">Weather</option>
+        <option value="401" data-group="Weather">Weather maps</option>
+        <option value="403" data-group="Weather">Weather at sea</option>
+        <option value="500" data-group="TV">TV listings</option>
+        <option value="610" data-group="News">Travel news</option>
+      </teletext-command>
+      <!-- #endregion teletext-html -->
+    </form>
+    <output class="line"></output>
+    <p class="credit">After <a href="https://ui-feed.dev/p/command-teletext-lix1vd">teletext</a> (command) on ui-feed.dev.</p>
+    <details class="show-code">
+      <summary>Show the code <small>a filtered list in teletext colours</small></summary>
+      <ol>
+        <li data-code="#teletext-html"><b>The pages are <code>&lt;option&gt;</code> children.</b> <code>data-group</code> gives the colour and the button at the bottom.</li>
+        <li data-code="/lib/ui-feed/dots.js#teletext-command"><b>The element.</b></li>
+      </ol>
+    </details>
+  </section>
+
+  <h2>How it works</h2>
+  <p>Every control here extends one base class, <code>FeedControl</code> in <code>/lib/ui-feed/kit.js</code>. Its shadow root holds a canvas with
+    <code>content="drawable"</code>, and the canvas holds the native elements. The control's own CSS is nested under <code>canvas</code>, so
+    when the API is missing or the context is lost the same elements are shown outside the canvas as unstyled HTML and still work.</p>
+  <p>Drawing is in design units: a control is designed 360 wide, and the context is scaled so that the same numbers work at any width.
+    The elements inside the canvas are laid out at the design size, and <code>drawElementImage()</code> is given that size, so a narrower
+    canvas draws them smaller and their hit regions follow.</p>
+  <p>The dot board has three steps. The paint handler sets a transform that makes one cell of the design one device pixel, and draws the
+    elements with it, so the browser rasterises the text at one pixel a dot. That corner of the canvas is copied to a small plain canvas
+    with <code>drawImage()</code>. The copy is enlarged with smoothing off into a second plain canvas, a pattern of discs is applied with
+    <code>destination-in</code>, and the result is drawn back. Nothing is read with <code>getImageData()</code>. The reduced draw leaves each
+    element's hit region in that corner, so the last step is a draw with <code>globalAlpha = 0</code> at the place the board shows it.</p>
+  <p>Data that an author supplies is light DOM. Four of the controls read <code>&lt;option&gt;</code> children or attributes and build
+    their own inputs. The departures board is different: its table is slotted, drawn as it is, and styled by the page. A control's value
+    reaches its form through <code>ElementInternals.setFormValue()</code>. The line under each demo is the <code>FormData</code> of the form around it.</p>
+
+  <h2>Live checks</h2>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><b>A reduced <code>drawElementImage()</code> is a usable per-dot picture.</b> Text drawn at one device pixel for each dot, copied
+      out and enlarged with smoothing off, read as a dot display from about 7 dots of cap height. Below that the letters ran together.</li>
+    <li><b>The control's CSS states show on the board with no extra code.</b> The inverted row is <code>label:has(:checked)</code>, the
+      dimmed row is <code>:has(:disabled)</code>, the yellow frame is <code>:focus-visible</code>, and a text selection in the textarea
+      is drawn in its <code>::selection</code> colours.</li>
+    <li><b>The hit region follows the last draw, at any alpha.</b> The list is drawn reduced in a corner first, then once more with
+      <code>globalAlpha = 0</code> at the board's place. The taps in the checks below land on the right row.</li>
+    <li><b>A slotted table can be paged without touching it.</b> Twelve rows, five to a page: each line is a clipped draw of the slot's
+      wrapper. The rows keep their layout, so <code>offsetTop</code> of a row is where to clip.</li>
+    <li><b>A shadow tree can't style slotted cells.</b> <code>::slotted(table)</code> reaches the table and inherited properties reach
+      the cells. Column widths and the header alignment had to come from the page's stylesheet.</li>
+    <li><b>Radio inputs in a shadow root with one name and no form are one group.</b> The arrow keys moved the rating from 4 to 3 in the
+      test browser with no key handler in the element.</li>
+    <li><b>Date and time fields are edited where they are drawn.</b> A click on the drawn minutes field focused that field and typed
+      digits went into it, through the pixelated picture.</li>
+    <li><b>The text caret wasn't in the picture of the textarea</b> in the test browser, with <code>caret-shape: block</code> or without.
+      The message counter draws its own block cursor. It finds the place with a hidden copy of the text up to the caret, laid out in the
+      same font and width.</li>
+    <li><b>A <code>&lt;form&gt;</code> in a shadow root's HTML is dropped when the host is inside a form.</b> The parser doesn't nest
+      forms, and <code>innerHTML</code> on the shadow root counts the host's form. My first version of four of these controls had an inner
+      <code>&lt;form&gt;</code> and worked until I put one in a form. They use a <code>&lt;div&gt;</code> now.</li>
+    <li><b>Not verified:</b> everything on a phone. The native date and time pickers that Android opens for these inputs, the on-screen
+      keyboard over the teletext input, and the frame rate of the VCR picture, which redraws every frame while it is on screen.</li>
+  </ul>
+</main>
+<script type="module">
+  import { banner, runTests, testStage } from '/shared/support.js';
+  import '/lib/ui-feed/dots.js';
+  banner();
+
+  // #region form-line
+  // The line under each demo: what the form around the control would submit.
+  for (const form of document.querySelectorAll('form.stage')) {
+    const out = form.parentElement.querySelector('output.line');
+    const show = () => { out.textContent = 'form data: ' + ([...new FormData(form)].map(([k, v]) => `${k}=${v}`).join('  ') || '(nothing)'); };
+    form.addEventListener('input', show);
+    form.addEventListener('change', show);
+    form.addEventListener('submit', (e) => e.preventDefault());
+    customElements.whenDefined(form.firstElementChild.localName).then(() => requestAnimationFrame(show));
+  }
+  // #endregion form-line
+
+  const tick = (ms) => new Promise((r) => setTimeout(r, ms));
+  const painted = (el) => new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('no paint event in 2 s')), 2000);
+    el.canvas.addEventListener('paint', () => { clearTimeout(t); requestAnimationFrame(() => resolve()); }, { once: true });
+    el.request();
+  });
+  async function make(html) {
+    const form = document.createElement('form');
+    form.style.cssText = 'width:360px;flex:none';
+    form.innerHTML = html;
+    testStage().append(form);
+    const el = form.firstElementChild;
+    await customElements.whenDefined(el.localName);
+    if (el.plain) throw new Error('the control is in its plain HTML fallback');
+    await painted(el); await painted(el);
+    return { form, el };
+  }
+  // The element at a point given in the control's design units.
+  const at = (el, x, y) => { const r = el.canvas.getBoundingClientRect(), k = r.width / el.constructor.size[0]; return el.shadowRoot.elementFromPoint(r.left + x * k, r.top + y * k); };
+  const data = (form) => [...new FormData(form)].map(([k, v]) => `${k}=${v}`).join(' ');
+  const LIST = `<led-listbox name="showing"><option value="a" data-time="7:20">One</option><option value="b" data-time="7:45" selected>Two</option><option value="c" data-time="8:10">Three</option></led-listbox>`;
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'Each row of the native listbox is hit where the board shows it',
+      why: 'The <select size="5"> is drawn reduced in a corner of the canvas, then given a hit region over the board by a draw with no alpha. The check asks the shadow root which element is at the middle of each row: each one must be that row\'s own <option>.',
+      run: async () => {
+        const { el } = await make(LIST);
+        const rows = el.rows();
+        const got = rows.map((r) => { const e = at(el, 180, r.y); return `${e?.localName}:${e?.value ?? ''}`; });
+        if (got.join(' ') !== 'option:a option:b option:c') throw new Error(`the rows answered ${got.join(' ')}`);
+        return `The three rows, drawn ${rows.map((r) => Math.round(r.y)).join(', ')} down the board, answered ${got.join(', ')}.`;
+      },
+    },
+    {
+      name: 'The board has dots: lit at the middle of a cell, dark between cells',
+      why: 'The checked row has a light background. The check copies the canvas with drawImage() and reads the copy once: the middle of a cell in that row must be light and the corner where four cells meet must be dark.',
+      run: async () => {
+        const { el } = await make(LIST);
+        const b = el.board, px = el.px;
+        const copy = document.createElement('canvas'); copy.width = el.canvas.width; copy.height = el.canvas.height;
+        const c = copy.getContext('2d'); c.drawImage(el.canvas, 0, 0);
+        const cell = b.cell * px, x0 = Math.round(b.ox * px), y0 = Math.round(b.oy * px);
+        const col = 2, row = Math.round((el.rows()[1].y - b.oy) / b.cell);        // the middle of the second, selected row
+        const mid = c.getImageData(x0 + Math.floor((col + 0.5) * cell), y0 + Math.floor((row + 0.5) * cell), 1, 1).data;
+        const gap = c.getImageData(x0 + col * cell, y0 + row * cell, 1, 1).data;
+        if (!(mid[0] - gap[0] > 80)) throw new Error(`middle ${mid[0]}, corner ${gap[0]}`);
+        return `Cell ${cell} device px. Red at the middle of a cell ${mid[0]}, at the corner ${gap[0]}.`;
+      },
+    },
+    {
+      name: 'Choosing a row in the listbox puts its value in the form',
+      why: 'The selection is the browser\'s own, and the value reaches the form through ElementInternals.setFormValue(). A synthetic click cannot drive a native listbox, so the check sets the selection and fires change, the way the browser does; a real click on the drawn board was measured separately with a mouse.',
+      run: async () => {
+        const { el, form } = await make(LIST);
+        const before = data(form);
+        const row = at(el, 180, el.rows()[2].y);
+        el.list.value = row.value;
+        el.list.dispatchEvent(new Event('change', { bubbles: true }));
+        await painted(el);
+        if (data(form) !== 'showing=c') throw new Error(`form data ${data(form)}`);
+        return `Before: ${before}. The third row of the board is <option value="${row.value}">, and choosing it gives ${data(form)}.`;
+      },
+    },
+    {
+      name: 'A slotted table is paged by clipped draws, and no row is hidden',
+      why: 'The second page is the same picture of the table, clipped and moved. The check turns the page with the button that the hit test returns and looks at the rows.',
+      run: async () => {
+        const { el, form } = await make(`<led-pager name="page" rows="2"><table><tbody><tr><td>one</td></tr><tr><td>two</td></tr><tr><td>three</td></tr><tr><td>four</td></tr><tr><td>five</td></tr></tbody></table></led-pager>`);
+        const top = el.rows[0].offsetTop + 2 * el.rows[0].offsetHeight + 48;
+        const button = at(el, 8 + 344 * 0.5, 8 + top + 30);
+        if (button?.localName !== 'button') throw new Error(`the point over the page buttons answered ${button?.localName}`);
+        el.shadowRoot.querySelector('button[data-p="1"]').click();
+        await painted(el);
+        const hidden = el.rows.filter((r) => r.hidden || !r.offsetHeight).length;
+        if (hidden || data(form) !== 'page=2') throw new Error(`${hidden} rows hidden, form data ${data(form)}`);
+        return `3 pages. After a click on "2": ${data(form)}, ${el.rows.length} rows still laid out, the slotted table has ${el.querySelector('table').assignedSlot ? 'a slot' : 'no slot'}.`;
+      },
+    },
+    {
+      name: 'Text set in the textarea reaches the meter, the count and the form',
+      why: 'The meter is a real <meter> that is never drawn. The canvas draws lamps from its value.',
+      run: async () => {
+        const { el, form } = await make(`<led-counter name="message" maxlength="20" value="abc"></led-counter>`);
+        const area = el.shadowRoot.querySelector('textarea'), meter = el.shadowRoot.querySelector('meter');
+        area.value = 'abcdefgh'; area.dispatchEvent(new Event('input', { bubbles: true }));
+        await painted(el);
+        if (meter.value !== 8 || meter.max !== 20 || data(form) !== 'message=abcdefgh') throw new Error(`meter ${meter.value}/${meter.max}, form data ${data(form)}`);
+        return `meter ${meter.value} of ${meter.max}, count "${el.shadowRoot.querySelector('output').textContent}", ${data(form)}.`;
+      },
+    },
+    {
+      name: 'Five radios in a shadow root with one name and no form are one group',
+      why: 'The rating has no key handler. Arrow keys work only if the browser treats the radios as a group. The check checks one radio and expects the others to clear.',
+      run: async () => {
+        const { el, form } = await make(`<flipdot-rating name="stars" value="2"></flipdot-rating>`);
+        const radios = [...el.shadowRoot.querySelectorAll('input')];
+        const star = at(el, 8 + (1.5 + 3 * 14 + 7) * (344 / 72), 110 - 20 * (344 / 72) + 11 * (344 / 72));
+        if (star !== radios[3]) throw new Error(`the point over the fourth star answered ${star?.value ?? star?.localName}`);
+        star.click();
+        await painted(el);
+        const on = radios.filter((r) => r.checked).map((r) => r.value).join();
+        if (on !== '4' || data(form) !== 'stars=4') throw new Error(`checked ${on}, form data ${data(form)}`);
+        return `The fourth star answered radio 4. After a click only radio ${on} is checked and ${data(form)}.`;
+      },
+    },
+    {
+      name: 'The date, time and number inputs submit under the control\'s name',
+      why: 'One control with four values. It gives the form a FormData, with each key prefixed by its own name.',
+      run: async () => {
+        const { el, form } = await make(`<vcr-timer name="rec" date="2026-11-28" start="20:30" stop="22:05" channel="3"></vcr-timer>`);
+        const want = 'rec-date=2026-11-28 rec-start=20:30 rec-stop=22:05 rec-channel=3';
+        if (data(form) !== want) throw new Error(`form data ${data(form)}`);
+        const field = at(el, 250, 150);
+        return `${data(form)}. The point over the start time answered <${field?.localName}${field?.type ? ` type=${field.type}` : ''}>.`;
+      },
+    },
+    {
+      name: 'Typing filters the teletext list, and Enter chooses a page',
+      why: 'The list items are built from <option> children. The check sets the input, sends the input event and a keydown, and reads the value.',
+      run: async () => {
+        const { el, form } = await make(`<teletext-command name="page"><option value="101" data-group="News">Headlines</option><option value="400" data-group="Weather">Weather</option><option value="401" data-group="Weather">Weather maps</option></teletext-command>`);
+        const input = el.shadowRoot.querySelector('input');
+        input.value = 'wea'; input.dispatchEvent(new Event('input', { bubbles: true }));
+        const shown = el.shown().length;
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        await painted(el);
+        if (shown !== 2 || data(form) !== 'page=401') throw new Error(`${shown} rows shown, form data ${data(form)}`);
+        return `"wea" left ${shown} of 3 rows. Arrow down and Enter gave ${data(form)}.`;
+      },
+    },
+    {
+      name: 'A lost context leaves the controls as plain HTML',
+      why: 'A lost 2D canvas is an empty box over live inputs. The control waits 1.5 s for the context to come back and then moves its elements out of the canvas. The check sends a contextlost event to a fixture (it does not lose a context).',
+      run: async () => {
+        const { el, form } = await make(LIST);
+        el.canvas.dispatchEvent(new Event('contextlost'));
+        await tick(1700);
+        const rows = el.shadowRoot.querySelectorAll('.plain select option').length;
+        if (!el.plain || rows !== 3 || el.shadowRoot.querySelector('canvas')) throw new Error(`plain ${el.plain}, rows ${rows}`);
+        el.list.value = 'c';
+        el.list.dispatchEvent(new Event('change', { bubbles: true }));
+        return `After 1.5 s the canvas was gone and the listbox was in a plain box with ${rows} rows. Choosing one still gave ${data(form)}.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
