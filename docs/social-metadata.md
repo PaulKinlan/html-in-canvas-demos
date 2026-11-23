@@ -14,6 +14,7 @@ Every page that has a `page.json` carries the tags that a shared link and a sear
 | `og:title`, `twitter:title` | The `title` |
 | `og:description`, `twitter:description` | The same text as the description |
 | `og:image`, `twitter:image`, with width, height, type and alt text | `public/<name>/social.jpg` if it exists, otherwise `public/social.jpg` |
+| `<link rel="alternate" type="application/rss+xml">` | The address of the RSS feed, `SITE.feed` in `tools/social/meta.mjs`. [feed.md](feed.md) describes the feed |
 | `twitter:card` | `summary_large_image` |
 | `article:published_time` | The `added` date, when the page has one |
 | `<script type="application/ld+json">` | For `/`: `WebSite`, `Person` (the author) and `CollectionPage`. For every other page: `TechArticle` (name, description, the `question` as `abstract`, `tags` and `api` as `keywords`, image, author, `isPartOf` the site) and a `BreadcrumbList` |
@@ -22,7 +23,7 @@ The site's name, address, description and author are in `SITE` at the top of `to
 
 The block is committed with the page. The build rewrites it only when the `page.json` or the picture changed. Workers Builds runs the build before each deploy, so a page whose block is missing or stale in the repository is deployed with a current one.
 
-The build also writes `public/sitemap.xml` (not committed), one URL for each page file. `public/robots.txt` names it.
+The build also writes `public/sitemap.xml` (not committed), one URL for each page file. `public/robots.txt` names it. It also writes `public/feed.xml` (not committed), described in [feed.md](feed.md).
 
 ## Pictures
 
