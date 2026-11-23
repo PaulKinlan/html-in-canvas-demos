@@ -177,7 +177,8 @@ for (const f of ['friction/entries.js', 'crashes/cases.js', 'shared/learn.js', '
 }
 if (DOCS) {
   for (const f of fs.readdirSync(ROOT)) if (f.endsWith('.md') && f !== 'ELEMENTS.md') files.push([path.join(ROOT, f), readMarkdown]);
-  for (const d of ['docs', 'findings']) for (const f of fs.readdirSync(path.join(ROOT, d))) if (f.endsWith('.md')) files.push([path.join(ROOT, d, f), readMarkdown]);
+  // Folders inside docs/ are read too (docs/ui-watch/ holds one report per week).
+  for (const d of ['docs', 'findings']) for (const f of fs.readdirSync(path.join(ROOT, d), { recursive: true })) if (f.endsWith('.md')) files.push([path.join(ROOT, d, f), readMarkdown]);
 }
 
 // docs/writing.md quotes the mannerisms it lists.
