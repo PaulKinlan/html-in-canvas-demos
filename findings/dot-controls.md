@@ -88,6 +88,8 @@ The first pass used the nearest control that was easy to draw. Going back over t
 
 ## Things that bit
 
+- Wiping the fog by touch stopped after a few pixels on the phone (Paul, 2026-11-23, Chrome on Android). The touch lands on the password input the canvas drew, and the canvas only had `touch-action: manipulation`, so the browser took the drag as a page scroll and sent `pointercancel`. Reproduced with CDP touch events on an emulated Pixel 7: a 200 px drag gave 2 `pointermove` events, 1 `pointercancel` and 3 wipe discs. With `touch-action: none` on the input it gave 20 moves, no cancel and 21 discs. `touch-action` is read from the element the touch hits, which is the drawn child, not the canvas.
+
 - The inner `<form>` that vanished (above). The controls worked alone and broke when the page wrapped them in a form to show `FormData`.
 - The fixture stage of `runTests()` is a fixed box at the bottom left with `opacity: .02` and the highest `z-index`. While checks ran on load it took real clicks meant for the demo above it. Both pages have `<meta name="checks" content="tap">`.
 - `dotBoard()` first used the requested cell size for the reduced draw and the rounded device size for the board, so the right edge of each element was cut off at device scale 2.625. Both now use the rounded size.

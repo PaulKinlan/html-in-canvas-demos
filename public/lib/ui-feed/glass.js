@@ -46,6 +46,9 @@ export class FoggedPassword extends FeedControl {
     label { color: #24323c; font: 500 17px system-ui, sans-serif; }
     input { width: 300px; height: 92px; padding: 0 18px; border: 0; outline: 0; background: transparent;
       color: #16222b; caret-color: #16222b; font: 23px/92px ui-monospace, 'DejaVu Sans Mono', Menlo, monospace; letter-spacing: 1px; }
+    /* A finger on the pane wipes the fog. Without this the browser takes the drag as a page scroll after a few
+       pixels and sends pointercancel, so the wipe stops under the finger. The rest of the card still scrolls. */
+    input { touch-action: none; }
     input::selection { background: #16222b; color: #e8f1f5; }
     .eye { width: 44px; height: 44px; margin: 0; padding: 0; border: 1px solid #b9c7ce; border-radius: 10px; background: #fff; outline: 0; touch-action: manipulation; }
     .eye:focus-visible { border-color: #16222b; box-shadow: inset 0 0 0 2px #16222b; }`;
@@ -83,6 +86,7 @@ export class FoggedPassword extends FeedControl {
     this.canvas.addEventListener('pointerdown', put_);
     this.canvas.addEventListener('pointerup', () => { this.last = null; });
     this.canvas.addEventListener('pointerleave', () => { this.last = null; });
+    this.canvas.addEventListener('pointercancel', () => { this.last = null; });
   }
   get value() { return this.input.value; }
   set value(v) { this.input.value = v; this.sync(); }
