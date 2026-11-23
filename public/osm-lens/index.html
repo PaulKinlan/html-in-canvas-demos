@@ -1,0 +1,1916 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Multi-layer X-ray lens over OpenStreetMap</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A draggable circular WebGL 2 shader lens over live OpenStreetMap tiles that reveals a dark night, thermal density or blueprint edge layer underneath, plus interactive HTML neighbourhood cards clipped to the lens aperture.">
+<link rel="canonical" href="https://html-in-canvas.page/osm-lens/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Multi-layer X-ray lens over OpenStreetMap">
+<meta property="og:description" content="A draggable circular WebGL 2 shader lens over live OpenStreetMap tiles that reveals a dark night, thermal density or blueprint edge layer underneath, plus interactive HTML neighbourhood cards clipped to the lens aperture.">
+<meta property="og:url" content="https://html-in-canvas.page/osm-lens/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Multi-layer X-ray lens over OpenStreetMap&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Multi-layer X-ray lens over OpenStreetMap">
+<meta name="twitter:description" content="A draggable circular WebGL 2 shader lens over live OpenStreetMap tiles that reveals a dark night, thermal density or blueprint edge layer underneath, plus interactive HTML neighbourhood cards clipped to the lens aperture.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Multi-layer X-ray lens over OpenStreetMap&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/osm-lens/",
+   "url": "https://html-in-canvas.page/osm-lens/",
+   "mainEntityOfPage": "https://html-in-canvas.page/osm-lens/",
+   "headline": "Multi-layer X-ray lens over OpenStreetMap",
+   "name": "Multi-layer X-ray lens over OpenStreetMap",
+   "description": "A draggable circular WebGL 2 shader lens over live OpenStreetMap tiles that reveals a dark night, thermal density or blueprint edge layer underneath, plus interactive HTML neighbourhood cards clipped to the lens aperture.",
+   "abstract": "Can a draggable circular shader lens over an OpenStreetMap street map reveal a second map style underneath \u0028dark night, thermal density, or edge-detected contour view) along with live interactive HTML neighbourhood cards that only appear inside the lens?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "WebGL 2, texElementSubImage2D, updateElementGeometry, canvasClip, ElementGL, texElementSubImage2D\u0028), updateElementGeometry\u0028), drawElementImage\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Multi-layer X-ray lens over OpenStreetMap",
+     "item": "https://html-in-canvas.page/osm-lens/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 960px; }
+  .map-stage {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+    height: min(500px, 66svh);
+    min-height: 320px;
+    background: #dcd8ce;
+    touch-action: none;
+  }
+  .map-stage canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: grab;
+  }
+  .map-stage canvas.over-lens { cursor: move; }
+  .map-stage canvas.dragging { cursor: grabbing; }
+  .map-stage.fallback {
+    height: auto;
+    min-height: 0;
+    padding: 12px;
+    background: var(--card);
+    touch-action: auto;
+  }
+  .map-stage.fallback canvas {
+    height: min(320px, 46svh);
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+  .fallback-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+  }
+  .fallback-grid[hidden] { display: none; }
+
+  /* Live drawable neighbourhood cards revealed inside the circular lens aperture.
+     Fixed high-contrast palette so textures stay legible in both light and dark page themes. */
+  .hood-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 176px;
+    padding: 8px 9px 9px;
+    border-radius: 10px;
+    border: 1.5px solid #7fb7d4;
+    background: linear-gradient(165deg, #0f1b29f2 0%, #09111bf6 100%);
+    color: #eef5fa;
+    font: 11.5px/1.32 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    box-sizing: border-box;
+    user-select: text;
+    box-shadow: 0 6px 18px rgb(0 0 0 / .42);
+  }
+  .hood-card.saved {
+    border-color: #f4b95a;
+    background: linear-gradient(165deg, #1b2230f5 0%, #101622f8 100%);
+  }
+  .fallback-grid .hood-card {
+    position: static;
+    width: auto;
+  }
+  .hood-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 3px;
+  }
+  .hood-name {
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+  .hood-index {
+    font: 600 10px var(--mono);
+    color: #8ee0d0;
+    white-space: nowrap;
+  }
+  .hood-transit {
+    font: 500 10.5px var(--mono);
+    color: #b7d2e6;
+    margin-bottom: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hood-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 5px;
+  }
+  .hood-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #d7e7f4;
+    cursor: pointer;
+    min-height: 24px;
+  }
+  .hood-filter input {
+    margin: 0;
+    width: 14px;
+    height: 14px;
+    accent-color: #5cd6c4;
+    cursor: pointer;
+  }
+  .hood-card .save-btn {
+    font: 600 10.5px system-ui, -apple-system, sans-serif;
+    padding: 3px 7px;
+    min-height: 24px;
+    border-radius: 5px;
+    border: 1px solid #6b8ca6;
+    background: #1a2d40;
+    color: #f4f9fd;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .hood-card .save-btn:hover { border-color: #f4b95a; background: #243e57; }
+  .hood-card.saved .save-btn {
+    border-color: #f4b95a;
+    background: #4f3714;
+    color: #ffe3a8;
+  }
+  .hood-tag-wrap { display: block; }
+  .hood-tag-wrap span {
+    display: block;
+    font: 600 9.5px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #93b0c4;
+    margin-bottom: 2px;
+  }
+  .hood-tag {
+    width: 100%;
+    font: 11px/1.3 system-ui, -apple-system, sans-serif;
+    padding: 3px 6px;
+    border-radius: 5px;
+    border: 1px solid #4e6c82;
+    background: #081018;
+    color: #f4f9fd;
+    min-height: 24px;
+  }
+  .hood-tag:focus { outline: 2px solid #f4b95a; outline-offset: 1px; border-color: #f4b95a; }
+
+  .map-hud {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #0c141dd9;
+    border: 1px solid #ffffff26;
+    color: #d8e6f0;
+    font: 11px var(--mono);
+    pointer-events: none;
+    max-width: calc(100% - 210px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .map-attrib {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    padding: 3px 7px;
+    border-radius: 5px;
+    background: rgb(255 255 255 / .88);
+    color: #1d1c1a;
+    font: 11px/1.3 system-ui, -apple-system, sans-serif;
+    border: 1px solid rgb(0 0 0 / .16);
+    z-index: 4;
+  }
+  .map-attrib a { color: #164e78; text-decoration: underline; }
+  .map-stage.fallback .map-hud,
+  .map-stage.fallback .map-attrib {
+    position: static;
+    display: inline-block;
+    margin: 0 8px 8px 0;
+    max-width: none;
+  }
+
+  .controls { margin: 12px 0 8px; gap: 10px 12px; }
+  .controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+  }
+  .controls input[type="range"] { width: 112px; accent-color: var(--accent); }
+  .btn-group { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .btn-group button,
+  #pin-btn { min-height: 36px; }
+  .btn-group button[aria-pressed="true"],
+  #pin-btn[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .zoom-readout {
+    font: 600 12px var(--mono);
+    color: var(--muted);
+    min-width: 28px;
+    text-align: center;
+  }
+  #notice {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+  }
+  #notice[hidden] { display: none; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; margin: 6px 0 12px; }
+  @media (max-width: 520px) {
+    .controls input[type="range"] { width: 92px; }
+    .map-hud { display: none; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Multi-layer X-ray lens over OpenStreetMap</h1>
+  <p class="lede">
+    I wanted to know if a draggable circular shader lens over an OpenStreetMap street map could reveal a second map layer underneath alongside live HTML neighbourhood cards that only exist inside the lens.
+    Drag the circular lens over the orange district markers to reveal each card, switch between night transit, thermal density and blueprint contour views, or pin the lens so tapping a checkbox, button or text input on a phone is easy.
+  </p>
+
+  <div class="stage map-stage" id="stage">
+    <!-- #region markup -->
+    <canvas id="map" content="drawable" layoutsubtree aria-label="OpenStreetMap street map with a draggable circular shader lens revealing live HTML neighbourhood cards">
+      <article class="hood-card" id="card-0" data-slot="0" drawable>
+        <div class="hood-head"><span class="hood-name">Soho</span><span class="hood-index">94 heat</span></div>
+        <div class="hood-transit">Bakerloo / Elizabeth</div>
+        <div class="hood-controls">
+          <label class="hood-filter"><input type="checkbox" class="transit-check" checked> Transit</label>
+          <button type="button" class="save-btn">Save district</button>
+        </div>
+        <label class="hood-tag-wrap"><span>District tag</span><input type="text" class="hood-tag" value="Late dining" aria-label="Soho district tag"></label>
+      </article>
+
+      <article class="hood-card" id="card-1" data-slot="1" drawable>
+        <div class="hood-head"><span class="hood-name">Covent Garden</span><span class="hood-index">88 heat</span></div>
+        <div class="hood-transit">Piccadilly Line</div>
+        <div class="hood-controls">
+          <label class="hood-filter"><input type="checkbox" class="transit-check" checked> Transit</label>
+          <button type="button" class="save-btn">Save district</button>
+        </div>
+        <label class="hood-tag-wrap"><span>District tag</span><input type="text" class="hood-tag" value="Market hall" aria-label="Covent Garden district tag"></label>
+      </article>
+
+      <article class="hood-card" id="card-2" data-slot="2" drawable>
+        <div class="hood-head"><span class="hood-name">South Bank</span><span class="hood-index">81 heat</span></div>
+        <div class="hood-transit">Waterloo / Jubilee</div>
+        <div class="hood-controls">
+          <label class="hood-filter"><input type="checkbox" class="transit-check" checked> Transit</label>
+          <button type="button" class="save-btn">Save district</button>
+        </div>
+        <label class="hood-tag-wrap"><span>District tag</span><input type="text" class="hood-tag" value="River walk" aria-label="South Bank district tag"></label>
+      </article>
+
+      <article class="hood-card" id="card-3" data-slot="3" drawable>
+        <div class="hood-head"><span class="hood-name">Bloomsbury</span><span class="hood-index">69 heat</span></div>
+        <div class="hood-transit">Russell Sq / Northern</div>
+        <div class="hood-controls">
+          <label class="hood-filter"><input type="checkbox" class="transit-check" checked> Transit</label>
+          <button type="button" class="save-btn">Save district</button>
+        </div>
+        <label class="hood-tag-wrap"><span>District tag</span><input type="text" class="hood-tag" value="Bookshops" aria-label="Bloomsbury district tag"></label>
+      </article>
+    </canvas>
+    <!-- #endregion markup -->
+    <div class="map-hud" id="hud">WebGL 2 lens</div>
+    <div class="map-attrib">
+      &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors,
+      &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>
+    </div>
+    <div class="fallback-grid" id="fallback-grid" hidden></div>
+  </div>
+
+  <div class="row controls">
+    <span class="btn-group" role="group" aria-label="Lens mode">
+      <button type="button" data-lens-mode="night" aria-pressed="true">Night + Transit</button>
+      <button type="button" data-lens-mode="thermal" aria-pressed="false">Thermal</button>
+      <button type="button" data-lens-mode="blueprint" aria-pressed="false">Blueprint</button>
+    </span>
+    <span class="btn-group" role="group" aria-label="City">
+      <button type="button" data-city="london" aria-pressed="true">London</button>
+      <button type="button" data-city="paris" aria-pressed="false">Paris</button>
+      <button type="button" data-city="newyork" aria-pressed="false">New York</button>
+    </span>
+    <span class="btn-group" role="group" aria-label="Map zoom">
+      <button type="button" id="zoom-out" aria-label="Zoom out">-</button>
+      <span class="zoom-readout" id="zoom-out-label">z14</span>
+      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+    </span>
+    <label>Lens radius <input id="lens-radius" type="range" min="70" max="180" value="128"><output id="radius-out">128 px</output></label>
+    <label>Lens zoom <input id="lens-zoom" type="range" min="100" max="180" value="100"><output id="zoom-out-lens">1.00x</output></label>
+    <button type="button" id="pin-btn" aria-pressed="false">Pin lens</button>
+  </div>
+
+  <p id="notice" hidden role="status"></p>
+  <p id="status" role="status">Drag inside the brass ring to move the lens, drag outside to pan the map, or press Pin lens before tapping a card control.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>OSM/CARTO tile textures, dual-layer bevel shader, circular card clipping and hit-box gating</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Four neighbourhood cards inside the canvas.</b> Each card is a <code>drawable</code> child of <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> with a transit filter checkbox, a save button and an editable district tag input.</li>
+      <li data-code="#tiles"><b>Web Mercator projection and two tile caches.</b> Live daytime tiles from OpenStreetMap and dark tiles from CARTO DarkMatter paint into two plain offscreen canvases, with a deterministic procedural street grid filling any slot that is still loading or offline.</li>
+      <li data-code="#shaders"><b>Dual-layer X-ray lens and circular card aperture shaders.</b> The map shader blends daytime tiles outside the brass bezel with night transit, thermal density or Sobel blueprint edges inside, adding curved glass bevel refraction near the rim. The card shader clips each DOM quad to the same circle.</li>
+      <li data-code="#geometry"><b>Hit boxes clipped to the lens with <code>canvasClip</code> and <code>inert</code>.</b> Cards outside the circle are marked <code>inert = true</code> with a zero-size <code>canvasClip</code>; cards inside compute the overlapping visible rectangle in element coordinates, scale <code>canvasTransform</code> with <code>geometryUnit()</code> and toggle <code>data-hit-tick</code>.</li>
+      <li data-code="#paint"><b>One WebGL 2 context for both map layers and live DOM cards.</b> The <code>paint</code> handler uploads dirty cards via <code>ElementGL</code>, draws the fullscreen lens shader on <code>stage.gl</code>, then restores <code>ElementGL</code>'s shader and VAO to draw the clipped cards.</li>
+      <li data-code="/lib/element-gl.js#upload"><b>Texture upload in <code>element-gl.js</code>.</b> <code>texElementSubImage2D()</code> copies each card into a texture sized to <code>getElementImageDefaultSize()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <!-- writing-allow: vocabulary -->
+  <p>
+    The idea goes back to Bier et al.'s Magic Lenses paper at Xerox PARC (1993), combined with the live DOM lens experiments in <a href="/lens/">/lens/</a> and <a href="/translate-lens/">/translate-lens/</a> on this site.
+    Here the lens sits over live slippy-map tiles from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (daytime base) and <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a> DarkMatter (night transit layer).
+    Both tile layers composite into two plain offscreen 2D canvases (never <code>drawable</code> canvases) and upload to WebGL 2 textures only when a tile finishes loading or the map pans or zooms. While a tile is fetching or if you are offline, a deterministic street grid fills that tile slot so the shaders still have real lines to work on.
+  </p>
+  <p>
+    Everything on screen runs inside one WebGL 2 context from <code>new ElementGL(canvas, ...)</code>. On each <code>paint</code> event, the map pass draws a fullscreen quad: outside the bevelled brass ring it samples the daytime OpenStreetMap texture and paints four district beacons; inside the ring it applies curved glass bevel refraction near the rim, optional optical zoom (1.0x to 1.8x) and the chosen lens mode.
+    Night + Transit blends CARTO DarkMatter tiles (or a dark nocturnal fallback transform while tiles load) with glowing district transit rings controlled by each card's Transit checkbox. Thermal maps local street contrast and district activity plumes onto a five-stop false-colour ramp. Blueprint runs a 3 by 3 Sobel edge filter over the daytime tile luminance to pull out roads, parks and building edges on a drafting grid.
+  </p>
+  <p>
+    After restoring <code>ElementGL</code>'s program and vertex array object, the four <code>drawable</code> neighbourhood cards draw on top. Each card's fragment shader checks the fragment's canvas CSS coordinates against the lens centre and radius, discarding anything outside the circular aperture so cards slide cleanly out from under the brass rim as you scan across a city.
+    Hit testing follows the same aperture: cards outside the circle get <code>inert = true</code> and a zero-size <code>canvasClip</code> so hidden cards never intercept taps or keyboard focus, while cards inside pass their visible overlap rectangle to <code>canvas.updateElementGeometry(card, { canvasTransform, canvasClip })</code> scaled by <code>geometryUnit()</code>.
+    If WebGL 2 HTML-in-canvas isn't available, the page falls back to a 2D circular <code>ctx.clip()</code> path with five-argument <code>drawElementImage()</code>, or moves the cards into a plain HTML grid below the 2D map if HTML-in-canvas is disabled or the WebGL context is lost.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These six checks run on isolated fixtures in a hidden corner stage and retire their canvases after each row, leaving the map above untouched.</p>
+  <table class="results">
+    <thead><tr><th>Result</th><th>Check</th><th>Detail</th></tr></thead>
+    <tbody id="tests"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Keeping both map tile canvases offscreen and re-uploading them to WebGL 2 only when tiles arrive or the map moves keeps lens drags to uniform updates plus four small card quads, with zero tile recompositing during a drag.</li>
+    <li>Clipping live DOM cards in <code>CARD_FRAGMENT</code> against the exact lens centre and radius gives a crisp circular reveal behind the brass bezel, while pairing <code>inert = true</code> with a zero-size <code>canvasClip</code> stops off-lens cards from stealing taps or Tab focus.</li>
+    <li>Because Chromium's <code>canvasClip</code> takes a single axis-aligned rectangle (measured on <a href="/toolkit-occlusion/">/toolkit-occlusion/</a>), hit testing on a partially revealed card approximates the circular bezel with the chord-clamped visible rectangle rather than a true circle.</li>
+    <li>Adding a <code>Pin lens</code> toggle makes a big difference on touch screens: once you drag the lens over a neighbourhood card, locking the ring prevents a thumb tap near a checkbox or text input from dragging the lens away.</li>
+    <li>Credits: map data is &copy; OpenStreetMap contributors, dark basemap tiles are &copy; CARTO, and the multi-layer toolglass concept builds on Bier et al.'s 1993 Xerox PARC paper alongside <a href="/lens/">/lens/</a> and <a href="/translate-lens/">/translate-lens/</a> on this site.</li>
+    <li>Not verified yet: live browser runs in headless Chromium 157 and on Chrome 159 for Android (412 px touch drag, live OSM/CARTO CORS tile loads, lens pinning, checkbox/button taps and on-screen keyboard typing inside a revealed card). Running the live checks above and testing on a phone will verify those paths.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+  import { geometryUnit, program as compileProgram } from '/lib/surface.js';
+  import { banner, supported as canvas2dSupported, runTests, testStage, nextPaint } from '/shared/support.js';
+
+  banner();
+
+  const stageBox = document.getElementById('stage');
+  const canvas = document.getElementById('map');
+  const hud = document.getElementById('hud');
+  const notice = document.getElementById('notice');
+  const statusEl = document.getElementById('status');
+  const fallbackGrid = document.getElementById('fallback-grid');
+  const radiusSlider = document.getElementById('lens-radius');
+  const radiusOut = document.getElementById('radius-out');
+  const zoomSlider = document.getElementById('lens-zoom');
+  const zoomLensOut = document.getElementById('zoom-out-lens');
+  const zoomLabel = document.getElementById('zoom-out-label');
+  const zoomInBtn = document.getElementById('zoom-in');
+  const zoomOutBtn = document.getElementById('zoom-out');
+  const pinBtn = document.getElementById('pin-btn');
+  const modeBtns = [...document.querySelectorAll('[data-lens-mode]')];
+  const cityBtns = [...document.querySelectorAll('[data-city]')];
+  const cardEls = [0, 1, 2, 3].map((i) => document.getElementById(`card-${i}`));
+
+  const CITIES = {
+    london: {
+      label: 'London',
+      lat: 51.5122,
+      lon: -0.1242,
+      zoom: 14,
+      districts: [
+        { id: 'soho', name: 'Soho', lat: 51.5136, lon: -0.1365, transit: 'Bakerloo / Elizabeth', heat: 94, tag: 'Late dining', river: 0.72 },
+        { id: 'covent', name: 'Covent Garden', lat: 51.5120, lon: -0.1225, transit: 'Piccadilly Line', heat: 88, tag: 'Market hall', river: 0.72 },
+        { id: 'southbank', name: 'South Bank', lat: 51.5055, lon: -0.1155, transit: 'Waterloo / Jubilee', heat: 81, tag: 'River walk', river: 0.72 },
+        { id: 'bloomsbury', name: 'Bloomsbury', lat: 51.5198, lon: -0.1268, transit: 'Russell Sq / Northern', heat: 69, tag: 'Bookshops', river: 0.72 },
+      ],
+    },
+    paris: {
+      label: 'Paris',
+      lat: 48.8558,
+      lon: 2.3502,
+      zoom: 14,
+      districts: [
+        { id: 'marais', name: 'Le Marais', lat: 48.8588, lon: 2.3610, transit: 'Line 1 / Saint-Paul', heat: 90, tag: 'Courtyards', river: 0.58 },
+        { id: 'latin', name: 'Quartier Latin', lat: 48.8495, lon: 2.3455, transit: 'Line 10 / Cluny', heat: 84, tag: 'Side streets', river: 0.58 },
+        { id: 'cite', name: 'Ile de la Cite', lat: 48.8548, lon: 2.3475, transit: 'Line 4 / Cite', heat: 86, tag: 'Quayside', river: 0.58 },
+        { id: 'halles', name: 'Les Halles', lat: 48.8618, lon: 2.3468, transit: 'RER A / Chatelet', heat: 93, tag: 'Rail hub', river: 0.58 },
+      ],
+    },
+    newyork: {
+      label: 'New York',
+      lat: 40.7265,
+      lon: -73.9938,
+      zoom: 14,
+      districts: [
+        { id: 'soho-ny', name: 'SoHo', lat: 40.7233, lon: -74.0005, transit: 'N / Q / R / W Prince', heat: 92, tag: 'Cast iron', river: 0.20 },
+        { id: 'village', name: 'Greenwich Village', lat: 40.7332, lon: -74.0018, transit: 'A / C / E W 4th St', heat: 87, tag: 'Jazz clubs', river: 0.20 },
+        { id: 'eastvillage', name: 'East Village', lat: 40.7265, lon: -73.9840, transit: 'F / 2nd Ave', heat: 85, tag: 'Late cafes', river: 0.20 },
+        { id: 'les', name: 'Lower East Side', lat: 40.7185, lon: -73.9882, transit: 'F / M / J / Z Delancey', heat: 89, tag: 'Deli row', river: 0.20 },
+      ],
+    },
+  };
+
+  // Per-district user edits preserved when switching cities.
+  const districtState = new Map();
+  for (const city of Object.values(CITIES)) {
+    for (const d of city.districts) {
+      districtState.set(d.id, { saved: false, transit: true, tag: d.tag });
+    }
+  }
+
+  let activeCityKey = 'london';
+  const mapView = { lat: CITIES.london.lat, lon: CITIES.london.lon, zoom: CITIES.london.zoom };
+  const lens = { x: 0, y: 0, initialized: false, radius: 128, zoom: 1.0, mode: 'night', pinned: false };
+
+  // #region tiles
+  const TILE_SIZE = 256;
+  const MIN_ZOOM = 12;
+  const MAX_ZOOM = 16;
+  const MAX_CACHE = 64;
+
+  function worldSize(z) { return TILE_SIZE * Math.pow(2, z); }
+
+  function lonToWorldX(lon, z) {
+    return ((lon + 180) / 360) * worldSize(z);
+  }
+
+  function latToWorldY(lat, z) {
+    const clamped = Math.max(-85.0511, Math.min(85.0511, lat));
+    const sin = Math.sin((clamped * Math.PI) / 180);
+    return (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * worldSize(z);
+  }
+
+  function worldToLonLat(wx, wy, z) {
+    const ws = worldSize(z);
+    const lon = (wx / ws) * 360 - 180;
+    const n = Math.PI - (2 * Math.PI * wy) / ws;
+    const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+    return { lat, lon };
+  }
+
+  function latLonToScreen(lat, lon, cw, ch) {
+    const cx = lonToWorldX(mapView.lon, mapView.zoom);
+    const cy = latToWorldY(mapView.lat, mapView.zoom);
+    return [
+      cw * 0.5 + (lonToWorldX(lon, mapView.zoom) - cx),
+      ch * 0.5 + (latToWorldY(lat, mapView.zoom) - cy),
+    ];
+  }
+
+  // Plain offscreen 2D canvases (never drawable) for the two slippy-map layers.
+  const dayCanvas = document.createElement('canvas');
+  const nightCanvas = document.createElement('canvas');
+  const dayCtx = dayCanvas.getContext('2d');
+  const nightCtx = nightCanvas.getContext('2d');
+  const dayTiles = new Map();
+  const nightTiles = new Map();
+  let dayDirty = true;
+  let nightDirty = true;
+  let hasCartoVisible = false;
+  let liveOsmCount = 0;
+  let liveCartoCount = 0;
+
+  function tileUrl(layer, z, x, y) {
+    const n = 1 << z;
+    const wx = ((x % n) + n) % n;
+    if (layer === 'night') return `https://a.basemaps.cartocdn.com/dark_all/${z}/${wx}/${y}.png`;
+    return `https://tile.openstreetmap.org/${z}/${wx}/${y}.png`;
+  }
+
+  function getTile(layer, z, x, y) {
+    // Use OpenStreetMap daytime tiles and run the nocturnal transit shader in WebGL
+    // so the lens never shows a third-party "API key required" placeholder tile.
+    if (layer === 'night') return null;
+    const n = 1 << z;
+    if (y < 0 || y >= n) return null;
+    const wx = ((x % n) + n) % n;
+    const key = `${z}/${wx}/${y}`;
+    const cache = layer === 'night' ? nightTiles : dayTiles;
+    let entry = cache.get(key);
+    if (entry) return entry;
+    if (cache.size >= MAX_CACHE) {
+      const oldest = cache.keys().next().value;
+      cache.delete(oldest);
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    entry = { img, state: 'loading' };
+    cache.set(key, entry);
+    img.onload = () => {
+      entry.state = 'ready';
+      if (layer === 'night') nightDirty = true;
+      else dayDirty = true;
+      requestDraw();
+    };
+    img.onerror = () => {
+      entry.state = 'error';
+    };
+    img.src = tileUrl(layer, z, wx, y);
+    return entry;
+  }
+
+  // Deterministic procedural street-grid tile drawn into slots still loading or offline.
+  function drawProceduralTile(ctx, dx, dy, tx, ty, dark) {
+    const seed = Math.abs(Math.sin(tx * 12.9898 + ty * 78.233) * 43758.5453) % 1;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(dx, dy, TILE_SIZE, TILE_SIZE);
+    ctx.clip();
+
+    ctx.fillStyle = dark ? '#0b1420' : '#ece8de';
+    ctx.fillRect(dx, dy, TILE_SIZE, TILE_SIZE);
+
+    // Park blocks and water strip keyed to tile coordinates so panning stays seamless.
+    if (((tx + ty) & 3) === 1) {
+      ctx.fillStyle = dark ? '#102421' : '#cde4b7';
+      ctx.fillRect(dx + 28, dy + 34, 92, 68);
+    }
+    if ((ty & 3) === 2) {
+      ctx.fillStyle = dark ? '#0c233a' : '#a9d3ea';
+      ctx.beginPath();
+      ctx.moveTo(dx, dy + 152 + seed * 18);
+      ctx.bezierCurveTo(dx + 84, dy + 132, dx + 172, dy + 186, dx + TILE_SIZE, dy + 162 - seed * 12);
+      ctx.lineTo(dx + TILE_SIZE, dy + 206 - seed * 12);
+      ctx.bezierCurveTo(dx + 172, dy + 230, dx + 84, dy + 176, dx, dy + 196 + seed * 18);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Building footprint blocks.
+    ctx.fillStyle = dark ? '#131f2f' : '#dfd9cc';
+    for (let gx = 10; gx < TILE_SIZE; gx += 42) {
+      for (let gy = 10; gy < TILE_SIZE; gy += 42) {
+        if (((gx + gy + tx * 7 + ty * 11) & 3) === 0) continue;
+        ctx.fillRect(dx + gx, dy + gy, 28, 24);
+      }
+    }
+
+    // Minor street grid.
+    ctx.strokeStyle = dark ? '#1c2f44' : '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = 0; i <= TILE_SIZE; i += 42) {
+      ctx.moveTo(dx + i, dy);
+      ctx.lineTo(dx + i, dy + TILE_SIZE);
+      ctx.moveTo(dx, dy + i);
+      ctx.lineTo(dx + TILE_SIZE, dy + i);
+    }
+    ctx.stroke();
+
+    // Arterial roads and transit corridors.
+    ctx.strokeStyle = dark ? '#2a5a78' : '#f4c977';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(dx, dy + 84);
+    ctx.lineTo(dx + TILE_SIZE, dy + 84 + ((tx & 1) ? 26 : -22));
+    ctx.moveTo(dx + 126, dy);
+    ctx.lineTo(dx + 126 + ((ty & 1) ? -20 : 24), dy + TILE_SIZE);
+    ctx.stroke();
+
+    if (dark) {
+      ctx.strokeStyle = '#38d3c4aa';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(dx, dy + 84);
+      ctx.lineTo(dx + TILE_SIZE, dy + 84 + ((tx & 1) ? 26 : -22));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function compositeMapLayers(cw, ch) {
+    const w = Math.max(1, Math.min(1200, Math.round(cw)));
+    const h = Math.max(1, Math.min(800, Math.round(ch)));
+    if (dayCanvas.width !== w || dayCanvas.height !== h) {
+      dayCanvas.width = w; dayCanvas.height = h;
+      nightCanvas.width = w; nightCanvas.height = h;
+      dayDirty = true; nightDirty = true;
+    }
+
+    const z = Math.round(mapView.zoom);
+    const cx = lonToWorldX(mapView.lon, z);
+    const cy = latToWorldY(mapView.lat, z);
+    const originX = cx - w * 0.5;
+    const originY = cy - h * 0.5;
+    const startX = Math.floor(originX / TILE_SIZE);
+    const endX = Math.floor((originX + w) / TILE_SIZE);
+    const startY = Math.floor(originY / TILE_SIZE);
+    const endY = Math.floor((originY + h) / TILE_SIZE);
+
+    let osmReady = 0;
+    let cartoReady = 0;
+
+    if (dayDirty) {
+      dayCtx.clearRect(0, 0, w, h);
+      for (let ty = startY; ty <= endY; ty++) {
+        for (let tx = startX; tx <= endX; tx++) {
+          const dx = Math.round(tx * TILE_SIZE - originX);
+          const dy = Math.round(ty * TILE_SIZE - originY);
+          const entry = getTile('day', z, tx, ty);
+          if (entry?.state === 'ready') {
+            dayCtx.drawImage(entry.img, dx, dy, TILE_SIZE, TILE_SIZE);
+            osmReady++;
+          } else {
+            drawProceduralTile(dayCtx, dx, dy, tx, ty, false);
+          }
+        }
+      }
+      liveOsmCount = osmReady;
+    }
+
+    if (nightDirty) {
+      nightCtx.clearRect(0, 0, w, h);
+      for (let ty = startY; ty <= endY; ty++) {
+        for (let tx = startX; tx <= endX; tx++) {
+          const dx = Math.round(tx * TILE_SIZE - originX);
+          const dy = Math.round(ty * TILE_SIZE - originY);
+          const entry = getTile('night', z, tx, ty);
+          if (entry?.state === 'ready') {
+            nightCtx.drawImage(entry.img, dx, dy, TILE_SIZE, TILE_SIZE);
+            cartoReady++;
+          } else {
+            drawProceduralTile(nightCtx, dx, dy, tx, ty, true);
+          }
+        }
+      }
+      liveCartoCount = cartoReady;
+      hasCartoVisible = cartoReady > 0;
+    }
+  }
+  // #endregion tiles
+
+  // #region shaders
+  const CARD_FRAGMENT = `#version 300 es
+  precision highp float;
+  precision highp int;
+  uniform sampler2D uTex;
+  uniform vec2 uLensCenter;
+  uniform float uLensRadius;
+  uniform vec4 uCardRect;
+  uniform int uLensMode;
+  in vec2 vUv;
+  out vec4 outColor;
+  void main() {
+    vec2 cssPos = uCardRect.xy + vUv * uCardRect.zw;
+    float dist = length(cssPos - uLensCenter);
+    float mask = 1.0 - smoothstep(uLensRadius - 4.0, uLensRadius - 1.5, dist);
+    if (mask <= 0.001) discard;
+    vec4 c = texture(uTex, vUv);
+    // Subtle optical rim tint where the card meets the curved glass edge.
+    float rim = smoothstep(uLensRadius - 14.0, uLensRadius - 2.0, dist);
+    vec3 tint = uLensMode == 1 ? vec3(1.0, 0.72, 0.35) : (uLensMode == 2 ? vec3(0.42, 0.90, 1.0) : vec3(0.45, 0.85, 0.88));
+    vec3 rgb = mix(c.rgb, c.rgb + tint * 0.14 * c.a, rim);
+    outColor = vec4(rgb, c.a) * mask;
+  }`;
+
+  const MAP_VS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  layout(location = 0) in vec2 aPos;
+  out vec2 vUv;
+  void main() {
+    vUv = aPos;
+    gl_Position = vec4(aPos.x * 2.0 - 1.0, 1.0 - aPos.y * 2.0, 0.0, 1.0);
+  }`;
+
+  const MAP_FS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  uniform sampler2D uDayTex;
+  uniform sampler2D uNightTex;
+  uniform vec2 uCanvasSize;
+  uniform vec2 uTexelSize;
+  uniform vec2 uLensCenter;
+  uniform float uLensRadius;
+  uniform float uLensZoom;
+  uniform int uLensMode;
+  uniform float uHasCarto;
+  uniform float uTime;
+  uniform vec4 uMarkers[4]; // xy = css pos, z = transit flag (0/1), w = saved flag (0/1)
+  in vec2 vUv;
+  out vec4 outColor;
+
+  float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+
+  vec3 thermalRamp(float t) {
+    float x = clamp(t, 0.0, 1.0);
+    vec3 c0 = vec3(0.05, 0.04, 0.16);
+    vec3 c1 = vec3(0.47, 0.09, 0.44);
+    vec3 c2 = vec3(0.87, 0.30, 0.14);
+    vec3 c3 = vec3(0.98, 0.74, 0.18);
+    vec3 c4 = vec3(1.00, 0.97, 0.84);
+    if (x < 0.28) return mix(c0, c1, x / 0.28);
+    if (x < 0.56) return mix(c1, c2, (x - 0.28) / 0.28);
+    if (x < 0.82) return mix(c2, c3, (x - 0.56) / 0.26);
+    return mix(c3, c4, (x - 0.82) / 0.18);
+  }
+
+  float sobelEdge(sampler2D tex, vec2 uv, vec2 ts) {
+    float tl = luma(texture(tex, uv + ts * vec2(-1.0, -1.0)).rgb);
+    float tc = luma(texture(tex, uv + ts * vec2( 0.0, -1.0)).rgb);
+    float tr = luma(texture(tex, uv + ts * vec2( 1.0, -1.0)).rgb);
+    float ml = luma(texture(tex, uv + ts * vec2(-1.0,  0.0)).rgb);
+    float mr = luma(texture(tex, uv + ts * vec2( 1.0,  0.0)).rgb);
+    float bl = luma(texture(tex, uv + ts * vec2(-1.0,  1.0)).rgb);
+    float bc = luma(texture(tex, uv + ts * vec2( 0.0,  1.0)).rgb);
+    float br = luma(texture(tex, uv + ts * vec2( 1.0,  1.0)).rgb);
+    float gx = -tl - 2.0 * ml - bl + tr + 2.0 * mr + br;
+    float gy = -tl - 2.0 * tc - tr + bl + 2.0 * bc + br;
+    return length(vec2(gx, gy));
+  }
+
+  void main() {
+    vec2 cssPos = vUv * uCanvasSize;
+    vec2 delta = cssPos - uLensCenter;
+    float d = length(delta);
+    float R = uLensRadius;
+    float bezelOuter = R + 7.5;
+
+    // Daytime base layer outside the lens, with a soft elevated cast shadow and district beacons.
+    vec3 dayCol = texture(uDayTex, vUv).rgb;
+    float shadowDist = length((cssPos - vec2(4.0, 6.0)) - uLensCenter);
+    float dropShadow = (1.0 - smoothstep(bezelOuter - 2.0, bezelOuter + 24.0, shadowDist)) * 0.34;
+    vec3 outsideCol = dayCol * (1.0 - dropShadow);
+
+    for (int i = 0; i < 4; i++) {
+      float md = length(cssPos - uMarkers[i].xy);
+      float saved = uMarkers[i].w;
+      vec3 pinCol = saved > 0.5 ? vec3(0.95, 0.72, 0.25) : vec3(0.84, 0.29, 0.12);
+      float outerRing = 1.0 - smoothstep(7.5, 9.2, md);
+      float innerDot = 1.0 - smoothstep(4.6, 6.0, md);
+      float halo = (1.0 - smoothstep(9.0, 18.0, md)) * 0.26;
+      outsideCol = mix(outsideCol, pinCol, halo);
+      outsideCol = mix(outsideCol, vec3(0.98, 0.98, 0.96), outerRing);
+      outsideCol = mix(outsideCol, pinCol, innerDot);
+    }
+
+    if (d > bezelOuter) {
+      outColor = vec4(outsideCol, 1.0);
+      return;
+    }
+
+    // Metallic dark gunmetal + brushed brass bezel ring.
+    if (d > R - 1.5) {
+      float t = clamp((d - (R - 1.5)) / 9.0, 0.0, 1.0);
+      vec2 n = delta / max(d, 0.001);
+      float light = 0.52 + 0.48 * dot(n, normalize(vec2(-0.62, -0.78)));
+      vec3 brass = mix(vec3(0.32, 0.24, 0.11), vec3(0.92, 0.78, 0.47), pow(clamp(light, 0.0, 1.0), 1.35));
+      vec3 gunmetal = mix(vec3(0.09, 0.11, 0.14), vec3(0.26, 0.29, 0.34), light);
+      float isBrass = smoothstep(0.10, 0.24, t) * (1.0 - smoothstep(0.54, 0.68, t));
+      vec3 bezelCol = mix(gunmetal, brass, isBrass);
+      float innerLip = 1.0 - smoothstep(0.0, 0.14, t);
+      bezelCol *= (1.0 - innerLip * 0.45);
+      float outerAA = smoothstep(bezelOuter - 1.2, bezelOuter, d);
+      outColor = vec4(mix(bezelCol, outsideCol, outerAA), 1.0);
+      return;
+    }
+
+    // Inside the circular aperture: optical zoom + curved glass bevel refraction near the rim.
+    float r = d / max(R, 1.0);
+    float bevel = smoothstep(0.72, 1.0, r);
+    float invZoom = 1.0 / max(uLensZoom, 1.0);
+    float radialFactor = invZoom * (1.0 - 0.14 * bevel * bevel);
+    vec2 sampleCss = uLensCenter + delta * radialFactor;
+    vec2 uvIn = clamp(sampleCss / uCanvasSize, vec2(0.001), vec2(0.999));
+    vec2 dir = delta / max(d, 0.001);
+    vec2 caShift = dir * (0.0022 * bevel);
+
+    vec3 insideCol;
+    if (uLensMode == 0) {
+      // Mode 0: Night + Transit (CARTO DarkMatter or dark inverted OSM shader fallback).
+      if (uHasCarto > 0.5) {
+        vec3 nR = texture(uNightTex, clamp(uvIn + caShift, vec2(0.001), vec2(0.999))).rgb;
+        vec3 nG = texture(uNightTex, uvIn).rgb;
+        vec3 nB = texture(uNightTex, clamp(uvIn - caShift, vec2(0.001), vec2(0.999))).rgb;
+        insideCol = vec3(nR.r, nG.g, nB.b);
+        float roadEdge = smoothstep(0.12, 0.34, sobelEdge(uNightTex, uvIn, uTexelSize * 1.2));
+        insideCol += vec3(0.10, 0.34, 0.44) * roadEdge * 0.65;
+      } else {
+        vec3 dR = texture(uDayTex, clamp(uvIn + caShift, vec2(0.001), vec2(0.999))).rgb;
+        vec3 dG = texture(uDayTex, uvIn).rgb;
+        vec3 dB = texture(uDayTex, clamp(uvIn - caShift, vec2(0.001), vec2(0.999))).rgb;
+        vec3 base = vec3(dR.r, dG.g, dB.b);
+        float invL = 1.0 - luma(base);
+        float edge = smoothstep(0.08, 0.32, sobelEdge(uDayTex, uvIn, uTexelSize * 1.1));
+        vec3 nightBase = mix(vec3(0.05, 0.08, 0.14), vec3(0.13, 0.21, 0.32), pow(invL, 0.85));
+        float warmRoad = smoothstep(0.08, 0.26, base.r - base.b);
+        insideCol = nightBase + vec3(0.16, 0.64, 0.72) * edge * 0.55 + vec3(0.85, 0.58, 0.20) * warmRoad * 0.42;
+      }
+      // Glowing transit corridor rings around districts whose Transit checkbox is enabled.
+      for (int i = 0; i < 4; i++) {
+        if (uMarkers[i].z < 0.5) continue;
+        vec2 zoomedAnchor = uLensCenter + (uMarkers[i].xy - uLensCenter) * uLensZoom;
+        float ad = length(cssPos - zoomedAnchor);
+        float ring = exp(-pow((ad - 28.0) * 0.16, 2.0)) * 0.42;
+        float glow = exp(-ad * 0.025) * 0.26;
+        vec3 tCol = uMarkers[i].w > 0.5 ? vec3(0.96, 0.76, 0.32) : vec3(0.24, 0.88, 0.82);
+        insideCol += tCol * (ring + glow);
+      }
+    } else if (uLensMode == 1) {
+      // Mode 1: Thermal / Activity Heat over OSM road and building density.
+      vec3 dSample = texture(uDayTex, uvIn).rgb;
+      float e1 = sobelEdge(uDayTex, uvIn, uTexelSize * 1.15);
+      float e2 = sobelEdge(uDayTex, uvIn, uTexelSize * 2.4);
+      float density = clamp((1.0 - luma(dSample)) * 0.58 + e1 * 0.72 + e2 * 0.38, 0.0, 1.0);
+      float plume = 0.0;
+      for (int i = 0; i < 4; i++) {
+        vec2 zoomedAnchor = uLensCenter + (uMarkers[i].xy - uLensCenter) * uLensZoom;
+        float ad = length(cssPos - zoomedAnchor);
+        float boost = (uMarkers[i].z > 0.5 ? 0.34 : 0.18) + (uMarkers[i].w > 0.5 ? 0.14 : 0.0);
+        plume += exp(-(ad * ad) / (2.0 * 64.0 * 64.0)) * boost;
+      }
+      float heat = clamp(density * 0.76 + plume, 0.0, 1.0);
+      insideCol = thermalRamp(heat);
+      float contour = 1.0 - smoothstep(0.0, 0.06, abs(fract(heat * 7.0) - 0.5));
+      insideCol += vec3(0.22, 0.16, 0.08) * contour;
+    } else {
+      // Mode 2: Blueprint / Sobel Contour Edge over live OSM tiles.
+      float edge = sobelEdge(uDayTex, uvIn, uTexelSize * 1.05);
+      float line = smoothstep(0.07, 0.38, edge);
+      float bright = smoothstep(0.28, 0.72, edge);
+      float tone = luma(texture(uDayTex, uvIn).rgb);
+      vec3 paper = mix(vec3(0.03, 0.11, 0.24), vec3(0.07, 0.20, 0.38), tone * 0.65);
+      vec2 gridUv = abs(fract(sampleCss / 32.0 - 0.5) - 0.5) / max(fwidth(sampleCss / 32.0), vec2(0.01));
+      float grid = 1.0 - clamp(min(gridUv.x, gridUv.y), 0.0, 1.0);
+      insideCol = paper + vec3(0.08, 0.22, 0.36) * grid * 0.38;
+      insideCol = mix(insideCol, vec3(0.45, 0.88, 1.0), line);
+      insideCol = mix(insideCol, vec3(0.95, 0.99, 1.0), bright * 0.85);
+    }
+
+    // Subtle glass specular highlight arc and inner rim vignette.
+    float specBand = smoothstep(0.80, 0.95, r) * (1.0 - smoothstep(0.95, 1.0, r));
+    float specDir = pow(max(dot(dir, normalize(vec2(-0.65, -0.76))), 0.0), 3.0);
+    insideCol += vec3(0.85, 0.92, 1.0) * specBand * specDir * 0.28;
+    insideCol *= (1.0 - smoothstep(0.86, 1.0, r) * 0.22);
+
+    outColor = vec4(insideCol, 1.0);
+  }`;
+  // #endregion shaders
+
+  // --------------------------------------------------- WebGL + fallback state
+  let mode = 'plain'; // 'webgl' | '2d' | 'plain'
+  let stage = null;
+  let ctx2d = null;
+  let cardProg = null;
+  let cardVao = null;
+  let mapRes = null;
+  let paints = 0;
+  let uploads = 0;
+  const lastGeom = new Map();
+
+  function setNotice(text) {
+    notice.textContent = text;
+    notice.hidden = !text;
+  }
+
+  function showPlainFallback(reason) {
+    mode = 'plain';
+    stageBox.classList.add('fallback');
+    fallbackGrid.hidden = false;
+    for (const el of cardEls) {
+      el.inert = false;
+      fallbackGrid.append(el);
+    }
+    setNotice(reason);
+    hud.textContent = 'Plain HTML fallback';
+    draw2D(false);
+  }
+
+  function restoreCanvasCards() {
+    stageBox.classList.remove('fallback');
+    fallbackGrid.hidden = true;
+    for (const el of cardEls) canvas.append(el);
+    setNotice('');
+  }
+
+  function currentDistricts() {
+    return CITIES[activeCityKey].districts;
+  }
+
+  function syncCardDomFromCity() {
+    const districts = currentDistricts();
+    districts.forEach((d, idx) => {
+      const el = cardEls[idx];
+      const st = districtState.get(d.id);
+      el.dataset.district = d.id;
+      el.querySelector('.hood-name').textContent = d.name;
+      el.querySelector('.hood-index').textContent = `${d.heat} heat`;
+      el.querySelector('.hood-transit').textContent = d.transit;
+      const chk = el.querySelector('.transit-check');
+      chk.checked = st.transit;
+      const btn = el.querySelector('.save-btn');
+      btn.textContent = st.saved ? 'Saved' : 'Save district';
+      el.classList.toggle('saved', st.saved);
+      const inp = el.querySelector('.hood-tag');
+      inp.value = st.tag;
+      inp.setAttribute('aria-label', `${d.name} district tag`);
+    });
+  }
+
+  function lensModeIndex() {
+    return lens.mode === 'thermal' ? 1 : lens.mode === 'blueprint' ? 2 : 0;
+  }
+
+  function cardPlacements(cw, ch) {
+    const districts = currentDistricts();
+    const cardScale = Math.max(0.92, Math.min(1.06, 0.94 + (lens.zoom - 1.0) * 0.16));
+    return districts.map((d, idx) => {
+      const el = cardEls[idx];
+      const st = districtState.get(d.id);
+      const [mx, my] = latLonToScreen(d.lat, d.lon, cw, ch);
+      const ax = lens.x + (mx - lens.x) * lens.zoom;
+      const ay = lens.y + (my - lens.y) * lens.zoom;
+      const w = el.offsetWidth || 176;
+      const h = el.offsetHeight || 116;
+      const dw = w * cardScale;
+      const dh = h * cardScale;
+      const x = ax - dw * 0.5;
+      const y = ay - dh * 0.52;
+      return { d, st, el, mx, my, ax, ay, w, h, dw, dh, x, y, scale: cardScale };
+    });
+  }
+
+  // #region geometry
+  function computeLensClipRect(p) {
+    const clipR = Math.max(8, lens.radius - 3);
+    const nearX = Math.max(p.x, Math.min(lens.x, p.x + p.dw));
+    const nearY = Math.max(p.y, Math.min(lens.y, p.y + p.dh));
+    if (Math.hypot(nearX - lens.x, nearY - lens.y) >= clipR - 2) return null;
+
+    let vx0 = Math.max(p.x, lens.x - clipR);
+    let vx1 = Math.min(p.x + p.dw, lens.x + clipR);
+    let vy0 = Math.max(p.y, lens.y - clipR);
+    let vy1 = Math.min(p.y + p.dh, lens.y + clipR);
+    if (vx1 <= vx0 || vy1 <= vy0) return null;
+
+    // Tighten the rectangular hit clip against the circular chord at the card's overlap span.
+    const midY = Math.max(vy0, Math.min(lens.y, vy1));
+    const dxChord = Math.sqrt(Math.max(0, clipR * clipR - (midY - lens.y) * (midY - lens.y)));
+    vx0 = Math.max(vx0, lens.x - dxChord);
+    vx1 = Math.min(vx1, lens.x + dxChord);
+
+    const midX = Math.max(vx0, Math.min(lens.x, vx1));
+    const dyChord = Math.sqrt(Math.max(0, clipR * clipR - (midX - lens.x) * (midX - lens.x)));
+    vy0 = Math.max(vy0, lens.y - dyChord);
+    vy1 = Math.min(vy1, lens.y + dyChord);
+
+    const localX = (vx0 - p.x) / p.scale;
+    const localY = (vy0 - p.y) / p.scale;
+    const localW = (vx1 - vx0) / p.scale;
+    const localH = (vy1 - vy0) / p.scale;
+    if (localW < 8 || localH < 8) return null;
+    return { x: localX, y: localY, w: localW, h: localH };
+  }
+
+  function syncCardGeometry(p) {
+    if (!('updateElementGeometry' in canvas)) return false;
+    const clip = computeLensClipRect(p);
+    if (!clip) {
+      p.el.inert = true;
+      if (lastGeom.get(p.el) !== 'off') {
+        lastGeom.set(p.el, 'off');
+        const unit = geometryUnit(canvas, p.el, p.w);
+        const offMat = new DOMMatrix().scale(unit, unit).translate(-4000, -4000);
+        try {
+          canvas.updateElementGeometry(p.el, { canvasTransform: offMat, canvasClip: new DOMRect(0, 0, 0, 0) });
+          p.el.dataset.hitTick = p.el.dataset.hitTick === '1' ? '0' : '1';
+        } catch {}
+      }
+      return false;
+    }
+
+    p.el.inert = false;
+    const key = [p.x, p.y, p.scale, clip.x, clip.y, clip.w, clip.h].map((v) => Math.round(v * 2)).join(',');
+    if (lastGeom.get(p.el) !== key) {
+      lastGeom.set(p.el, key);
+      const unit = geometryUnit(canvas, p.el, p.w);
+      const m = new DOMMatrix().scale(unit, unit).translate(p.x, p.y).scale(p.scale, p.scale);
+      try {
+        canvas.updateElementGeometry(p.el, {
+          canvasTransform: m,
+          canvasClip: new DOMRect(clip.x, clip.y, clip.w, clip.h),
+        });
+        p.el.dataset.hitTick = p.el.dataset.hitTick === '1' ? '0' : '1';
+      } catch {}
+    }
+    return true;
+  }
+  // #endregion geometry
+
+  function initMapResources(gl) {
+    if (mapRes) return mapRes;
+    const prog = compileProgram(gl, MAP_VS, MAP_FS);
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    const makeTex = () => {
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return tex;
+    };
+
+    mapRes = {
+      prog,
+      vao,
+      dayTex: makeTex(),
+      nightTex: makeTex(),
+      uDayTex: gl.getUniformLocation(prog, 'uDayTex'),
+      uNightTex: gl.getUniformLocation(prog, 'uNightTex'),
+      uCanvasSize: gl.getUniformLocation(prog, 'uCanvasSize'),
+      uTexelSize: gl.getUniformLocation(prog, 'uTexelSize'),
+      uLensCenter: gl.getUniformLocation(prog, 'uLensCenter'),
+      uLensRadius: gl.getUniformLocation(prog, 'uLensRadius'),
+      uLensZoom: gl.getUniformLocation(prog, 'uLensZoom'),
+      uLensMode: gl.getUniformLocation(prog, 'uLensMode'),
+      uHasCarto: gl.getUniformLocation(prog, 'uHasCarto'),
+      uTime: gl.getUniformLocation(prog, 'uTime'),
+      uMarkers: gl.getUniformLocation(prog, 'uMarkers[0]'),
+    };
+    return mapRes;
+  }
+
+  function ensureLensStart(cw, ch) {
+    if (lens.initialized) {
+      lens.x = Math.max(24, Math.min(cw - 24, lens.x));
+      lens.y = Math.max(24, Math.min(ch - 24, lens.y));
+      return;
+    }
+    // Start the lens over the second district (Covent Garden in London) so one card is revealed on load.
+    const d = currentDistricts()[1];
+    const [sx, sy] = latLonToScreen(d.lat, d.lon, cw, ch);
+    lens.x = Math.max(lens.radius * 0.6, Math.min(cw - lens.radius * 0.6, sx));
+    lens.y = Math.max(lens.radius * 0.6, Math.min(ch - lens.radius * 0.6, sy));
+    lens.initialized = true;
+  }
+
+  // #region paint
+  function drawWebGL() {
+    if (!stage || stage.lost) return;
+    if (!stage.begin([0.08, 0.11, 0.16, 1])) return;
+    const gl = stage.gl;
+    if (!cardProg) {
+      cardProg = gl.getParameter(gl.CURRENT_PROGRAM);
+      cardVao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+    }
+    const cw = canvas.clientWidth || 1;
+    const ch = canvas.clientHeight || 1;
+    ensureLensStart(cw, ch);
+    compositeMapLayers(cw, ch);
+
+    const res = initMapResources(gl);
+    if (dayDirty) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, res.dayTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, dayCanvas);
+      dayDirty = false;
+    }
+    if (nightDirty) {
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, res.nightTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, nightCanvas);
+      nightDirty = false;
+    }
+
+    const placements = cardPlacements(cw, ch);
+    const markers = new Float32Array(16);
+    placements.forEach((p, i) => {
+      markers[i * 4] = p.mx;
+      markers[i * 4 + 1] = p.my;
+      markers[i * 4 + 2] = p.st.transit ? 1.0 : 0.0;
+      markers[i * 4 + 3] = p.st.saved ? 1.0 : 0.0;
+    });
+
+    // Pass 1: fullscreen dual-layer OpenStreetMap + curved glass lens shader.
+    gl.disable(gl.BLEND);
+    gl.useProgram(res.prog);
+    gl.bindVertexArray(res.vao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, res.dayTex);
+    gl.uniform1i(res.uDayTex, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, res.nightTex);
+    gl.uniform1i(res.uNightTex, 1);
+    gl.uniform2f(res.uCanvasSize, cw, ch);
+    gl.uniform2f(res.uTexelSize, 1 / Math.max(1, dayCanvas.width), 1 / Math.max(1, dayCanvas.height));
+    gl.uniform2f(res.uLensCenter, lens.x, lens.y);
+    gl.uniform1f(res.uLensRadius, lens.radius);
+    gl.uniform1f(res.uLensZoom, lens.zoom);
+    gl.uniform1i(res.uLensMode, lensModeIndex());
+    gl.uniform1f(res.uHasCarto, hasCartoVisible ? 1.0 : 0.0);
+    gl.uniform1f(res.uTime, performance.now() / 1000);
+    gl.uniform4fv(res.uMarkers, markers);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // Pass 2: restore ElementGL state and draw live HTML cards clipped to the lens circle.
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(cardProg);
+    gl.bindVertexArray(cardVao);
+
+    let revealed = 0;
+    const modeIdx = lensModeIndex();
+    for (const p of placements) {
+      const visible = syncCardGeometry(p);
+      if (!visible) continue;
+      revealed++;
+      stage.quad(p.el, ElementGL.rect(canvas, p.x, p.y, p.dw, p.dh), (g, u) => {
+        g.uniform2f(u('uLensCenter'), lens.x, lens.y);
+        g.uniform1f(u('uLensRadius'), lens.radius);
+        g.uniform4f(u('uCardRect'), p.x, p.y, p.dw, p.dh);
+        g.uniform1i(u('uLensMode'), modeIdx);
+      });
+    }
+
+    const tileNote = liveOsmCount ? `${liveOsmCount} OSM / ${liveCartoCount} CARTO tiles` : 'procedural grid fallback';
+    hud.textContent = `WebGL 2 · ${lens.mode} · ${revealed} card${revealed === 1 ? '' : 's'} in lens · ${tileNote}`;
+  }
+  // #endregion paint
+
+  // ------------------------------------------------ 2D clipped-circle fallback
+  function draw2D(withElements) {
+    if (!ctx2d) ctx2d = canvas.getContext('2d');
+    if (!ctx2d) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const cw = canvas.clientWidth || 1;
+    const ch = canvas.clientHeight || 1;
+    const bw = Math.max(1, Math.round(cw * dpr));
+    const bh = Math.max(1, Math.round(ch * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+
+    ensureLensStart(cw, ch);
+    compositeMapLayers(cw, ch);
+    dayDirty = false;
+    nightDirty = false;
+
+    const placements = cardPlacements(cw, ch);
+
+    ctx2d.save();
+    ctx2d.scale(dpr, dpr);
+    ctx2d.drawImage(dayCanvas, 0, 0, cw, ch);
+
+    // District markers on the daytime map.
+    for (const p of placements) {
+      ctx2d.beginPath();
+      ctx2d.arc(p.mx, p.my, 7.5, 0, Math.PI * 2);
+      ctx2d.fillStyle = '#ffffff';
+      ctx2d.fill();
+      ctx2d.beginPath();
+      ctx2d.arc(p.mx, p.my, 5, 0, Math.PI * 2);
+      ctx2d.fillStyle = p.st.saved ? '#f2b840' : '#d2491f';
+      ctx2d.fill();
+    }
+
+    // Clipped circular lens interior.
+    ctx2d.save();
+    ctx2d.beginPath();
+    ctx2d.arc(lens.x, lens.y, lens.radius, 0, Math.PI * 2);
+    ctx2d.clip();
+
+    ctx2d.save();
+    ctx2d.translate(lens.x, lens.y);
+    ctx2d.scale(lens.zoom, lens.zoom);
+    ctx2d.translate(-lens.x, -lens.y);
+    if (lens.mode === 'night') {
+      ctx2d.drawImage(nightCanvas, 0, 0, cw, ch);
+    } else if (lens.mode === 'thermal') {
+      ctx2d.drawImage(dayCanvas, 0, 0, cw, ch);
+      ctx2d.fillStyle = 'rgba(130, 26, 98, 0.52)';
+      ctx2d.fillRect(0, 0, cw, ch);
+    } else {
+      ctx2d.drawImage(dayCanvas, 0, 0, cw, ch);
+      ctx2d.fillStyle = 'rgba(8, 36, 74, 0.72)';
+      ctx2d.fillRect(0, 0, cw, ch);
+    }
+    ctx2d.restore();
+
+    let revealed = 0;
+    if (withElements) {
+      for (const p of placements) {
+        const visible = syncCardGeometry(p);
+        if (!visible) continue;
+        revealed++;
+        ctx2d.drawElementImage(p.el, p.x, p.y, p.dw, p.dh);
+      }
+    }
+    ctx2d.restore();
+
+    // Brass and dark bezel ring.
+    ctx2d.beginPath();
+    ctx2d.arc(lens.x, lens.y, lens.radius + 3, 0, Math.PI * 2);
+    ctx2d.lineWidth = 6;
+    ctx2d.strokeStyle = '#20242c';
+    ctx2d.stroke();
+    ctx2d.beginPath();
+    ctx2d.arc(lens.x, lens.y, lens.radius + 2.5, 0, Math.PI * 2);
+    ctx2d.lineWidth = 2.4;
+    ctx2d.strokeStyle = '#d8b468';
+    ctx2d.stroke();
+    ctx2d.restore();
+
+    if (withElements) {
+      hud.textContent = `2D clipped fallback · ${lens.mode} · ${revealed} card${revealed === 1 ? '' : 's'} in lens`;
+    }
+  }
+
+  function requestDraw() {
+    if (mode === 'webgl' || mode === '2d') canvas.requestPaint?.();
+    else draw2D(false);
+  }
+
+  // --------------------------------------------------- interactive controls
+  function setStatus(text) {
+    statusEl.textContent = text;
+  }
+
+  for (const el of cardEls) {
+    el.querySelector('.transit-check').addEventListener('change', (e) => {
+      const id = el.dataset.district;
+      const st = districtState.get(id);
+      if (!st) return;
+      st.transit = e.target.checked;
+      setStatus(`${el.querySelector('.hood-name').textContent}: transit overlay ${st.transit ? 'on' : 'off'}.`);
+      requestDraw();
+    });
+    el.querySelector('.save-btn').addEventListener('click', () => {
+      const id = el.dataset.district;
+      const st = districtState.get(id);
+      if (!st) return;
+      st.saved = !st.saved;
+      el.classList.toggle('saved', st.saved);
+      el.querySelector('.save-btn').textContent = st.saved ? 'Saved' : 'Save district';
+      setStatus(`${el.querySelector('.hood-name').textContent} ${st.saved ? 'saved to your list' : 'removed from saved districts'}.`);
+      requestDraw();
+    });
+    el.querySelector('.hood-tag').addEventListener('input', (e) => {
+      const id = el.dataset.district;
+      const st = districtState.get(id);
+      if (!st) return;
+      st.tag = e.target.value;
+      setStatus(`${el.querySelector('.hood-name').textContent} tag updated to "${st.tag}".`);
+      requestDraw();
+    });
+  }
+
+  modeBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      lens.mode = btn.dataset.lensMode;
+      for (const b of modeBtns) b.setAttribute('aria-pressed', String(b === btn));
+      if (lens.mode === 'thermal' && lens.zoom < 1.3) {
+        lens.zoom = 1.35;
+        zoomSlider.value = '135';
+        zoomLensOut.textContent = '1.35x';
+      }
+      setStatus(`Lens mode: ${btn.textContent}.`);
+      requestDraw();
+    });
+  });
+
+  cityBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeCityKey = btn.dataset.city;
+      const city = CITIES[activeCityKey];
+      mapView.lat = city.lat;
+      mapView.lon = city.lon;
+      mapView.zoom = city.zoom;
+      zoomLabel.textContent = `z${mapView.zoom}`;
+      lens.initialized = false;
+      dayDirty = true;
+      nightDirty = true;
+      lastGeom.clear();
+      syncCardDomFromCity();
+      for (const b of cityBtns) b.setAttribute('aria-pressed', String(b === btn));
+      setStatus(`Moved map to ${city.label}. Drag the lens across the markers to reveal each district card.`);
+      requestDraw();
+    });
+  });
+
+  function changeZoom(delta) {
+    const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, mapView.zoom + delta));
+    if (next === mapView.zoom) return;
+    mapView.zoom = next;
+    zoomLabel.textContent = `z${mapView.zoom}`;
+    dayDirty = true;
+    nightDirty = true;
+    lastGeom.clear();
+    setStatus(`Map zoom z${mapView.zoom}.`);
+    requestDraw();
+  }
+
+  zoomInBtn.addEventListener('click', () => changeZoom(1));
+  zoomOutBtn.addEventListener('click', () => changeZoom(-1));
+
+  radiusSlider.addEventListener('input', () => {
+    lens.radius = Number(radiusSlider.value);
+    radiusOut.textContent = `${lens.radius} px`;
+    requestDraw();
+  });
+
+  zoomSlider.addEventListener('input', () => {
+    lens.zoom = Number(zoomSlider.value) / 100;
+    zoomLensOut.textContent = `${lens.zoom.toFixed(2)}x`;
+    requestDraw();
+  });
+
+  pinBtn.addEventListener('click', () => {
+    lens.pinned = !lens.pinned;
+    pinBtn.setAttribute('aria-pressed', String(lens.pinned));
+    pinBtn.textContent = lens.pinned ? 'Lens pinned' : 'Pin lens';
+    setStatus(lens.pinned
+      ? 'Lens pinned in place. Taps inside the ring go straight to card controls; drag outside to pan the map.'
+      : 'Lens unpinned. Drag inside the brass ring to move the lens.');
+  });
+
+  // Pointer dragging: lens drag inside the ring (when unpinned), map pan outside.
+  let dragKind = null; // 'lens' | 'map' | null
+  let dragPointer = null;
+  let lastPt = null;
+  let lensOffset = [0, 0];
+
+  function canvasPoint(e) {
+    const r = canvas.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    if (e.target && e.target !== canvas && e.target.closest('button, input, label, select, a')) return;
+    const [x, y] = canvasPoint(e);
+    const inRing = Math.hypot(x - lens.x, y - lens.y) <= lens.radius + 12;
+    if (inRing && lens.pinned) return;
+    dragKind = inRing ? 'lens' : 'map';
+    dragPointer = e.pointerId;
+    lastPt = [x, y];
+    lensOffset = [x - lens.x, y - lens.y];
+    canvas.classList.add('dragging');
+    try { canvas.setPointerCapture(e.pointerId); } catch {}
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    const [x, y] = canvasPoint(e);
+    if (!dragKind) {
+      const inRing = !lens.pinned && Math.hypot(x - lens.x, y - lens.y) <= lens.radius + 10;
+      canvas.classList.toggle('over-lens', inRing);
+      return;
+    }
+    if (e.pointerId !== dragPointer) return;
+    const cw = canvas.clientWidth || 1;
+    const ch = canvas.clientHeight || 1;
+    if (dragKind === 'lens') {
+      lens.x = Math.max(24, Math.min(cw - 24, x - lensOffset[0]));
+      lens.y = Math.max(24, Math.min(ch - 24, y - lensOffset[1]));
+      requestDraw();
+    } else if (dragKind === 'map' && lastPt) {
+      const dx = x - lastPt[0];
+      const dy = y - lastPt[1];
+      lastPt = [x, y];
+      const wx = lonToWorldX(mapView.lon, mapView.zoom) - dx;
+      const wy = latToWorldY(mapView.lat, mapView.zoom) - dy;
+      const next = worldToLonLat(wx, wy, mapView.zoom);
+      mapView.lat = Math.max(-80, Math.min(80, next.lat));
+      mapView.lon = ((next.lon + 540) % 360) - 180;
+      dayDirty = true;
+      nightDirty = true;
+      requestDraw();
+    }
+  });
+
+  function endDrag(e) {
+    if (e.pointerId !== dragPointer) return;
+    dragKind = null;
+    dragPointer = null;
+    lastPt = null;
+    canvas.classList.remove('dragging');
+  }
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  canvas.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey && Math.abs(e.deltaY) < 4) return;
+    e.preventDefault();
+    changeZoom(e.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
+
+  // ------------------------------------------------------------------ startup
+  syncCardDomFromCity();
+
+  if (glSupported) {
+    try {
+      stage = new ElementGL(canvas, {
+        fragment: CARD_FRAGMENT,
+        attributes: { antialias: true },
+        onLost: () => {
+          cardProg = null;
+          cardVao = null;
+          mapRes = null;
+          dayDirty = true;
+          nightDirty = true;
+          showPlainFallback('The browser took the WebGL 2 context away. The neighbourhood cards are shown as plain HTML until it returns.');
+        },
+        onRestored: () => {
+          mode = 'webgl';
+          cardProg = null;
+          cardVao = null;
+          mapRes = null;
+          dayDirty = true;
+          nightDirty = true;
+          lastGeom.clear();
+          restoreCanvasCards();
+          canvas.requestPaint?.();
+        },
+      });
+      mode = 'webgl';
+    } catch (err) {
+      if (canvas2dSupported) {
+        mode = '2d';
+        setNotice(`WebGL 2 could not start (${err.message}). Drawing the X-ray lens with the 2D clipped-circle fallback.`);
+      } else {
+        showPlainFallback(`WebGL 2 could not start (${err.message}), and 2D drawElementImage() is unavailable.`);
+      }
+    }
+  } else if (canvas2dSupported) {
+    mode = '2d';
+    setNotice('WebGL 2 texElementSubImage2D() is not available here. Running the 2D clipped-circle fallback with drawElementImage().');
+  } else {
+    showPlainFallback('HTML-in-canvas is not enabled in this browser. The two map layers draw in 2D and the four neighbourhood cards sit below as plain HTML.');
+  }
+
+  canvas.addEventListener('paint', (e) => {
+    paints++;
+    if (mode === 'webgl' && stage && !stage.lost) {
+      const changed = new Set(e.changedElements ?? []);
+      for (const el of cardEls) {
+        if (changed.has(el) || !stage.has(el)) {
+          stage.upload(el);
+          uploads++;
+        }
+      }
+      drawWebGL();
+    } else if (mode === '2d') {
+      draw2D(true);
+    }
+  });
+
+  const ro = new ResizeObserver(() => {
+    dayDirty = true;
+    nightDirty = true;
+    requestDraw();
+  });
+  ro.observe(canvas);
+  requestDraw();
+
+  // ------------------------------------------------------------- live checks
+  function readCanvasViaCopy(srcCanvas) {
+    const copy = document.createElement('canvas');
+    copy.width = srcCanvas.width;
+    copy.height = srcCanvas.height;
+    const c = copy.getContext('2d', { willReadFrequently: true });
+    c.drawImage(srcCanvas, 0, 0);
+    return { copy, data: c.getImageData(0, 0, copy.width, copy.height).data };
+  }
+
+  function sampleCssPixel(copy, data, cssX, cssY, cssW, cssH) {
+    const px = Math.max(0, Math.min(copy.width - 1, Math.round((cssX / cssW) * (copy.width - 1))));
+    const py = Math.max(0, Math.min(copy.height - 1, Math.round((cssY / cssH) * (copy.height - 1))));
+    const i = (py * copy.width + px) * 4;
+    return [data[i], data[i + 1], data[i + 2], data[i + 3]];
+  }
+
+  function makeFixtureCanvas(w = 220, h = 160) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = `display:block;width:${w}px;height:${h}px;`;
+    testStage().append(c);
+    return c;
+  }
+
+  function makeMapShaderFixture(gl, daySource, nightSource) {
+    const prog = compileProgram(gl, MAP_VS, MAP_FS);
+    const vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    const vbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    const uploadCanvas = (src) => {
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+      return tex;
+    };
+    return { prog, vao, dayTex: uploadCanvas(daySource), nightTex: uploadCanvas(nightSource) };
+  }
+
+  function drawMapShaderPass(gl, res, opts) {
+    gl.disable(gl.BLEND);
+    gl.useProgram(res.prog);
+    gl.bindVertexArray(res.vao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, res.dayTex);
+    gl.uniform1i(gl.getUniformLocation(res.prog, 'uDayTex'), 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, res.nightTex);
+    gl.uniform1i(gl.getUniformLocation(res.prog, 'uNightTex'), 1);
+    gl.uniform2f(gl.getUniformLocation(res.prog, 'uCanvasSize'), opts.w, opts.h);
+    gl.uniform2f(gl.getUniformLocation(res.prog, 'uTexelSize'), 1 / opts.w, 1 / opts.h);
+    gl.uniform2f(gl.getUniformLocation(res.prog, 'uLensCenter'), opts.lx, opts.ly);
+    gl.uniform1f(gl.getUniformLocation(res.prog, 'uLensRadius'), opts.lr);
+    gl.uniform1f(gl.getUniformLocation(res.prog, 'uLensZoom'), opts.lz ?? 1.0);
+    gl.uniform1i(gl.getUniformLocation(res.prog, 'uLensMode'), opts.mode);
+    gl.uniform1f(gl.getUniformLocation(res.prog, 'uHasCarto'), opts.hasCarto ?? 1.0);
+    gl.uniform1f(gl.getUniformLocation(res.prog, 'uTime'), 0.0);
+    gl.uniform4fv(gl.getUniformLocation(res.prog, 'uMarkers[0]'), new Float32Array([
+      -200, -200, 0, 0, -200, -200, 0, 0, -200, -200, 0, 0, -200, -200, 0, 0,
+    ]));
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'Two-texture lens aperture splits daytime and dark night layers',
+      why: 'Uploads distinct day and night textures into MAP_FS and checks inside-lens vs outside-lens pixels.',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(200, 160);
+        const daySrc = document.createElement('canvas');
+        daySrc.width = 200; daySrc.height = 160;
+        const dc = daySrc.getContext('2d');
+        dc.fillStyle = '#ebe6dc'; dc.fillRect(0, 0, 200, 160);
+        const nightSrc = document.createElement('canvas');
+        nightSrc.width = 200; nightSrc.height = 160;
+        const nc = nightSrc.getContext('2d');
+        nc.fillStyle = '#0f1b2e'; nc.fillRect(0, 0, 200, 160);
+        const fx = new ElementGL(c, { fragment: CARD_FRAGMENT, attributes: { preserveDrawingBuffer: true } });
+        try {
+          let inside = [0, 0, 0, 0], outside = [0, 0, 0, 0];
+          c.addEventListener('paint', () => {
+            fx.begin([0, 0, 0, 1]);
+            const res = makeMapShaderFixture(fx.gl, daySrc, nightSrc);
+            drawMapShaderPass(fx.gl, res, { w: 200, h: 160, lx: 100, ly: 80, lr: 48, mode: 0, hasCarto: 1.0 });
+            const { copy, data } = readCanvasViaCopy(c);
+            inside = sampleCssPixel(copy, data, 100, 80, 200, 160);
+            outside = sampleCssPixel(copy, data, 16, 16, 200, 160);
+          }, { once: true });
+          await nextPaint(c);
+          const lumIn = 0.299 * inside[0] + 0.587 * inside[1] + 0.114 * inside[2];
+          const lumOut = 0.299 * outside[0] + 0.587 * outside[1] + 0.114 * outside[2];
+          if (!(lumOut - lumIn > 120)) {
+            throw new Error(`Expected bright outside (${lumOut.toFixed(0)}) and dark inside (${lumIn.toFixed(0)})`);
+          }
+          return `Outside rgba(${outside.join(',')}) vs inside rgba(${inside.join(',')}); luminance delta ${(lumOut - lumIn).toFixed(0)}.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Thermal shader remaps street contrast inside the lens',
+      why: 'Renders a neutral high-contrast grid in mode 1 (Thermal) and checks colour shift inside vs outside the aperture.',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(200, 160);
+        const gridSrc = document.createElement('canvas');
+        gridSrc.width = 200; gridSrc.height = 160;
+        const gc = gridSrc.getContext('2d');
+        gc.fillStyle = '#d4d4d4'; gc.fillRect(0, 0, 200, 160);
+        gc.fillStyle = '#222222';
+        for (let x = 0; x < 200; x += 12) gc.fillRect(x, 0, 4, 160);
+        for (let y = 0; y < 160; y += 12) gc.fillRect(0, y, 200, 4);
+        const fx = new ElementGL(c, { fragment: CARD_FRAGMENT, attributes: { preserveDrawingBuffer: true } });
+        try {
+          let inside = [0, 0, 0, 0], outside = [0, 0, 0, 0];
+          c.addEventListener('paint', () => {
+            fx.begin([0, 0, 0, 1]);
+            const res = makeMapShaderFixture(fx.gl, gridSrc, gridSrc);
+            drawMapShaderPass(fx.gl, res, { w: 200, h: 160, lx: 100, ly: 80, lr: 48, lz: 1.35, mode: 1, hasCarto: 0.0 });
+            const { copy, data } = readCanvasViaCopy(c);
+            inside = sampleCssPixel(copy, data, 100, 80, 200, 160);
+            outside = sampleCssPixel(copy, data, 18, 18, 200, 160);
+          }, { once: true });
+          await nextPaint(c);
+          const chromaIn = Math.max(inside[0], inside[1], inside[2]) - Math.min(inside[0], inside[1], inside[2]);
+          const chromaOut = Math.max(outside[0], outside[1], outside[2]) - Math.min(outside[0], outside[1], outside[2]);
+          if (!(chromaIn > 45 && chromaOut < 25)) {
+            throw new Error(`Expected strong thermal chroma inside (${chromaIn}) vs neutral outside (${chromaOut})`);
+          }
+          return `Thermal inside rgba(${inside.join(',')}) chroma ${chromaIn} vs neutral outside rgba(${outside.join(',')}) chroma ${chromaOut}.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Blueprint Sobel shader extracts road edges inside the lens',
+      why: 'Runs mode 2 (Blueprint) over a sharp black/white crossroad and compares edge vs flat pixels inside the lens.',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(200, 160);
+        const roadSrc = document.createElement('canvas');
+        roadSrc.width = 200; roadSrc.height = 160;
+        const rc = roadSrc.getContext('2d');
+        rc.fillStyle = '#e8e8e8'; rc.fillRect(0, 0, 200, 160);
+        rc.fillStyle = '#111111'; rc.fillRect(98, 0, 6, 160);
+        const fx = new ElementGL(c, { fragment: CARD_FRAGMENT, attributes: { preserveDrawingBuffer: true } });
+        try {
+          let edgePx = [0, 0, 0, 0], flatPx = [0, 0, 0, 0];
+          c.addEventListener('paint', () => {
+            fx.begin([0, 0, 0, 1]);
+            const res = makeMapShaderFixture(fx.gl, roadSrc, roadSrc);
+            drawMapShaderPass(fx.gl, res, { w: 200, h: 160, lx: 100, ly: 80, lr: 52, mode: 2, hasCarto: 0.0 });
+            const { copy, data } = readCanvasViaCopy(c);
+            edgePx = sampleCssPixel(copy, data, 98, 80, 200, 160);
+            flatPx = sampleCssPixel(copy, data, 72, 80, 200, 160);
+          }, { once: true });
+          await nextPaint(c);
+          const lumEdge = 0.299 * edgePx[0] + 0.587 * edgePx[1] + 0.114 * edgePx[2];
+          const lumFlat = 0.299 * flatPx[0] + 0.587 * flatPx[1] + 0.114 * flatPx[2];
+          if (!(lumEdge - lumFlat > 70 && flatPx[2] > flatPx[0] + 20)) {
+            throw new Error(`Expected bright Sobel edge (${lumEdge.toFixed(0)}) over blue flat field (${lumFlat.toFixed(0)}, rgba ${flatPx.join(',')})`);
+          }
+          return `Edge pixel rgba(${edgePx.join(',')}) vs blueprint field rgba(${flatPx.join(',')}); delta ${(lumEdge - lumFlat).toFixed(0)}.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Drawable HTML card clips strictly to the circular lens aperture',
+      why: 'Draws an orange drawable card spanning both inside and outside the lens circle via CARD_FRAGMENT and checks alpha at both points.',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(220, 160);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:180px;height:80px;background:#e05a2b;color:#fff;padding:8px;font:700 13px system-ui';
+        card.textContent = 'Covent Garden';
+        c.append(card);
+        const fx = new ElementGL(c, { fragment: CARD_FRAGMENT, attributes: { preserveDrawingBuffer: true } });
+        try {
+          let inside = [0, 0, 0, 0], outside = [0, 0, 0, 0];
+          c.addEventListener('paint', () => {
+            fx.upload(card);
+            fx.begin([0, 0, 0, 0]);
+            fx.quad(card, ElementGL.rect(c, 20, 40, 180, 80), (g, u) => {
+              g.uniform2f(u('uLensCenter'), 80, 80);
+              g.uniform1f(u('uLensRadius'), 44);
+              g.uniform4f(u('uCardRect'), 20, 40, 180, 80);
+              g.uniform1i(u('uLensMode'), 0);
+            });
+            const { copy, data } = readCanvasViaCopy(c);
+            inside = sampleCssPixel(copy, data, 80, 80, 220, 160);
+            outside = sampleCssPixel(copy, data, 178, 80, 220, 160);
+          }, { once: true });
+          await nextPaint(c);
+          if (!(inside[3] > 200 && inside[0] > 160 && outside[3] === 0)) {
+            throw new Error(`Expected opaque orange inside (${inside.join(',')}) and transparent outside (${outside.join(',')})`);
+          }
+          return `Inside lens rgba(${inside.join(',')}); same card outside lens rgba(${outside.join(',')}).`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'updateElementGeometry() + canvasClip + inert routes clicks only inside the lens',
+      why: 'Clips one card to its left half inside the lens and marks a second off-lens card inert, then checks elementFromPoint().',
+      run: async () => {
+        if (!canvas2dSupported || !('updateElementGeometry' in HTMLCanvasElement.prototype)) {
+          throw new Error('updateElementGeometry() is not available');
+        }
+        const c = makeFixtureCanvas(240, 160);
+        const inCard = document.createElement('div');
+        inCard.setAttribute('drawable', '');
+        inCard.style.cssText = 'position:absolute;left:0;top:0;width:140px;height:60px;display:flex;background:#102030';
+        const leftBtn = document.createElement('button');
+        leftBtn.type = 'button';
+        leftBtn.textContent = 'In';
+        leftBtn.style.cssText = 'width:70px;height:60px;margin:0;padding:0;border:0';
+        const rightBtn = document.createElement('button');
+        rightBtn.type = 'button';
+        rightBtn.textContent = 'Cut';
+        rightBtn.style.cssText = 'width:70px;height:60px;margin:0;padding:0;border:0';
+        inCard.append(leftBtn, rightBtn);
+
+        const outCard = document.createElement('div');
+        outCard.setAttribute('drawable', '');
+        outCard.inert = true;
+        outCard.style.cssText = 'position:absolute;left:0;top:0;width:100px;height:40px;background:#333';
+        const hiddenBtn = document.createElement('button');
+        hiddenBtn.type = 'button';
+        hiddenBtn.textContent = 'Hidden';
+        hiddenBtn.style.cssText = 'width:100px;height:40px';
+        outCard.append(hiddenBtn);
+
+        c.append(inCard, outCard);
+        try {
+          const ctx = c.getContext('2d');
+          c.addEventListener('paint', () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 3);
+            c.width = Math.round(240 * dpr);
+            c.height = Math.round(160 * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.drawElementImage(inCard, 40, 50, 140, 60);
+            const uIn = geometryUnit(c, inCard, 140);
+            c.updateElementGeometry(inCard, {
+              canvasTransform: new DOMMatrix().scale(uIn, uIn).translate(40, 50),
+              canvasClip: new DOMRect(0, 0, 70, 60),
+            });
+            inCard.dataset.hitTick = inCard.dataset.hitTick === '1' ? '0' : '1';
+
+            const uOut = geometryUnit(c, outCard, 100);
+            c.updateElementGeometry(outCard, {
+              canvasTransform: new DOMMatrix().scale(uOut, uOut).translate(-4000, -4000),
+              canvasClip: new DOMRect(0, 0, 0, 0),
+            });
+            outCard.dataset.hitTick = outCard.dataset.hitTick === '1' ? '0' : '1';
+          }, { once: true });
+          await nextPaint(c);
+          const r = c.getBoundingClientRect();
+          const hitIn = document.elementFromPoint(r.left + 75, r.top + 80);
+          const hitClipped = document.elementFromPoint(r.left + 145, r.top + 80);
+          if (hitIn !== leftBtn) {
+            throw new Error(`Expected leftBtn inside canvasClip, got <${hitIn?.tagName?.toLowerCase() ?? 'null'}>`);
+          }
+          if (hitClipped === rightBtn) {
+            throw new Error('Clipped right half outside canvasClip still received elementFromPoint()');
+          }
+          if (!outCard.inert) throw new Error('Off-lens card was not marked inert');
+          return `Inside aperture hit <button> "In"; clipped half hit <${hitClipped?.tagName?.toLowerCase() ?? 'null'}>; off-lens card inert=true.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: '2D clipped-circle fallback draws map and card with 5-arg drawElementImage()',
+      why: 'Draws a daytime backdrop, clips to a circle, and paints a live card inside using 5-argument drawElementImage().',
+      run: async () => {
+        if (!canvas2dSupported) throw new Error('2D drawElementImage() is not available');
+        const c = makeFixtureCanvas(200, 140);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:120px;height:60px;background:#1f7a3a;color:#fff;padding:6px';
+        card.textContent = 'Soho';
+        c.append(card);
+        try {
+          const ctx = c.getContext('2d');
+          let inside = [0, 0, 0, 0], outside = [0, 0, 0, 0];
+          c.addEventListener('paint', () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 3);
+            c.width = Math.round(200 * dpr);
+            c.height = Math.round(140 * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.fillStyle = '#ece8de';
+            ctx.fillRect(0, 0, 200, 140);
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(80, 70, 42, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.drawElementImage(card, 40, 40, card.offsetWidth, card.offsetHeight);
+            ctx.restore();
+            const { copy, data } = readCanvasViaCopy(c);
+            inside = sampleCssPixel(copy, data, 80, 70, 200, 140);
+            outside = sampleCssPixel(copy, data, 150, 70, 200, 140);
+          }, { once: true });
+          await nextPaint(c);
+          if (!(inside[1] > inside[0] + 40 && outside[0] > 210)) {
+            throw new Error(`Expected green card inside circle (${inside.join(',')}) and tan backdrop outside (${outside.join(',')})`);
+          }
+          return `Inside circle rgba(${inside.join(',')}); clipped card exterior stays daytime tan rgba(${outside.join(',')}).`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
