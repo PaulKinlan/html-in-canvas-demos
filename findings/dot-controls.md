@@ -1,4 +1,4 @@
-# Controls rebuilt from ui-feed.dev (`/dot-controls/`, `/switch-models/`, `lib/ui-feed/`)
+# Controls rebuilt from ui-feed.dev (`/dot-controls/`, `/switch-models/`, `/glass-controls/`, `/flap-controls/`, `lib/ui-feed/`)
 
 Measured in C157 (the headless test browser, software rendering, device scale 2.625, 412 px wide) on 2026-11-23. Nothing here has been run on a phone.
 
@@ -49,6 +49,20 @@ The pages rebuild demos from <https://ui-feed.dev/> (89 React components on 2026
 | Does a native `<select>` drawn under the glass take the click? | measured: yes (the picker itself is not shown in headless) | The middle of the drawn pill answers `<select>`, and `change` reaches the form. |
 | Can `shade()` draw a panel with no background at all? | measured: yes | The foil is computed from hue, saturation, brightness and tilt uniforms, with no source canvas. 24 frames a second through `static fps`. |
 
+## Flaps, blinds and decks (`/flap-controls/`, `lib/ui-feed/flaps.js`)
+
+| Question | Result | Reason or detail |
+|---|---|---|
+| Can half an element's picture, squashed, stand in for a split flap? | measured: yes | The drum is a `<span>` drawn three times a frame: the bottom half in a clip, the top half in a clip, and the turning half inside `ctx.scale(1, k)` with the hinge as the origin. The element's `textContent` is swapped at the halfway point of the turn. A pixel a quarter of the way down the drum differs by 24 of 765 between rest and mid-turn. |
+| Can one tall element be drawn through a window as a roller blind? | measured: yes | A 360 px `<div>` of destinations drawn into a 150 px window with `multiply` over a yellow fill. Rolling from stop 1 to stop 2 changed the window by 1,694 over 288 samples. |
+| Is a `<select>` with `opacity: 0`, placed with `hit()` over the window, still the control? | measured: yes | The middle of the window answers `<select>`, `change` fires, and the value reaches the form. |
+| Can `drawElementImage()` be passed an element that has no `drawable` attribute? | measured: no | C157 throws `Descendants passed to DrawElementImage must have the 'drawable' attribute`. The lift's two call buttons are drawn as the one `<nav>` that holds them. The base class puts the attribute on the canvas's children only. |
+| Does `drawable` on a slotted element give it a picture? | measured: no (it gives it a hit region) | With the attribute on a slotted `<section>`, points over the drawn card answered the section instead of the canvas, but the draw itself stayed empty, with the attribute set in `connectedCallback`, a frame later, and removed and set again. |
+| How are slotted pages drawn then? | measured: as a slice of their slot's host | The `<div>` the slot sits in is a child of the canvas, so it can be drawn: the whole stack of pages at once, offset by the height above the page that is wanted and clipped to the card. |
+| Are the elements inside a drawn picture hit where that picture put them? | measured: yes | The checkbox on the third card of the deck, which is drawn inside a rotate, a translate and a scale, answers and ticks at the point the transform put it (84, 113 in the control's units). |
+| What does `getBoundingClientRect()` report for an element the canvas has drawn? | measured: the draw, in device pixels | Measuring the slice that way fed each frame's drawn size back into the next draw: the card grew by about 2.6 a frame and saturated at about nine times its size. `offsetTop`, `offsetLeft` and `offsetWidth` report the layout and are not affected. |
+| Does rebuilding the pagination `<nav>` on every page change lose focus? | measured: yes | The focused button is removed with the old markup. The control remembers `activeElement.dataset.p` and focuses the same button, or the current page's, after writing the new `<nav>`. |
+
 ## Things that bit
 
 - The inner `<form>` that vanished (above). The controls worked alone and broke when the page wrapped them in a form to show `FormData`.
@@ -57,6 +71,9 @@ The pages rebuild demos from <https://ui-feed.dev/> (89 React components on 2026
 - An element screenshot from Playwright with a `viewport` set is taken at scale 1 even with `--force-device-scale-factor`. Use `viewport: null`.
 - `shade()` in `lib/glass-gl.js` gives a shader `sdBox(p)`, not `sdRound(p, r)`. The foil shader did not compile until it used that name, and the failure is quiet: `shade()` returns null and the control draws its 2D version.
 - A `const` arrow function used by a class method above it throws "cannot access before initialization" only when the method runs, so the foil picker drew nothing until `hsbToHex` became a function declaration.
+- `put()` swallows the exception from a draw of an element without `drawable`, so a missing picture looks like a picture that has not been painted yet. The error text is the thing that says which it is: print it once while building a control that draws anything but a direct child of the canvas.
+- Measuring a drawn element with `getBoundingClientRect()` and using the result as the next draw's size (above). The picture looked right for one frame and then grew.
+- The two pagers' pages are the author's markup, so their height has to come from the component: without a height on `::slotted(section)` the next page's heading showed under the card.
 
 ## Not verified
 
@@ -71,6 +88,12 @@ The glass page:
 - The look of the glass on a real GPU. The test browser renders WebGL in software (`--enable-unsafe-swiftshader`).
 - The frame rate of the foil on the phone.
 
+The flap page:
+
+- Whether a tap on the blind opens Chrome's own select picker on Android.
+- Whether the flap turn holds 60 frames a second on the phone. It is three `drawElementImage()` calls a drum a frame while a drum is turning.
+- Whether dragging across a card scrolls the page by touch rather than being taken by the canvas (`touch-action: manipulation`).
+
 ## For the index
 
 - Custom elements and slots: a `<form>` in a shadow root's `innerHTML` is dropped when the host is inside a form (C157).
@@ -80,7 +103,11 @@ The glass page:
 - Text: the caret is not in a textarea's picture in C157 headless.
 - WebGL: a fragment shader can run over an element's picture through a `drawImage()` copy into a plain canvas, with one shared context for the page.
 - Drawing: `ctx.filter` applies to a `drawImage()` of the canvas's own pixels, which is how the fog is made.
+- Drawing: `drawElementImage()` refuses an element without the `drawable` attribute (`Descendants passed to DrawElementImage must have the 'drawable' attribute`), so a descendant is drawn by drawing the ancestor that has it.
+- Custom elements and slots: `drawable` on a slotted element gives it a hit region but no picture in C157; draw the element the slot sits in and offset it.
+- Hit testing: the elements inside a drawn picture are hit where the picture put them, through a rotate, a translate and a scale.
+- Drawing: `getBoundingClientRect()` of a drawn element reports the draw in device pixels; measure layout with `offsetTop` and `offsetWidth`.
 
 ## Open ideas
 
-73 of the 89 ui-feed demos are not rebuilt yet. Next groups by technique: flaps and blinds (tumble calendar, riffle pagination, destination blind, lift indicator), light (pendant lamp hover card, candles rating), print (two-colour calendar, kinetic poster tabs, crossword OTP, paint chart).
+69 of the 89 ui-feed demos are not rebuilt yet. Next groups by technique: light (pendant lamp hover card, candles rating), print (two-colour wall calendar, kinetic poster tabs, crossword OTP, paint chart), and departures boards (station departures pagination, best-before code on a can).

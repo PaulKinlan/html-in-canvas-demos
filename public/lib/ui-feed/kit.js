@@ -31,6 +31,7 @@ export const SUPPORTED =
 export const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 export const lerp = (a, b, t) => a + (b - a) * t;
 export const smooth = (t) => { t = clamp(t); return t * t * (3 - 2 * t); };
+export const easeOut = (t) => 1 - (1 - clamp(t)) ** 3;
 export const TAU = Math.PI * 2;
 const reduce = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 export const reduced = () => reduce.matches;
@@ -104,6 +105,18 @@ export class FeedControl extends HTMLElement {
   $(sel) { return this.shadowRoot.querySelector(sel); }
   $$(sel) { return [...this.shadowRoot.querySelectorAll(sel)]; }
   setValue(v) { try { this.internals?.setFormValue(v); } catch {} }
+  // Where a descendant sits inside `this.sheet`, in design units, so that a slice of the sheet's picture can
+  // be drawn in place of the descendant. A slotted element has no picture of its own.
+  // Where an element sits inside `host`, in design units. Measured with offsetTop and offsetLeft, never with
+  // getBoundingClientRect(): the rectangle of an element the canvas has drawn reports where the draw put it,
+  // in device pixels, so reading it and using it as the next draw's size multiplies the element each frame.
+  slice(el, host = this.sheet) {
+    // A slotted element's offsetParent is the host, not the <div> it is slotted into, so each one is measured
+    // to the top of its own chain and the two are subtracted.
+    const abs = (n) => { let top = 0, left = 0; for (; n; n = n.offsetParent) { top += n.offsetTop; left += n.offsetLeft; } return { top, left }; };
+    const a = abs(el), b = abs(host);
+    return { top: a.top - b.top, left: a.left - b.left, w: host.offsetWidth, h: host.offsetHeight, ew: el.offsetWidth, eh: el.offsetHeight };
+  }
   request() { if (!this.#lost && !this.plain) this.canvas?.requestPaint?.(); }
 
   connectedCallback() {
