@@ -123,7 +123,7 @@ Built by `shared/nav.js`, which carries its own CSS.
 - Right: a previous arrow, a `<details>` whose summary is the current page's title (or "Browse (N)"), and a next arrow. The arrows are 40×40 px.
 - The open panel has a live search filter, quick links (`Home`, `Examples`, `Libraries`, `Learn the API`, `About`), and collapsible `<details>` groups from `DEMO_GROUPS` (the current page's group opens automatically; typing a filter opens matching groups). Links are at least 40 px high. The current page is inverted (`aria-current="page"`).
 - The panel closes on a click outside it and on Escape.
-- Group order puts visual and interactive experiments first across 14 focused groups (Shaders, lenses and visual UI; Custom form controls and pickers; Transitions, text and motion; 3D, spatial and WebXR; Video and sound; Windows, tabs and cross-origin; Native UI toolkits in the browser; Slots (where this started); AI, voice and controllers; Foldables, peripherals and app windows; Developer tools in a canvas; HTML elements in a canvas; Benchmarks, audits and limits; Learn, libraries and about).
+- Group order puts visual and interactive experiments first across 15 focused groups (Shaders, lenses and visual UI; Custom form controls and pickers; Transitions, text and motion; 3D, spatial and WebXR; Maps and geospatial; Video and sound; Windows, tabs and cross-origin; Native UI toolkits in the browser; Slots (where this started); AI, voice and controllers; Foldables, peripherals and app windows; Developer tools in a canvas; HTML elements in a canvas; Benchmarks, audits and limits; Learn, libraries and about).
 - Do not use a class named `.bar` in a page. The menu uses it.
 
 ## The homepage
