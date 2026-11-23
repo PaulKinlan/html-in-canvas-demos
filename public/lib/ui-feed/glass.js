@@ -37,6 +37,7 @@ function behind(control, x, y, w, h) {
 // #region fogged-password
 export class FoggedPassword extends FeedControl {
   static size = [360, 300];
+  static LIFE = 4200;             // how long a wipe stays clear, in milliseconds
   // The mirror is the same text with no dots. It is read only and out of the tab order: the password
   // input is the control. Both are in the canvas, and the mirror is drawn only inside the wiped part.
   static html = `<label for="p"></label><input type="password" id="p" autocomplete="off" spellcheck="false">
@@ -111,41 +112,67 @@ export class FoggedPassword extends FeedControl {
     ctx.restore();
 
     const src = behind(this, pane.x, pane.y, pane.w, pane.h);
-    // The fog over it: the same picture, blurred, lit from the upper left, with the wiped parts cut out.
-    ctx.save();
-    rr(ctx, pane.x, pane.y, pane.w, pane.h, 16);
-    ctx.clip();
-    ctx.filter = 'blur(9px) brightness(1.06)';
-    ctx.drawImage(src.canvas, pane.x - 6, pane.y - 6, pane.w + 12, pane.h + 12);
-    ctx.filter = 'none';
-    const haze = ctx.createLinearGradient(pane.x, pane.y, pane.x + pane.w * 0.7, pane.y + pane.h);
-    haze.addColorStop(0, 'rgba(255,255,255,0.86)'); haze.addColorStop(0.55, 'rgba(236,243,246,0.8)'); haze.addColorStop(1, 'rgba(206,219,226,0.78)');
-    ctx.fillStyle = haze;
-    ctx.fillRect(pane.x, pane.y, pane.w, pane.h);
-    // Each wipe clears a disc and the fog creeps back over it.
-    let fading = false;
-    ctx.globalCompositeOperation = 'destination-out';
-    for (const p of this.wipes) {
-      const age = (now - p.t) / 9000;
-      if (age >= 1) continue;
-      fading = true;
-      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
-      const a = 1 - smooth(age);
-      g.addColorStop(0, `rgba(0,0,0,${a})`); g.addColorStop(0.7, `rgba(0,0,0,${a * 0.8})`); g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
-    }
-    ctx.globalCompositeOperation = 'source-over';
-    // The clear text, only where the fog has been wiped away.
+    // A wipe lasts LIFE milliseconds. The fog comes back from the rim of each wiped disc inwards, the way
+    // breath closes over a wiped window: the clear middle shrinks while the soft edge widens.
+    const LIFE = FoggedPassword.LIFE;
+    const live = [];
+    for (const p of this.wipes) { const age = (now - p.t) / LIFE; if (age < 1) live.push([p, age]); }
+    const fading = live.length > 0;
+
+    // The clear text, under the fog, only where the glass has been wiped. It is drawn over the field, so
+    // the dots of the password are not seen through it.
     if (fading) {
       ctx.save();
+      rr(ctx, pane.x, pane.y, pane.w, pane.h, 16); ctx.clip();
       ctx.beginPath();
-      for (const p of this.wipes) { if ((now - p.t) / 9000 < 0.62) { ctx.moveTo(p.x + p.r, p.y); ctx.arc(p.x, p.y, p.r * 0.94, 0, TAU); } }
+      for (const [p, age] of live) { const r = p.r * (1 - 0.5 * age); ctx.moveTo(p.x + r, p.y); ctx.arc(p.x, p.y, r, 0, TAU); }
       ctx.clip();
+      ctx.fillStyle = '#eaf1f4';
+      ctx.fillRect(pane.x, pane.y, pane.w, pane.h);
       put(ctx, this.mirror, pane.x + 10, pane.y + 24);
       ctx.restore();
     }
+
+    // The fog is made on a plain canvas of its own and laid over the pane. Cutting the wipes out of the
+    // control's canvas itself (destination-out) also cut out the field under the fog, so each wipe was a
+    // hole through to the page: black on a dark page.
+    const px = this.px, fog = this.fog || (this.fog = document.createElement('canvas'));
+    if (fog.width !== src.canvas.width || fog.height !== src.canvas.height) { fog.width = src.canvas.width; fog.height = src.canvas.height; }
+    const g = fog.getContext('2d');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, fog.width, fog.height);
+    g.filter = `blur(${Math.round(9 * px)}px) brightness(1.06)`;
+    g.drawImage(src.canvas, -6 * px, -6 * px, fog.width + 12 * px, fog.height + 12 * px);
+    g.filter = 'none';
+    g.setTransform(px, 0, 0, px, -pane.x * px, -pane.y * px);     // the control's own units from here
+    const haze = g.createLinearGradient(pane.x, pane.y, pane.x + pane.w * 0.7, pane.y + pane.h);
+    haze.addColorStop(0, 'rgba(255,255,255,0.86)'); haze.addColorStop(0.55, 'rgba(236,243,246,0.8)'); haze.addColorStop(1, 'rgba(206,219,226,0.78)');
+    g.fillStyle = haze;
+    g.fillRect(pane.x, pane.y, pane.w, pane.h);
+    g.globalCompositeOperation = 'destination-out';
+    for (const [p, age] of live) {
+      const core = Math.max(0, 0.72 * (1 - age * 1.25)), a = 1 - age * age * age;
+      const rad = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+      rad.addColorStop(0, `rgba(0,0,0,${a})`); rad.addColorStop(core, `rgba(0,0,0,${a})`);
+      rad.addColorStop(core + (1 - core) * 0.55, `rgba(0,0,0,${a * 0.28})`); rad.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = rad;
+      g.beginPath(); g.arc(p.x, p.y, p.r, 0, TAU); g.fill();
+    }
+    ctx.save();
+    rr(ctx, pane.x, pane.y, pane.w, pane.h, 16); ctx.clip();
+    ctx.drawImage(fog, pane.x, pane.y, pane.w, pane.h);
     ctx.restore();
+    // the eye on the button, which has no content of its own
+    {
+      const ex = w - 64 + 22, ey = 12 + 22, shown = this.eye.getAttribute('aria-pressed') === 'true';
+      ctx.save();
+      ctx.strokeStyle = '#24323c'; ctx.fillStyle = '#24323c'; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(ex - 11, ey); ctx.quadraticCurveTo(ex, ey - 9, ex + 11, ey); ctx.quadraticCurveTo(ex, ey + 9, ex - 11, ey); ctx.stroke();
+      ctx.beginPath(); ctx.arc(ex, ey, 3.2, 0, TAU); ctx.fill();
+      if (!shown) { ctx.beginPath(); ctx.moveTo(ex - 9, ey + 9); ctx.lineTo(ex + 9, ey - 9); ctx.stroke(); }
+      ctx.restore();
+    }
     // The hit region of the password input covers the whole pane.
     hit(ctx, this.input, pane.x, pane.y, pane.w, pane.h);
     if (this.input.matches(':focus-visible')) { ctx.strokeStyle = '#16222b'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); rr(ctx, pane.x + 3, pane.y + 3, pane.w - 6, pane.h - 6, 13); ctx.stroke(); ctx.setLineDash([]); }

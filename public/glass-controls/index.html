@@ -126,8 +126,9 @@
   </p>
   <p class="credit">
     Credit: every control on this page is a rebuild of a demo on <a href="https://ui-feed.dev/">ui-feed.dev</a>, and each section links to
-    the original it came from. I worked from the published demos rather than their source: I looked at what each one does, worked out the
-    mechanism and built it again around a native form control drawn by a canvas. The designs and the ideas behind them are theirs.
+    the original it came from. The originals are far higher fidelity than these, so go and look at them. These are examples of what
+    HTML-in-canvas makes possible with a native form control underneath, not replacements. I worked from the published demos rather than
+    their source: I looked at what each one does, worked out the mechanism and built it again. The designs and the ideas are theirs.
   </p>
   <p id="route">Drawing route: measuring.</p>
   <nav class="jump" aria-label="Demos on this page">
@@ -136,8 +137,8 @@
 
   <section class="idea" id="fog">
     <h2>Fogged glass</h2>
-    <p>An <code>&lt;input type="password"&gt;</code> behind condensation. Drag across the pane to wipe it, and the fog creeps back over
-      nine seconds. The wiped part shows a second, read-only input with the same text and no dots, so the characters are readable only
+    <p>An <code>&lt;input type="password"&gt;</code> behind condensation. Drag across the pane to wipe it, and the fog closes back over
+      it in about four seconds, from the rim of the wiped part inwards. The wiped part shows a second, read-only input with the same text and no dots, so the characters are readable only
       where the glass is clear. The eye button switches the password input's own <code>type</code>, which clears the dots everywhere.</p>
     <form class="stage" style="--w:360;--h:300">
       <!-- #region fog-html -->
@@ -243,9 +244,11 @@
   <p>The hologram needs no background at all: <code>shade()</code> is called with no source, and the foil is computed from the hue,
     saturation, brightness and tilt uniforms. When there is no WebGL 2, or its context is lost, both controls draw a 2D version instead and
     the line above says which route is in use.</p>
-  <p>The fog needs no shader either. It is the field's own picture, blurred back over itself with <code>ctx.filter</code>, a white
-    gradient on top, and a disc cut out of it for each point the finger passed through, with <code>destination-out</code>. Each disc fades
-    back over nine seconds. The clear text is a second draw of a read-only copy of the input, clipped to the discs that are still fresh.</p>
+  <p>The fog needs no shader either. It is the field's own picture, blurred with <code>ctx.filter</code> onto a plain canvas of its
+    own, with a white gradient on top and a disc cut out of it with <code>destination-out</code> for each point the finger passed through.
+    That canvas is then laid over the pane. Each disc closes from its rim inwards over about four seconds. The clear text is a second
+    draw of a read-only copy of the input, under the fog, clipped to the discs that are still open. My first version cut the discs out
+    of the control's own canvas, which also cut out the field under the fog: on a dark page every wipe was a black hole.</p>
 
   <h2>Live checks</h2>
   <table class="results"><tbody id="tests"></tbody></table>
@@ -345,20 +348,22 @@
     },
     {
       name: 'A wipe clears the fog, and the clear copy is drawn only there',
-      why: 'The wipe cuts discs out of the fog and the second, read-only input is clipped to them. The check sends pointer events across the pane and compares the same pixel before and after.',
+      why: 'The wipe cuts discs out of the fog, which is on a canvas of its own, and the second, read-only input is drawn under it. The check sends pointer events across the pane, then samples a line through the text: it must find the dark strokes of the letters, and every sample must be opaque. An earlier version cut the discs out of the control itself and left holes through to the page.',
       run: async () => {
         const { el } = await make(`<fogged-password name="wifi" value="abcdefghijkl"></fogged-password>`);
-        const before = pick(el, 60, 122);
+        const line = () => { const out = []; for (let x = 40; x <= 220; x += 3) out.push(pick(el, x, 146)); return out; };
+        const dark = (px) => px.filter((c) => c[0] < 120).length, holes = (px) => px.filter((c) => c[3] < 255 || c[0] + c[1] + c[2] === 0).length;
+        const before = line();
         const r = el.canvas.getBoundingClientRect(), k = r.width / 360;
         const send = (x, y, buttons) => el.canvas.dispatchEvent(new PointerEvent(buttons ? 'pointermove' : 'pointerdown', { clientX: r.left + x * k, clientY: r.top + y * k, buttons, bubbles: true }));
-        send(30, 130, 0);
-        for (let x = 30; x <= 330; x += 12) send(x, 130, 1);
+        send(30, 146, 0);
+        for (let x = 30; x <= 330; x += 12) send(x, 146, 1);
         await painted(el); await painted(el);
-        const after = pick(el, 60, 122), away = pick(el, 180, 206);
-        const change = Math.abs(after[0] - before[0]) + Math.abs(after[1] - before[1]) + Math.abs(after[2] - before[2]);
-        if (change < 60) throw new Error(`the pixel over the letter hardly changed: ${before.slice(0, 3)} to ${after.slice(0, 3)}`);
+        const after = line(), away = pick(el, 180, 206);
+        if (dark(before) || dark(after) < 4) throw new Error(`dark samples through the text: ${dark(before)} under fog, ${dark(after)} after the wipe`);
+        if (holes(after)) throw new Error(`${holes(after)} of ${after.length} samples in the wipe are transparent or black`);
         if (el.mirror.value !== el.input.value) throw new Error('the copy does not hold the same value');
-        return `${el.wipes.length} wipe discs. Over a letter ${before.slice(0, 3)} became ${after.slice(0, 3)} (difference ${change}); below the wipe it is still ${away.slice(0, 3)}.`;
+        return `${el.wipes.length} wipe discs. Of ${after.length} samples through the text, ${dark(before)} were dark under the fog and ${dark(after)} after the wipe, and none is a hole. Below the wipe it is still ${away.slice(0, 3)}.`;
       },
     },
     {
