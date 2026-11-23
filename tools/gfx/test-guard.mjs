@@ -328,6 +328,27 @@ await test('getImageData() on a drawable canvas is read from a copy, with the sa
   await Promise.race([hi.close(), new Promise((r) => setTimeout(r, 3000))]);
 }
 
+await test('A drawable canvas is left out of scroll anchoring, in the document and in a shadow root', '/', async (page) => {
+  const r = await page.evaluate(() => {
+    const stage = document.getElementById('stage');
+    const make = (root, drawable, raw) => { const c = document.createElement('canvas'); if (drawable) c.setAttribute('layoutsubtree', ''); if (raw) c.setAttribute('data-gfx-raw', ''); root.append(c); return c; };
+    const anchor = (c) => getComputedStyle(c).overflowAnchor;
+    const host = document.createElement('div'); stage.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const replaced = document.createElement('div'); stage.append(replaced);
+    const root2 = replaced.attachShadow({ mode: 'closed' });
+    root2.adoptedStyleSheets = [];
+    const late = make(root2, true);
+    const before = anchor(late);
+    late.getContext('2d');
+    return { doc: anchor(make(stage, true)), plain: anchor(make(stage, false)), raw: anchor(make(stage, true, true)), shadow: anchor(make(shadow, true)), before, after: anchor(late) };
+  });
+  must(r.doc === 'none' && r.shadow === 'none', `drawable canvas in the document: ${r.doc}, in a shadow root: ${r.shadow}`);
+  must(r.plain === 'auto' && r.raw === 'auto', `plain canvas: ${r.plain}, data-gfx-raw: ${r.raw}`);
+  must(r.before === 'auto' && r.after === 'none', `shadow root whose sheets were replaced: ${r.before} before getContext(), ${r.after} after`);
+  return `overflow-anchor: none in the document and in a shadow root; auto for a plain canvas and with data-gfx-raw; added again at getContext() to a root that lost the sheet`;
+});
+
 await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 3000))]);
 server.close();
 for (const r of results) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name}\n       ${r.detail}`);

@@ -120,6 +120,7 @@ Every branch from before this change also fails `check:gfx` in the files this ch
 - Over the budget, it frees every canvas that was removed from the page 2 s ago or more, and warns in the console if the page is still over.
 - Logs readbacks. A readback from a GPU canvas with no tap in the last 5 s (`navigator.userActivation.isActive`) and no live check running (`window.__checkState === 'running'`) is unasked. Unasked readbacks in four different seconds give a console warning.
 - A canvas that loses its context three times in 30 s is being lost by what the page draws. The guard stops `paint` events on the page with a capture listener on the window, and puts a note over the canvas. Without this, the page redrew after every restore and lost the context again, about every 1.5 s on `/hdr-glow/`.
+- Leaves every drawable canvas out of scroll anchoring (`overflow-anchor: none`, in the document and in every shadow root). A drawable child is reported where it was last drawn or placed, and with the top of its canvas at or above the top of the screen the browser took a moving child as its scroll anchor and scrolled the page to follow it. This is not a lost canvas, but the guard is the one script every page loads before it makes a canvas. Measurements: [findings/scroll-anchoring.md](../findings/scroll-anchoring.md).
 - The note over a lost canvas now also gives the memory estimate, the readback counts, and for each loss the readbacks in the second before it. Losses at the same moment are one entry ("7 2D at 3.1 s").
 
 ### The record

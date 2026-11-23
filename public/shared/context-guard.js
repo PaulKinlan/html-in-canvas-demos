@@ -73,6 +73,15 @@
 //      a size and draws the element at exactly the ratio, or one over the
 //      ratio, times its layout size (device pixels passed in a scaled
 //      context, or CSS pixels in an unscaled one). docs/draw-size.md has the measurements.
+//  15. Leaves drawable canvases out of scroll anchoring. The browser reports
+//      a drawable child where updateElementGeometry() or a draw last put it.
+//      With the top of a canvas at or above the top of the screen, scroll
+//      anchoring took a moving child as its anchor and scrolled the page on
+//      each frame to keep it still (/three-form/ on 2026-11-20, reported by a
+//      reader on /conveyor/ on 2026-11-23, and five more pages measured by
+//      tools/scroll-anchor/audit.mjs). The guard adds one rule, overflow-anchor:
+//      none for a drawable canvas, to the document and to every shadow root.
+//      data-gfx-raw on the canvas keeps it out of the rule.
 //
 // Rules for pages, checked by `npm run check:gfx` (static) and
 // `npm run check:jank` (measured): docs/graphics-rules.md.
@@ -430,6 +439,28 @@
   }
 
   function isDrawable(canvas) { return canvas.hasAttribute('layoutsubtree') || canvas.getAttribute('content') === 'drawable'; }
+  // Point 15. One style sheet, adopted by the document and by every shadow
+  // root: at attachShadow(), and again when a drawable canvas in a root that
+  // lacks it (a declarative shadow root, or one whose sheets were replaced)
+  // makes its context.
+  var anchorSheet = null;
+  function noAnchor(root) {
+    try {
+      if (!root || !root.adoptedStyleSheets || (root.nodeType !== 9 && root.nodeType !== 11)) return;
+      if (!anchorSheet) {
+        anchorSheet = new CSSStyleSheet();
+        anchorSheet.replaceSync('canvas[layoutsubtree]:not([data-gfx-raw]), canvas[content="drawable"]:not([data-gfx-raw]) { overflow-anchor: none; }');
+      }
+      if (root.adoptedStyleSheets.indexOf(anchorSheet) < 0) root.adoptedStyleSheets = Array.prototype.concat.call([anchorSheet], Array.prototype.slice.call(root.adoptedStyleSheets));
+    } catch (e) {}
+  }
+  noAnchor(document);
+  (function () {
+    var attach = Element.prototype.attachShadow;
+    if (!attach) return;
+    Element.prototype.attachShadow = function () { var root = attach.apply(this, arguments); noAnchor(root); return root; };
+  })();
+
   // A canvas that was given its drawable attributes after getContext() cannot
   // be changed any more. Say so the first time an element is drawn into it.
   (function () {
@@ -524,6 +555,7 @@
       } catch (e) {}
       var ctx = original.apply(this, args);
       if (!ctx || known) return ctx;
+      try { if (this.getRootNode && isDrawable(this)) noAnchor(this.getRootNode()); } catch (e) {}
       var attrs = args[1] || {};
       var entry = { type: type, ctx: ctx, where: where, wasConnected: !!this.isConnected, goneAt: 0, lost: false, note: null, losses: [],
         float: attrs.colorType === 'float16', cpu: type === '2d' && attrs.willReadFrequently === true, antialias: isGL(type) && attrs.antialias !== false };
