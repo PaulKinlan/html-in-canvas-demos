@@ -186,14 +186,17 @@
 
   <section class="idea" id="prism">
     <h2>Prism</h2>
-    <p>Three <code>&lt;input type="range"&gt;</code>s and an <code>&lt;input type="color"&gt;</code> that holds the colour they produce: a
-      wavelength from 380 to 700 nm, a hue shift on the colour that wavelength gives, and the angle the prism is turned to. The picture is
-      a real trace, not a gradient. The index of the glass is Cauchy's formula, so each of 61 wavelengths is refracted by its own amount at
-      the first face, crosses the glass, and is refracted again on the way out, with Snell's law as vectors at both faces. Turn the prism
-      far enough and the light is past the critical angle and stays inside it.</p>
+    <p>A colour picker that is an optical bench. White light goes into a glass prism, and a screen with a slit in it lets one wavelength
+      through: that wavelength is the colour. Turn the prism by hand, with a finger or the mouse anywhere on the dial, and the spectrum
+      sweeps across the slit. The dial is an <code>&lt;input type="range"&gt;</code> for the angle, and there are two more for the
+      wavelength and the hue. They are one quantity seen three ways, so setting the wavelength or the hue solves for the angle and the
+      prism turns to it. The picture is a trace, not a gradient. The index of the glass is Cauchy's formula, so each of 49 wavelengths is
+      refracted by its own amount with Snell's law as vectors, and at every face Fresnel's equations split the light into the part that
+      goes through and the part that is thrown back, which is where the faint beams off the other faces come from. The prism is
+      equilateral, so the light only reaches the slit for about 14 of every 120 degrees, and the control says when it doesn't.</p>
     <form class="stage" style="--w:360;--h:336">
       <!-- #region prism-html -->
-      <prism-picker name="ink" wavelength="459" angle="18"></prism-picker>
+      <prism-picker name="ink" wavelength="459"></prism-picker>
       <!-- #endregion prism-html -->
     </form>
     <output class="line"></output>
@@ -202,8 +205,8 @@
       <summary>Show the code <small>a range with no track, and wavelengths as colours</small></summary>
       <ol>
         <li data-code="#prism-html"><b>The markup.</b></li>
-        <li data-code="/lib/ui-feed/glass.js#prism-optics"><b>The optics.</b> Snell's law as vectors, the nearest face the ray meets, and total internal reflection when the angle is past the critical one.</li>
-        <li data-code="/lib/ui-feed/glass.js#prism-picker"><b>The element.</b> The ranges are never drawn: <code>hit()</code> puts each one over the track the canvas drew.</li>
+        <li data-code="/lib/ui-feed/glass.js#prism-optics"><b>The optics.</b> Snell's law as vectors, the nearest face the ray meets, Fresnel's equations for the share reflected at each face, and total internal reflection past the critical angle.</li>
+        <li data-code="/lib/ui-feed/glass.js#prism-picker"><b>The element.</b> The ranges are never drawn. <code>hit()</code> puts the angle over the dial and the other two over their tracks, and the solver turns a wavelength into an angle.</li>
         <li data-code="/lib/ui-feed/glass.js#spectrum"><b>Wavelength to sRGB.</b></li>
       </ol>
     </details>
@@ -279,7 +282,7 @@
   import { banner, runTests, testStage } from '/shared/support.js';
   import '/lib/ui-feed/glass.js';
   import { glassRoute } from '/lib/glass-gl.js';
-  import { traceRay, indexOf } from '/lib/ui-feed/glass.js';
+  import { traceLight, indexOf } from '/lib/ui-feed/glass.js';
   banner();
 
   for (const form of document.querySelectorAll('form.stage')) {
@@ -403,49 +406,70 @@
       },
     },
     {
-      name: 'The three ranges are hit over the tracks the canvas drew',
-      why: 'None of the ranges is painted: each is placed with hit() over a track the canvas drew. The check asks which element is over each of the three.',
+      name: 'The angle range is hit over the dial, and the other two over their tracks',
+      why: 'None of the ranges is painted: each is placed with hit(). The check asks which element is at a point on the dial and at the middle of each track.',
       run: async () => {
-        const { el } = await make(`<prism-picker name="ink" wavelength="459" angle="18"></prism-picker>`);
-        const got = [229, 270, 312].map((y) => at(el, 180, y));
+        const { el } = await make(`<prism-picker name="ink" wavelength="459"></prism-picker>`);
+        const got = [at(el, 128 + 60, 86 - 30), at(el, 224, 288), at(el, 224, 315)];
         const names = got.map((g) => `${g?.localName}[${g?.type}].${g?.className ?? ''}`);
-        if (got.some((g) => g?.type !== 'range') || new Set(got).size !== 3) throw new Error(`the tracks answered ${names.join(' ')}`);
-        return `The spectrum, the hue track and the angle track answered ${got.map((g) => g.className).join(', ')}, three separate ranges.`;
+        if (got.map((g) => g?.className).join() !== 'angle,nm,hue') throw new Error(`the three points answered ${names.join(' ')}`);
+        return `The dial, the spectrum and the hue track answered ${got.map((g) => g.className).join(', ')}: three separate <input type=range>.`;
       },
     },
     {
-      name: 'Turning the prism moves the light, and the wavelength picks the colour',
-      why: 'The fan is a trace, so the angle must change the picture, and the wavelength must change the colour the control submits. The check compares the scene before and after a turn of the prism.',
+      name: 'Turning the prism by hand sweeps the spectrum across the slit',
+      why: 'The dial is the angle range, turned by the direction of the pointer around its centre and not by the range’s own drag. The check sends a pointer 1.5 degrees around the dial and reads the angle, the wavelength now through the slit, the scene and the form.',
       run: async () => {
-        const { el, form } = await make(`<prism-picker name="ink" wavelength="459" angle="18"></prism-picker>`);
-        const before = patch(el, 0, 0, 360, 196), was = data(form);
-        el.angleRange.value = 36; el.angleRange.dispatchEvent(new Event('input', { bubbles: true }));
+        const { el, form } = await make(`<prism-picker name="ink" wavelength="459"></prism-picker>`);
+        const before = patch(el, 0, 0, 360, 232), was = { a: el.angle, nm: el.nm, data: data(form) };
+        const r = el.canvas.getBoundingClientRect(), k = r.width / 360;
+        const send = (type, deg) => el.angleRange.dispatchEvent(new PointerEvent(type, { pointerId: 7, bubbles: true, buttons: 1,
+          clientX: r.left + (128 + 60 * Math.cos(deg * Math.PI / 180)) * k, clientY: r.top + (86 + 60 * Math.sin(deg * Math.PI / 180)) * k }));
+        send('pointerdown', 10); send('pointermove', 10.75); send('pointermove', 11.5); send('pointerup', 11.5);
         await painted(el); await painted(el);
-        const moved = far(patch(el, 0, 0, 360, 196), before);
+        const turned = el.angle - was.a, moved = far(patch(el, 0, 0, 360, 232), before);
+        if (Math.abs(turned - 1.5) > 0.05) throw new Error(`a 1.5 degree turn of the pointer turned the prism ${turned.toFixed(2)} degrees`);
+        if (!el.lit || Math.abs(el.nm - was.nm) < 20 || data(form) === was.data) throw new Error(`lit ${el.lit}, ${was.nm.toFixed(0)} nm became ${el.nm.toFixed(0)} nm, form ${data(form)}`);
         if (moved < 300) throw new Error(`the scene hardly changed: difference ${moved} over 288 samples`);
-        el.nmRange.value = 620; el.nmRange.dispatchEvent(new Event('input', { bubbles: true }));
-        await painted(el);
-        const bar = pick(el, 30 + ((620 - 380) / 320) * 300 + 16, 229);        // beside the mark, not under it
-        if (data(form) === was || !(bar[0] > 150 && bar[2] < 90)) throw new Error(`form data ${data(form)}, the bar beside 620 nm is ${bar.slice(0, 3)}`);
-        return `Turning the prism from 18 to 36 degrees changed the scene by ${moved} over 288 samples. 459 nm gave ${was}, 620 nm gives ${data(form)}, and the bar beside the mark is ${bar.slice(0, 3)}.`;
+        return `1.5 degrees around the dial turned the prism from ${was.a.toFixed(1)} to ${el.angle.toFixed(1)} degrees. The slit went from ${was.nm.toFixed(0)} nm (${was.data}) to ${el.nm.toFixed(0)} nm (${data(form)}), and the scene changed by ${moved} over 288 samples.`;
       },
     },
     {
-      name: 'Past the critical angle the light stays in the glass',
-      why: 'refract() returns nothing when the angle is past the critical one, and the ray is reflected inside instead. At a steep enough turn of the prism no ray leaves it at all, and the control says so.',
+      name: 'Setting a wavelength or a hue turns the prism until that colour is in the slit',
+      why: 'The wavelength and hue ranges do not set a colour directly. They solve for the angle at which that wavelength lands on the slit. The check sets each, then traces the light again at the new angle and reads what goes through.',
       run: async () => {
-        const { el } = await make(`<prism-picker name="ink" wavelength="459" angle="18"></prism-picker>`);
-        const poly = el.prism();
-        const straight = traceRay({ x: -40, y: 84 }, { x: 1, y: 0 }, poly, indexOf(459));
-        if (!straight?.exit) throw new Error('no ray left the glass at 18 degrees');
-        let stuck = 0;
-        for (let a = 0; a <= 90; a++) {
-          el.angleRange.value = a;
-          const ray = traceRay({ x: -40, y: 84 }, { x: 1, y: 0 }, el.prism(), indexOf(459));
-          if (ray && !ray.exit) stuck++;
+        const { el, form } = await make(`<prism-picker name="ink" wavelength="459"></prism-picker>`);
+        const a0 = el.angle;
+        el.nmRange.value = 620; el.nmRange.dispatchEvent(new Event('input', { bubbles: true }));
+        const a1 = el.angle, t1 = el.through();
+        if (Math.abs(t1 - 620) > 0.5 || a1 === a0) throw new Error(`asked for 620 nm: the prism is at ${a1.toFixed(2)} and ${t1?.toFixed(1)} nm goes through`);
+        const red = data(form);
+        el.hueRange.value = 120; el.hueRange.dispatchEvent(new Event('input', { bubbles: true }));
+        const t2 = el.through(), hue = +el.hueRange.value;
+        if (Math.abs(hue - 120) > 4 || !(t2 > 500 && t2 < 560)) throw new Error(`asked for hue 120: hue ${hue}, ${t2?.toFixed(1)} nm through the slit`);
+        await painted(el);
+        const bar = pick(el, 108 + ((t2 - 380) / 320) * 232 + 10, 288);          // the spectrum beside the mark
+        if (!(bar[1] > 180)) throw new Error(`the spectrum beside the mark is ${bar.slice(0, 3)}`);
+        return `459 nm had the prism at ${a0.toFixed(2)} degrees. 620 nm turned it to ${a1.toFixed(2)}, where ${t1.toFixed(1)} nm goes through (${red}). Hue 120 turned it to ${el.angle.toFixed(2)}, where ${t2.toFixed(1)} nm goes through (${data(form)}).`;
+      },
+    },
+    {
+      name: 'Each face splits the light, and past the critical angle none of it leaves',
+      why: 'traceLight() gives every ray Fresnel’s share at every face. The shares of one ray must add up to no more than the light that went in, and a leg that meets a face past the critical angle must lose nothing there.',
+      run: async () => {
+        const { el } = await make(`<prism-picker name="ink" wavelength="459"></prism-picker>`);
+        const beam = el.constructor.BEAM, n = indexOf(459);
+        const here = traceLight(beam, { x: 1, y: 0 }, el.prism(), n, 12);
+        const sum = here.glance.w + here.out.reduce((s, o) => s + o.w, 0);
+        if (!(sum > 0.97 && sum <= 1.0001)) throw new Error(`the shares add up to ${sum.toFixed(4)}`);
+        let trapped = 0, dark = 0;
+        for (let a = 0; a < 120; a++) {
+          const light = traceLight(beam, { x: 1, y: 0 }, el.prism(a), n);
+          if (light && light.legs.some((leg, i) => light.legs[i + 1] && light.legs[i + 1].w === leg.w)) trapped++;
+          if (el.through(a) === null) dark++;
         }
-        if (!stuck) throw new Error('the light left the glass at every angle from 0 to 90 degrees');
-        return `At 18 degrees the ray leaves after ${straight.path.length - 1} segments. Of the 91 whole-degree angles, ${stuck} keep the light inside the glass.`;
+        if (!trapped) throw new Error('no leg met a face past the critical angle at any whole-degree angle');
+        return `At ${el.angle.toFixed(1)} degrees the first face throws back ${(here.glance.w * 100).toFixed(1)}% and the main beam carries ${(here.out[0].w * 100).toFixed(1)}%. With 12 bounces the shares add up to ${(sum * 100).toFixed(2)}%. At ${trapped} of 120 whole-degree angles a leg is totally reflected inside, and at ${dark} no light reaches the slit.`;
       },
     },
     {
