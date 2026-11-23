@@ -121,6 +121,11 @@
     of a picture. Each piece is a fresh <code>drawElementImage()</code> of a live element, which is also what puts its hit region under your
     finger. I wanted to know how far an element's picture can be cut up and transformed before the control underneath stops working.
   </p>
+  <p class="credit">
+    Credit: every control on this page is a rebuild of a demo on <a href="https://ui-feed.dev/">ui-feed.dev</a>, and each section links to
+    the original it came from. I worked from the published demos rather than their source: I looked at what each one does, worked out the
+    mechanism and built it again around a native form control drawn by a canvas. The designs and the ideas behind them are theirs.
+  </p>
   <nav class="jump" aria-label="Demos on this page">
     <a href="#flap">Split-flap date</a><a href="#blind">Destination blind</a><a href="#lift">Lift indicator</a><a href="#riffle">Riffled deck</a>
   </nav>
@@ -149,18 +154,19 @@
 
   <section class="idea" id="blind">
     <h2>Destination blind</h2>
-    <p>A <code>&lt;select&gt;</code> drawn as the roller blind in the front window of a bus. Every stop is a line on one tall
-      <code>&lt;div&gt;</code>, and the canvas draws that one element through a window cut in the panel, moved so that the chosen line is in
-      the middle. The select is never painted: its hit region is put over the window, so tapping the blind opens the browser's own list.</p>
+    <p>The roller blind in the front window of a bus, and the original is a scroll area, so this one is a native scroller: a 150 px box
+      with a line for each stop and <code>scroll-snap-type: y mandatory</code>. The canvas draws that element's own picture, which already
+      holds its scroll position, so dragging the blind, flinging it, the snap at the end and the arrow keys are all the browser's. The
+      chosen stop is the snapped line, and the element reports it to the form.</p>
     <form class="stage" style="--w:360;--h:300">
       <!-- #region blind-html -->
-      <blind-select name="stop">
+      <blind-roll name="stop">
         <option value="quay" data-number="1" selected>Harbour quay</option>
         <option value="market" data-number="2">Market street</option>
         <option value="hospital" data-number="3">Hospital gate</option>
         <option value="works" data-number="4">Gasworks lane</option>
         <option value="depot" data-number="5">Depot</option>
-      </blind-select>
+      </blind-roll>
       <!-- #endregion blind-html -->
     </form>
     <output class="line"></output>
@@ -169,7 +175,7 @@
       <summary>Show the code <small>one tall element drawn through a window</small></summary>
       <ol>
         <li data-code="#blind-html"><b>The options are the data.</b> <code>data-number</code> is the stop number printed on the blind.</li>
-        <li data-code="/lib/ui-feed/flaps.js#blind-select"><b>The element.</b> The blind is drawn with <code>multiply</code> on a yellow fill, so the ink takes the colour of the lit window.</li>
+        <li data-code="/lib/ui-feed/flaps.js#blind-roll"><b>The element.</b> One <code>drawElementImage()</code> of the scroller. Each line is <code>mix-blend-mode: multiply</code> over the lit yellow, so the ink takes the colour of the window.</li>
         <li data-code="/lib/ui-feed/kit.js#put"><b>Drawing and hit regions.</b> <code>hit()</code> places an element without painting it.</li>
       </ol>
     </details>
@@ -260,9 +266,11 @@
     <li><b>Half an element's picture, squashed, is enough for a flap.</b> Two clipped draws for the still halves and a third inside a
       <code>scale(1, k)</code> for the moving one. Swapping the element's <code>textContent</code> at the halfway point is what makes the old
       number fall and the new one rise, and the swap costs one extra paint.</li>
-    <li><b>An element drawn through a window keeps the hit region of its whole box.</b> The blind is 360 CSS pixels tall drawn into a
-      150 pixel window, and the part of it outside the window is still hit where it was drawn, outside the window too. That is why the
-      <code>&lt;select&gt;</code> is placed with <code>hit()</code> last: the last draw wins where regions overlap.</li>
+    <li><b>A native scroller inside a drawable canvas is scrolled through the canvas.</b> A wheel over the place the canvas drew the
+      blind scrolled the element inside it, the snap settled it on a line (<code>scrollTop</code> 216 for the fourth of five 72 px lines),
+      and each scroll raised a <code>paint</code> event, so the drawing kept up without a frame loop. The control reads
+      <code>scrollTop</code> for the stop and reports it with <code>ElementInternals</code>, because a scroll area has no value of its
+      own.</li>
     <li><b>Only a <code>drawable</code> element can be passed to <code>drawElementImage()</code>.</b> Chromium 157 throws
       <q>Descendants passed to DrawElementImage must have the 'drawable' attribute</q> for anything else, which is why the lift's two call
       buttons are drawn as the one <code>&lt;nav&gt;</code> that holds them rather than one at a time. The base class puts the attribute on
@@ -279,15 +287,14 @@
       measured the pages that way at first, and every frame fed that number back as the next draw's size: the card grew by a factor of about
       2.6 a frame until it saturated at nine times its real size. <code>offsetTop</code>, <code>offsetLeft</code> and
       <code>offsetWidth</code> report the layout and are not affected, so the slice is measured with those.</li>
-    <li><b>A <code>&lt;select&gt;</code> that is never painted still works.</b> The blind's select has <code>opacity: 0</code>, is placed
-      with <code>hit()</code> over the window, and <code>change</code> still fires and still reaches the form through
-      <code>ElementInternals</code>.</li>
+    <li><b>The content of a drawn scroller is hit at the place the picture put it.</b> The middle of the drawn window answers the
+      <code>&lt;span&gt;</code> of the line that is showing there, not the scroller and not the canvas.</li>
     <li><b>Rebuilding the numbered buttons on every page change loses focus,</b> because the focused button is removed. The riffle control
       remembers which button had focus and puts it back after it writes the new <code>&lt;nav&gt;</code>, falling back to the current page's
       button when the old one is gone.</li>
     <li><b>Not verified:</b> everything on a phone. Whether tapping the blind opens the native select picker on Chrome on Android, whether
-      the flap turn holds 60 frames a second there, and whether dragging across a card scrolls the page rather than being taken by the
-      canvas (it sets <code>touch-action: manipulation</code>).</li>
+      the flap turn holds 60 frames a second there, and whether a finger drags the blind itself rather than the page. A mouse wheel
+      scrolls it in the test browser, but a touch drag on a scroller inside a drawable canvas has not been tried on a phone.</li>
   </ul>
 </main>
 <script type="module">
@@ -383,34 +390,35 @@
       },
     },
     {
-      name: 'The blind is the select: a tap on the window hits it, and the stops come from the light DOM',
-      why: 'The select has opacity 0 and is placed with hit() over the window. The options are the element’s own <option> children, copied into it.',
+      name: 'The line showing in the window is what the window answers, and the stops come from the light DOM',
+      why: 'The blind is a native scroller drawn by the canvas. The middle of the drawn window must answer the content of the line that is showing there, which is how a finger reaches it.',
       run: async () => {
-        const { el, form, done } = await make(`<blind-select name="stop"><option value="quay" data-number="1" selected>Harbour quay</option><option value="market" data-number="2">Market street</option><option value="depot" data-number="3">Depot</option></blind-select>`);
+        const { el, form, done } = await make(`<blind-roll name="stop"><option value="quay" data-number="1" selected>Harbour quay</option><option value="market" data-number="2">Market street</option><option value="depot" data-number="3">Depot</option></blind-roll>`);
         try {
-          const got = inside(el, 180, 120);
-          if (got?.localName !== 'select') throw new Error(`the middle of the window answered ${got?.localName}`);
-          const lines = el.$$('.roll div').length;
-          if (lines !== 3) throw new Error(`${lines} lines on the blind`);
+          const got = inside(el, 180, 123);
+          const line = got?.closest?.('.roll > div');
+          if (!line) throw new Error(`the middle of the window answered ${got?.localName ?? 'nothing'}`);
+          const lines = el.$$('.roll div');
+          if (lines.length !== 3) throw new Error(`${lines.length} lines on the blind`);
           if (data(form) !== 'stop=quay') throw new Error(`form data ${data(form)}`);
-          return `The window answered <select>, with ${lines} lines on the blind and ${el.$$('option').length} options copied from the light DOM. The form has ${data(form)}.`;
+          return `The window answered the text of line ${lines.indexOf(line) + 1} of ${lines.length}, built from the element’s own <option> children. The form has ${data(form)}.`;
         } finally { done(); }
       },
     },
     {
-      name: 'The blind rolls to the chosen stop, and the step buttons change it',
-      why: 'The blind is drawn once, moved so that the chosen line is in the middle. The spring must settle on the index, and the window must look different after the roll.',
+      name: 'Scrolling the blind changes the window and the form value',
+      why: 'The step buttons call scrollTo() on the scroller. The scroll has to reach the drawn picture, because the picture is the element’s own, and the snapped line has to become the form value.',
       run: async () => {
-        const { el, form, done } = await make(`<blind-select name="stop"><option value="quay" data-number="1" selected>Harbour quay</option><option value="market" data-number="2">Market street</option><option value="depot" data-number="3">Depot</option></blind-select>`);
+        const { el, form, done } = await make(`<blind-roll name="stop"><option value="quay" data-number="1" selected>Harbour quay</option><option value="market" data-number="2">Market street</option><option value="depot" data-number="3">Depot</option></blind-roll>`);
         try {
           await settle(el, 10);
           const before = patch(el, 20, 48, 320, 150), was = data(form);
           el.$$('.step')[1].click();
-          await settle(el);
+          await settle(el, 60);
           const change = far(patch(el, 20, 48, 320, 150), before);
-          if (el.value !== 'market' || Math.abs(el.pos.x - 1) > 0.01) throw new Error(`value ${el.value}, the blind sits at ${el.pos.x.toFixed(3)}`);
+          if (el.value !== 'market' || el.win.scrollTop !== 72) throw new Error(`value ${el.value}, scrollTop ${el.win.scrollTop}`);
           if (change < 600) throw new Error(`the window hardly changed: difference ${change} over 288 samples`);
-          return `${was} became ${data(form)}, the blind settled on line ${el.pos.x.toFixed(2)}, and the window changed by ${change} over 288 samples of it.`;
+          return `${was} became ${data(form)}, scrollTop settled on ${el.win.scrollTop} of a 72 px line, and the window changed by ${change} over 288 samples of it.`;
         } finally { done(); }
       },
     },

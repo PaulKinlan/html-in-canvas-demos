@@ -131,6 +131,11 @@
     a control could keep its own CSS and its own behaviour and still end up as an LED board, with no <code>getImageData()</code>. Tap, type
     and use the arrow keys on any of them.
   </p>
+  <p class="credit">
+    Credit: every control on this page is a rebuild of a demo on <a href="https://ui-feed.dev/">ui-feed.dev</a>, and each section links to
+    the original it came from. I worked from the published demos rather than their source: I looked at what each one does, worked out the
+    mechanism and built it again around a native form control drawn by a canvas. The designs and the ideas behind them are theirs.
+  </p>
   <nav class="jump" aria-label="Demos on this page">
     <a href="#cinema">Cinema showings</a><a href="#departures">Station departures</a><a href="#counter">LED message counter</a>
     <a href="#stars">Flip-dot stars</a><a href="#vcr">VCR timer</a><a href="#teletext">Teletext</a>
@@ -138,9 +143,10 @@
 
   <section class="idea" id="cinema">
     <h2>Cinema showings</h2>
-    <p>A single-choice list on an LED board. The rows are <code>&lt;label&gt;</code>s around radio inputs, built from the <code>&lt;option&gt;</code>
-      children. The chosen row is inverted by a <code>:has(:checked)</code> rule, and the sold-out showing is a disabled radio.</p>
-    <form class="stage" style="--w:360;--h:380">
+    <p>A native <code>&lt;select size="5"&gt;</code>, which is the listbox the platform already has, drawn as an LED board. The rows, the
+      selection highlight, the arrow keys, type-ahead and the scrolling are the browser's. The rows are built from the element's
+      <code>&lt;option&gt;</code> children, and the sold-out showing is a disabled option.</p>
+    <form class="stage" style="--w:360;--h:270">
       <!-- #region cinema-html -->
       <led-listbox name="showing">
         <option value="19:20" data-time="7:20" data-meta="Screen 2  1h47" data-note="Last 6" selected>Glass Orchard</option>
@@ -157,7 +163,7 @@
       <summary>Show the code <small>the markup, the element and the dot board</small></summary>
       <ol>
         <li data-code="#cinema-html"><b>The options are the data.</b> The element reads its <code>&lt;option&gt;</code> children and watches them for changes.</li>
-        <li data-code="/lib/ui-feed/dots.js#led-listbox"><b>The element.</b> Radio inputs styled with CSS, one <code>dotBoard()</code> call, then an invisible draw that puts the list's hit region over the board.</li>
+        <li data-code="/lib/ui-feed/dots.js#led-listbox"><b>The element.</b> One <code>&lt;select size&gt;</code> styled with CSS, one <code>dotBoard()</code> call, then an invisible draw that puts the list's hit region over the board.</li>
         <li data-code="/lib/ui-feed/kit.js#dots"><b>The dot board.</b> A reduced draw, a copy to a plain canvas, and an enlarged draw through a mask.</li>
         <li data-code="/lib/ui-feed/kit.js#base"><b>The base class.</b> The shadow root, the canvas, the paint loop, the form value and the plain HTML fallback.</li>
       </ol>
@@ -381,13 +387,14 @@
 
   runTests(document.getElementById('tests'), [
     {
-      name: 'A row of the list is hit where the board shows it',
-      why: 'The list is drawn reduced in a corner of the canvas, then given a hit region over the board by a draw with no alpha. The check asks the shadow root which element is at the middle of each row.',
+      name: 'Each row of the native listbox is hit where the board shows it',
+      why: 'The <select size="5"> is drawn reduced in a corner of the canvas, then given a hit region over the board by a draw with no alpha. The check asks the shadow root which element is at the middle of each row: each one must be that row\'s own <option>.',
       run: async () => {
         const { el } = await make(LIST);
-        const got = [0, 1, 2].map((i) => { const e = at(el, 180, 8 + 4 + 68 * i + 34); return e?.closest?.('label')?.querySelector('input')?.value ?? e?.value ?? e?.localName; });
-        if (got.join() !== 'a,b,c') throw new Error(`rows answered ${got.join()}`);
-        return `The three rows answered ${got.join(', ')}.`;
+        const rows = el.rows();
+        const got = rows.map((r) => { const e = at(el, 180, r.y); return `${e?.localName}:${e?.value ?? ''}`; });
+        if (got.join(' ') !== 'option:a option:b option:c') throw new Error(`the rows answered ${got.join(' ')}`);
+        return `The three rows, drawn ${rows.map((r) => Math.round(r.y)).join(', ')} down the board, answered ${got.join(', ')}.`;
       },
     },
     {
@@ -399,7 +406,7 @@
         const copy = document.createElement('canvas'); copy.width = el.canvas.width; copy.height = el.canvas.height;
         const c = copy.getContext('2d'); c.drawImage(el.canvas, 0, 0);
         const cell = b.cell * px, x0 = Math.round(b.ox * px), y0 = Math.round(b.oy * px);
-        const col = 2, row = Math.round((4 + 68 + 3) / b.cell);        // the padding of the second, checked row
+        const col = 2, row = Math.round((el.rows()[1].y - b.oy) / b.cell);        // the middle of the second, selected row
         const mid = c.getImageData(x0 + Math.floor((col + 0.5) * cell), y0 + Math.floor((row + 0.5) * cell), 1, 1).data;
         const gap = c.getImageData(x0 + col * cell, y0 + row * cell, 1, 1).data;
         if (!(mid[0] - gap[0] > 80)) throw new Error(`middle ${mid[0]}, corner ${gap[0]}`);
@@ -407,15 +414,17 @@
       },
     },
     {
-      name: 'A click on a row checks its radio, and the form gets the value',
-      why: 'The value is set with ElementInternals.setFormValue(). The check clicks the radio the hit test returns and reads FormData of the form around the control.',
+      name: 'Choosing a row in the listbox puts its value in the form',
+      why: 'The selection is the browser\'s own, and the value reaches the form through ElementInternals.setFormValue(). A synthetic click cannot drive a native listbox, so the check sets the selection and fires change, the way the browser does; a real click on the drawn board was measured separately with a mouse.',
       run: async () => {
         const { el, form } = await make(LIST);
         const before = data(form);
-        at(el, 180, 8 + 4 + 68 * 2 + 34).closest('label').querySelector('input').click();
+        const row = at(el, 180, el.rows()[2].y);
+        el.list.value = row.value;
+        el.list.dispatchEvent(new Event('change', { bubbles: true }));
         await painted(el);
         if (data(form) !== 'showing=c') throw new Error(`form data ${data(form)}`);
-        return `Before: ${before}. After: ${data(form)}.`;
+        return `Before: ${before}. The third row of the board is <option value="${row.value}">, and choosing it gives ${data(form)}.`;
       },
     },
     {
@@ -493,10 +502,11 @@
         const { el, form } = await make(LIST);
         el.canvas.dispatchEvent(new Event('contextlost'));
         await tick(1700);
-        const radios = el.shadowRoot.querySelectorAll('.plain input[type=radio]').length;
-        if (!el.plain || radios !== 3 || el.shadowRoot.querySelector('canvas')) throw new Error(`plain ${el.plain}, radios ${radios}`);
-        el.shadowRoot.querySelector('input[value=c]').click();
-        return `After 1.5 s the canvas was gone and ${radios} radios were in a plain box. A click still gave ${data(form)}.`;
+        const rows = el.shadowRoot.querySelectorAll('.plain select option').length;
+        if (!el.plain || rows !== 3 || el.shadowRoot.querySelector('canvas')) throw new Error(`plain ${el.plain}, rows ${rows}`);
+        el.list.value = 'c';
+        el.list.dispatchEvent(new Event('change', { bubbles: true }));
+        return `After 1.5 s the canvas was gone and the listbox was in a plain box with ${rows} rows. Choosing one still gave ${data(form)}.`;
       },
     },
   ]);

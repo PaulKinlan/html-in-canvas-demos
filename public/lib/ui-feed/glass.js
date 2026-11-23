@@ -252,10 +252,74 @@ export function wavelengthRGB(nm) {
 const hex = ([r, g, b]) => '#' + [r, g, b].map((v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join('');
 // #endregion spectrum
 
+// #region prism-optics
+// A ray traced through a glass prism. The index of the glass is Cauchy's formula, n = A + B / lambda squared,
+// so each wavelength bends by its own amount: that is the whole of the dispersion.
+export const indexOf = (nm) => 1.598 + 11200 / (nm * nm);
+
+const dot = (a, b) => a.x * b.x + a.y * b.y;
+const norm = (v) => { const l = Math.hypot(v.x, v.y) || 1; return { x: v.x / l, y: v.y / l }; };
+const reflectD = (d, n) => ({ x: d.x - 2 * dot(d, n) * n.x, y: d.y - 2 * dot(d, n) * n.y });
+
+// Snell's law as vectors. eta is n1 / n2. Null means the angle is past the critical one.
+function refract(d, n, eta) {
+  const cosi = -dot(d, n);
+  const k = 1 - eta * eta * (1 - cosi * cosi);
+  if (k < 0) return null;
+  const c2 = Math.sqrt(k);
+  return norm({ x: eta * d.x + (eta * cosi - c2) * n.x, y: eta * d.y + (eta * cosi - c2) * n.y });
+}
+
+// The nearest edge of the polygon that the ray meets, with the normal turned to face the ray.
+function hitPoly(o, d, poly, eps = 0.001) {
+  let best = null;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    const ex = b.x - a.x, ey = b.y - a.y;
+    const den = d.x * ey - d.y * ex;
+    if (Math.abs(den) < 1e-9) continue;
+    const t = ((a.x - o.x) * ey - (a.y - o.y) * ex) / den;
+    const u = (d.x * (a.y - o.y) - d.y * (a.x - o.x)) / -den;
+    if (t <= eps || u < 0 || u > 1) continue;
+    if (!best || t < best.t) {
+      let n = norm({ x: ey, y: -ex });
+      if (dot(n, d) > 0) n = { x: -n.x, y: -n.y };          // the normal faces the ray
+      best = { t, p: { x: o.x + d.x * t, y: o.y + d.y * t }, n };
+    }
+  }
+  return best;
+}
+
+// One ray of one wavelength: in through the first face, through the glass, out of another, with any number
+// of total internal reflections on the way. Returns the path and the ray that leaves, if one does.
+export function traceRay(o, d, poly, n) {
+  const first = hitPoly(o, d, poly);
+  if (!first) return null;
+  const path = [o, first.p];
+  let dir = refract(d, first.n, 1 / n);
+  if (!dir) return { path, exit: null };
+  let at = first.p;
+  for (let bounce = 0; bounce < 6; bounce++) {
+    const next = hitPoly(at, dir, poly);
+    if (!next) break;
+    path.push(next.p);
+    const out = refract(dir, next.n, n);
+    if (out) return { path, exit: { p: next.p, d: out } };
+    dir = reflectD(dir, next.n);                             // past the critical angle: it stays inside
+    at = next.p;
+  }
+  return { path, exit: null };
+}
+// #endregion prism-optics
+
 // #region prism-picker
+// Three native ranges: the wavelength to pick, a hue shift on the colour it gives, and the angle the prism
+// is turned to. The picture is a real trace: 61 wavelengths through the glass, each at its own index.
 export class PrismPicker extends FeedControl {
-  static size = [360, 360];
-  static html = `<input type="range" min="380" max="700" step="1" aria-label="Wavelength in nanometres">
+  static size = [360, 336];
+  static html = `<input type="range" class="nm" min="380" max="700" step="1" aria-label="Wavelength in nanometres">
+    <input type="range" class="hue" min="-180" max="180" step="1" aria-label="Hue shift in degrees">
+    <input type="range" class="angle" min="0" max="90" step="1" aria-label="Angle of the prism in degrees">
     <input type="color" class="swatch" aria-label="Colour"><output class="read"></output>`;
   static css = `
     input[type=range] { width: 300px; height: 44px; margin: 0; background: transparent; touch-action: pan-y; }
@@ -263,89 +327,160 @@ export class PrismPicker extends FeedControl {
     .swatch { width: 28px; height: 28px; padding: 0; border: 1px solid #555; border-radius: 4px; background: none; }
     .swatch::-webkit-color-swatch-wrapper { padding: 0; }
     .swatch::-webkit-color-swatch { border: 0; }
-    .read { display: grid; grid-template-columns: 1fr auto auto; gap: 1px 10px; width: 300px; user-select: none;
-      color: #c9ccd4; font: 13px system-ui, sans-serif; }
-    .read b { font-weight: 400; color: #8d929c; }
-    .read i { font-style: normal; color: #fff; text-align: right; font-variant-numeric: tabular-nums; }
-    .read u { text-decoration: none; color: #6a6f79; width: 22px; }`;
+    .read { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); color: #000; }`;
 
   ready() {
-    this.range = this.$('input[type=range]'); this.swatch = this.$('.swatch'); this.read = this.$('.read');
-    this.range.value = this.getAttribute('wavelength') ?? 459;
-    this.range.addEventListener('input', () => { this.sync(); this.dispatchEvent(new Event('input', { bubbles: true })); });
+    this.nmRange = this.$('.nm'); this.hueRange = this.$('.hue'); this.angleRange = this.$('.angle');
+    this.swatch = this.$('.swatch'); this.read = this.$('.read');
+    this.range = this.nmRange;                                   // the wavelength is the main control
+    this.nmRange.value = this.getAttribute('wavelength') ?? 459;
+    this.hueRange.value = this.getAttribute('hue') ?? 0;
+    this.angleRange.value = this.getAttribute('angle') ?? 18;
+    for (const r of [this.nmRange, this.hueRange, this.angleRange]) {
+      r.addEventListener('input', () => { this.sync(); this.dispatchEvent(new Event('input', { bubbles: true })); });
+    }
     this.swatch.addEventListener('input', () => { this.setValue(this.swatch.value); this.request(); });
     this.sync();
   }
   get value() { return this.swatch.value; }
-  get nm() { return +this.range.value; }
+  get nm() { return +this.nmRange.value; }
+  get shift() { return +this.hueRange.value; }
+  get angle() { return +this.angleRange.value; }
+  // The colour of the chosen wavelength, turned around the hue circle by the second range.
+  colour() {
+    const [r, g, b] = wavelengthRGB(this.nm);
+    if (!this.shift) return [r, g, b];
+    const hsb = rgbToHsb(hex([r, g, b]));
+    return hsbToRgb((hsb[0] + this.shift + 360) % 360, hsb[1], hsb[2]);
+  }
   sync() {
-    const nm = this.nm, rgb = wavelengthRGB(nm);
+    const rgb = this.colour();
     this.swatch.value = hex(rgb);
-    const hue = Math.round((Math.atan2(Math.sqrt(3) * (rgb[1] - rgb[2]), 2 * rgb[0] - rgb[1] - rgb[2]) * 180) / Math.PI + 360) % 360;
-    this.read.innerHTML = `<b>Wavelength</b><i>${nm}</i><u>nm</u><b>Hue</b><i>${hue}</i><u>°</u><b>Angle</b><i>${(41 + (700 - nm) / 64).toFixed(1)}</i><u>°</u>`;
+    this.read.textContent = `${this.nm} nm, hue shifted ${this.shift} degrees, prism at ${this.angle} degrees: ${this.swatch.value}`;
     this.setValue(this.swatch.value);
     this.request();
   }
+  // The prism, as a triangle turned by the angle range.
+  prism() {
+    // Vertex 0 points up at an angle of nothing: the apex of the classic prism, which bends the light down.
+    const cx = 126, cy = 84, R = 62, a = (this.angle * Math.PI) / 180 - Math.PI / 2;
+    return [0, 1, 2].map((i) => ({ x: cx + Math.cos(a + (i * TAU) / 3) * R, y: cy + Math.sin(a + (i * TAU) / 3) * R }));
+  }
+
   draw(ctx, w, h) {
     ctx.fillStyle = '#07070a';
     ctx.fillRect(0, 0, w, h);
-    const nm = this.nm, rgb = wavelengthRGB(nm);
-    // the beam in, the prism, and the fan out
-    const inX = 10, inY = 96, apex = { x: 196, y: 54 }, left = { x: 150, y: 142 }, right = { x: 250, y: 142 };
-    const entry = { x: lerp(apex.x, left.x, 0.55), y: lerp(apex.y, left.y, 0.55) };
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-    ctx.shadowColor = '#fff9'; ctx.shadowBlur = 12;
-    ctx.beginPath(); ctx.moveTo(inX, inY); ctx.lineTo(entry.x, entry.y); ctx.stroke();
-    // inside the glass each wavelength travels at its own angle, so the chosen one has its own path
-    const exit = { x: lerp(apex.x, right.x, 0.62), y: lerp(apex.y, right.y, 0.62) };
-    ctx.strokeStyle = `rgba(${rgb.join(',')},0.9)`;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.moveTo(entry.x, entry.y); ctx.lineTo(exit.x, exit.y); ctx.stroke();
-    ctx.shadowBlur = 0;
+    const poly = this.prism(), nm = this.nm, rgb = this.colour();
+    const o = { x: -40, y: 84 }, d = { x: 1, y: 0 };
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, w, 196); ctx.clip();        // the scene, so no ray crosses the controls
+
+    // the beam coming in, as far as the glass
+    const first = traceRay(o, d, poly, indexOf(nm));
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i <= 64; i++) {
-      const t = i / 64, nmi = lerp(380, 700, t), c = wavelengthRGB(nmi);
-      const a = lerp(0.52, 0.16, Math.abs(t - 0.5) * 2);
-      const ang = lerp(0.62, 0.3, t);
-      ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${a})`;
-      ctx.lineWidth = 7;
-      ctx.beginPath(); ctx.moveTo(exit.x, exit.y);
-      ctx.lineTo(exit.x + Math.cos(ang) * 240, exit.y + Math.sin(ang) * 240);
-      ctx.stroke();
+    if (first) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2.5;
+      ctx.shadowColor = 'rgba(255,255,255,0.6)'; ctx.shadowBlur = 14;
+      ctx.beginPath(); ctx.moveTo(0, o.y); ctx.lineTo(first.path[1].x, first.path[1].y); ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // the fan: one ray for each wavelength, each with its own index, drawn where it leaves the glass
+    let mark = null;
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60, nmi = lerp(380, 700, t), c = wavelengthRGB(nmi);
+      const ray = traceRay(o, d, poly, indexOf(nmi));
+      if (!ray) continue;
+      ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},0.5)`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      for (let k = 1; k < ray.path.length; k++) ctx[k === 1 ? 'moveTo' : 'lineTo'](ray.path[k].x, ray.path[k].y);
+      if (ray.path.length > 2) ctx.stroke();                     // the path inside the glass
+      if (!ray.exit) continue;
+      const e = ray.exit;
+      ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},0.42)`;
+      ctx.lineWidth = 2.6;
+      ctx.beginPath(); ctx.moveTo(e.p.x, e.p.y); ctx.lineTo(e.p.x + e.d.x * 300, e.p.y + e.d.y * 300); ctx.stroke();
+      if (Math.abs(nmi - nm) < 320 / 60) mark = e;
+    }
+
+    // the chosen wavelength, brighter, over the fan
+    const own = traceRay(o, d, poly, indexOf(nm));
+    if (own?.exit) {
+      const e = own.exit;
+      ctx.strokeStyle = `rgb(${rgb.join(',')})`;
+      ctx.lineWidth = 3; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.moveTo(e.p.x, e.p.y); ctx.lineTo(e.p.x + e.d.x * 320, e.p.y + e.d.y * 320); ctx.stroke();
+      ctx.shadowBlur = 0;
+      mark = e;
     }
     ctx.restore();
-    // the prism, over the fan
-    ctx.save();
-    ctx.beginPath(); ctx.moveTo(apex.x, apex.y); ctx.lineTo(left.x, left.y); ctx.lineTo(right.x, right.y); ctx.closePath();
-    const gl = ctx.createLinearGradient(left.x, apex.y, right.x, right.y);
-    gl.addColorStop(0, 'rgba(255,255,255,0.16)'); gl.addColorStop(0.5, 'rgba(255,255,255,0.05)'); gl.addColorStop(1, 'rgba(255,255,255,0.2)');
-    ctx.fillStyle = gl; ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.restore();
-    // the chosen wavelength: one bright ray, and a mark on the spectrum bar
-    const ang = lerp(0.62, 0.3, (nm - 380) / 320);
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = `rgb(${rgb.join(',')})`;
-    ctx.lineWidth = 3; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 16;
-    ctx.beginPath(); ctx.moveTo(exit.x, exit.y); ctx.lineTo(exit.x + Math.cos(ang) * 250, exit.y + Math.sin(ang) * 250); ctx.stroke();
-    ctx.restore();
 
-    const bar = { x: 30, y: 258, w: 300, h: 14 };
+    // where the chosen ray leaves the scene
+    if (mark) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = `rgb(${rgb.join(',')})`;
+      // The nearest edge of the scene the ray reaches, which depends on the way it is going: a ray
+      // leaving upwards meets y = 4, one leaving downwards meets y = 192.
+      const ks = [[4 - mark.p.y, mark.d.y], [192 - mark.p.y, mark.d.y], [4 - mark.p.x, mark.d.x], [356 - mark.p.x, mark.d.x]]
+        .filter(([n, dd]) => Math.abs(dd) > 1e-6 && n / dd > 0).map(([n, dd]) => n / dd);
+      const k = ks.length ? Math.min(...ks) : 0;
+      ctx.beginPath(); ctx.arc(mark.p.x + mark.d.x * k, mark.p.y + mark.d.y * k, 5, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+
+    // the glass itself, over the rays
+    ctx.save();
+    ctx.beginPath();
+    poly.forEach((p, i) => ctx[i ? 'lineTo' : 'moveTo'](p.x, p.y));
+    ctx.closePath();
+    const g = ctx.createLinearGradient(poly[0].x, poly[0].y, poly[2].x, poly[2].y);
+    g.addColorStop(0, 'rgba(214,226,238,0.26)'); g.addColorStop(0.5, 'rgba(255,255,255,0.07)'); g.addColorStop(1, 'rgba(214,226,238,0.3)');
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+    ctx.restore();                                              // the scene clip
+    if (!own?.exit) {
+      ctx.fillStyle = '#9aa0ab';
+      ctx.font = '13px system-ui, sans-serif';
+      ctx.fillText('Past the critical angle: the light stays in the glass.', 18, 188);
+    }
+
+    // the three tracks. The ranges themselves are never painted, only placed.
+    const bar = { x: 30, y: 222, w: 300, h: 14 };
     for (let i = 0; i < bar.w; i++) {
       const c = wavelengthRGB(lerp(380, 700, i / bar.w));
       ctx.fillStyle = `rgb(${c.join(',')})`;
       ctx.fillRect(bar.x + i, bar.y, 1.2, bar.h);
     }
-    // the <input type="range"> over the bar: the browser's own thumb and track are not drawn
-    hit(ctx, this.range, bar.x, bar.y - 15, bar.w, 44);
+    hit(ctx, this.nmRange, bar.x, bar.y - 15, bar.w, 44);
     const tx = bar.x + ((nm - 380) / 320) * bar.w;
     ctx.fillStyle = '#fff';
     rr(ctx, tx - 2, bar.y - 8, 4, bar.h + 16, 2); ctx.fill();
-    if (this.range.matches(':focus-visible')) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeRect(bar.x - 4, bar.y - 12, bar.w + 8, bar.h + 24); ctx.setLineDash([]); }
-    put(ctx, this.read, 30, 290);
-    put(ctx, this.swatch, 302, 226);
+    if (this.nmRange.matches(':focus-visible')) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeRect(bar.x - 4, bar.y - 12, bar.w + 8, bar.h + 24); ctx.setLineDash([]); }
+
+    const track = (y, range, frac, fill) => {
+      ctx.fillStyle = '#23242a';
+      rr(ctx, 30, y, 300, 8, 4); ctx.fill();
+      ctx.fillStyle = fill;
+      rr(ctx, 30, y, Math.max(8, 300 * frac), 8, 4); ctx.fill();
+      hit(ctx, range, 30, y - 18, 300, 44);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(30 + 300 * frac, y + 4, 7, 0, TAU); ctx.fill();
+      if (range.matches(':focus-visible')) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeRect(26, y - 8, 308, 24); ctx.setLineDash([]); }
+    };
+    ctx.font = '13px system-ui, sans-serif';
+    ctx.fillStyle = '#8d929c';
+    ctx.fillText(`Wavelength ${nm} nm`, 30, 214);
+    ctx.fillText(`Hue shift ${this.shift > 0 ? '+' : ''}${this.shift}°`, 30, 258);
+    track(266, this.hueRange, (this.shift + 180) / 360, `rgb(${rgb.join(',')})`);
+    ctx.fillStyle = '#8d929c';
+    ctx.fillText(`Prism at ${this.angle}°`, 30, 300);
+    track(308, this.angleRange, this.angle / 90, '#6f7682');
+
+    put(ctx, this.swatch, 302, 196);
     return false;
   }
 }

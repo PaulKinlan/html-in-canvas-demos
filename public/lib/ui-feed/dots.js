@@ -11,26 +11,21 @@
 import { FeedControl, put, hit, dotBoard, options, esc, clamp, lerp, rr, TAU, reduced } from './kit.js';
 
 // #region led-listbox
+// The original is a listbox, so this one is a native <select size>: the rows, the selection highlight, the
+// arrow keys, type-ahead and the scrolling are all the browser's. The canvas draws it as an LED board.
 export class LedListbox extends FeedControl {
-  static size = [360, 380];
-  static html = `<div class="list" role="radiogroup"></div>`;
+  static size = [360, 270];
+  static html = `<select size="5" aria-label="Showing"></select>`;
   static css = `
-    .list { width: 344px; padding: 0; color: #d9dde6; font: 700 20px/1 ui-monospace, 'DejaVu Sans Mono', Menlo, monospace; text-transform: uppercase; }
-    label { display: grid; grid-template-columns: 92px 1fr; grid-template-rows: 30px 26px; column-gap: 8px; height: 68px; padding: 6px 4px; box-sizing: border-box; border-bottom: 4px solid #3a3f4a; position: relative; }
-    input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; }
-    .t { grid-row: 1 / 3; font: 700 44px/56px 'Arial Narrow', 'Liberation Sans Narrow', Arial, sans-serif; letter-spacing: -1px; }
-    .n { font-size: 22px; line-height: 28px; white-space: nowrap; overflow: hidden; }
-    .m { font-size: 16px; line-height: 24px; display: flex; justify-content: space-between; color: #9aa1af; }
-    .m b { color: inherit; }
-    label:has(:checked) { background: #c9ced8; color: #111; }
-    label:has(:checked) .m { color: #333; }
-    label:has(:disabled) { color: #4a4f5a; }
-    label:has(:disabled) .m { color: #4a4f5a; }
-    label:has(:disabled) .m b { color: #ff4a3d; }
-    label:has(:focus-visible) { box-shadow: inset 0 0 0 4px #ffd24a; }`;
+    select { width: 344px; height: 246px; padding: 0; border: 0; outline: 0; overflow: hidden;
+      background: #08090b; color: #d9dde6; font: 700 19px/1.2 ui-monospace, 'DejaVu Sans Mono', Menlo, monospace;
+      text-transform: uppercase; }
+    option { padding: 11px 8px; border-bottom: 4px solid #3a3f4a; background: #08090b; color: #d9dde6; }
+    option:checked { background: #c9ced8; color: #0a0b0e; }
+    option:disabled { color: #4a4f5a; }`;
 
   ready() {
-    this.list = this.$('.list');
+    this.list = this.$('select');
     this.sync();
     new MutationObserver(() => this.sync()).observe(this, { childList: true, subtree: true, characterData: true, attributes: true });
     this.list.addEventListener('change', () => {
@@ -39,12 +34,22 @@ export class LedListbox extends FeedControl {
       this.dispatchEvent(new Event('change', { bubbles: true }));
     });
   }
-  get value() { return this.list.querySelector(':checked')?.value ?? ''; }
-  set value(v) { const r = this.$$('input').find((i) => i.value === String(v)); if (r) { r.checked = true; this.setValue(this.value); this.request(); } }
+  get value() { return this.list.value; }
+  set value(v) { this.list.value = String(v); this.setValue(this.value); this.request(); }
+  // Where each row is on the board, in the control's units. An <option> of a listbox reports offsetTop.
+  rows() {
+    const b = this.board ?? { oy: 8 };
+    return [...this.list.options].map((o) => ({ option: o, y: b.oy + 4 + this.slice(o, this.list).top + o.offsetHeight / 2 }));
+  }
+  // The rows are the author's <option> children. data-time, data-meta and data-note are padded into the
+  // option's own text, because an <option> holds text and not a layout.
   sync() {
-    const keep = this.list.querySelector(':checked')?.value;
-    this.list.innerHTML = options(this).map((o) => `<label><input type="radio" name="o" value="${esc(o.value)}"${o.disabled ? ' disabled' : ''}${(keep ?? (o.selected ? o.value : null)) === o.value ? ' checked' : ''}>
-      <span class="t">${esc(o.data.time ?? '')}</span><span class="n">${esc(o.label)}</span><span class="m"><span>${esc(o.data.meta ?? '')}</span><b>${esc(o.data.note ?? '')}</b></span></label>`).join('');
+    const keep = this.list.value, list = options(this);
+    this.list.innerHTML = list.map((o) => {
+      const text = `${(o.data.time ?? '').padEnd(6)}${o.label}`.padEnd(20).slice(0, 20) + (o.data.note || o.data.meta || '');
+      return `<option value="${esc(o.value)}"${o.disabled ? ' disabled' : ''}${o.selected ? ' selected' : ''}>${esc(text)}</option>`;
+    }).join('');
+    if (keep && [...this.list.options].some((o) => o.value === keep)) this.list.value = keep;
     this.setValue(this.value);
     this.request();
   }
