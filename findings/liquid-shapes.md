@@ -11,7 +11,7 @@ The page comes from the weekly search for interface work (`docs/ui-watch/2026-11
 | Two elements 8 px apart join through blur 8 and the threshold. One 32 px away stays apart | works | Live check: 0% ink in the near gap with no field, 100% with it, 0% in the far gap. |
 | Draw the elements a second time inside the joined outline | works | `globalCompositeOperation = 'source-atop'` clips `drawElementImage()` to what is already on the canvas. |
 | The label in the joined shape is the element's own picture | yes | Mean pixel difference from a plain draw of the label: 0.00 with the second draw, 19.12 for the field alone (out of 255). |
-| Hit testing after the field | follows the last draw | A button drawn 60 px from its layout place is returned by `elementFromPoint()` there and not at its layout place. A link that rose 72 px out of the dock takes a tap where it is drawn. |
+| Hit testing after the field | follows the last draw | A button drawn 60 px from its layout place is returned by `elementFromPoint()` there and not at its layout place. A dock link drawn above its layout place takes a tap where it is drawn. |
 | `<summary drawable>` and `<button drawable>` elements inside one `<details>` | draw one by one while it is open | Each can be drawn at a place and scale of the page's choosing. |
 | A button inside a closed `<details>` | throws | `InvalidStateError`: "No cached paint record for element". Same as `/accordion/`. The page cancels the click that would close the menu, runs the items back and then sets `open = false`. |
 | Keyboard | works | Enter on the summary opens and closes, Tab reaches the items while they are open, Enter on an item chooses it, Escape closes and returns focus to the summary. Enter on a dock link makes it current. Space presses the button. |
@@ -23,11 +23,18 @@ The page comes from the weekly search for interface work (`docs/ui-watch/2026-11
 
 ## Things that bit
 
+- I named the wrapper inside each canvas `in`. The "About this experiment" box that `shared/learn.js` adds uses the same class for its body, so my `display: flex` rule laid its paragraphs out as five columns. Paul's screenshot on 2026-11-23 showed it at desktop width, where the box starts open. I had only looked at phone width, where it starts closed. The wrapper is now `pool`. Look at a new page at both widths.
 - I gave the canvases the class `stage`. `shared/style.css` has a `.stage` rule with 12 px of padding. `mount()` takes the scale from `canvas.width / canvas.clientWidth`, and `clientWidth` includes padding while the drawing buffer doesn't, so everything was drawn 6% small and the hit boxes were 12 px away from the pictures. Taps on the dock went to the wrong link. A drawable canvas that uses `mount()` must have no padding.
 - The threshold removes thin things. A focus ring outside an element's box, 2 px wide, is gone after the cut, and `source-atop` then clips the second draw of it. The rings on this page are inside the pills (`outline-offset: -5px`).
 - A check that sampled a 20 px column between two round-ended pills found 63% ink: the neck between two round ends is narrower than the pills. The check now samples 6 px at the centre line.
 - Later menu items pass the earlier ones on their way out. Drawn in document order they covered the items already in place, so they are drawn last item first.
 - A spring with 16% overshoot sent the last menu item past the bottom of the canvas. The menu uses more damping than the button and the dock.
+
+## Changed after review (2026-11-23)
+
+- The current dock link used to sit above the bar as a detached drop. Paul: "the home icon is just sitting out there doing nothing". It is now a bulge on the bar in the accent colour. A tap sends the link up as a drop for 0.4 s and it falls back and joins.
+- The menu had no sign of what was pressed. `:active` now darkens a pill, `details[open]` darkens the summary and turns its arrow, and the item chosen last keeps a tick and the menu waits 0.3 s before it closes. These are CSS on the elements. The canvas redraws because a style change raises `paint`.
+- Each demo has its own "Show the code" listing directly under it. The first version had one listing after all three demos and the controls.
 
 ## Not verified
 
