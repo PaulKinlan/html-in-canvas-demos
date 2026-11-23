@@ -42,6 +42,10 @@ Changing a page doesn't make it new in a reader. Its item gets the new text and 
 
 On 2026-11-23 the feed had 157 items and was 1.6 MB, 418 KB compressed. Most of that is the results tables. If the file gets too large for readers, the first thing to cut is those tables for pages older than a few months, in `item()` in `tools/feed/site-build.mjs`.
 
+## The second feed, for demos by other people
+
+When `public/elsewhere/entries.json` exists, the same build step writes `public/elsewhere/feed.xml` (not committed) from it. The file holds `{ "updated", "entries": [{ id, kind, title, by, url, via: { name, url }, made, added, what, note, here }] }`. An item links to the entry's `url`, its date is `added`, its text is `what` and `note`, and its id is `https://html-in-canvas.page/elsewhere/#<id>`, so keep `id` the same once an entry is published. An entry without an `id`, a `title` or an http `url` is skipped and counted in the build's output. The page that shows the list names this feed with its own `<link rel="alternate">` in its `<head>`, outside the generated block.
+
 ## Where it is linked
 
 - Every page that has a `page.json` has `<link rel="alternate" type="application/rss+xml">` in its generated `<head>` block, so a browser or reader finds the feed from any page. See [social-metadata.md](social-metadata.md).
