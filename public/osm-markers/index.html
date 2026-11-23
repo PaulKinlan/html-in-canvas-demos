@@ -1,0 +1,2250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Tilted OpenStreetMap with zero-drift HTML markers and PNG export</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A tilted 3D OpenStreetMap canvas with extruded landmark towers and four live HTML place cards.">
+<link rel="canonical" href="https://html-in-canvas.page/osm-markers/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Tilted OpenStreetMap with zero-drift HTML markers and PNG export">
+<meta property="og:description" content="A tilted 3D OpenStreetMap canvas with extruded landmark towers and four live HTML place cards.">
+<meta property="og:url" content="https://html-in-canvas.page/osm-markers/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Tilted OpenStreetMap with zero-drift HTML markers and PNG export&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Tilted OpenStreetMap with zero-drift HTML markers and PNG export">
+<meta name="twitter:description" content="A tilted 3D OpenStreetMap canvas with extruded landmark towers and four live HTML place cards.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Tilted OpenStreetMap with zero-drift HTML markers and PNG export&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/osm-markers/",
+   "url": "https://html-in-canvas.page/osm-markers/",
+   "mainEntityOfPage": "https://html-in-canvas.page/osm-markers/",
+   "headline": "Tilted OpenStreetMap with zero-drift HTML markers and PNG export",
+   "name": "Tilted OpenStreetMap with zero-drift HTML markers and PNG export",
+   "description": "A tilted 3D OpenStreetMap canvas with extruded landmark towers and four live HTML place cards. Drag to pan, rotate or pitch the map, tab across pins, toggle 3D building occlusion, and export a single PNG holding both map tiles and DOM cards.",
+   "abstract": "Can a tilted 3D OpenStreetMap canvas render live interactive, keyboard-accessible HTML place cards with zero pan/zoom drift, 3D landmark depth occlusion, and one-click PNG export that includes both map tiles and DOM overlays?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "WebGL 2, texElementSubImage2D, updateElementGeometry, ElementGL, OpenStreetMap, texElementSubImage2D\u0028), updateElementGeometry\u0028), drawElementImage\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Tilted OpenStreetMap with zero-drift HTML markers and PNG export",
+     "item": "https://html-in-canvas.page/osm-markers/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 960px; }
+  .map-stage {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+    height: min(520px, 68svh);
+    min-height: 330px;
+    background: #d8e1ea;
+    touch-action: none;
+  }
+  .map-stage canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: grab;
+  }
+  .map-stage canvas.dragging { cursor: grabbing; }
+  .map-stage.fallback {
+    height: auto;
+    min-height: 0;
+    padding: 12px;
+    background: var(--card);
+    touch-action: auto;
+  }
+  .map-stage.fallback canvas {
+    height: min(320px, 46svh);
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+  .fallback-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+    gap: 10px;
+  }
+  .fallback-grid[hidden] { display: none; }
+
+  /* Live drawable place cards: fixed dark palette so textures read clearly over bright OSM tiles in light and dark mode. */
+  .place-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 186px;
+    padding: 8px 9px 9px;
+    border-radius: 10px;
+    border: 1.5px solid #8eb8d4;
+    background: linear-gradient(165deg, #132230f5 0%, #0d1823f7 100%);
+    color: #eef5fa;
+    font: 12px/1.32 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    box-sizing: border-box;
+    user-select: text;
+  }
+  .place-card.active {
+    border-color: #ff8c5a;
+    background: linear-gradient(165deg, #1d2d3ef8 0%, #101d2bf9 100%);
+  }
+  .fallback-grid .place-card {
+    position: static;
+    width: auto;
+  }
+  .card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 5px;
+  }
+  .card-title {
+    font-weight: 700;
+    font-size: 12.5px;
+    letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+  .card-cat {
+    font: 600 10px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: #ffffff1a;
+    color: #9de0d1;
+    white-space: nowrap;
+  }
+  .card-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .place-card button,
+  .place-card select {
+    font: 600 10.5px system-ui, -apple-system, sans-serif;
+    padding: 3px 5px;
+    border-radius: 5px;
+    border: 1px solid #6b8ba3;
+    background: #1d3245;
+    color: #f3f8fc;
+    min-height: 26px;
+    cursor: pointer;
+  }
+  .place-card button:hover,
+  .place-card select:hover { border-color: #ff9c6e; background: #26425b; }
+  .place-card button:focus-visible,
+  .place-card select:focus-visible,
+  .place-card input:focus-visible {
+    outline: 2px solid #ff7a4d;
+    outline-offset: 1px;
+    border-color: #ff7a4d;
+  }
+  .place-card .save-btn[aria-pressed="true"] {
+    background: #8a3519;
+    border-color: #ff9c6e;
+    color: #fff6f2;
+  }
+  .place-card .focus-btn { flex: 0 0 auto; }
+  .place-card .save-btn { flex: 1 1 auto; }
+  .place-card .tag-sel { flex: 0 0 auto; max-width: 68px; }
+  .card-note-wrap { display: block; }
+  .card-note-wrap span {
+    display: block;
+    font: 600 9.5px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #9bb7ca;
+    margin-bottom: 2px;
+  }
+  .card-note {
+    width: 100%;
+    font: 11px/1.3 system-ui, -apple-system, sans-serif;
+    padding: 4px 6px;
+    border-radius: 5px;
+    border: 1px solid #537188;
+    background: #091119;
+    color: #f3f8fc;
+    min-height: 26px;
+  }
+  .card-foot {
+    margin-top: 4px;
+    font: 9.5px var(--mono);
+    color: #96b3c7;
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .map-hud {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #0c141dd9;
+    border: 1px solid #ffffff26;
+    color: #e2edf5;
+    font: 11px var(--mono);
+    pointer-events: none;
+    max-width: calc(100% - 200px);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .osm-credit {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    padding: 3px 7px;
+    border-radius: 5px;
+    background: #ffffffeb;
+    border: 1px solid #00000024;
+    color: #1f2937;
+    font: 11px/1.3 system-ui, -apple-system, sans-serif;
+    z-index: 5;
+  }
+  .osm-credit a { color: #164e87; text-decoration: none; font-weight: 600; }
+  .osm-credit a:hover { text-decoration: underline; }
+
+  .controls { margin: 12px 0 8px; gap: 10px 12px; }
+  .controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+  }
+  .controls input[type="range"] { width: 110px; accent-color: var(--accent); }
+  .controls input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); }
+  .controls output { font: 12.5px var(--mono); min-width: 3.2em; color: var(--muted); }
+  .btn-group { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .btn-group button,
+  .controls > button { min-height: 36px; }
+  .btn-group button[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  #export-btn {
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+
+  .export-box {
+    margin: 10px 0 12px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .export-box[hidden] { display: none; }
+  .export-box img {
+    display: block;
+    width: min(280px, 100%);
+    height: auto;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: #d8e1ea;
+  }
+  .export-info {
+    flex: 1 1 220px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .export-meta { font: 12.5px var(--mono); color: var(--muted); }
+  .export-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .export-actions a {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .export-actions a:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
+  #notice {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+  }
+  #notice[hidden] { display: none; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; margin: 6px 0 12px; }
+  @media (max-width: 520px) {
+    .place-card { width: 168px; padding: 7px 8px 8px; }
+    .controls input[type="range"] { width: 88px; }
+    .map-hud { max-width: calc(100% - 170px); font-size: 10px; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Tilted OpenStreetMap with zero-drift HTML markers and PNG export</h1>
+  <p class="lede">
+    I wanted to know if a tilted 3D OpenStreetMap canvas could hold live HTML place cards with zero pan or zoom drift, real 3D building occlusion, keyboard Tab navigation and one-click PNG export.
+    Drag the map to pan, right-drag (or use two fingers) to rotate, tilt the pitch slider, press Tab to step across pins, or export the whole scene into one PNG.
+  </p>
+
+  <div class="stage map-stage" id="stage">
+    <!-- #region markup -->
+    <canvas id="map" content="drawable" layoutsubtree aria-label="Tilted 3D OpenStreetMap with extruded landmark buildings and four live HTML place cards">
+      <article class="place-card active" id="place-0" data-slot="0" drawable>
+        <div class="card-head"><span class="card-title">Waterloo Station</span><span class="card-cat">Transit</span></div>
+        <div class="card-actions">
+          <button type="button" class="focus-btn" data-slot="0">Focus</button>
+          <button type="button" class="save-btn" data-slot="0" aria-pressed="false">Bookmark</button>
+          <select class="tag-sel" data-slot="0" aria-label="Waterloo Station tag">
+            <option value="Visit" selected>Visit</option>
+            <option value="Transit">Transit</option>
+            <option value="Coffee">Coffee</option>
+            <option value="Photo">Photo</option>
+          </select>
+        </div>
+        <label class="card-note-wrap"><span>Visit note</span><input type="text" class="card-note" data-slot="0" value="Main concourse clock" aria-label="Waterloo Station visit note"></label>
+        <div class="card-foot"><span class="card-coords">51.5031, -0.1132</span><span class="card-state">Visit</span></div>
+      </article>
+
+      <article class="place-card" id="place-1" data-slot="1" drawable>
+        <div class="card-head"><span class="card-title">Tate Modern</span><span class="card-cat">Culture</span></div>
+        <div class="card-actions">
+          <button type="button" class="focus-btn" data-slot="1">Focus</button>
+          <button type="button" class="save-btn" data-slot="1" aria-pressed="false">Bookmark</button>
+          <select class="tag-sel" data-slot="1" aria-label="Tate Modern tag">
+            <option value="Visit" selected>Visit</option>
+            <option value="Transit">Transit</option>
+            <option value="Coffee">Coffee</option>
+            <option value="Photo">Photo</option>
+          </select>
+        </div>
+        <label class="card-note-wrap"><span>Visit note</span><input type="text" class="card-note" data-slot="1" value="Turbine Hall east ramp" aria-label="Tate Modern visit note"></label>
+        <div class="card-foot"><span class="card-coords">51.5076, -0.0994</span><span class="card-state">Visit</span></div>
+      </article>
+
+      <article class="place-card" id="place-2" data-slot="2" drawable>
+        <div class="card-head"><span class="card-title">Borough Market</span><span class="card-cat">Food</span></div>
+        <div class="card-actions">
+          <button type="button" class="focus-btn" data-slot="2">Focus</button>
+          <button type="button" class="save-btn" data-slot="2" aria-pressed="false">Bookmark</button>
+          <select class="tag-sel" data-slot="2" aria-label="Borough Market tag">
+            <option value="Visit" selected>Visit</option>
+            <option value="Transit">Transit</option>
+            <option value="Coffee">Coffee</option>
+            <option value="Photo">Photo</option>
+          </select>
+        </div>
+        <label class="card-note-wrap"><span>Visit note</span><input type="text" class="card-note" data-slot="2" value="Green Market stalls" aria-label="Borough Market visit note"></label>
+        <div class="card-foot"><span class="card-coords">51.5055, -0.0910</span><span class="card-state">Visit</span></div>
+      </article>
+
+      <article class="place-card" id="place-3" data-slot="3" drawable>
+        <div class="card-head"><span class="card-title">Westminster Pier</span><span class="card-cat">River</span></div>
+        <div class="card-actions">
+          <button type="button" class="focus-btn" data-slot="3">Focus</button>
+          <button type="button" class="save-btn" data-slot="3" aria-pressed="false">Bookmark</button>
+          <select class="tag-sel" data-slot="3" aria-label="Westminster Pier tag">
+            <option value="Visit" selected>Visit</option>
+            <option value="Transit">Transit</option>
+            <option value="Coffee">Coffee</option>
+            <option value="Photo">Photo</option>
+          </select>
+        </div>
+        <label class="card-note-wrap"><span>Visit note</span><input type="text" class="card-note" data-slot="3" value="Thames Clipper berth" aria-label="Westminster Pier visit note"></label>
+        <div class="card-foot"><span class="card-coords">51.5015, -0.1235</span><span class="card-state">Visit</span></div>
+      </article>
+    </canvas>
+    <!-- #endregion markup -->
+    <div class="map-hud" id="hud">WebGL 2 map</div>
+    <div class="osm-credit">Map data <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a></div>
+    <div class="fallback-grid" id="fallback-grid" hidden></div>
+  </div>
+
+  <div class="row controls">
+    <span class="btn-group" role="group" aria-label="Jump to city">
+      <button type="button" data-city="london" aria-pressed="true">London</button>
+      <button type="button" data-city="tokyo" aria-pressed="false">Tokyo</button>
+      <button type="button" data-city="sf" aria-pressed="false">San Francisco</button>
+    </span>
+    <span class="btn-group" role="group" aria-label="Zoom">
+      <button type="button" id="zoom-out" aria-label="Zoom out">-</button>
+      <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+    </span>
+    <label>Bearing <input id="bearing" type="range" min="-180" max="180" value="-22"><output id="bearing-out">-22°</output></label>
+    <label>Pitch <input id="pitch" type="range" min="0" max="62" value="50"><output id="pitch-out">50°</output></label>
+    <label><input id="occlusion" type="checkbox" checked> 3D building occlusion</label>
+    <button type="button" id="export-btn">Export PNG (map + HTML pins)</button>
+  </div>
+
+  <div class="export-box" id="export-box" hidden>
+    <img id="export-img" alt="Exported PNG showing the tilted OpenStreetMap canvas and HTML place cards">
+    <div class="export-info">
+      <strong>Exported PNG preview</strong>
+      <span class="export-meta" id="export-meta"></span>
+      <div class="export-actions">
+        <a id="export-dl" download="osm-markers-london.png" href="#">Download PNG</a>
+        <button type="button" id="export-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <p id="notice" hidden role="status"></p>
+  <p id="status" role="status">Drag to pan, right-drag or two-finger twist to rotate, wheel or pinch to zoom, or press Tab to step across place cards.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>OpenStreetMap tile atlas, 3D building extrusions, depth-occluded DOM cards and PNG export</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Four place cards inside the canvas.</b> Each landmark card is a <code>drawable</code> child of <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> with buttons, a tag <code>&lt;select&gt;</code> and an editable visit note <code>&lt;input&gt;</code>.</li>
+      <li data-code="#tiles"><b>OpenStreetMap tile cache and offline atlas.</b> A plain offscreen 2D canvas draws a procedural street-and-river base and composites cached <code>crossOrigin = 'anonymous'</code> tiles from <code>tile.openstreetmap.org</code> before uploading one texture to WebGL 2.</li>
+      <li data-code="#buildings"><b>3D extruded landmark buildings and shaders.</b> Shaded prisms sit at real city coordinates and write to the depth buffer so tilting and rotating the map hides pins behind taller towers.</li>
+      <li data-code="#paint"><b>One WebGL 2 pass with depth occlusion and hit boxes.</b> Ground tiles, buildings, pin stems and <code>ElementGL</code> cards share one camera matrix, then <code>updateElementGeometry()</code> and <code>geometryUnit()</code> sync every card's hit box.</li>
+      <li data-code="#export"><b>Tap-triggered PNG export.</b> On click, the page draws a fresh frame, copies the canvas into a plain 2D canvas with <code>drawImage()</code>, adds attribution, calls <code>toDataURL('image/png')</code> and retires the temporary canvas.</li>
+      <li data-code="/lib/element-gl.js#upload"><b>Texture upload in <code>element-gl.js</code>.</b> <code>texElementSubImage2D()</code> copies each card into a texture sized to <code>getElementImageDefaultSize()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Web maps usually pick between two awkward marker models.
+    Libraries like Leaflet (<code>L.divIcon</code>) and MapLibre GL (<code>maplibregl.Marker</code>) float HTML pins in a sibling DOM layer above the canvas, which keeps forms and keyboard Tab focus working, though pins can lag behind the GPU camera during fast pans or pitches, can't be occluded by 3D buildings, and disappear when you call <code>canvas.toDataURL()</code>.
+    Moving markers into a WebGL symbol layer fixes drift and export, yet gives up real inputs, buttons and Tab order.
+  </p>
+  <p>
+    Here I put four live HTML place cards inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> and render everything through a single <code>ElementGL</code> WebGL 2 context, building on the shared-context pattern from <a href="/relief-map/">/relief-map/</a> and the projective hit-test matrix from <a href="/three-form/">/three-form/</a>.
+    OpenStreetMap raster tiles (<code>https://tile.openstreetmap.org/{z}/{x}/{y}.png</code>, © OpenStreetMap contributors) load with <code>img.crossOrigin = 'anonymous'</code> into an in-memory cache and composite onto one plain 1,280 by 1,280 offscreen 2D canvas.
+    While tiles arrive (or if you're offline), that atlas draws a procedural street grid, parks and river geometry for London, Tokyo and San Francisco so the ground plane is never blank.
+  </p>
+  <p>
+    On each <code>paint</code> event, the ground quad, the extruded 3D landmark buildings, the pin stems and the four uploaded DOM cards all project through the same view-projection matrix derived from Web Mercator coordinates.
+    Because <code>ElementGL</code> transforms each card quad with that matrix, leaving <code>DEPTH_TEST</code> enabled makes the GPU depth buffer occlude cards pixel-by-pixel behind closer 3D towers; unchecking "3D building occlusion" disables depth testing before the card pass so cards float in front.
+    After drawing each card, <code>updateElementGeometry()</code> receives the element-to-canvas projective matrix scaled by <code>geometryUnit()</code>, and toggles <code>data-hit-tick</code> whenever the matrix changes to clear Chromium's hit-test cache.
+  </p>
+  <p>
+    Pressing Tab steps natively through every button, select and note input inside the canvas; a <code>focusin</code> listener highlights that card's stem and smoothly pans the map so the focused pin moves into view.
+    Clicking "Export PNG" draws a fresh frame, copies the canvas into a plain 2D canvas with <code>drawImage()</code>, stamps the OpenStreetMap credit, generates a PNG data URL and retires the copy canvas immediately.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These checks run on isolated fixtures in a hidden corner stage and retire their canvases after each row, leaving the map above untouched.</p>
+  <table class="results">
+    <thead><tr><th>Result</th><th>Check</th><th>Detail</th></tr></thead>
+    <tbody id="tests"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Drawing the tilted tile plane, 3D building prisms, pin stems and <code>ElementGL</code> DOM quads through one view-projection matrix eliminates marker pan/zoom lag because both map geometry and card textures commit in the same WebGL 2 frame.</li>
+    <li>Because <code>ElementGL</code>'s vertex shader outputs <code>uMatrix * vec4(aPos, 0.0, 1.0)</code> directly into clip space, keeping <code>DEPTH_TEST</code> on with <code>depthMask(false)</code> during back-to-front card drawing gives true pixel-accurate occlusion behind 3D buildings without modifying <code>element-gl.js</code>.</li>
+    <li>Loading OpenStreetMap tiles with <code>crossOrigin = 'anonymous'</code> into a plain offscreen 2D atlas canvas keeps the WebGL texture untainted, so copying the composited frame to a plain 2D canvas on tap exports map tiles, 3D buildings and live HTML cards into one PNG.</li>
+    <li>Credits: map imagery and attribution come from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>; the marker trade-off draws on Leaflet (<code>L.divIcon</code>) and MapLibre GL (<code>maplibregl.Marker</code>); the single-context <code>ElementGL</code> and projective hit-test setup builds on <a href="/relief-map/">/relief-map/</a> and <a href="/three-form/">/three-form/</a>.</li>
+    <li>Not verified yet: live browser runs in headless Chromium 157 and on Chrome 159 for Android (412 px touch pan, two-finger twist and pinch zoom, live CORS OpenStreetMap tile fetch, keyboard Tab traversal across <code>drawable</code> pins, and tap PNG export). Running the live checks above and testing on a device will verify those paths.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+  import { geometryUnit, program as compileProgram } from '/lib/surface.js';
+  import { banner, supported as canvas2dSupported, runTests, testStage, nextPaint } from '/shared/support.js';
+
+  banner();
+
+  const stageBox = document.getElementById('stage');
+  const canvas = document.getElementById('map');
+  const hud = document.getElementById('hud');
+  const notice = document.getElementById('notice');
+  const statusEl = document.getElementById('status');
+  const fallbackGrid = document.getElementById('fallback-grid');
+  const bearingSlider = document.getElementById('bearing');
+  const bearingOut = document.getElementById('bearing-out');
+  const pitchSlider = document.getElementById('pitch');
+  const pitchOut = document.getElementById('pitch-out');
+  const occlusionCheck = document.getElementById('occlusion');
+  const zoomInBtn = document.getElementById('zoom-in');
+  const zoomOutBtn = document.getElementById('zoom-out');
+  const exportBtn = document.getElementById('export-btn');
+  const exportBox = document.getElementById('export-box');
+  const exportImg = document.getElementById('export-img');
+  const exportMeta = document.getElementById('export-meta');
+  const exportDl = document.getElementById('export-dl');
+  const exportClose = document.getElementById('export-close');
+  const cityBtns = [...document.querySelectorAll('[data-city]')];
+  const cardEls = [0, 1, 2, 3].map((i) => document.getElementById(`place-${i}`));
+
+  // ------------------------------------------------------------------ cities
+  const CITIES = {
+    london: {
+      name: 'London',
+      lat: 51.5050,
+      lon: -0.1072,
+      zoom: 14.4,
+      bearing: -22,
+      pitch: 50,
+      places: [
+        { name: 'Waterloo Station', cat: 'Transit', lat: 51.5031, lon: -0.1132, tag: 'Transit', note: 'Main concourse clock', saved: false },
+        { name: 'Tate Modern',      cat: 'Culture', lat: 51.5076, lon: -0.0994, tag: 'Visit',   note: 'Turbine Hall east ramp', saved: false },
+        { name: 'Borough Market',   cat: 'Food',    lat: 51.5055, lon: -0.0910, tag: 'Coffee',  note: 'Green Market stalls', saved: false },
+        { name: 'Westminster Pier', cat: 'River',   lat: 51.5015, lon: -0.1235, tag: 'Photo',   note: 'Thames Clipper berth', saved: false },
+      ],
+      buildings: [
+        { name: 'The Shard',        lat: 51.5045, lon: -0.0865, w: 66,  d: 66,  h: 310, angle: 12,  colour: [0.58, 0.72, 0.84] },
+        { name: 'One Blackfriars',  lat: 51.5077, lon: -0.1046, w: 56,  d: 52,  h: 210, angle: 8,   colour: [0.64, 0.74, 0.82] },
+        { name: 'Southbank Place',  lat: 51.5038, lon: -0.1162, w: 72,  d: 58,  h: 185, angle: -18, colour: [0.73, 0.74, 0.72] },
+        { name: 'OXO Tower',        lat: 51.5082, lon: -0.1085, w: 54,  d: 44,  h: 140, angle: -4,  colour: [0.76, 0.68, 0.60] },
+        { name: 'County Hall',      lat: 51.5019, lon: -0.1190, w: 96,  d: 56,  h: 130, angle: -24, colour: [0.80, 0.78, 0.72] },
+        { name: 'St Pauls Dome',    lat: 51.5138, lon: -0.0984, w: 88,  d: 68,  h: 160, angle: 4,   colour: [0.82, 0.80, 0.75] },
+        { name: '20 Fenchurch',     lat: 51.5112, lon: -0.0836, w: 68,  d: 62,  h: 220, angle: 10,  colour: [0.56, 0.68, 0.78] },
+        { name: 'Elizabeth Tower',  lat: 51.5007, lon: -0.1246, w: 46,  d: 46,  h: 165, angle: -8,  colour: [0.78, 0.72, 0.60] },
+      ],
+      water: [
+        // River Thames polyline (wide stroke for offline fallback)
+        [[51.494, -0.126], [51.501, -0.123], [51.506, -0.118], [51.509, -0.111], [51.510, -0.102], [51.509, -0.092], [51.506, -0.081], [51.504, -0.070]],
+      ],
+      parks: [
+        { lat: 51.5030, lon: -0.1320, rLat: 0.0024, rLon: 0.0055 },
+        { lat: 51.5042, lon: -0.1186, rLat: 0.0014, rLon: 0.0020 },
+        { lat: 51.4986, lon: -0.1070, rLat: 0.0018, rLon: 0.0028 },
+      ],
+    },
+    tokyo: {
+      name: 'Tokyo',
+      lat: 35.6780,
+      lon: 139.7605,
+      zoom: 14.5,
+      bearing: 22,
+      pitch: 50,
+      places: [
+        { name: 'Tokyo Station',       cat: 'Transit', lat: 35.6812, lon: 139.7671, tag: 'Transit', note: 'Marunouchi red brick facade', saved: false },
+        { name: 'Imperial East Gate',  cat: 'Park',    lat: 35.6852, lon: 139.7545, tag: 'Photo',   note: 'Ote-mon stone wall', saved: false },
+        { name: 'Ginza Crossing',      cat: 'Culture', lat: 35.6717, lon: 139.7649, tag: 'Coffee',  note: 'Wako clock corner', saved: false },
+        { name: 'Hibiya Park',         cat: 'Park',    lat: 35.6743, lon: 139.7563, tag: 'Visit',   note: 'Fountain plaza bench', saved: false },
+      ],
+      buildings: [
+        { name: 'Marunouchi Bldg',   lat: 35.6810, lon: 139.7638, w: 68, d: 62, h: 215, angle: 12,  colour: [0.64, 0.72, 0.80] },
+        { name: 'Shin-Marunouchi',   lat: 35.6826, lon: 139.7644, w: 66, d: 60, h: 225, angle: 12,  colour: [0.60, 0.68, 0.78] },
+        { name: 'Midtown Hibiya',    lat: 35.6736, lon: 139.7592, w: 68, d: 58, h: 230, angle: 18,  colour: [0.68, 0.73, 0.78] },
+        { name: 'GranTokyo North',   lat: 35.6824, lon: 139.7689, w: 62, d: 54, h: 240, angle: 12,  colour: [0.58, 0.70, 0.82] },
+        { name: 'JP Tower',          lat: 35.6795, lon: 139.7648, w: 64, d: 58, h: 220, angle: 12,  colour: [0.76, 0.76, 0.74] },
+        { name: 'Otemachi Tower',    lat: 35.6865, lon: 139.7654, w: 64, d: 58, h: 235, angle: 10,  colour: [0.62, 0.74, 0.82] },
+        { name: 'Ginza Six',         lat: 35.6696, lon: 139.7640, w: 78, d: 64, h: 140, angle: 34,  colour: [0.78, 0.75, 0.70] },
+      ],
+      water: [
+        [[35.690, 139.756], [35.684, 139.759], [35.678, 139.759], [35.675, 139.754], [35.682, 139.749], [35.690, 139.756]],
+        [[35.662, 139.776], [35.672, 139.782], [35.684, 139.786]],
+      ],
+      parks: [
+        { lat: 35.6850, lon: 139.7525, rLat: 0.0042, rLon: 0.0052 },
+        { lat: 35.6742, lon: 139.7562, rLat: 0.0022, rLon: 0.0022 },
+      ],
+    },
+    sf: {
+      name: 'San Francisco',
+      lat: 37.7912,
+      lon: -122.4002,
+      zoom: 14.6,
+      bearing: -26,
+      pitch: 50,
+      places: [
+        { name: 'Ferry Building',      cat: 'Food',    lat: 37.7955, lon: -122.3937, tag: 'Coffee',  note: 'Bayfront farmers market', saved: false },
+        { name: 'Salesforce Park',     cat: 'Park',    lat: 37.7897, lon: -122.3969, tag: 'Visit',   note: 'Rooftop gondola entry', saved: false },
+        { name: 'Portsmouth Square',   cat: 'Culture', lat: 37.7942, lon: -122.4050, tag: 'Photo',   note: 'Chinatown footbridge', saved: false },
+        { name: 'Yerba Buena Gardens', cat: 'Park',    lat: 37.7854, lon: -122.4024, tag: 'Visit',   note: 'Esplanade waterfall', saved: false },
+      ],
+      buildings: [
+        { name: 'Salesforce Tower',   lat: 37.7897, lon: -122.3969, w: 60, d: 60, h: 335, angle: 44,  colour: [0.56, 0.72, 0.85] },
+        { name: 'Transamerica',       lat: 37.7952, lon: -122.4028, w: 58, d: 58, h: 270, angle: 8,   colour: [0.80, 0.81, 0.82] },
+        { name: '555 California',     lat: 37.7923, lon: -122.4038, w: 68, d: 56, h: 245, angle: 8,   colour: [0.64, 0.56, 0.54] },
+        { name: 'Embarcadero 4',      lat: 37.7949, lon: -122.3965, w: 72, d: 48, h: 190, angle: 8,   colour: [0.74, 0.75, 0.74] },
+        { name: 'Millennium Tower',   lat: 37.7905, lon: -122.3961, w: 54, d: 54, h: 215, angle: 44,  colour: [0.60, 0.70, 0.78] },
+        { name: '181 Fremont',        lat: 37.7896, lon: -122.3953, w: 50, d: 50, h: 250, angle: 44,  colour: [0.64, 0.74, 0.82] },
+        { name: 'One Market Plaza',   lat: 37.7941, lon: -122.3951, w: 68, d: 58, h: 185, angle: 44,  colour: [0.76, 0.72, 0.68] },
+      ],
+      water: [
+        [[37.804, -122.398], [37.796, -122.391], [37.786, -122.386], [37.778, -122.385]],
+      ],
+      parks: [
+        { lat: 37.7854, lon: -122.4024, rLat: 0.0018, rLon: 0.0024 },
+        { lat: 37.7942, lon: -122.4050, rLat: 0.0011, rLon: 0.0014 },
+        { lat: 37.7958, lon: -122.3952, rLat: 0.0012, rLon: 0.0018 },
+      ],
+    },
+  };
+
+  // #region tiles
+  const TILE_SIZE = 256;
+  const ATLAS_TILES = 5;
+  const ATLAS_PX = TILE_SIZE * ATLAS_TILES; // 1280 x 1280 (~1.64 MP, well under the 4 MP limit)
+
+  function latLonToMercator(lat, lon, zoom) {
+    const n = TILE_SIZE * Math.pow(2, zoom);
+    const x = ((lon + 180) / 360) * n;
+    const clamped = Math.max(-85.0511, Math.min(85.0511, lat));
+    const rad = (clamped * Math.PI) / 180;
+    const y = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n;
+    return [x, y];
+  }
+
+  function mercatorToLatLon(mx, my, zoom) {
+    const n = TILE_SIZE * Math.pow(2, zoom);
+    const lon = (mx / n) * 360 - 180;
+    const t = Math.PI * (1 - (2 * my) / n);
+    const lat = (Math.atan(Math.sinh(t)) * 180) / Math.PI;
+    return [lat, lon];
+  }
+
+  function metresPerUnit(lat, zoom) {
+    return ((156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom)) * TILE_SIZE;
+  }
+
+  function latLonToLocal(lat, lon, camState) {
+    const [cx, cy] = latLonToMercator(camState.lat, camState.lon, camState.zoom);
+    const [mx, my] = latLonToMercator(lat, lon, camState.zoom);
+    return [(mx - cx) / TILE_SIZE, (my - cy) / TILE_SIZE];
+  }
+
+  // Plain offscreen 2D tile atlas (never drawable, no willReadFrequently).
+  const atlasCanvas = document.createElement('canvas');
+  atlasCanvas.width = ATLAS_PX;
+  atlasCanvas.height = ATLAS_PX;
+  const atlasCtx = atlasCanvas.getContext('2d');
+  const tileCache = new Map();
+  const atlasState = { z: -1, x0: 0, y0: 0, dirty: true, cityKey: 'london', liveTiles: 0 };
+  let tileBatchTimer = 0;
+
+  function scheduleTileRepaint() {
+    if (tileBatchTimer) return;
+    tileBatchTimer = setTimeout(() => {
+      tileBatchTimer = 0;
+      atlasState.dirty = true;
+      requestDraw();
+    }, 65);
+  }
+
+  function drawProceduralTile(ctx, ox, oy, tileZ, tx, ty, city) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ox, oy, TILE_SIZE, TILE_SIZE);
+    ctx.clip();
+
+    // Base OSM-style cartographic land colour.
+    ctx.fillStyle = '#f2efe9';
+    ctx.fillRect(ox, oy, TILE_SIZE, TILE_SIZE);
+
+    // Subtle city blocks and street grid deterministic per tile.
+    ctx.fillStyle = '#e5e0d6';
+    for (let gy = 8; gy < TILE_SIZE; gy += 32) {
+      for (let gx = 8; gx < TILE_SIZE; gx += 32) {
+        const h = ((tx * 73 + ty * 37 + gx * 11 + gy * 17) & 15) / 15;
+        if (h > 0.25) ctx.fillRect(ox + gx, oy + gy, 20, 20);
+      }
+    }
+
+    // Parks projected into this tile's pixel coordinates.
+    ctx.fillStyle = '#cdebb0';
+    for (const p of city.parks) {
+      const [px, py] = latLonToMercator(p.lat, p.lon, tileZ);
+      const [px2, py2] = latLonToMercator(p.lat + p.rLat, p.lon + p.rLon, tileZ);
+      const lx = ox + (px - tx * TILE_SIZE);
+      const ly = oy + (py - ty * TILE_SIZE);
+      const rx = Math.max(10, Math.abs(px2 - px));
+      const ry = Math.max(10, Math.abs(py2 - py));
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Minor roads and primary arterials.
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let k = 0; k <= TILE_SIZE; k += 32) {
+      ctx.moveTo(ox + k, oy);
+      ctx.lineTo(ox + k, oy + TILE_SIZE);
+      ctx.moveTo(ox, oy + k);
+      ctx.lineTo(ox + TILE_SIZE, oy + k);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = '#f8d58b';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    const majorX = ((tx * 53) & 3) * 64 + 32;
+    const majorY = ((ty * 41) & 3) * 64 + 32;
+    ctx.moveTo(ox + majorX, oy);
+    ctx.lineTo(ox + majorX, oy + TILE_SIZE);
+    ctx.moveTo(ox, oy + majorY);
+    ctx.lineTo(ox + TILE_SIZE, oy + majorY);
+    ctx.stroke();
+
+    // City river / bay polyline in OSM water blue.
+    ctx.strokeStyle = '#89bdd1';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const line of city.water) {
+      ctx.lineWidth = 36;
+      ctx.beginPath();
+      line.forEach(([lat, lon], idx) => {
+        const [mx, my] = latLonToMercator(lat, lon, tileZ);
+        const lx = ox + (mx - tx * TILE_SIZE);
+        const ly = oy + (my - ty * TILE_SIZE);
+        if (idx === 0) ctx.moveTo(lx, ly);
+        else ctx.lineTo(lx, ly);
+      });
+      ctx.stroke();
+      ctx.strokeStyle = '#aad3df';
+      ctx.lineWidth = 31;
+      ctx.stroke();
+      ctx.strokeStyle = '#89bdd1';
+    }
+
+    // Subtle tile seam grid so offline zooming still reads with scale cues.
+    ctx.strokeStyle = 'rgba(120, 114, 102, 0.14)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ox + 0.5, oy + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+    ctx.restore();
+  }
+
+  function requestOsmTile(tileZ, tx, ty) {
+    const key = `${tileZ}/${tx}/${ty}`;
+    const existing = tileCache.get(key);
+    if (existing) return existing;
+    const entry = { status: 'loading', img: null };
+    tileCache.set(key, entry);
+    // Keep cache bounded on long sessions.
+    if (tileCache.size > 160) {
+      const oldest = tileCache.keys().next().value;
+      tileCache.delete(oldest);
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.decoding = 'async';
+    img.onload = () => {
+      entry.status = 'loaded';
+      entry.img = img;
+      scheduleTileRepaint();
+    };
+    img.onerror = () => {
+      entry.status = 'error';
+    };
+    img.src = `https://tile.openstreetmap.org/${tileZ}/${tx}/${ty}.png`;
+    return entry;
+  }
+
+  function ensureTileAtlas(camState, cityKey, gl, mapTex) {
+    const tileZ = Math.max(12, Math.min(17, Math.round(camState.zoom)));
+    const [mx, my] = latLonToMercator(camState.lat, camState.lon, tileZ);
+    const maxTile = (1 << tileZ) - 1;
+    const cx = Math.floor(mx / TILE_SIZE);
+    const cy = Math.floor(my / TILE_SIZE);
+    const x0 = cx - Math.floor(ATLAS_TILES / 2);
+    const y0 = cy - Math.floor(ATLAS_TILES / 2);
+
+    if (atlasState.z !== tileZ || atlasState.x0 !== x0 || atlasState.y0 !== y0 || atlasState.cityKey !== cityKey) {
+      atlasState.z = tileZ;
+      atlasState.x0 = x0;
+      atlasState.y0 = y0;
+      atlasState.cityKey = cityKey;
+      atlasState.dirty = true;
+    }
+
+    if (atlasState.dirty) {
+      const city = CITIES[cityKey];
+      let live = 0;
+      for (let dy = 0; dy < ATLAS_TILES; dy++) {
+        for (let dx = 0; dx < ATLAS_TILES; dx++) {
+          const tx = ((x0 + dx) % (maxTile + 1) + (maxTile + 1)) % (maxTile + 1);
+          const ty = y0 + dy;
+          const ox = dx * TILE_SIZE;
+          const oy = dy * TILE_SIZE;
+          drawProceduralTile(atlasCtx, ox, oy, tileZ, tx, ty, city);
+          if (ty >= 0 && ty <= maxTile) {
+            const tile = requestOsmTile(tileZ, tx, ty);
+            if (tile.status === 'loaded' && tile.img?.complete && tile.img.naturalWidth > 0) {
+              atlasCtx.drawImage(tile.img, ox, oy, TILE_SIZE, TILE_SIZE);
+              live++;
+            }
+          }
+        }
+      }
+      atlasState.liveTiles = live;
+      if (gl && mapTex) {
+        gl.bindTexture(gl.TEXTURE_2D, mapTex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlasCanvas);
+        gl.generateMipmap(gl.TEXTURE_2D);
+      }
+      atlasState.dirty = false;
+    }
+    return atlasState;
+  }
+  // #endregion tiles
+
+  // #region buildings
+  const CARD_FRAGMENT = `#version 300 es
+  precision highp float;
+  precision highp int;
+  uniform sampler2D uTex;
+  uniform float uActive;
+  uniform float uFog;
+  in vec2 vUv;
+  out vec4 outColor;
+  void main() {
+    vec4 c = texture(uTex, vUv);
+    vec2 e = min(vUv, 1.0 - vUv) / max(fwidth(vUv), vec2(1e-5));
+    float edge = clamp(min(e.x, e.y), 0.0, 1.0);
+    float rim = (1.0 - smoothstep(0.0, 0.055, min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y)))) * uActive * 0.28 * c.a;
+    vec3 haze = vec3(0.84, 0.88, 0.92) * c.a;
+    vec3 col = mix(c.rgb + vec3(1.0, 0.52, 0.28) * rim, haze, clamp(uFog, 0.0, 0.20));
+    outColor = vec4(col, c.a) * edge;
+  }`;
+
+  const GROUND_VS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  layout(location = 0) in vec2 aUv;
+  uniform mat4 uVP;
+  uniform vec4 uAtlasBounds; // (wx0, wz0, wx1, wz1)
+  out vec2 vUv;
+  out vec3 vWorld;
+  void main() {
+    float wx = mix(uAtlasBounds.x, uAtlasBounds.z, aUv.x);
+    float wz = mix(uAtlasBounds.y, uAtlasBounds.w, aUv.y);
+    vUv = aUv;
+    vWorld = vec3(wx, 0.0, wz);
+    gl_Position = uVP * vec4(vWorld, 1.0);
+  }`;
+
+  const GROUND_FS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  uniform sampler2D uMapTex;
+  uniform vec3 uCamPos;
+  in vec2 vUv;
+  in vec3 vWorld;
+  out vec4 outColor;
+  void main() {
+    vec3 mapCol = texture(uMapTex, vUv).rgb;
+    float dist = length(uCamPos - vWorld);
+    float fog = smoothstep(3.8, 9.2, dist) * 0.62;
+    vec2 edge = min(vUv, 1.0 - vUv);
+    float edgeFade = 1.0 - smoothstep(0.0, 0.06, min(edge.x, edge.y));
+    vec3 sky = vec3(0.847, 0.882, 0.918);
+    vec3 col = mix(mapCol, sky, clamp(max(fog, edgeFade), 0.0, 1.0));
+    outColor = vec4(col, 1.0);
+  }`;
+
+  const BLDG_VS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  layout(location = 0) in vec3 aPos;
+  layout(location = 1) in vec3 aNorm;
+  layout(location = 2) in vec3 aTint;
+  layout(location = 3) in vec2 aMeta; // (heightFrac, roofFlag)
+  uniform mat4 uVP;
+  out vec3 vWorld;
+  out vec3 vNorm;
+  out vec3 vTint;
+  out vec2 vMeta;
+  void main() {
+    vWorld = aPos;
+    vNorm = aNorm;
+    vTint = aTint;
+    vMeta = aMeta;
+    gl_Position = uVP * vec4(aPos, 1.0);
+  }`;
+
+  const BLDG_FS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  uniform vec3 uCamPos;
+  uniform vec3 uSunDir;
+  in vec3 vWorld;
+  in vec3 vNorm;
+  in vec3 vTint;
+  in vec2 vMeta;
+  out vec4 outColor;
+  void main() {
+    vec3 n = normalize(vNorm);
+    float ndotl = max(dot(n, uSunDir), 0.0);
+    float hemi = 0.5 + 0.5 * n.y;
+    float baseAo = mix(0.76, 1.0, smoothstep(0.0, 0.25, vMeta.x));
+    vec3 col = vTint * (0.48 + 0.56 * ndotl + 0.16 * hemi) * baseAo;
+    if (vMeta.y > 0.5) {
+      col = mix(col, vec3(0.92, 0.95, 0.98), 0.22);
+    } else {
+      float band = step(0.55, fract(vWorld.y * 18.0));
+      col *= mix(0.92, 1.04, band);
+    }
+    float dist = length(uCamPos - vWorld);
+    float fog = smoothstep(4.2, 9.5, dist) * 0.45;
+    col = mix(col, vec3(0.847, 0.882, 0.918), fog);
+    outColor = vec4(col, 1.0);
+  }`;
+
+  const STEM_VS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  layout(location = 0) in vec3 aPos;
+  layout(location = 1) in vec4 aColor;
+  layout(location = 2) in vec2 aLocal;
+  layout(location = 3) in float aKind;
+  uniform mat4 uVP;
+  out vec4 vColor;
+  out vec2 vLocal;
+  out float vKind;
+  void main() {
+    vColor = aColor;
+    vLocal = aLocal;
+    vKind = aKind;
+    gl_Position = uVP * vec4(aPos, 1.0);
+  }`;
+
+  const STEM_FS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  in vec4 vColor;
+  in vec2 vLocal;
+  in float vKind;
+  out vec4 outColor;
+  void main() {
+    float a = vColor.a;
+    if (vKind < 0.5) {
+      float r = length(vLocal);
+      float w = max(fwidth(r), 0.05);
+      float dotMask = 1.0 - smoothstep(0.38 - w, 0.38 + w, r);
+      float ringMask = (1.0 - smoothstep(0.88 - w, 0.88 + w, r)) * smoothstep(0.62 - w, 0.62 + w, r);
+      a *= max(dotMask, ringMask * 0.92);
+    } else {
+      a *= 1.0 - smoothstep(0.55, 1.0, abs(vLocal.x));
+    }
+    if (a < 0.01) discard;
+    outColor = vec4(vColor.rgb * a, a);
+  }`;
+
+  function buildCityBuildings(city, camState) {
+    const out = [];
+    const mpu = metresPerUnit(camState.lat, camState.zoom);
+    const pushV = (x, y, z, nx, ny, nz, r, g, b, hf, roof) => {
+      out.push(x, y, z, nx, ny, nz, r, g, b, hf, roof);
+    };
+    const pushQuad = (a, b, c, d, n, tint, hfA, hfB, roof) => {
+      pushV(a[0], a[1], a[2], n[0], n[1], n[2], tint[0], tint[1], tint[2], hfA, roof);
+      pushV(b[0], b[1], b[2], n[0], n[1], n[2], tint[0], tint[1], tint[2], hfA, roof);
+      pushV(c[0], c[1], c[2], n[0], n[1], n[2], tint[0], tint[1], tint[2], hfB, roof);
+      pushV(a[0], a[1], a[2], n[0], n[1], n[2], tint[0], tint[1], tint[2], hfA, roof);
+      pushV(c[0], c[1], c[2], n[0], n[1], n[2], tint[0], tint[1], tint[2], hfB, roof);
+      pushV(d[0], d[1], d[2], n[0], n[1], n[2], tint[0], tint[1], tint[2], hfB, roof);
+    };
+
+    for (const b of city.buildings) {
+      const [cx, cz] = latLonToLocal(b.lat, b.lon, camState);
+      const hw = Math.max(0.032, (b.w / mpu) * 0.72);
+      const hd = Math.max(0.032, (b.d / mpu) * 0.72);
+      const h = Math.max(0.22, (b.h / mpu) * 1.45);
+      const rad = (b.angle * Math.PI) / 180;
+      const ca = Math.cos(rad), sa = Math.sin(rad);
+      const rot = (dx, dz) => [cx + dx * ca - dz * sa, cz + dx * sa + dz * ca];
+      const p0 = rot(-hw, -hd), p1 = rot(hw, -hd), p2 = rot(hw, hd), p3 = rot(-hw, hd);
+      const base = [p0, p1, p2, p3];
+      for (let i = 0; i < 4; i++) {
+        const a2 = base[i], b2 = base[(i + 1) & 3];
+        const ex = b2[0] - a2[0], ez = b2[1] - a2[1];
+        const len = Math.hypot(ex, ez) || 1;
+        const n = [ez / len, 0, -ex / len];
+        pushQuad([a2[0], 0, a2[1]], [b2[0], 0, b2[1]], [b2[0], h, b2[1]], [a2[0], h, a2[1]], n, b.colour, 0, 1, 0);
+      }
+      pushQuad([p0[0], h, p0[1]], [p3[0], h, p3[1]], [p2[0], h, p2[1]], [p1[0], h, p1[1]], [0, 1, 0], b.colour, 1, 1, 1);
+    }
+    return new Float32Array(out);
+  }
+  // #endregion buildings
+
+  // ------------------------------------------------------------------ 3D math
+  function sub3(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+  function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+  function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+
+  function mat4Mul(a, b) {
+    const o = new Float32Array(16);
+    for (let c = 0; c < 4; c++) {
+      const b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
+      o[c * 4]     = a[0] * b0 + a[4] * b1 + a[8]  * b2 + a[12] * b3;
+      o[c * 4 + 1] = a[1] * b0 + a[5] * b1 + a[9]  * b2 + a[13] * b3;
+      o[c * 4 + 2] = a[2] * b0 + a[6] * b1 + a[10] * b2 + a[14] * b3;
+      o[c * 4 + 3] = a[3] * b0 + a[7] * b1 + a[11] * b2 + a[15] * b3;
+    }
+    return o;
+  }
+
+  function mat4Perspective(fovy, aspect, near, far) {
+    const t = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return new Float32Array([
+      t / aspect, 0, 0, 0,
+      0, t, 0, 0,
+      0, 0, (far + near) * nf, -1,
+      0, 0, 2 * far * near * nf, 0,
+    ]);
+  }
+
+  function mat4Invert(m) {
+    const inv = new Float32Array(16);
+    inv[0] = m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
+    inv[4] = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
+    inv[8] = m[4]*m[9]*m[15] - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
+    inv[12] = -m[4]*m[9]*m[14] + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
+    inv[1] = -m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] - m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10];
+    inv[5] = m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] + m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10];
+    inv[9] = -m[0]*m[9]*m[15] + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] - m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9];
+    inv[13] = m[0]*m[9]*m[14] - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] + m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9];
+    inv[2] = m[1]*m[6]*m[15] - m[1]*m[7]*m[14] - m[5]*m[2]*m[15] + m[5]*m[3]*m[14] + m[13]*m[2]*m[7] - m[13]*m[3]*m[6];
+    inv[6] = -m[0]*m[6]*m[15] + m[0]*m[7]*m[14] + m[4]*m[2]*m[15] - m[4]*m[3]*m[14] - m[12]*m[2]*m[7] + m[12]*m[3]*m[6];
+    inv[10] = m[0]*m[5]*m[15] - m[0]*m[7]*m[13] - m[4]*m[1]*m[15] + m[4]*m[3]*m[13] + m[12]*m[1]*m[7] - m[12]*m[3]*m[5];
+    inv[14] = -m[0]*m[5]*m[14] + m[0]*m[6]*m[13] + m[4]*m[1]*m[14] - m[4]*m[2]*m[13] - m[12]*m[1]*m[6] + m[12]*m[2]*m[5];
+    inv[3] = -m[1]*m[6]*m[11] + m[1]*m[7]*m[10] + m[5]*m[2]*m[11] - m[5]*m[3]*m[10] - m[9]*m[2]*m[7] + m[9]*m[3]*m[6];
+    inv[7] = m[0]*m[6]*m[11] - m[0]*m[7]*m[10] - m[4]*m[2]*m[11] + m[4]*m[3]*m[10] + m[8]*m[2]*m[7] - m[8]*m[3]*m[6];
+    inv[11] = -m[0]*m[5]*m[11] + m[0]*m[7]*m[9] + m[4]*m[1]*m[11] - m[4]*m[3]*m[9] - m[8]*m[1]*m[7] + m[8]*m[3]*m[5];
+    inv[15] = m[0]*m[5]*m[10] - m[0]*m[6]*m[9] - m[4]*m[1]*m[10] + m[4]*m[2]*m[9] + m[8]*m[1]*m[6] - m[8]*m[2]*m[5];
+    const det = m[0]*inv[0] + m[1]*inv[4] + m[2]*inv[8] + m[3]*inv[12];
+    if (Math.abs(det) < 1e-10) return null;
+    const id = 1 / det;
+    for (let i = 0; i < 16; i++) inv[i] *= id;
+    return inv;
+  }
+
+  function buildCamera(camState, cw, ch) {
+    const fovy = (40 * Math.PI) / 180;
+    const pixelsPerTile = cw < 520 ? 175 : 235;
+    const dist = (ch / pixelsPerTile) / (2 * Math.tan(fovy / 2));
+    const b = (camState.bearing * Math.PI) / 180;
+    const p = (camState.pitch * Math.PI) / 180;
+
+    // Bearing rotates map heading clockwise east of north; pitch=0 is straight down with zero gimbal lock.
+    const northDir = [Math.sin(b), 0, -Math.cos(b)];
+    const right = [Math.cos(b), 0, Math.sin(b)];
+    const eyeDir = [-northDir[0] * Math.sin(p), Math.cos(p), -northDir[2] * Math.sin(p)];
+    const forward = [-eyeDir[0], -eyeDir[1], -eyeDir[2]];
+    const up = cross3(right, forward);
+    const eye = [eyeDir[0] * dist, eyeDir[1] * dist, eyeDir[2] * dist];
+
+    const view = new Float32Array([
+      right[0], up[0], -forward[0], 0,
+      right[1], up[1], -forward[1], 0,
+      right[2], up[2], -forward[2], 0,
+      -dot3(right, eye), -dot3(up, eye), dot3(forward, eye), 1,
+    ]);
+    const proj = mat4Perspective(fovy, cw / ch, 0.1, 35.0);
+    const vp = mat4Mul(proj, view);
+    return { eye, right, up, forward, dist, view, proj, vp };
+  }
+
+  function screenToGround(clientX, clientY, invVP, rect) {
+    if (!invVP || !rect.width || !rect.height) return null;
+    const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ny = 1 - ((clientY - rect.top) / rect.height) * 2;
+    const unproj = (z) => {
+      const x = invVP[0] * nx + invVP[4] * ny + invVP[8] * z + invVP[12];
+      const y = invVP[1] * nx + invVP[5] * ny + invVP[9] * z + invVP[13];
+      const zz = invVP[2] * nx + invVP[6] * ny + invVP[10] * z + invVP[14];
+      const w = invVP[3] * nx + invVP[7] * ny + invVP[11] * z + invVP[15];
+      return [x / w, y / w, zz / w];
+    };
+    const p0 = unproj(-1);
+    const p1 = unproj(1);
+    const dy = p1[1] - p0[1];
+    if (Math.abs(dy) < 1e-4) return null;
+    const t = -p0[1] / dy;
+    if (t < 0) return null;
+    const gx = p0[0] + (p1[0] - p0[0]) * t;
+    const gz = p0[2] + (p1[2] - p0[2]) * t;
+    const r = Math.hypot(gx, gz);
+    if (r > 6) return [gx * (6 / r), gz * (6 / r)];
+    return [gx, gz];
+  }
+
+  function computeCardPlacement(place, el, camBasis, camState, cw, ch) {
+    const w = el.offsetWidth || 186;
+    const h = el.offsetHeight || 134;
+    const [wx, wz] = latLonToLocal(place.lat, place.lon, camState);
+    const stemH = 0.17;
+    const anchor = [wx, stemH, wz];
+    const compact = cw < 520;
+    const worldW = Math.max(0.56, Math.min(0.92, camBasis.dist * (compact ? 0.29 : 0.225)));
+    const worldH = worldW * (h / w);
+
+    const xAxis = [camBasis.right[0] * worldW, camBasis.right[1] * worldW, camBasis.right[2] * worldW];
+    const yAxis = [-camBasis.up[0] * worldH, -camBasis.up[1] * worldH, -camBasis.up[2] * worldH];
+    const nAxis = [-camBasis.forward[0], -camBasis.forward[1], -camBasis.forward[2]];
+    const o = [
+      anchor[0] - xAxis[0] * 0.5 - yAxis[0],
+      anchor[1] - xAxis[1] * 0.5 - yAxis[1],
+      anchor[2] - xAxis[2] * 0.5 - yAxis[2],
+    ];
+
+    const uvToWorld = new Float32Array([
+      xAxis[0], xAxis[1], xAxis[2], 0,
+      yAxis[0], yAxis[1], yAxis[2], 0,
+      nAxis[0], nAxis[1], nAxis[2], 0,
+      o[0],     o[1],     o[2],     1,
+    ]);
+    const clipMat = mat4Mul(camBasis.vp, uvToWorld);
+
+    const elemToWorld = new Float32Array([
+      xAxis[0] / w, xAxis[1] / w, xAxis[2] / w, 0,
+      yAxis[0] / h, yAxis[1] / h, yAxis[2] / h, 0,
+      nAxis[0],     nAxis[1],     nAxis[2],     0,
+      o[0],         o[1],         o[2],         1,
+    ]);
+    const ndcToCanvas = new Float32Array([
+      cw / 2, 0, 0, 0,
+      0, -ch / 2, 0, 0,
+      0, 0, 1, 0,
+      cw / 2, ch / 2, 0, 1,
+    ]);
+    const canvasMat = mat4Mul(ndcToCanvas, mat4Mul(camBasis.vp, elemToWorld));
+    const centre = [o[0] + 0.5 * (xAxis[0] + yAxis[0]), o[1] + 0.5 * (xAxis[1] + yAxis[1]), o[2] + 0.5 * (xAxis[2] + yAxis[2])];
+    const depth = dot3(sub3(centre, camBasis.eye), camBasis.forward);
+    return { place, el, wx, wz, anchor, centre, depth, clipMat, canvasMat, w, h };
+  }
+
+  // -------------------------------------------------------------- state & UI
+  let currentCityKey = 'london';
+  const view = {
+    lat: CITIES.london.lat,
+    lon: CITIES.london.lon,
+    zoom: CITIES.london.zoom,
+    bearing: CITIES.london.bearing,
+    pitch: CITIES.london.pitch,
+  };
+  let viewGoal = null;
+  let activeSlot = 0;
+  let mode = 'webgl'; // 'webgl' | '2d' | 'plain'
+  let stage = null;
+  let ctx2d = null;
+  let cardProg = null;
+  let cardVao = null;
+  let glRes = null;
+  let paints = 0;
+  let uploads = 0;
+  let lastOrderKey = '';
+  let lastCamBasis = null;
+  const lastGeom = new Map();
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function setNotice(msg) {
+    notice.hidden = !msg;
+    notice.textContent = msg || '';
+  }
+
+  function syncSliders() {
+    const b = Math.round(((view.bearing + 540) % 360) - 180);
+    const p = Math.round(view.pitch);
+    bearingSlider.value = String(b);
+    bearingOut.textContent = `${b}°`;
+    pitchSlider.value = String(p);
+    pitchOut.textContent = `${p}°`;
+  }
+
+  function setActiveSlot(slot) {
+    activeSlot = slot;
+    cardEls.forEach((el, i) => el.classList.toggle('active', i === slot));
+  }
+
+  function populateCards(cityKey) {
+    const city = CITIES[cityKey];
+    city.places.forEach((p, i) => {
+      const el = cardEls[i];
+      el.querySelector('.card-title').textContent = p.name;
+      el.querySelector('.card-cat').textContent = p.cat;
+      const saveBtn = el.querySelector('.save-btn');
+      saveBtn.setAttribute('aria-pressed', String(p.saved));
+      saveBtn.textContent = p.saved ? 'Saved' : 'Bookmark';
+      const sel = el.querySelector('.tag-sel');
+      sel.value = p.tag;
+      sel.setAttribute('aria-label', `${p.name} tag`);
+      const inp = el.querySelector('.card-note');
+      inp.value = p.note;
+      inp.setAttribute('aria-label', `${p.name} visit note`);
+      el.querySelector('.card-coords').textContent = `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`;
+      el.querySelector('.card-state').textContent = p.saved ? `Saved · ${p.tag}` : p.tag;
+    });
+  }
+
+  let tweenRaf = 0;
+  function startCameraTween() {
+    if (tweenRaf) return;
+    const step = () => {
+      tweenRaf = 0;
+      if (!viewGoal) return;
+      let delta = 0;
+      const shortestDeg = (from, to) => ((((to - from) + 540) % 360) - 180);
+      if (viewGoal.bearing != null) {
+        const db = shortestDeg(view.bearing, viewGoal.bearing);
+        view.bearing += db * 0.16;
+        delta = Math.max(delta, Math.abs(db) / 90);
+      }
+      for (const k of ['lat', 'lon', 'zoom', 'pitch']) {
+        if (viewGoal[k] == null) continue;
+        const d = viewGoal[k] - view[k];
+        view[k] += d * 0.16;
+        const scale = k === 'pitch' ? 1 / 45 : k === 'zoom' ? 1 : 400;
+        delta = Math.max(delta, Math.abs(d) * scale);
+      }
+      syncSliders();
+      requestDraw();
+      if (delta > 0.004) tweenRaf = requestAnimationFrame(step);
+      else {
+        Object.assign(view, viewGoal);
+        viewGoal = null;
+        syncSliders();
+        requestDraw();
+      }
+    };
+    tweenRaf = requestAnimationFrame(step);
+  }
+
+  function animateTo(goal) {
+    if (reducedMotion) {
+      Object.assign(view, goal);
+      viewGoal = null;
+      syncSliders();
+      requestDraw();
+      return;
+    }
+    viewGoal = { ...view, ...goal };
+    startCameraTween();
+  }
+
+  function switchCity(key) {
+    const city = CITIES[key];
+    if (!city) return;
+    currentCityKey = key;
+    for (const b of cityBtns) b.setAttribute('aria-pressed', String(b.dataset.city === key));
+    populateCards(key);
+    setActiveSlot(0);
+    viewGoal = null;
+    view.lat = city.lat;
+    view.lon = city.lon;
+    view.zoom = city.zoom;
+    view.bearing = city.bearing;
+    view.pitch = city.pitch;
+    atlasState.dirty = true;
+    syncSliders();
+    statusEl.textContent = `Switched to ${city.name}. Drag to pan, right-drag to rotate, or press Tab across the four place cards.`;
+    requestDraw();
+  }
+
+  // Wire controls inside place cards (delegated on stageBox so both canvas and plain fallback work).
+  stageBox.addEventListener('click', (e) => {
+    const focusBtn = e.target.closest('.focus-btn');
+    if (focusBtn) {
+      const slot = Number(focusBtn.dataset.slot);
+      const place = CITIES[currentCityKey].places[slot];
+      setActiveSlot(slot);
+      animateTo({ lat: place.lat, lon: place.lon, zoom: Math.max(view.zoom, 15.0) });
+      statusEl.textContent = `Focused ${place.name} (${place.lat.toFixed(4)}, ${place.lon.toFixed(4)}).`;
+      return;
+    }
+    const saveBtn = e.target.closest('.save-btn');
+    if (saveBtn) {
+      const slot = Number(saveBtn.dataset.slot);
+      const place = CITIES[currentCityKey].places[slot];
+      place.saved = !place.saved;
+      saveBtn.setAttribute('aria-pressed', String(place.saved));
+      saveBtn.textContent = place.saved ? 'Saved' : 'Bookmark';
+      cardEls[slot].querySelector('.card-state').textContent = place.saved ? `Saved · ${place.tag}` : place.tag;
+      setActiveSlot(slot);
+      statusEl.textContent = place.saved ? `Bookmarked ${place.name}.` : `Removed bookmark on ${place.name}.`;
+      requestDraw();
+    }
+  });
+
+  stageBox.addEventListener('change', (e) => {
+    const sel = e.target.closest('.tag-sel');
+    if (!sel) return;
+    const slot = Number(sel.dataset.slot);
+    const place = CITIES[currentCityKey].places[slot];
+    place.tag = sel.value;
+    cardEls[slot].querySelector('.card-state').textContent = place.saved ? `Saved · ${place.tag}` : place.tag;
+    setActiveSlot(slot);
+    statusEl.textContent = `Tagged ${place.name} as ${place.tag}.`;
+    requestDraw();
+  });
+
+  stageBox.addEventListener('input', (e) => {
+    const inp = e.target.closest('.card-note');
+    if (!inp) return;
+    const slot = Number(inp.dataset.slot);
+    const place = CITIES[currentCityKey].places[slot];
+    place.note = inp.value;
+    setActiveSlot(slot);
+    statusEl.textContent = `Updated visit note on ${place.name}: "${inp.value}".`;
+    requestDraw();
+  });
+
+  // Keyboard Tab navigation straight through drawable map pins.
+  stageBox.addEventListener('focusin', (e) => {
+    const card = e.target.closest('.place-card');
+    if (!card) return;
+    const slot = Number(card.dataset.slot);
+    const place = CITIES[currentCityKey].places[slot];
+    setActiveSlot(slot);
+    animateTo({ lat: place.lat, lon: place.lon });
+    statusEl.textContent = `Keyboard focus on ${place.name} (${e.target.tagName.toLowerCase()}).`;
+  });
+
+  for (const b of cityBtns) b.addEventListener('click', () => switchCity(b.dataset.city));
+  zoomInBtn.addEventListener('click', () => animateTo({ zoom: Math.min(16.5, view.zoom + 0.6) }));
+  zoomOutBtn.addEventListener('click', () => animateTo({ zoom: Math.max(12.6, view.zoom - 0.6) }));
+  bearingSlider.addEventListener('input', () => {
+    viewGoal = null;
+    view.bearing = Number(bearingSlider.value);
+    bearingOut.textContent = `${bearingSlider.value}°`;
+    requestDraw();
+  });
+  pitchSlider.addEventListener('input', () => {
+    viewGoal = null;
+    view.pitch = Number(pitchSlider.value);
+    pitchOut.textContent = `${pitchSlider.value}°`;
+    requestDraw();
+  });
+  occlusionCheck.addEventListener('change', () => {
+    statusEl.textContent = occlusionCheck.checked
+      ? '3D building occlusion enabled: HTML place cards depth-test behind extruded towers.'
+      : '3D building occlusion disabled: HTML place cards draw on top of buildings.';
+    requestDraw();
+  });
+
+  // Ground-locked pan, right-drag / Shift+drag orbit, and two-finger pinch + twist.
+  const pointers = new Map();
+  let dragMode = null; // 'pan' | 'orbit'
+  let dragLast = null;
+  let pinchState = null;
+
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button, input, select, option, label, a')) return;
+    viewGoal = null;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    canvas.setPointerCapture?.(e.pointerId);
+    canvas.classList.add('dragging');
+    if (pointers.size === 1) {
+      dragMode = (e.button === 2 || e.shiftKey) ? 'orbit' : 'pan';
+      dragLast = { x: e.clientX, y: e.clientY };
+    } else if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      pinchState = {
+        dist: Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y),
+        angle: Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x),
+        midX: (pts[0].x + pts[1].x) * 0.5,
+        midY: (pts[0].y + pts[1].y) * 0.5,
+      };
+    }
+  });
+
+  function panByScreenDelta(x0, y0, x1, y1) {
+    const rect = canvas.getBoundingClientRect();
+    const invVP = lastCamBasis ? mat4Invert(lastCamBasis.vp) : null;
+    const g0 = screenToGround(x0, y0, invVP, rect);
+    const g1 = screenToGround(x1, y1, invVP, rect);
+    let dWx, dWz;
+    if (g0 && g1) {
+      dWx = g0[0] - g1[0];
+      dWz = g0[1] - g1[1];
+    } else {
+      const b = (view.bearing * Math.PI) / 180;
+      const sx = -(x1 - x0) / 220, sy = -(y1 - y0) / 220;
+      dWx = sx * Math.cos(b) - sy * Math.sin(b);
+      dWz = sx * Math.sin(b) + sy * Math.cos(b);
+    }
+    const [cx, cy] = latLonToMercator(view.lat, view.lon, view.zoom);
+    const [lat, lon] = mercatorToLatLon(cx + dWx * TILE_SIZE, cy + dWz * TILE_SIZE, view.zoom);
+    view.lat = Math.max(-80, Math.min(80, lat));
+    view.lon = ((lon + 540) % 360) - 180;
+  }
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2 && pinchState) {
+      const pts = [...pointers.values()];
+      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const angle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+      const midX = (pts[0].x + pts[1].x) * 0.5;
+      const midY = (pts[0].y + pts[1].y) * 0.5;
+      if (pinchState.dist > 10 && dist > 10) {
+        view.zoom = Math.max(12.6, Math.min(16.5, view.zoom + Math.log2(dist / pinchState.dist)));
+      }
+      let da = angle - pinchState.angle;
+      if (da > Math.PI) da -= Math.PI * 2;
+      if (da < -Math.PI) da += Math.PI * 2;
+      view.bearing = ((((view.bearing - (da * 180) / Math.PI) + 540) % 360) - 180);
+      panByScreenDelta(pinchState.midX, pinchState.midY, midX, midY);
+      pinchState = { dist, angle, midX, midY };
+      syncSliders();
+      requestDraw();
+    } else if (dragLast) {
+      const dx = e.clientX - dragLast.x, dy = e.clientY - dragLast.y;
+      if (dragMode === 'orbit') {
+        view.bearing = ((((view.bearing + dx * 0.45) + 540) % 360) - 180);
+        view.pitch = Math.max(0, Math.min(62, view.pitch - dy * 0.35));
+        syncSliders();
+      } else {
+        panByScreenDelta(dragLast.x, dragLast.y, e.clientX, e.clientY);
+      }
+      dragLast = { x: e.clientX, y: e.clientY };
+      requestDraw();
+    }
+  });
+
+  const endPointer = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchState = null;
+    if (pointers.size === 1) {
+      const [only] = pointers.values();
+      dragLast = { x: only.x, y: only.y };
+      dragMode = 'pan';
+    } else if (pointers.size === 0) {
+      dragLast = null;
+      dragMode = null;
+      canvas.classList.remove('dragging');
+    }
+  };
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    viewGoal = null;
+    view.zoom = Math.max(12.6, Math.min(16.5, view.zoom - Math.sign(e.deltaY) * 0.25));
+    requestDraw();
+  }, { passive: false });
+
+  // ----------------------------------------------------------- WebGL resources
+  function buildSceneResources(gl) {
+    const gProg = compileProgram(gl, GROUND_VS, GROUND_FS);
+    const gVao = gl.createVertexArray();
+    gl.bindVertexArray(gVao);
+    const gVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, gVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+    const mapTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, mapTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+    if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+
+    const bProg = compileProgram(gl, BLDG_VS, BLDG_FS);
+    const bVao = gl.createVertexArray();
+    gl.bindVertexArray(bVao);
+    const bVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, bVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 44, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 44, 12);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 44, 24);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 2, gl.FLOAT, false, 44, 36);
+
+    const sProg = compileProgram(gl, STEM_VS, STEM_FS);
+    const sVao = gl.createVertexArray();
+    gl.bindVertexArray(sVao);
+    const sVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 40, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 40, 12);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 40, 28);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 40, 36);
+
+    glRes = {
+      ground: {
+        prog: gProg, vao: gVao, tex: mapTex,
+        uVP: gl.getUniformLocation(gProg, 'uVP'),
+        uAtlasBounds: gl.getUniformLocation(gProg, 'uAtlasBounds'),
+        uMapTex: gl.getUniformLocation(gProg, 'uMapTex'),
+        uCamPos: gl.getUniformLocation(gProg, 'uCamPos'),
+      },
+      bldg: {
+        prog: bProg, vao: bVao, vbo: bVbo,
+        uVP: gl.getUniformLocation(bProg, 'uVP'),
+        uCamPos: gl.getUniformLocation(bProg, 'uCamPos'),
+        uSunDir: gl.getUniformLocation(bProg, 'uSunDir'),
+      },
+      stem: {
+        prog: sProg, vao: sVao, vbo: sVbo,
+        uVP: gl.getUniformLocation(sProg, 'uVP'),
+      },
+    };
+    atlasState.dirty = true;
+  }
+
+  function buildStemVertices(placements, camBasis) {
+    const out = [];
+    const pushV = (x, y, z, r, g, b, a, lx, ly, kind) => out.push(x, y, z, r, g, b, a, lx, ly, kind);
+    const segs = 16;
+    placements.forEach((p, idx) => {
+      const slot = Number(p.el.dataset.slot);
+      const isAct = slot === activeSlot;
+      const ringR = isAct ? 0.055 : 0.042;
+      const rc = isAct ? [0.95, 0.36, 0.16, 0.96] : [0.12, 0.38, 0.58, 0.90];
+      const gy = 0.004;
+      for (let i = 0; i < segs; i++) {
+        const a0 = (i / segs) * Math.PI * 2, a1 = ((i + 1) / segs) * Math.PI * 2;
+        pushV(p.wx, gy, p.wz, rc[0], rc[1], rc[2], rc[3], 0, 0, 0);
+        pushV(p.wx + Math.cos(a0) * ringR, gy, p.wz + Math.sin(a0) * ringR, rc[0], rc[1], rc[2], rc[3], Math.cos(a0), Math.sin(a0), 0);
+        pushV(p.wx + Math.cos(a1) * ringR, gy, p.wz + Math.sin(a1) * ringR, rc[0], rc[1], rc[2], rc[3], Math.cos(a1), Math.sin(a1), 0);
+      }
+      const halfW = isAct ? 0.011 : 0.008;
+      const rx = camBasis.right[0] * halfW, ry = camBasis.right[1] * halfW, rz = camBasis.right[2] * halfW;
+      const sc = isAct ? [0.95, 0.42, 0.22, 0.95] : [0.14, 0.29, 0.42, 0.88];
+      const b0 = [p.wx - rx, 0.004 - ry, p.wz - rz];
+      const b1 = [p.wx + rx, 0.004 + ry, p.wz + rz];
+      const t0 = [p.anchor[0] - rx, p.anchor[1] - ry, p.anchor[2] - rz];
+      const t1 = [p.anchor[0] + rx, p.anchor[1] + ry, p.anchor[2] + rz];
+      pushV(b0[0], b0[1], b0[2], sc[0], sc[1], sc[2], sc[3], -1, 0, 1);
+      pushV(b1[0], b1[1], b1[2], sc[0], sc[1], sc[2], sc[3],  1, 0, 1);
+      pushV(t0[0], t0[1], t0[2], sc[0], sc[1], sc[2], sc[3], -1, 1, 1);
+      pushV(t0[0], t0[1], t0[2], sc[0], sc[1], sc[2], sc[3], -1, 1, 1);
+      pushV(b1[0], b1[1], b1[2], sc[0], sc[1], sc[2], sc[3],  1, 0, 1);
+      pushV(t1[0], t1[1], t1[2], sc[0], sc[1], sc[2], sc[3],  1, 1, 1);
+      void idx;
+    });
+    return new Float32Array(out);
+  }
+
+  function applyHitGeometry(el, canvasMat, cssWidth) {
+    if (!('updateElementGeometry' in canvas)) return;
+    const unit = geometryUnit(canvas, el, cssWidth);
+    const m = new DOMMatrix().scale(unit, unit, 1).multiply(new DOMMatrix(Array.from(canvasMat)));
+    const key = m.toFloat32Array();
+    const prev = lastGeom.get(el);
+    if (prev && key.every((v, i) => Math.abs(v - prev[i]) < 1e-4)) return;
+    lastGeom.set(el, key);
+    canvas.updateElementGeometry(el, { canvasTransform: m });
+    el.dataset.hitTick = el.dataset.hitTick === '1' ? '0' : '1';
+  }
+
+  function showPlainFallback(reason) {
+    mode = 'plain';
+    stageBox.classList.add('fallback');
+    fallbackGrid.hidden = false;
+    for (const el of cardEls) fallbackGrid.append(el);
+    setNotice(reason);
+    hud.textContent = '2D map + plain HTML fallback';
+    draw2D(false);
+  }
+
+  function restoreCanvasCards() {
+    stageBox.classList.remove('fallback');
+    fallbackGrid.hidden = true;
+    for (const el of cardEls) canvas.append(el);
+    setNotice('');
+  }
+
+  // #region paint
+  function drawWebGL() {
+    if (!stage || !stage.begin([0.847, 0.882, 0.918, 1.0])) return;
+    const gl = stage.gl;
+    if (!cardProg) {
+      cardProg = gl.getParameter(gl.CURRENT_PROGRAM);
+      cardVao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+    }
+    if (!glRes) buildSceneResources(gl);
+
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    const camBasis = buildCamera(view, cw, ch);
+    lastCamBasis = camBasis;
+    const atlas = ensureTileAtlas(view, currentCityKey, gl, glRes.ground.tex);
+
+    // Compute exact world-space bounds of the 5x5 tile atlas at the current fractional zoom.
+    const [cx, cy] = latLonToMercator(view.lat, view.lon, view.zoom);
+    const scale = Math.pow(2, view.zoom - atlas.z);
+    const wx0 = (atlas.x0 * TILE_SIZE * scale - cx) / TILE_SIZE;
+    const wz0 = (atlas.y0 * TILE_SIZE * scale - cy) / TILE_SIZE;
+    const wx1 = ((atlas.x0 + ATLAS_TILES) * TILE_SIZE * scale - cx) / TILE_SIZE;
+    const wz1 = ((atlas.y0 + ATLAS_TILES) * TILE_SIZE * scale - cy) / TILE_SIZE;
+
+    // 1. Draw tilted OpenStreetMap tile plane with depth writing enabled.
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.useProgram(glRes.ground.prog);
+    gl.bindVertexArray(glRes.ground.vao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, glRes.ground.tex);
+    gl.uniform1i(glRes.ground.uMapTex, 0);
+    gl.uniformMatrix4fv(glRes.ground.uVP, false, camBasis.vp);
+    gl.uniform4f(glRes.ground.uAtlasBounds, wx0, wz0, wx1, wz1);
+    gl.uniform3fv(glRes.ground.uCamPos, camBasis.eye);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // 2. Draw extruded 3D landmark buildings into colour + depth buffers.
+    const city = CITIES[currentCityKey];
+    const bldgVerts = buildCityBuildings(city, view);
+    gl.useProgram(glRes.bldg.prog);
+    gl.bindVertexArray(glRes.bldg.vao);
+    gl.uniformMatrix4fv(glRes.bldg.uVP, false, camBasis.vp);
+    gl.uniform3fv(glRes.bldg.uCamPos, camBasis.eye);
+    gl.uniform3f(glRes.bldg.uSunDir, 0.55, 0.72, 0.42);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glRes.bldg.vbo);
+    gl.bufferData(glRes.bldg.vbo, bldgVerts, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.TRIANGLES, 0, bldgVerts.length / 11);
+
+    // 3. Project and depth-sort the four live HTML place cards back-to-front.
+    const placements = city.places.map((place, i) => computeCardPlacement(place, cardEls[i], camBasis, view, cw, ch));
+    placements.sort((a, b) => b.depth - a.depth);
+
+    // 4. Draw anchor rings and vertical pin stems (occluded by buildings when checkbox is on).
+    const occlude = occlusionCheck.checked;
+    if (occlude) gl.enable(gl.DEPTH_TEST);
+    else gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+
+    const stemVerts = buildStemVertices(placements, camBasis);
+    gl.useProgram(glRes.stem.prog);
+    gl.bindVertexArray(glRes.stem.vao);
+    gl.uniformMatrix4fv(glRes.stem.uVP, false, camBasis.vp);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glRes.stem.vbo);
+    gl.bufferData(glRes.stem.vbo, stemVerts, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.TRIANGLES, 0, stemVerts.length / 10);
+
+    // 5. Restore ElementGL's shader and VAO, then draw depth-tested DOM cards.
+    gl.useProgram(cardProg);
+    gl.bindVertexArray(cardVao);
+    const orderKey = placements.map((p) => p.el.dataset.slot).join(',');
+    const orderChanged = orderKey !== lastOrderKey;
+    if (orderChanged) lastOrderKey = orderKey;
+
+    placements.forEach((p, idx) => {
+      if (orderChanged) p.el.style.zIndex = String(idx + 1);
+      const isAct = Number(p.el.dataset.slot) === activeSlot ? 1.0 : 0.0;
+      const fog = Math.max(0, (p.depth - 3.6) / 6.5);
+      stage.quad(p.el, p.clipMat, (g, u) => {
+        g.uniform1f(u('uActive'), isAct);
+        g.uniform1f(u('uFog'), fog);
+      });
+      applyHitGeometry(p.el, p.canvasMat, p.w);
+    });
+    gl.depthMask(true);
+
+    hud.textContent = `WebGL 2 · z${view.zoom.toFixed(1)} · ${atlas.liveTiles}/25 OSM tiles · ${occlude ? '3D occlusion' : 'always on top'} · ${paints} paints`;
+  }
+  // #endregion paint
+
+  // --------------------------------------------------- 2D fallback renderer
+  function draw2D(withElements) {
+    if (!ctx2d) ctx2d = canvas.getContext('2d');
+    if (!ctx2d) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    const bw = Math.max(1, Math.round(cw * dpr)), bh = Math.max(1, Math.round(ch * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+
+    const atlas = ensureTileAtlas(view, currentCityKey, null, null);
+    const [cx, cy] = latLonToMercator(view.lat, view.lon, view.zoom);
+    const scale = Math.pow(2, view.zoom - atlas.z);
+    const pixelsPerTile = cw < 520 ? 175 : 235;
+    const pitchSquash = Math.cos((view.pitch * Math.PI) / 180);
+    const bRad = -(view.bearing * Math.PI) / 180;
+    const cosB = Math.cos(bRad), sinB = Math.sin(bRad);
+
+    const project2D = (wx, wz, wy = 0) => {
+      const rx = wx * cosB - wz * sinB;
+      const rz = wx * sinB + wz * cosB;
+      return [
+        cw * 0.5 + rx * pixelsPerTile,
+        ch * 0.54 + rz * pixelsPerTile * pitchSquash - wy * pixelsPerTile * 0.8,
+        rz,
+      ];
+    };
+
+    ctx2d.save();
+    ctx2d.scale(dpr, dpr);
+    ctx2d.fillStyle = '#d8e1ea';
+    ctx2d.fillRect(0, 0, cw, ch);
+
+    // Draw tilted 2D map atlas.
+    ctx2d.save();
+    ctx2d.translate(cw * 0.5, ch * 0.54);
+    ctx2d.scale(1, Math.max(0.35, pitchSquash));
+    ctx2d.rotate(bRad);
+    const wx0 = (atlas.x0 * TILE_SIZE * scale - cx) / TILE_SIZE;
+    const wz0 = (atlas.y0 * TILE_SIZE * scale - cy) / TILE_SIZE;
+    const span = ATLAS_TILES * scale * pixelsPerTile;
+    ctx2d.drawImage(atlasCanvas, wx0 * pixelsPerTile, wz0 * pixelsPerTile, span, span);
+    ctx2d.restore();
+
+    const city = CITIES[currentCityKey];
+    const mpu = metresPerUnit(view.lat, view.zoom);
+    for (const b of city.buildings) {
+      const [bx, bz] = latLonToLocal(b.lat, b.lon, view);
+      const h = Math.max(0.2, (b.h / mpu) * 1.45);
+      const [x0, y0] = project2D(bx, bz, 0);
+      const [x1, y1] = project2D(bx, bz, h);
+      ctx2d.fillStyle = `rgba(${Math.round(b.colour[0] * 210)},${Math.round(b.colour[1] * 210)},${Math.round(b.colour[2] * 210)},0.85)`;
+      ctx2d.fillRect(x1 - 12, y1, 24, Math.max(6, y0 - y1));
+      ctx2d.fillStyle = '#edf3f8';
+      ctx2d.fillRect(x1 - 12, y1 - 4, 24, 5);
+    }
+
+    if (withElements) {
+      const items = city.places.map((p, i) => {
+        const [wx, wz] = latLonToLocal(p.lat, p.lon, view);
+        const [bx, by, depth] = project2D(wx, wz, 0);
+        const [tx, ty] = project2D(wx, wz, 0.17);
+        return { p, el: cardEls[i], slot: i, bx, by, tx, ty, depth };
+      }).sort((a, b) => a.depth - b.depth);
+
+      for (const it of items) {
+        ctx2d.strokeStyle = it.slot === activeSlot ? '#f25c28' : '#1f537a';
+        ctx2d.lineWidth = 2;
+        ctx2d.beginPath();
+        ctx2d.moveTo(it.bx, it.by);
+        ctx2d.lineTo(it.tx, it.ty);
+        ctx2d.stroke();
+
+        const w = it.el.offsetWidth || 186;
+        const h = it.el.offsetHeight || 134;
+        const k = cw < 520 ? 0.78 : 0.86;
+        const dw = w * k, dh = h * k;
+        const x = Math.max(4, Math.min(cw - dw - 4, it.tx - dw * 0.5));
+        const y = Math.max(4, Math.min(ch - dh - 4, it.ty - dh));
+        ctx2d.drawElementImage(it.el, x, y, dw, dh);
+        const u = geometryUnit(canvas, it.el, w);
+        const m = new DOMMatrix().translate(x * u, y * u).scale(k * u, k * u);
+        canvas.updateElementGeometry?.(it.el, { canvasTransform: m });
+        it.el.dataset.hitTick = it.el.dataset.hitTick === '1' ? '0' : '1';
+      }
+      hud.textContent = `2D fallback · z${view.zoom.toFixed(1)} · ${atlas.liveTiles}/25 OSM tiles`;
+    }
+    ctx2d.restore();
+  }
+
+  // #region export
+  function exportCompositePng() {
+    if (mode === 'webgl' && stage && !stage.lost) {
+      for (const el of cardEls) {
+        if (!stage.has(el)) stage.upload(el);
+      }
+      drawWebGL();
+    } else if (mode === '2d') {
+      draw2D(true);
+    } else {
+      draw2D(false);
+    }
+
+    const copy = document.createElement('canvas');
+    copy.width = Math.max(1, canvas.width);
+    copy.height = Math.max(1, canvas.height);
+    try {
+      const c = copy.getContext('2d');
+      c.drawImage(canvas, 0, 0);
+      // Stamp visible OpenStreetMap attribution onto the exported PNG copy.
+      const pad = Math.max(10, Math.round(copy.width * 0.012));
+      const fontPx = Math.max(12, Math.round(copy.width * 0.015));
+      c.font = `600 ${fontPx}px system-ui, -apple-system, sans-serif`;
+      const credit = '© OpenStreetMap contributors';
+      const tw = c.measureText(credit).width;
+      const bw = tw + pad * 1.4, bh = fontPx + pad * 0.9;
+      c.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      c.fillRect(copy.width - bw - pad, copy.height - bh - pad, bw, bh);
+      c.fillStyle = '#1f2937';
+      c.fillText(credit, copy.width - bw - pad * 0.3, copy.height - pad * 1.45);
+
+      const url = copy.toDataURL('image/png');
+      const kb = Math.round((url.length * 3) / 4 / 1024);
+      exportImg.src = url;
+      exportDl.href = url;
+      exportDl.download = `osm-markers-${currentCityKey}.png`;
+      exportMeta.textContent = `${copy.width} × ${copy.height} px · ~${kb} KB · ${CITIES[currentCityKey].name} · ${atlasState.liveTiles}/25 live OSM tiles${mode === 'plain' ? ' (plain HTML cards sit outside canvas)' : ' + 4 live HTML cards'}`;
+      exportBox.hidden = false;
+      statusEl.textContent = `Exported ${copy.width} × ${copy.height} PNG (~${kb} KB) containing the map, 3D buildings and HTML place cards.`;
+    } catch (err) {
+      setNotice(`PNG export failed: ${err.message}. Check whether a proxy stripped CORS headers from OpenStreetMap tiles.`);
+      statusEl.textContent = `PNG export threw ${err.name}: ${err.message}`;
+    } finally {
+      window.__gfx?.retire(copy);
+    }
+  }
+  // #endregion export
+
+  exportBtn.addEventListener('click', exportCompositePng);
+  exportClose.addEventListener('click', () => { exportBox.hidden = true; });
+
+  function requestDraw() {
+    if (mode === 'webgl' || mode === '2d') canvas.requestPaint?.();
+    else draw2D(false);
+  }
+
+  // ------------------------------------------------------------------ startup
+  populateCards(currentCityKey);
+  syncSliders();
+
+  if (glSupported) {
+    try {
+      stage = new ElementGL(canvas, {
+        fragment: CARD_FRAGMENT,
+        attributes: { depth: true, antialias: true },
+        onLost: () => {
+          cardProg = null;
+          cardVao = null;
+          glRes = null;
+          showPlainFallback('The browser took the WebGL 2 context away. The place cards are shown as plain HTML below until it returns.');
+        },
+        onRestored: () => {
+          mode = 'webgl';
+          cardProg = null;
+          cardVao = null;
+          glRes = null;
+          lastGeom.clear();
+          atlasState.dirty = true;
+          restoreCanvasCards();
+          canvas.requestPaint?.();
+        },
+      });
+      mode = 'webgl';
+    } catch (err) {
+      if (canvas2dSupported) {
+        mode = '2d';
+        setNotice(`WebGL 2 could not start (${err.message}). Drawing the tilted map with the 2D fallback.`);
+      } else {
+        showPlainFallback(`WebGL 2 could not start (${err.message}), and 2D drawElementImage() is unavailable.`);
+      }
+    }
+  } else if (canvas2dSupported) {
+    mode = '2d';
+    setNotice('WebGL 2 texElementSubImage2D() is not available here. Running the 2D map fallback with drawElementImage().');
+  } else {
+    showPlainFallback('HTML-in-canvas is not enabled in this browser. The map draws in 2D and the live place cards sit below as plain HTML.');
+  }
+
+  canvas.addEventListener('paint', (e) => {
+    paints++;
+    if (mode === 'webgl' && stage && !stage.lost) {
+      const changed = new Set(e.changedElements ?? []);
+      for (const el of cardEls) {
+        if (changed.has(el) || !stage.has(el)) {
+          stage.upload(el);
+          uploads++;
+        }
+      }
+      drawWebGL();
+    } else if (mode === '2d') {
+      draw2D(true);
+    }
+  });
+
+  const ro = new ResizeObserver(() => requestDraw());
+  ro.observe(canvas);
+  requestDraw();
+
+  // ------------------------------------------------------------- live checks
+  function readCanvasViaCopy(srcCanvas) {
+    const copy = document.createElement('canvas');
+    copy.width = Math.max(1, srcCanvas.width);
+    copy.height = Math.max(1, srcCanvas.height);
+    const c = copy.getContext('2d', { willReadFrequently: true });
+    c.drawImage(srcCanvas, 0, 0);
+    const data = c.getImageData(0, 0, copy.width, copy.height).data;
+    const w = copy.width, h = copy.height;
+    window.__gfx?.retire(copy);
+    return { w, h, data };
+  }
+
+  function makeFixtureCanvas(w = 240, h = 160) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = `display:block;width:${w}px;height:${h}px;`;
+    testStage().append(c);
+    return c;
+  }
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'ElementGL uploads a drawable place card via texElementSubImage2D()',
+      why: 'Confirms a place card inside an isolated drawable WebGL 2 canvas uploads and draws non-transparent pixels.',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(220, 140);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:140px;height:80px;background:#132230;color:#fff;padding:8px;font:700 13px system-ui';
+        card.textContent = 'Waterloo Station';
+        c.append(card);
+        const fx = new ElementGL(c, { fragment: CARD_FRAGMENT, attributes: { preserveDrawingBuffer: true } });
+        try {
+          let drawn = 0;
+          c.addEventListener('paint', () => {
+            fx.upload(card);
+            fx.begin([0, 0, 0, 0]);
+            fx.quad(card, ElementGL.rect(c, 24, 24, 140, 80), (g, u) => {
+              g.uniform1f(u('uActive'), 0.0);
+              g.uniform1f(u('uFog'), 0.0);
+            });
+            const { data } = readCanvasViaCopy(c);
+            for (let i = 3; i < data.length; i += 16) if (data[i] > 20) drawn++;
+          }, { once: true });
+          await nextPaint(c);
+          if (!fx.has(card)) throw new Error('ElementGL did not record an uploaded texture');
+          if (!drawn) throw new Error('Readback copy found zero non-transparent pixels');
+          return `Uploaded card texture and measured ${drawn} sampled non-transparent pixels.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: '3D depth occlusion hides a card behind a closer building vs always-on-top',
+      why: 'Draws a closer cyan building quad at z=-0.4 and a red drawable card at z=0.4 with DEPTH_TEST on, then repeats with DEPTH_TEST off.',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(200, 140);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:120px;height:80px;background:#dc2626';
+        c.append(card);
+        const fx = new ElementGL(c, { fragment: CARD_FRAGMENT, attributes: { depth: true, preserveDrawingBuffer: true } });
+        try {
+          let occludedPx = [0, 0, 0, 0];
+          let topPx = [0, 0, 0, 0];
+          const bldgVS = `#version 300 es
+            precision highp float; precision highp int;
+            layout(location = 0) in vec2 aPos;
+            void main() { gl_Position = vec4(aPos * 2.0 - 1.0, -0.4, 1.0); }`;
+          const bldgFS = `#version 300 es
+            precision highp float; precision highp int;
+            out vec4 outColor;
+            void main() { outColor = vec4(0.10, 0.52, 0.78, 1.0); }`;
+          c.addEventListener('paint', () => {
+            fx.upload(card);
+            const g = fx.gl;
+            fx.begin([0, 0, 0, 1]);
+            const savedProg = g.getParameter(g.CURRENT_PROGRAM);
+            const savedVao = g.getParameter(g.VERTEX_ARRAY_BINDING);
+            const bp = compileProgram(g, bldgVS, bldgFS);
+            const farMat = new Float32Array([1.2, 0, 0, 0, 0, -1.2, 0, 0, 0, 0, 1, 0, -0.6, 0.6, 0.4, 1]);
+
+            const runPass = (enableDepth) => {
+              g.clear(g.COLOR_BUFFER_BIT | g.DEPTH_BUFFER_BIT);
+              g.enable(g.DEPTH_TEST);
+              g.depthFunc(g.LEQUAL);
+              g.depthMask(true);
+              g.disable(g.BLEND);
+              g.useProgram(bp);
+              g.bindVertexArray(savedVao);
+              g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+
+              if (enableDepth) g.enable(g.DEPTH_TEST);
+              else g.disable(g.DEPTH_TEST);
+              g.enable(g.BLEND);
+              g.blendFunc(g.ONE, g.ONE_MINUS_SRC_ALPHA);
+              g.depthMask(false);
+              g.useProgram(savedProg);
+              g.bindVertexArray(savedVao);
+              fx.quad(card, farMat, (gl2, u) => {
+                gl2.uniform1f(u('uActive'), 0.0);
+                gl2.uniform1f(u('uFog'), 0.0);
+              });
+              g.depthMask(true);
+              const { w, h, data } = readCanvasViaCopy(c);
+              const idx = (Math.floor(h / 2) * w + Math.floor(w / 2)) * 4;
+              return [data[idx], data[idx + 1], data[idx + 2], data[idx + 3]];
+            };
+
+            occludedPx = runPass(true);
+            topPx = runPass(false);
+          }, { once: true });
+          await nextPaint(c);
+          if (!(occludedPx[2] > 150 && occludedPx[0] < 80)) {
+            throw new Error(`Expected cyan building pixel with depth test on, got rgba(${occludedPx.join(',')})`);
+          }
+          if (!(topPx[0] > 160 && topPx[2] < 80)) {
+            throw new Error(`Expected red card pixel with depth test off, got rgba(${topPx.join(',')})`);
+          }
+          return `Depth on -> building rgba(${occludedPx.join(',')}); depth off -> card rgba(${topPx.join(',')}).`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Projective updateElementGeometry() + geometryUnit() maps clicks to a card button',
+      why: 'Applies a scaled projective canvasTransform and toggles data-hit-tick, then checks document.elementFromPoint().',
+      run: async () => {
+        if (!canvas2dSupported || !('updateElementGeometry' in HTMLCanvasElement.prototype)) {
+          throw new Error('updateElementGeometry() is not available');
+        }
+        const c = makeFixtureCanvas(240, 160);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:120px;height:64px;background:#132230;display:flex;align-items:center;justify-content:center';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Focus';
+        btn.style.cssText = 'width:84px;height:36px';
+        card.append(btn);
+        c.append(card);
+        try {
+          const ctx = c.getContext('2d');
+          c.addEventListener('paint', () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 3);
+            c.width = Math.round(240 * dpr);
+            c.height = Math.round(160 * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.drawElementImage(card, 64, 48, 120, 64);
+            const u = geometryUnit(c, card, 120);
+            const m = new DOMMatrix().translate(64 * u, 48 * u).scale(u, u);
+            c.updateElementGeometry(card, { canvasTransform: m });
+            card.dataset.hitTick = card.dataset.hitTick === '1' ? '0' : '1';
+          }, { once: true });
+          await nextPaint(c);
+          const rect = c.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.left + 64 + 60, rect.top + 48 + 32);
+          if (hit !== btn) throw new Error(`elementFromPoint returned <${hit?.tagName?.toLowerCase() ?? 'null'}> instead of <button>`);
+          return 'Hit test at transformed button centre resolved to <button> "Focus".';
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Keyboard focus order walks across drawable place cards inside the canvas',
+      why: 'Creates two drawable place cards with buttons and inputs on a fixture canvas and verifies sequential programmatic focus order.',
+      run: async () => {
+        if (!canvas2dSupported) throw new Error('HTML-in-canvas is not available');
+        const c = makeFixtureCanvas(240, 120);
+        const makePin = (label) => {
+          const card = document.createElement('article');
+          card.setAttribute('drawable', '');
+          card.style.cssText = 'position:absolute;left:0;top:0;width:120px;height:60px';
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.textContent = label;
+          const inp = document.createElement('input');
+          inp.type = 'text';
+          inp.value = label;
+          inp.setAttribute('inputmode', 'none');
+          card.append(btn, inp);
+          return { card, btn, inp };
+        };
+        const p1 = makePin('Waterloo');
+        const p2 = makePin('Tate');
+        c.append(p1.card, p2.card);
+        const prevActive = document.activeElement;
+        try {
+          const ctx = c.getContext('2d');
+          c.addEventListener('paint', () => {
+            c.width = 240;
+            c.height = 120;
+            ctx.drawElementImage(p1.card, 4, 4, 110, 54);
+            ctx.drawElementImage(p2.card, 124, 4, 110, 54);
+          }, { once: true });
+          await nextPaint(c);
+          const order = [...c.querySelectorAll('button, input')];
+          if (order.length !== 4) throw new Error(`Expected 4 tabbable controls, found ${order.length}`);
+          const focused = [];
+          for (const el of order) {
+            el.focus({ preventScroll: true });
+            if (document.activeElement === el) focused.push(`${el.tagName.toLowerCase()}:${el.textContent || el.value}`);
+          }
+          if (focused.length !== 4) throw new Error(`Only ${focused.length} of 4 drawable controls accepted focus`);
+          return `Sequential focus landed on all 4 controls: ${focused.join(' -> ')}.`;
+        } finally {
+          if (document.activeElement && c.contains(document.activeElement)) document.activeElement.blur?.();
+          if (prevActive && prevActive !== document.body && prevActive.isConnected) prevActive.focus?.({ preventScroll: true });
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Offscreen tile atlas + drawable pin composite exports PNG without taint',
+      why: 'Uploads a procedural offscreen 2D tile atlas alongside a drawable HTML card, copies to a plain 2D canvas and calls toDataURL("image/png").',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(220, 140);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:120px;height:60px;background:#132230;color:#fff;padding:6px;font:700 12px system-ui';
+        card.textContent = 'Borough Market';
+        c.append(card);
+        const tileAtlas = document.createElement('canvas');
+        tileAtlas.width = 256;
+        tileAtlas.height = 256;
+        const tctx = tileAtlas.getContext('2d');
+        drawProceduralTile(tctx, 0, 0, 14, 8187, 5448, CITIES.london);
+        const exportCopy = document.createElement('canvas');
+        const fx = new ElementGL(c, { fragment: CARD_FRAGMENT, attributes: { preserveDrawingBuffer: true } });
+        try {
+          let pngUrl = '';
+          c.addEventListener('paint', () => {
+            fx.upload(card);
+            const g = fx.gl;
+            fx.begin([0.85, 0.88, 0.92, 1]);
+            const savedProg = g.getParameter(g.CURRENT_PROGRAM);
+            const savedVao = g.getParameter(g.VERTEX_ARRAY_BINDING);
+            const gp = compileProgram(g, GROUND_VS, GROUND_FS);
+            const tex = g.createTexture();
+            g.bindTexture(g.TEXTURE_2D, tex);
+            g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
+            g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+            g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, tileAtlas);
+            const camTest = buildCamera({ lat: 51.505, lon: -0.107, zoom: 14.4, bearing: -20, pitch: 45 }, 220, 140);
+            g.useProgram(gp);
+            g.bindVertexArray(savedVao);
+            g.uniform1i(g.getUniformLocation(gp, 'uMapTex'), 0);
+            g.uniformMatrix4fv(g.getUniformLocation(gp, 'uVP'), false, camTest.vp);
+            g.uniform4f(g.getUniformLocation(gp, 'uAtlasBounds'), -1.5, -1.5, 1.5, 1.5);
+            g.uniform3fv(g.getUniformLocation(gp, 'uCamPos'), camTest.eye);
+            g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+            g.useProgram(savedProg);
+            g.bindVertexArray(savedVao);
+            fx.quad(card, ElementGL.rect(c, 50, 40, 120, 60), (gl2, u) => {
+              gl2.uniform1f(u('uActive'), 1.0);
+              gl2.uniform1f(u('uFog'), 0.0);
+            });
+            exportCopy.width = c.width;
+            exportCopy.height = c.height;
+            exportCopy.getContext('2d').drawImage(c, 0, 0);
+            pngUrl = exportCopy.toDataURL('image/png');
+          }, { once: true });
+          await nextPaint(c);
+          if (!pngUrl.startsWith('data:image/png;base64,') || pngUrl.length < 400) {
+            throw new Error(`Unexpected export URL length (${pngUrl.length})`);
+          }
+          return `Exported untainted PNG data URL (${Math.round(pngUrl.length / 1024)} KB base64).`;
+        } finally {
+          window.__gfx?.retire(tileAtlas);
+          window.__gfx?.retire(exportCopy);
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: '2D fallback draws a place card with five-argument drawElementImage()',
+      why: 'Confirms the 2D map path draws a procedural tile and a scaled drawable card with explicit width and height.',
+      run: async () => {
+        if (!canvas2dSupported) throw new Error('2D drawElementImage() is not available');
+        const c = makeFixtureCanvas(220, 140);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:130px;height:66px;background:#d2491f;color:#fff;padding:6px;font:700 12px system-ui';
+        card.textContent = 'Westminster Pier';
+        c.append(card);
+        try {
+          const ctx = c.getContext('2d');
+          let orangePx = 0;
+          c.addEventListener('paint', () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 3);
+            c.width = Math.round(220 * dpr);
+            c.height = Math.round(140 * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            drawProceduralTile(ctx, 0, 0, 14, 8187, 5448, CITIES.london);
+            ctx.drawElementImage(card, 40, 34, 130, 66);
+            const { data } = readCanvasViaCopy(c);
+            for (let i = 0; i < data.length; i += 16) {
+              if (data[i] > 180 && data[i + 1] < 110 && data[i + 2] < 70) orangePx++;
+            }
+          }, { once: true });
+          await nextPaint(c);
+          if (!orangePx) throw new Error('Copy readback found zero card pixels over the 2D tile');
+          return `Drew procedural tile + 5-arg drawElementImage() card (${orangePx} sampled card pixels).`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

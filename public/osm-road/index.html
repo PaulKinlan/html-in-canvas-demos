@@ -1,0 +1,2120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Street-level HTML overlays painted onto a tilted OpenStreetMap grid</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Four live interactive HTML overlays (turn-by-turn directions, a bus departure board, a speed and toll plate, and an editable checkpoint note) painted flat in 3D perspective onto a tilted…">
+<link rel="canonical" href="https://html-in-canvas.page/osm-road/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Street-level HTML overlays painted onto a tilted OpenStreetMap grid">
+<meta property="og:description" content="Four live interactive HTML overlays (turn-by-turn directions, a bus departure board, a speed and toll plate, and an editable checkpoint note) painted flat in 3D perspective onto a tilted…">
+<meta property="og:url" content="https://html-in-canvas.page/osm-road/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Street-level HTML overlays painted onto a tilted OpenStreetMap grid&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Street-level HTML overlays painted onto a tilted OpenStreetMap grid">
+<meta name="twitter:description" content="Four live interactive HTML overlays (turn-by-turn directions, a bus departure board, a speed and toll plate, and an editable checkpoint note) painted flat in 3D perspective onto a tilted…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Street-level HTML overlays painted onto a tilted OpenStreetMap grid&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/osm-road/",
+   "url": "https://html-in-canvas.page/osm-road/",
+   "mainEntityOfPage": "https://html-in-canvas.page/osm-road/",
+   "headline": "Street-level HTML overlays painted onto a tilted OpenStreetMap grid",
+   "name": "Street-level HTML overlays painted onto a tilted OpenStreetMap grid",
+   "description": "Four live interactive HTML overlays \u0028turn-by-turn directions, a bus departure board, a speed and toll plate, and an editable checkpoint note) painted flat in 3D perspective onto a tilted OpenStreetMap street grid over Central London, with projective hit testing and an upright-sign mode.",
+   "abstract": "Can live interactive HTML turn-by-turn signs, station boards and clickable route badges lie flat in 3D perspective on a tilted OpenStreetMap road surface and keep accurate hit testing as you drive, rotate and pitch the map?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "WebGL 2, texElementSubImage2D, updateElementGeometry, ElementGL, OpenStreetMap, texElementSubImage2D\u0028), updateElementGeometry\u0028), drawElementImage\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Street-level HTML overlays painted onto a tilted OpenStreetMap grid",
+     "item": "https://html-in-canvas.page/osm-road/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 960px; }
+  .road-stage {
+    position: relative;
+    padding: 0;
+    overflow: hidden;
+    height: min(520px, 68svh);
+    min-height: 320px;
+    background: #101822;
+    touch-action: none;
+  }
+  .road-stage canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: grab;
+  }
+  .road-stage canvas.dragging { cursor: grabbing; }
+  .road-stage.fallback {
+    height: auto;
+    min-height: 0;
+    padding: 12px;
+    background: var(--card);
+    touch-action: auto;
+  }
+  .road-stage.fallback canvas {
+    height: min(320px, 46svh);
+    border-radius: 8px;
+    margin-bottom: 12px;
+  }
+  .fallback-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+    gap: 10px;
+  }
+  .fallback-grid[hidden] { display: none; }
+
+  /* Live drawable street overlays: fixed road-sign palette so painted tarmac cards read clearly in both colour schemes. */
+  .road-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 214px;
+    padding: 10px 11px;
+    border-radius: 9px;
+    border: 2px solid #f4c44e;
+    background: linear-gradient(168deg, #16212ef5 0%, #0e1620f7 100%);
+    color: #f4f7fa;
+    font: 12px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    box-sizing: border-box;
+    user-select: text;
+  }
+  .road-card.active {
+    border-color: #38e0b8;
+    background: linear-gradient(168deg, #152b34f8 0%, #0d1d24fa 100%);
+  }
+  .fallback-grid .road-card {
+    position: static;
+    width: auto;
+  }
+
+  .rc-kicker {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    font: 700 10px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #9ec4d8;
+    margin-bottom: 5px;
+  }
+  .rc-badge {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: #ffffff1a;
+    color: #ffd670;
+  }
+
+  /* Turn-by-turn manoeuvre card */
+  .turn-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 8px;
+  }
+  .turn-arrow {
+    flex: 0 0 38px;
+    height: 38px;
+    border-radius: 7px;
+    background: #103b36;
+    border: 1.5px solid #38e0b8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .turn-arrow svg {
+    width: 24px;
+    height: 24px;
+    stroke: #6ef7d2;
+    fill: none;
+    stroke-width: 2.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .turn-dist {
+    font: 700 11.5px var(--mono);
+    color: #6ef7d2;
+  }
+  .turn-text {
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1.25;
+    color: #ffffff;
+  }
+  .turn-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .lane-hint {
+    font: 600 10.5px var(--mono);
+    color: #b7d2e2;
+  }
+
+  /* Transit departure board */
+  .bus-card { border-color: #e65045; }
+  .bus-ctrl {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .bus-ctrl label {
+    font: 600 10.5px var(--mono);
+    color: #c7d9e6;
+  }
+  .bus-rows {
+    display: grid;
+    gap: 4px;
+  }
+  .bus-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 5px;
+    background: #ffffff12;
+    font: 600 11px var(--mono);
+  }
+  .bus-dest {
+    color: #eef5fa;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .bus-eta {
+    color: #ffd670;
+    white-space: nowrap;
+  }
+
+  /* Speed and lane warning plate */
+  .speed-card { border-color: #f06d4f; }
+  .speed-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 7px;
+  }
+  .speed-roundel {
+    flex: 0 0 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 4px solid #e03c31;
+    background: #ffffff;
+    color: #11161c;
+    font: 800 16px/1 system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .speed-title {
+    font-weight: 700;
+    font-size: 12.5px;
+    color: #ffffff;
+  }
+  .speed-sub {
+    font: 600 10.5px var(--mono);
+    color: #ffb899;
+  }
+  .toll-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 5px 6px;
+    border-radius: 6px;
+    background: #ffffff12;
+  }
+  .toll-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+    font-size: 11.5px;
+    color: #f3f7fa;
+    cursor: pointer;
+  }
+  .toll-label input {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    accent-color: #38e0b8;
+    cursor: pointer;
+  }
+  .eta-out {
+    font: 700 11px var(--mono);
+    color: #79f2cf;
+    white-space: nowrap;
+  }
+
+  /* Checkpoint note card */
+  .note-card { border-color: #6ec4f2; }
+  .note-wrap { display: block; }
+  .note-wrap span {
+    display: block;
+    font: 600 10px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #a9cce0;
+    margin-bottom: 3px;
+  }
+  .note-input {
+    width: 100%;
+    font: 600 12px/1.3 system-ui, -apple-system, sans-serif;
+    padding: 5px 7px;
+    border-radius: 5px;
+    border: 1.5px solid #5987a6;
+    background: #0a121b;
+    color: #ffffff;
+    min-height: 28px;
+  }
+  .note-input:focus {
+    outline: 2px solid #ff7a4d;
+    outline-offset: 1px;
+    border-color: #ff7a4d;
+  }
+  .note-foot {
+    margin-top: 5px;
+    display: flex;
+    justify-content: space-between;
+    font: 10px var(--mono);
+    color: #9bbad0;
+  }
+
+  .road-card button,
+  .road-card select {
+    font: 700 11.5px system-ui, -apple-system, sans-serif;
+    padding: 4px 8px;
+    border-radius: 5px;
+    border: 1px solid #6b91a8;
+    background: #1d3448;
+    color: #f5f9fc;
+    min-height: 28px;
+    cursor: pointer;
+  }
+  .road-card button:hover,
+  .road-card select:hover {
+    border-color: #38e0b8;
+    background: #23435a;
+  }
+  .road-card button:focus-visible,
+  .road-card select:focus-visible {
+    outline: 2px solid #ff7a4d;
+    outline-offset: 1px;
+  }
+
+  .map-hud {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #0c141de0;
+    border: 1px solid #ffffff2b;
+    color: #dce9f2;
+    font: 11px var(--mono);
+    pointer-events: none;
+    max-width: calc(100% - 210px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .osm-attr {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: #0c141de0;
+    border: 1px solid #ffffff2b;
+    color: #dce9f2;
+    font: 11px var(--mono);
+    z-index: 2;
+  }
+  .osm-attr a {
+    color: #9bd7ff;
+    text-decoration: underline;
+  }
+  .osm-attr a:hover { color: #ffffff; }
+
+  .controls { margin: 12px 0 8px; }
+  .controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+  }
+  .controls input[type="range"] { width: 116px; accent-color: var(--accent); }
+  .controls select {
+    font: inherit;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--card);
+    color: var(--fg);
+    min-height: 36px;
+  }
+  .controls button { min-height: 36px; }
+  .controls button[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  #notice {
+    margin: 8px 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+  }
+  #notice[hidden] { display: none; }
+  #status { font: 13px var(--mono); color: var(--muted); min-height: 1.5em; margin: 6px 0 12px; }
+  @media (max-width: 520px) {
+    .controls input[type="range"] { width: 92px; }
+    .map-hud { max-width: calc(100% - 20px); bottom: 38px; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Street-level HTML overlays painted onto a tilted OpenStreetMap grid</h1>
+  <p class="lede">
+    I wanted to know if live interactive HTML signs, departure boards and route badges can lie flat in 3D perspective on a tilted OpenStreetMap road surface and keep accurate hit testing while you drive, rotate and pitch the view.
+    Drag across Central London to pan, adjust the heading and pitch sliders, press Next step on the painted turn card, change the bus line filter, toggle Avoid tolls or edit the checkpoint note directly on the street.
+  </p>
+
+  <div class="stage road-stage" id="stage">
+    <!-- #region markup -->
+    <canvas id="map" content="drawable" layoutsubtree aria-label="Tilted OpenStreetMap street grid of Central London with four live HTML road overlays">
+      <article class="road-card active" id="road-turn" data-overlay="turn" drawable>
+        <div class="rc-kicker"><span>Turn-by-turn</span><span class="rc-badge" id="step-count">Step 1 of 4</span></div>
+        <div class="turn-row">
+          <div class="turn-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path id="turn-svg-path" d="M7 19V9a3 3 0 0 1 3-3h7m-4-3 4 3-4 3"></path></svg>
+          </div>
+          <div>
+            <div class="turn-dist" id="turn-dist">In 120 m</div>
+            <div class="turn-text" id="turn-text">Turn right onto Embankment</div>
+          </div>
+        </div>
+        <div class="turn-actions">
+          <span class="lane-hint" id="lane-hint">Right lane · A3211</span>
+          <button type="button" class="step-btn" id="next-step-btn">Next step</button>
+        </div>
+      </article>
+
+      <article class="road-card bus-card" id="road-bus" data-overlay="bus" drawable>
+        <div class="rc-kicker"><span>Stop E · Embankment</span><span class="rc-badge">Live</span></div>
+        <div class="bus-ctrl">
+          <label for="line-filter">Line</label>
+          <select id="line-filter" class="line-sel" aria-label="Transit line filter">
+            <option value="11" selected>Route 11</option>
+            <option value="24">Route 24</option>
+            <option value="northern">Northern</option>
+          </select>
+        </div>
+        <div class="bus-rows" id="bus-rows">
+          <div class="bus-row"><span class="bus-dest">11 · Liverpool St</span><span class="bus-eta">2 min</span></div>
+          <div class="bus-row"><span class="bus-dest">11 · Fulham Bdwy</span><span class="bus-eta">7 min</span></div>
+        </div>
+      </article>
+
+      <article class="road-card speed-card" id="road-speed" data-overlay="speed" drawable>
+        <div class="rc-kicker"><span>Whitehall · A3212</span><span class="rc-badge">C-Zone</span></div>
+        <div class="speed-head">
+          <div class="speed-roundel" aria-label="20 mph speed limit">20</div>
+          <div>
+            <div class="speed-title">Keep clear · Bus lane</div>
+            <div class="speed-sub" id="toll-sub">Congestion charge active</div>
+          </div>
+        </div>
+        <div class="toll-row">
+          <label class="toll-label"><input type="checkbox" id="avoid-tolls" class="toll-chk"> Avoid tolls</label>
+          <output id="eta-out" class="eta-out" for="avoid-tolls">14 min · £15</output>
+        </div>
+      </article>
+
+      <article class="road-card note-card" id="road-note" data-overlay="note" drawable>
+        <div class="rc-kicker"><span>Checkpoint · Trafalgar</span><span class="rc-badge">Pinned</span></div>
+        <label class="note-wrap">
+          <span>Waypoint label</span>
+          <input type="text" id="note-input" class="note-input" value="Embankment Pier pickup" aria-label="Street checkpoint note">
+        </label>
+        <div class="note-foot">
+          <span id="note-coords">51.5078, -0.1280</span>
+          <span id="note-len">22 chars</span>
+        </div>
+      </article>
+    </canvas>
+    <!-- #endregion markup -->
+    <div class="map-hud" id="hud">WebGL 2 road grid</div>
+    <div class="osm-attr"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a></div>
+    <div class="fallback-grid" id="fallback-grid" hidden></div>
+  </div>
+
+  <div class="row controls">
+    <label>Heading <input id="heading-slider" type="range" min="-180" max="180" value="14"><output id="heading-out">14°</output></label>
+    <label>Camera pitch <input id="pitch-slider" type="range" min="0" max="68" value="56"><output id="pitch-out">56°</output></label>
+    <button type="button" id="drive-btn" aria-pressed="false">Drive along route</button>
+    <label>Overlay style
+      <select id="overlay-style">
+        <option value="flat" selected>Painted on road</option>
+        <option value="upright">Upright sign</option>
+        <option value="billboard">Billboard (faces camera)</option>
+      </select>
+    </label>
+  </div>
+
+  <p id="notice" hidden role="status"></p>
+  <p id="status" role="status">Drag to pan across Whitehall and Embankment. Tap Next step, pick a bus route, toggle Avoid tolls or edit the checkpoint note.</p>
+
+  <details class="show-code">
+    <summary>Show the code <small>zoom-16 OpenStreetMap tile atlas, single-context ElementGL road shader, projective flat and upright matrices</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Four interactive street overlays inside the canvas.</b> Turn-by-turn directions, a transit departure board, a speed and toll plate and an editable checkpoint note sit as <code>drawable</code> children inside <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>.</li>
+      <li data-code="#atlas"><b>Zoom-16 OpenStreetMap tile atlas with offline street fallback.</b> A plain 1024 by 1024 offscreen canvas draws a procedural Central London street layout first, then paints each CORS-enabled OpenStreetMap tile into its slot as it loads from memory or network.</li>
+      <li data-code="#shaders"><b>Road plane, glowing route polyline and asphalt-blended card shaders.</b> The road shader renders the pitched tile grid with horizon fog, the route shader animates forward chevrons and card drop shadows, and the card fragment shader blends subtle tarmac grain onto flat painted cards.</li>
+      <li data-code="#project"><b>Singularity-free camera and projective hit-test matrices.</b> An analytical heading-and-pitch basis avoids gimbal lock at 0 degrees top-down, builds clip and canvas matrices for both flat painted overlays and upright street signs, and updates <code>updateElementGeometry()</code> with <code>geometryUnit()</code>.</li>
+      <li data-code="#paint"><b>One ElementGL WebGL 2 context for map, route and DOM.</b> The <code>paint</code> handler uploads dirty cards via <code>stage.upload()</code>, draws the tile road plane and route polyline on <code>stage.gl</code>, restores <code>ElementGL</code>'s shader state and draws depth-sorted cards.</li>
+      <li data-code="/lib/element-gl.js#upload"><b>Texture upload in <code>element-gl.js</code>.</b> <code>texElementSubImage2D()</code> copies each live HTML overlay into a WebGL 2 texture sized to <code>getElementImageDefaultSize()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    I took the visual idea from in-car AR navigation and painted road markings in Apple Maps, Google Maps Live View and Mapbox Navigation, and built it over live <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> zoom-16 tiles around Trafalgar Square, Northumberland Avenue, Victoria Embankment and Whitehall.
+    The projective <code>updateElementGeometry()</code> hit-testing approach follows <a href="/three-form/">/three-form/</a> and <a href="/relief-map/">/relief-map/</a> on this site.
+  </p>
+  <p>
+    A plain detached 1024 by 1024 canvas holds a 4 by 4 grid of zoom-16 OpenStreetMap tiles (<code>x = 32743..32746</code>, <code>y = 21791..21794</code>) fetched with <code>crossOrigin = 'anonymous'</code> and cached in memory.
+    Before those tiles arrive, or if the device is offline, a procedural fallback paints the same Central London streets, River Thames curve and embankment parks into the atlas using the exact Web Mercator projection, so the road surface and route polyline align either way.
+  </p>
+  <p>
+    Everything on screen runs inside one WebGL 2 context from <code>new ElementGL(canvas, ...)</code>.
+    After <code>stage.begin()</code>, I save <code>ElementGL</code>'s active program and vertex array object, upload any newly loaded OpenStreetMap tiles to the road texture with mipmaps, draw the pitched road plane, then draw the glowing route polyline and soft ground shadows on <code>stage.gl</code>.
+    Restoring <code>ElementGL</code>'s program and VAO lets <code>stage.quad()</code> draw the four depth-sorted HTML overlays straight onto the tarmac.
+  </p>
+  <p>
+    In <code>Painted on road</code> mode, each card lies horizontally just above the asphalt and aligns to its street bearing so perspective foreshortening narrows the far edge as you raise the camera pitch toward 68 degrees.
+    Switching to <code>Upright sign</code> stands each card vertically on a post facing the camera's horizontal heading.
+    In both modes, the exact 4 by 4 projective matrix mapping CSS pixels <code>(0..w, 0..h)</code> to canvas coordinates is scaled by <code>geometryUnit()</code> and passed to <code>canvas.updateElementGeometry()</code>, toggling <code>dataset.hitTick</code> whenever the transform shifts so Chromium's hit-test cache stays fresh.
+    If WebGL 2 HTML-in-canvas isn't available, the page falls back to a 2D affine projection using five-argument <code>drawElementImage()</code>, or to plain HTML cards below a 2D road map if HTML-in-canvas is turned off or the context is lost.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These checks run on isolated fixtures in a hidden corner stage and retire their canvases after each row, leaving the road map above untouched.</p>
+  <table class="results">
+    <thead><tr><th>Result</th><th>Check</th><th>Detail</th></tr></thead>
+    <tbody id="tests"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Building the camera basis analytically from road heading and pitch angle avoids the <code>lookAt</code> up-vector singularity at 0 degrees top-down, so sweeping the pitch slider smoothly from a flat plan view to a 68-degree driver's-eye angle keeps both the road plane and projective hit boxes stable.</li>
+    <li>Using one <code>ElementGL</code> WebGL 2 context for the OpenStreetMap tile plane, animated route ribbon, ground shadows and <code>texElementSubImage2D()</code> DOM quads works by saving and restoring <code>CURRENT_PROGRAM</code> and <code>VERTEX_ARRAY_BINDING</code> around the custom passes, keeping the page to a single GPU context.</li>
+    <li>Composite map tiles in a plain offscreen canvas before uploading to WebGL with mipmaps (and anisotropic filtering where supported) prevents flickering gaps while tiles download and gives a deterministic offline street layout at the same Web Mercator coordinates.</li>
+    <li>Credits: street map tiles come from <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> (© OpenStreetMap contributors); painted road-surface navigation overlays draw on in-car AR navigation and painted road markings in Apple Maps, Google Maps Live View and Mapbox Navigation; projective <code>updateElementGeometry()</code> hit testing builds on <a href="/three-form/">/three-form/</a> and <a href="/relief-map/">/relief-map/</a>.</li>
+    <li>Not verified yet: live browser runs in headless Chromium 157 and on Chrome 159 for Android (412 px touch panning, tapping Next step on a foreshortened flat road card, opening the native <code>&lt;select&gt;</code> line filter at 68 degrees pitch, typing into the painted checkpoint <code>&lt;input&gt;</code> with the on-screen keyboard, and CORS tile loading over a mobile network). Running the live checks above and testing on a phone will verify those paths.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+  import { geometryUnit, program as compileProgram } from '/lib/surface.js';
+  import { banner, supported as canvas2dSupported, runTests, testStage, nextPaint } from '/shared/support.js';
+
+  banner();
+
+  const stageBox = document.getElementById('stage');
+  const canvas = document.getElementById('map');
+  const hud = document.getElementById('hud');
+  const notice = document.getElementById('notice');
+  const statusEl = document.getElementById('status');
+  const fallbackGrid = document.getElementById('fallback-grid');
+
+  const headingSlider = document.getElementById('heading-slider');
+  const headingOut = document.getElementById('heading-out');
+  const pitchSlider = document.getElementById('pitch-slider');
+  const pitchOut = document.getElementById('pitch-out');
+  const driveBtn = document.getElementById('drive-btn');
+  const styleSelect = document.getElementById('overlay-style');
+
+  const stepCountEl = document.getElementById('step-count');
+  const turnDistEl = document.getElementById('turn-dist');
+  const turnTextEl = document.getElementById('turn-text');
+  const laneHintEl = document.getElementById('lane-hint');
+  const turnSvgPath = document.getElementById('turn-svg-path');
+  const lineFilter = document.getElementById('line-filter');
+  const busRowsEl = document.getElementById('bus-rows');
+  const avoidTollsChk = document.getElementById('avoid-tolls');
+  const tollSubEl = document.getElementById('toll-sub');
+  const etaOutEl = document.getElementById('eta-out');
+  const noteInput = document.getElementById('note-input');
+  const noteLenEl = document.getElementById('note-len');
+
+  // #region atlas
+  const TILE_Z = 16;
+  const TILE_X0 = 32743;
+  const TILE_Y0 = 21791;
+  const TILE_GRID = 4;
+  const TILE_PX = 256;
+  const ATLAS_PX = TILE_GRID * TILE_PX; // 1024 x 1024 plain offscreen atlas
+  const WORLD_SPAN = 12.0;
+  const WORLD_HALF = WORLD_SPAN * 0.5;
+
+  function latLonToAtlasUV(lat, lon) {
+    const n = 1 << TILE_Z;
+    const fx = ((lon + 180) / 360) * n;
+    const r = (lat * Math.PI) / 180;
+    const fy = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n;
+    return [(fx - TILE_X0) / TILE_GRID, (fy - TILE_Y0) / TILE_GRID];
+  }
+
+  function latLonToWorld(lat, lon) {
+    const [u, v] = latLonToAtlasUV(lat, lon);
+    return [(u - 0.5) * WORLD_SPAN, (v - 0.5) * WORLD_SPAN];
+  }
+
+  const ROUTE_LL = [
+    [51.5080, -0.1281], // Trafalgar Square
+    [51.5074, -0.1273], // Charing Cross
+    [51.5068, -0.1252], // Northumberland Ave
+    [51.5062, -0.1232], // Embankment junction
+    [51.5038, -0.1237], // Victoria Embankment
+    [51.5014, -0.1245], // Westminster Bridge Rd
+    [51.5012, -0.1264], // Parliament Square north
+    [51.5035, -0.1265], // Whitehall south / Downing St
+    [51.5056, -0.1269], // Whitehall north
+    [51.5074, -0.1273], // Back to Trafalgar Square
+  ];
+  const ROUTE_PTS = ROUTE_LL.map(([la, lo]) => latLonToWorld(la, lo));
+
+  const ROUTE_STEPS = [
+    {
+      dist: 'In 120 m',
+      text: 'Turn right onto Embankment',
+      lane: 'Right lane · A3211',
+      svg: 'M7 19V9a3 3 0 0 1 3-3h7m-4-3 4 3-4 3',
+      segStart: 0,
+      segEnd: 3,
+      focus: [0.35, -1.20, 26],
+    },
+    {
+      dist: 'In 210 m',
+      text: 'Keep left along Victoria Embankment',
+      lane: 'Left lane · Riverfront',
+      svg: 'M12 19V5m-4 4 4-4 4 4',
+      segStart: 3,
+      segEnd: 5,
+      focus: [1.35, 0.55, 168],
+    },
+    {
+      dist: 'In 340 m',
+      text: 'Turn right onto Whitehall',
+      lane: 'Centre lane · A3212',
+      svg: 'M17 19V9a3 3 0 0 0-3-3H7m4-3-4 3 4 3',
+      segStart: 5,
+      segEnd: 7,
+      focus: [0.20, 2.20, -14],
+    },
+    {
+      dist: 'In 180 m',
+      text: 'Enter Trafalgar Square',
+      lane: 'All lanes · West End',
+      svg: 'M12 19v-7m0 0-4-4m4 4 4-4',
+      segStart: 7,
+      segEnd: 9,
+      focus: [-0.45, -1.10, -8],
+    },
+  ];
+
+  const TRANSIT_DATA = {
+    '11': [
+      ['11 · Liverpool St', '2 min'],
+      ['11 · Fulham Bdwy', '7 min'],
+    ],
+    '24': [
+      ['24 · Hampstead Hth', '3 min'],
+      ['24 · Pimlico', '9 min'],
+    ],
+    northern: [
+      ['Northern · Edgware', '1 min'],
+      ['Northern · Morden', '4 min'],
+    ],
+  };
+
+  function drawProceduralStreets(targetCanvas) {
+    const ctx = targetCanvas.getContext('2d');
+    const S = targetCanvas.width;
+    const toPx = (lat, lon) => {
+      const [u, v] = latLonToAtlasUV(lat, lon);
+      return [u * S, v * S];
+    };
+
+    ctx.fillStyle = '#ddd8ce';
+    ctx.fillRect(0, 0, S, S);
+
+    // Subtle city block texture before live OSM PNGs arrive.
+    ctx.fillStyle = '#cfc9be';
+    for (let y = 18; y < S; y += 44) {
+      for (let x = 14; x < S; x += 56) {
+        const w = 34 + ((x * 7 + y * 3) % 16);
+        const h = 24 + ((x * 5 + y * 11) % 12);
+        ctx.fillRect(x, y, w, h);
+      }
+    }
+
+    // Parks: St James's Park and Victoria Embankment Gardens.
+    const drawPoly = (coords, fill) => {
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      coords.forEach(([la, lo], i) => {
+        const [x, y] = toPx(la, lo);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.fill();
+    };
+    drawPoly([[51.5056, -0.1380], [51.5060, -0.1292], [51.5015, -0.1290], [51.5008, -0.1375]], '#c4d9b0');
+    drawPoly([[51.5082, -0.1228], [51.5065, -0.1238], [51.5060, -0.1225], [51.5078, -0.1213]], '#c4d9b0');
+    drawPoly([[51.5012, -0.1274], [51.5012, -0.1260], [51.5002, -0.1260], [51.5002, -0.1274]], '#c4d9b0');
+
+    // River Thames curve on the east edge.
+    drawPoly([
+      [51.5125, -0.1140], [51.5095, -0.1185], [51.5065, -0.1218], [51.5025, -0.1232],
+      [51.4975, -0.1235], [51.4975, -0.1155], [51.5030, -0.1162], [51.5075, -0.1148], [51.5125, -0.1080],
+    ], '#95c5dc');
+
+    // Major Central London avenues.
+    const drawRoad = (coords, width, casing, fill) => {
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const trace = () => {
+        ctx.beginPath();
+        coords.forEach(([la, lo], i) => {
+          const [x, y] = toPx(la, lo);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+      };
+      ctx.strokeStyle = casing;
+      ctx.lineWidth = width + 4;
+      trace();
+      ctx.stroke();
+      ctx.strokeStyle = fill;
+      ctx.lineWidth = width;
+      trace();
+      ctx.stroke();
+      ctx.save();
+      ctx.strokeStyle = '#ffffffaa';
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([7, 7]);
+      trace();
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    drawRoad([[51.5112, -0.1205], [51.5082, -0.1272], [51.5080, -0.1296]], 14, '#b89460', '#f6d48a'); // Strand
+    drawRoad([[51.5074, -0.1273], [51.5035, -0.1355]], 13, '#b89460', '#f5dfa0'); // The Mall
+    drawRoad([[51.5080, -0.1281], [51.5056, -0.1269], [51.5012, -0.1264], [51.4985, -0.1264]], 18, '#a68252', '#f7cf78'); // Whitehall
+    drawRoad([[51.5074, -0.1273], [51.5062, -0.1232]], 15, '#a68252', '#f7d88c'); // Northumberland Ave
+    drawRoad([[51.5108, -0.1178], [51.5062, -0.1232], [51.5014, -0.1245], [51.4980, -0.1248]], 18, '#a68252', '#f7cf78'); // Victoria Embankment
+    drawRoad([[51.5014, -0.1266], [51.5008, -0.1170]], 16, '#8b8378', '#f2e8d4'); // Westminster Bridge
+    drawRoad([[51.5071, -0.1228], [51.5048, -0.1165]], 11, '#8b8378', '#e6dfd3'); // Hungerford Bridge
+
+    // Trafalgar Square plaza.
+    const [tx, ty] = toPx(51.5080, -0.1281);
+    ctx.fillStyle = '#ece6da';
+    ctx.strokeStyle = '#9e9586';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(tx, ty, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Subtle street labels for the offline fallback.
+    ctx.font = '700 13px system-ui, sans-serif';
+    ctx.fillStyle = '#4e483f';
+    ctx.textAlign = 'center';
+    const label = (txt, la, lo) => {
+      const [x, y] = toPx(la, lo);
+      ctx.fillText(txt, x, y);
+    };
+    label('TRAFALGAR SQ', 51.5085, -0.1281);
+    label('WHITEHALL', 51.5046, -0.1268);
+    label('VICTORIA EMBANKMENT', 51.5042, -0.1227);
+    label('NORTHUMBERLAND AVE', 51.5068, -0.1251);
+    ctx.fillStyle = '#2d5d75';
+    label('RIVER THAMES', 51.5038, -0.1194);
+  }
+
+  const atlasCanvas = document.createElement('canvas');
+  atlasCanvas.width = ATLAS_PX;
+  atlasCanvas.height = ATLAS_PX;
+  const atlasCtx = atlasCanvas.getContext('2d');
+  drawProceduralStreets(atlasCanvas);
+
+  const tileCache = new Map();
+  let tilesLoaded = 0;
+  let tilesFailed = 0;
+  let atlasDirty = true;
+
+  function loadOsmTiles() {
+    for (let row = 0; row < TILE_GRID; row++) {
+      for (let col = 0; col < TILE_GRID; col++) {
+        const tx = TILE_X0 + col;
+        const ty = TILE_Y0 + row;
+        const key = `${TILE_Z}/${tx}/${ty}`;
+        const paintTile = (img) => {
+          atlasCtx.drawImage(img, col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX);
+          atlasDirty = true;
+          requestDraw();
+        };
+        if (tileCache.has(key)) {
+          const cached = tileCache.get(key);
+          if (cached.complete && cached.naturalWidth > 0) paintTile(cached);
+          continue;
+        }
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.decoding = 'async';
+        tileCache.set(key, img);
+        img.onload = () => {
+          tilesLoaded++;
+          paintTile(img);
+        };
+        img.onerror = () => {
+          tilesFailed++;
+          requestDraw();
+        };
+        img.src = `https://tile.openstreetmap.org/${TILE_Z}/${tx}/${ty}.png`;
+      }
+    }
+  }
+  // #endregion atlas
+
+  // #region shaders
+  const CARD_FRAGMENT = `#version 300 es
+  precision highp float;
+  precision highp int;
+  uniform sampler2D uTex;
+  uniform float uFlat;
+  uniform float uActive;
+  uniform float uFog;
+  in vec2 vUv;
+  out vec4 outColor;
+
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  void main() {
+    vec4 c = texture(uTex, vUv);
+    vec2 e = min(vUv, 1.0 - vUv) / max(fwidth(vUv), vec2(1e-5));
+    float edge = clamp(min(e.x, e.y), 0.0, 1.0);
+
+    // Subtle asphalt aggregate micro-grain when painted flat on the tarmac.
+    float grain = (hash(floor(vUv * vec2(140.0, 96.0))) - 0.5) * 0.065 * uFlat;
+    vec3 col = c.rgb * (1.0 + grain);
+
+    float border = 1.0 - smoothstep(0.0, 0.055, min(min(vUv.x, 1.0 - vUv.x), min(vUv.y, 1.0 - vUv.y)));
+    col += vec3(0.22, 0.88, 0.72) * border * uActive * 0.24 * c.a;
+
+    // Slight asphalt integration (95% opacity) when painted flat, crisp full opacity when upright.
+    float surfaceAlpha = mix(1.0, 0.94, uFlat);
+    vec3 fogCol = vec3(0.09, 0.13, 0.19) * c.a;
+    col = mix(col, fogCol, clamp(uFog, 0.0, 0.30));
+    outColor = vec4(col, c.a) * (edge * surfaceAlpha);
+  }`;
+
+  const ROAD_VS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  layout(location = 0) in vec2 aPos;
+  layout(location = 1) in vec2 aUv;
+  uniform mat4 uVP;
+  out vec2 vUv;
+  out vec3 vWorld;
+  void main() {
+    vUv = aUv;
+    vWorld = vec3(aPos.x, 0.0, aPos.y);
+    gl_Position = uVP * vec4(vWorld, 1.0);
+  }`;
+
+  const ROAD_FS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  uniform sampler2D uMap;
+  uniform vec3 uCamPos;
+  in vec2 vUv;
+  in vec3 vWorld;
+  out vec4 outColor;
+  void main() {
+    vec3 tex = texture(uMap, vUv).rgb;
+    // Slight dusk contrast so the glowing route polyline and painted HTML signs stand out clearly.
+    vec3 mapCol = mix(vec3(0.11, 0.14, 0.18), tex, 0.88) * 0.94;
+    // Subtle street-grid coordinate lines at tile borders.
+    vec2 grid = abs(fract(vUv * 4.0 + 0.5) - 0.5) / max(fwidth(vUv * 4.0), vec2(1e-4));
+    float tileLine = (1.0 - clamp(min(grid.x, grid.y), 0.0, 1.0)) * 0.09;
+    mapCol = mix(mapCol, vec3(0.35, 0.52, 0.66), tileLine);
+    float dist = length(uCamPos - vWorld);
+    float fog = smoothstep(5.8, 15.5, dist) * 0.72;
+    vec3 sky = vec3(0.07, 0.10, 0.15);
+    outColor = vec4(mix(mapCol, sky, fog), 1.0);
+  }`;
+
+  const ROUTE_VS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  layout(location = 0) in vec3 aPos;
+  layout(location = 1) in vec4 aColor;
+  layout(location = 2) in vec2 aLocal;
+  layout(location = 3) in float aKind;
+  uniform mat4 uVP;
+  out vec4 vColor;
+  out vec2 vLocal;
+  out float vKind;
+  void main() {
+    vColor = aColor;
+    vLocal = aLocal;
+    vKind = aKind;
+    gl_Position = uVP * vec4(aPos, 1.0);
+  }`;
+
+  const ROUTE_FS = `#version 300 es
+  precision highp float;
+  precision highp int;
+  uniform float uTime;
+  in vec4 vColor;
+  in vec2 vLocal;
+  in float vKind;
+  out vec4 outColor;
+  void main() {
+    float a = vColor.a;
+    vec3 rgb = vColor.rgb;
+    if (vKind < 0.5) {
+      // Soft asphalt ground shadow under flat or upright HTML overlays.
+      vec2 q = abs(vLocal);
+      float box = smoothstep(1.0, 0.42, max(q.x, q.y));
+      float rad = exp(-1.8 * dot(q, q));
+      a *= mix(rad, box, 0.55);
+    } else if (vKind < 1.5) {
+      // Glowing navigation route ribbon with animated chevron pulse.
+      float across = abs(vLocal.x);
+      float core = 1.0 - smoothstep(0.36, 0.72, across);
+      float glow = (1.0 - smoothstep(0.45, 1.0, across)) * 0.55;
+      float chev = fract(vLocal.y * 2.2 - uTime * 1.4 - across * 0.55);
+      float pulse = smoothstep(0.62, 0.92, chev) * core * 0.42;
+      rgb += vec3(0.55, 0.95, 1.0) * pulse;
+      a *= max(core, glow);
+    } else if (vKind < 2.5) {
+      // Driver position chevron puck on the road.
+      float r = length(vLocal);
+      float w = max(fwidth(r), 0.04);
+      float disc = 1.0 - smoothstep(0.58 - w, 0.58 + w, r);
+      float ring = (1.0 - smoothstep(0.95 - w, 0.95 + w, r)) * smoothstep(0.72 - w, 0.72 + w, r);
+      a *= max(disc, ring * 0.85);
+    } else {
+      // Sign post stem for upright mode.
+      a *= 1.0 - smoothstep(0.55, 1.0, abs(vLocal.x));
+    }
+    if (a < 0.004) discard;
+    outColor = vec4(rgb * a, a);
+  }`;
+  // #endregion shaders
+
+  // ------------------------------------------------------------------ 3D math
+  function sub3(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+  function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+  function cross3(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+  function norm3(v) { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
+
+  function mat4Mul(a, b) {
+    const o = new Float32Array(16);
+    for (let c = 0; c < 4; c++) {
+      const b0 = b[c * 4], b1 = b[c * 4 + 1], b2 = b[c * 4 + 2], b3 = b[c * 4 + 3];
+      o[c * 4]     = a[0] * b0 + a[4] * b1 + a[8]  * b2 + a[12] * b3;
+      o[c * 4 + 1] = a[1] * b0 + a[5] * b1 + a[9]  * b2 + a[13] * b3;
+      o[c * 4 + 2] = a[2] * b0 + a[6] * b1 + a[10] * b2 + a[14] * b3;
+      o[c * 4 + 3] = a[3] * b0 + a[7] * b1 + a[11] * b2 + a[15] * b3;
+    }
+    return o;
+  }
+
+  function mat4Perspective(fovy, aspect, near, far) {
+    const t = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    return new Float32Array([
+      t / aspect, 0, 0, 0,
+      0, t, 0, 0,
+      0, 0, (far + near) * nf, -1,
+      0, 0, 2 * far * near * nf, 0,
+    ]);
+  }
+
+  function projectPoint(mat, x, y) {
+    const px = mat[0] * x + mat[4] * y + mat[12];
+    const py = mat[1] * x + mat[5] * y + mat[13];
+    const pw = mat[3] * x + mat[7] * y + mat[15];
+    return { x: px / pw, y: py / pw, w: pw };
+  }
+
+  // #region project
+  /** Analytical heading-and-pitch camera with no gimbal singularity at 0° top-down. */
+  function buildCamera(state, cw, ch) {
+    const h = (state.headingDeg * Math.PI) / 180;
+    const p = (state.pitchDeg * Math.PI) / 180;
+    const fwdH = [Math.sin(h), 0, -Math.cos(h)];
+    const right = [Math.cos(h), 0, Math.sin(h)];
+    const eye = [
+      state.tx - fwdH[0] * state.dist * Math.sin(p),
+      Math.max(0.35, state.dist * Math.cos(p)),
+      state.tz - fwdH[2] * state.dist * Math.sin(p),
+    ];
+    const forward = [fwdH[0] * Math.sin(p), -Math.cos(p), fwdH[2] * Math.sin(p)];
+    const up = cross3(right, forward);
+    const view = new Float32Array([
+      right[0], up[0], -forward[0], 0,
+      right[1], up[1], -forward[1], 0,
+      right[2], up[2], -forward[2], 0,
+      -dot3(right, eye), -dot3(up, eye), dot3(forward, eye), 1,
+    ]);
+    const proj = mat4Perspective((44 * Math.PI) / 180, cw / Math.max(1, ch), 0.12, 48.0);
+    return { eye, right, up, forward, fwdH, view, proj, vp: mat4Mul(proj, view) };
+  }
+
+  function computeCardPlacement(item, camBasis, cw, ch, overlayStyle) {
+    const w = item.el.offsetWidth || 214;
+    const h = item.el.offsetHeight || 112;
+    const compact = cw < 520;
+    const worldW = overlayStyle === 'flat' ? (compact ? 1.56 : 1.38) : (compact ? 1.36 : 1.22);
+    const worldH = worldW * (h / w);
+
+    let o, xAxis, yAxis, nAxis, anchor;
+    if (overlayStyle === 'flat') {
+      const b = item.bearing;
+      const cosB = Math.cos(b), sinB = Math.sin(b);
+      xAxis = [cosB * worldW, 0, sinB * worldW];
+      yAxis = [-sinB * worldH, 0, cosB * worldH];
+      nAxis = [0, 1, 0];
+      anchor = [item.x, 0.022, item.z];
+      o = [
+        anchor[0] - 0.5 * (xAxis[0] + yAxis[0]),
+        anchor[1],
+        anchor[2] - 0.5 * (xAxis[2] + yAxis[2]),
+      ];
+    } else if (overlayStyle === 'billboard') {
+      const postH = 0.28;
+      xAxis = [camBasis.right[0] * worldW, camBasis.right[1] * worldW, camBasis.right[2] * worldW];
+      yAxis = [-camBasis.up[0] * worldH, -camBasis.up[1] * worldH, -camBasis.up[2] * worldH];
+      nAxis = [-camBasis.forward[0], -camBasis.forward[1], -camBasis.forward[2]];
+      anchor = [item.x, postH, item.z];
+      o = [
+        anchor[0] - 0.5 * xAxis[0] - yAxis[0],
+        anchor[1] - 0.5 * xAxis[1] - yAxis[1],
+        anchor[2] - 0.5 * xAxis[2] - yAxis[2],
+      ];
+    } else {
+      const postH = 0.24;
+      const rH = norm3([camBasis.right[0], 0, camBasis.right[2]]);
+      xAxis = [rH[0] * worldW, 0, rH[2] * worldW];
+      yAxis = [0, -worldH, 0];
+      nAxis = norm3(cross3([0, -1, 0], rH));
+      anchor = [item.x, postH, item.z];
+      o = [
+        anchor[0] - 0.5 * xAxis[0],
+        anchor[1] + worldH,
+        anchor[2] - 0.5 * xAxis[2],
+      ];
+    }
+
+    const uvToWorld = new Float32Array([
+      xAxis[0], xAxis[1], xAxis[2], 0,
+      yAxis[0], yAxis[1], yAxis[2], 0,
+      nAxis[0], nAxis[1], nAxis[2], 0,
+      o[0],     o[1],     o[2],     1,
+    ]);
+    const clipMat = mat4Mul(camBasis.vp, uvToWorld);
+
+    // Map element CSS pixels (0..w, 0..h) -> world -> clip -> canvas CSS pixels (0..cw, 0..ch).
+    const elemToWorld = new Float32Array([
+      xAxis[0] / w, xAxis[1] / w, xAxis[2] / w, 0,
+      yAxis[0] / h, yAxis[1] / h, yAxis[2] / h, 0,
+      nAxis[0],     nAxis[1],     nAxis[2],     0,
+      o[0],         o[1],         o[2],         1,
+    ]);
+    const ndcToCanvas = new Float32Array([
+      cw / 2, 0, 0, 0,
+      0, -ch / 2, 0, 0,
+      0, 0, 1, 0,
+      cw / 2, ch / 2, 0, 1,
+    ]);
+    const canvasMat = mat4Mul(ndcToCanvas, mat4Mul(camBasis.vp, elemToWorld));
+
+    const c00 = projectPoint(canvasMat, 0, 0);
+    const c10 = projectPoint(canvasMat, w, 0);
+    const c01 = projectPoint(canvasMat, 0, h);
+    const c11 = projectPoint(canvasMat, w, h);
+    const visible = c00.w > 0.08 && c10.w > 0.08 && c01.w > 0.08 && c11.w > 0.08;
+    const centre = [
+      o[0] + 0.5 * (xAxis[0] + yAxis[0]),
+      o[1] + 0.5 * (xAxis[1] + yAxis[1]),
+      o[2] + 0.5 * (xAxis[2] + yAxis[2]),
+    ];
+    const depth = dot3(sub3(centre, camBasis.eye), camBasis.forward);
+    return { item, anchor, centre, depth, clipMat, canvasMat, w, h, worldW, worldH, visible, corners: [c00, c10, c11, c01] };
+  }
+
+  function applyHitGeometry(targetCanvas, el, canvasMat, cssWidth, visible, cache) {
+    if (!('updateElementGeometry' in targetCanvas)) return;
+    let m;
+    if (!visible) {
+      m = new DOMMatrix().translate(-4000, -4000);
+    } else {
+      const unit = geometryUnit(targetCanvas, el, cssWidth);
+      m = new DOMMatrix().scale(unit, unit, 1).multiply(new DOMMatrix(Array.from(canvasMat)));
+    }
+    const key = m.toFloat32Array();
+    const prev = cache?.get(el);
+    if (prev && key.every((v, i) => Math.abs(v - prev[i]) < 1e-4)) return;
+    cache?.set(el, key);
+    targetCanvas.updateElementGeometry(el, { canvasTransform: m });
+    el.dataset.hitTick = el.dataset.hitTick === '1' ? '0' : '1';
+  }
+  // #endregion project
+
+  // ------------------------------------------------------------- overlays & state
+  const [turnX, turnZ] = latLonToWorld(51.5065, -0.1239);
+  const [busX, busZ] = latLonToWorld(51.5041, -0.1237);
+  const [speedX, speedZ] = latLonToWorld(51.5044, -0.1267);
+  const [noteX, noteZ] = latLonToWorld(51.5078, -0.1280);
+
+  const OVERLAYS = [
+    { id: 'turn',  el: document.getElementById('road-turn'),  x: turnX,  z: turnZ,  bearing: 0.24,  name: 'Turn-by-turn card' },
+    { id: 'bus',   el: document.getElementById('road-bus'),   x: busX,   z: busZ,   bearing: 0.08,  name: 'Embankment Stop E' },
+    { id: 'speed', el: document.getElementById('road-speed'), x: speedX, z: speedZ, bearing: -0.06, name: 'Whitehall speed plate' },
+    { id: 'note',  el: document.getElementById('road-note'),  x: noteX,  z: noteZ,  bearing: 0.14,  name: 'Trafalgar checkpoint' },
+  ];
+
+  const cam = {
+    tx: 0.42,
+    tz: -0.20,
+    headingDeg: 14,
+    pitchDeg: 56,
+    dist: 5.55,
+  };
+  let activeOverlayId = 'turn';
+  let activeStep = 0;
+  let driving = false;
+  let driveT = 0.05;
+  let driveRaf = 0;
+  let lastDriveTs = 0;
+  let stageVisible = true;
+  let mode = 'webgl'; // 'webgl' | '2d' | 'plain'
+  let stage = null;
+  let ctx2d = null;
+  let cardProg = null;
+  let cardVao = null;
+  let roadRes = null;
+  let routeRes = null;
+  let paints = 0;
+  let uploads = 0;
+  let lastOrderKey = '';
+  const lastGeom = new Map();
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function setNotice(msg) {
+    notice.hidden = !msg;
+    notice.textContent = msg || '';
+  }
+
+  function setActiveOverlay(id) {
+    activeOverlayId = id;
+    for (const o of OVERLAYS) o.el.classList.toggle('active', o.id === id);
+  }
+
+  function updateTurnCard() {
+    const st = ROUTE_STEPS[activeStep];
+    stepCountEl.textContent = `Step ${activeStep + 1} of ${ROUTE_STEPS.length}`;
+    turnDistEl.textContent = st.dist;
+    turnTextEl.textContent = st.text;
+    laneHintEl.textContent = st.lane;
+    turnSvgPath.setAttribute('d', st.svg);
+  }
+
+  function syncSliders() {
+    const h = Math.round(((cam.headingDeg + 540) % 360) - 180);
+    headingSlider.value = String(h);
+    headingOut.textContent = `${h}°`;
+    pitchSlider.value = String(Math.round(cam.pitchDeg));
+    pitchOut.textContent = `${Math.round(cam.pitchDeg)}°`;
+  }
+
+  // ------------------------------------------------------------- route spline helper
+  const routeCumLen = [0];
+  for (let i = 1; i < ROUTE_PTS.length; i++) {
+    const a = ROUTE_PTS[i - 1], b = ROUTE_PTS[i];
+    routeCumLen.push(routeCumLen[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1]));
+  }
+  const routeTotalLen = routeCumLen[routeCumLen.length - 1] || 1;
+
+  function sampleRoute(t) {
+    const wrapped = ((t % 1) + 1) % 1;
+    const dist = wrapped * routeTotalLen;
+    let i = 0;
+    while (i < routeCumLen.length - 2 && routeCumLen[i + 1] < dist) i++;
+    const segLen = Math.max(1e-5, routeCumLen[i + 1] - routeCumLen[i]);
+    const f = (dist - routeCumLen[i]) / segLen;
+    const a = ROUTE_PTS[i], b = ROUTE_PTS[i + 1];
+    const x = a[0] + (b[0] - a[0]) * f;
+    const z = a[1] + (b[1] - a[1]) * f;
+    const headingRad = Math.atan2(b[0] - a[0], -(b[1] - a[1]));
+    return { x, z, headingDeg: (headingRad * 180) / Math.PI, segIndex: i };
+  }
+
+  function shortestAngleDeg(from, to) {
+    let d = ((to - from + 540) % 360) - 180;
+    if (d < -180) d += 360;
+    return d;
+  }
+
+  function stopDriving(reason) {
+    driving = false;
+    driveBtn.setAttribute('aria-pressed', 'false');
+    driveBtn.textContent = 'Drive along route';
+    if (driveRaf) {
+      cancelAnimationFrame(driveRaf);
+      driveRaf = 0;
+    }
+    if (reason) statusEl.textContent = reason;
+  }
+
+  function stepDrive(ts) {
+    driveRaf = 0;
+    if (!driving || !stageVisible) return;
+    if (!lastDriveTs) lastDriveTs = ts;
+    const dt = Math.min(0.06, (ts - lastDriveTs) / 1000);
+    lastDriveTs = ts;
+    driveT = (driveT + dt * 0.042) % 1;
+    const pt = sampleRoute(driveT);
+    cam.tx += (pt.x - cam.tx) * Math.min(1, dt * 4.5);
+    cam.tz += (pt.z - cam.tz) * Math.min(1, dt * 4.5);
+    cam.headingDeg += shortestAngleDeg(cam.headingDeg, pt.headingDeg) * Math.min(1, dt * 3.0);
+    syncSliders();
+
+    const stepIdx = ROUTE_STEPS.findIndex((s) => pt.segIndex >= s.segStart && pt.segIndex < s.segEnd);
+    if (stepIdx >= 0 && stepIdx !== activeStep) {
+      activeStep = stepIdx;
+      updateTurnCard();
+    }
+    requestDraw();
+    driveRaf = requestAnimationFrame(stepDrive);
+  }
+
+  if ('IntersectionObserver' in window) {
+    const io = new IntersectionObserver(([entry]) => {
+      stageVisible = entry.isIntersecting;
+      if (driving && stageVisible && !driveRaf) {
+        lastDriveTs = 0;
+        driveRaf = requestAnimationFrame(stepDrive);
+      } else if (!stageVisible && driveRaf) {
+        cancelAnimationFrame(driveRaf);
+        driveRaf = 0;
+      }
+    }, { threshold: 0.05 });
+    io.observe(stageBox);
+  }
+
+  // ------------------------------------------------------------- DOM controls
+  stageBox.addEventListener('click', (e) => {
+    const stepBtn = e.target.closest('.step-btn');
+    if (stepBtn) {
+      activeStep = (activeStep + 1) % ROUTE_STEPS.length;
+      updateTurnCard();
+      setActiveOverlay('turn');
+      const [fx, fz] = ROUTE_STEPS[activeStep].focus;
+      if (!driving) {
+        cam.tx = fx * 0.45 + cam.tx * 0.55;
+        cam.tz = fz * 0.45 + cam.tz * 0.55;
+      }
+      statusEl.textContent = `Step ${activeStep + 1} of ${ROUTE_STEPS.length}: ${ROUTE_STEPS[activeStep].dist}, ${ROUTE_STEPS[activeStep].text}.`;
+      requestDraw();
+    }
+  });
+
+  stageBox.addEventListener('change', (e) => {
+    if (e.target === lineFilter) {
+      const rows = TRANSIT_DATA[lineFilter.value] ?? TRANSIT_DATA['11'];
+      busRowsEl.innerHTML = rows
+        .map(([dest, eta]) => `<div class="bus-row"><span class="bus-dest">${dest}</span><span class="bus-eta">${eta}</span></div>`)
+        .join('');
+      setActiveOverlay('bus');
+      statusEl.textContent = `Departure board filtered to ${lineFilter.options[lineFilter.selectedIndex].text}.`;
+      requestDraw();
+      return;
+    }
+    if (e.target === avoidTollsChk) {
+      const avoid = avoidTollsChk.checked;
+      tollSubEl.textContent = avoid ? 'Detour avoids Congestion Zone' : 'Congestion charge active';
+      etaOutEl.textContent = avoid ? '19 min · £0' : '14 min · £15';
+      setActiveOverlay('speed');
+      statusEl.textContent = avoid ? 'Avoid tolls enabled: ETA updated to 19 min via toll-free detour.' : 'Direct route active: ETA 14 min (£15 Congestion Zone).';
+      requestDraw();
+    }
+  });
+
+  stageBox.addEventListener('input', (e) => {
+    if (e.target === noteInput) {
+      noteLenEl.textContent = `${noteInput.value.length} chars`;
+      setActiveOverlay('note');
+      statusEl.textContent = `Checkpoint note updated on the road surface: "${noteInput.value}".`;
+      requestDraw();
+    }
+  });
+
+  stageBox.addEventListener('focusin', (e) => {
+    const card = e.target.closest('.road-card');
+    if (card) {
+      setActiveOverlay(card.dataset.overlay);
+      requestDraw();
+    }
+  });
+
+  headingSlider.addEventListener('input', () => {
+    if (driving) stopDriving();
+    cam.headingDeg = Number(headingSlider.value);
+    headingOut.textContent = `${cam.headingDeg}°`;
+    requestDraw();
+  });
+
+  pitchSlider.addEventListener('input', () => {
+    cam.pitchDeg = Number(pitchSlider.value);
+    pitchOut.textContent = `${cam.pitchDeg}°`;
+    requestDraw();
+  });
+
+  styleSelect.addEventListener('change', () => {
+    lastGeom.clear();
+    statusEl.textContent = styleSelect.value === 'flat'
+      ? 'Overlays painted flat onto the tilted OpenStreetMap road surface.'
+      : styleSelect.value === 'billboard'
+        ? 'Overlays billboarded square to the camera above each street pin.'
+        : 'Overlays standing as upright street signs above the map.';
+    requestDraw();
+  });
+
+  driveBtn.addEventListener('click', () => {
+    if (reducedMotion) {
+      activeStep = (activeStep + 1) % ROUTE_STEPS.length;
+      updateTurnCard();
+      const [fx, fz, fh] = ROUTE_STEPS[activeStep].focus;
+      cam.tx = fx;
+      cam.tz = fz;
+      cam.headingDeg = fh;
+      syncSliders();
+      statusEl.textContent = `Reduced motion is on, so Drive along route stepped to ${ROUTE_STEPS[activeStep].text}.`;
+      requestDraw();
+      return;
+    }
+    if (driving) {
+      stopDriving('Paused driving along the Central London route.');
+      return;
+    }
+    driving = true;
+    lastDriveTs = 0;
+    driveBtn.setAttribute('aria-pressed', 'true');
+    driveBtn.textContent = 'Stop driving';
+    statusEl.textContent = 'Driving along Trafalgar Square, Northumberland Ave, Victoria Embankment and Whitehall.';
+    if (stageVisible) driveRaf = requestAnimationFrame(stepDrive);
+  });
+
+  // Pointer drag to pan/steer and wheel/pinch zoom (never steals taps from interactive road cards).
+  const pointers = new Map();
+  let dragLast = null;
+  let pinchDist = 0;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button, input, select, option, label, a')) return;
+    if (driving) stopDriving();
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    canvas.setPointerCapture?.(e.pointerId);
+    canvas.classList.add('dragging');
+    if (pointers.size === 1) dragLast = { x: e.clientX, y: e.clientY };
+    else if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      pinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    }
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      const d = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      if (pinchDist > 0) {
+        cam.dist = Math.max(2.9, Math.min(8.8, cam.dist * (pinchDist / Math.max(10, d))));
+        requestDraw();
+      }
+      pinchDist = d;
+    } else if (dragLast) {
+      const dx = e.clientX - dragLast.x;
+      const dy = e.clientY - dragLast.y;
+      dragLast = { x: e.clientX, y: e.clientY };
+      const h = (cam.headingDeg * Math.PI) / 180;
+      const scale = cam.dist * 0.0022;
+      const rightX = Math.cos(h), rightZ = Math.sin(h);
+      const fwdX = Math.sin(h), fwdZ = -Math.cos(h);
+      cam.tx = Math.max(-3.6, Math.min(3.6, cam.tx - dx * rightX * scale + dy * fwdX * scale));
+      cam.tz = Math.max(-3.6, Math.min(3.6, cam.tz - dx * rightZ * scale + dy * fwdZ * scale));
+      requestDraw();
+    }
+  });
+
+  const endPointer = (e) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 1) {
+      const [only] = pointers.values();
+      dragLast = { x: only.x, y: only.y };
+    } else if (pointers.size === 0) {
+      dragLast = null;
+      canvas.classList.remove('dragging');
+    }
+  };
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    cam.dist = Math.max(2.9, Math.min(8.8, cam.dist * (1 + Math.sign(e.deltaY) * 0.08)));
+    requestDraw();
+  }, { passive: false });
+
+  // ----------------------------------------------------------- WebGL resources
+  function buildSceneResources(gl) {
+    const rProg = compileProgram(gl, ROAD_VS, ROAD_FS);
+    const rVao = gl.createVertexArray();
+    gl.bindVertexArray(rVao);
+    const rVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, rVbo);
+    const H = WORLD_HALF;
+    const plane = new Float32Array([
+      -H, -H, 0, 0,
+       H, -H, 1, 0,
+      -H,  H, 0, 1,
+       H,  H, 1, 1,
+    ]);
+    gl.bufferData(gl.ARRAY_BUFFER, plane, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 16, 8);
+
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+    if (aniso) {
+      const maxAniso = Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 4);
+      gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
+    }
+
+    roadRes = {
+      prog: rProg,
+      vao: rVao,
+      tex,
+      uVP: gl.getUniformLocation(rProg, 'uVP'),
+      uMap: gl.getUniformLocation(rProg, 'uMap'),
+      uCamPos: gl.getUniformLocation(rProg, 'uCamPos'),
+    };
+    atlasDirty = true;
+
+    const pProg = compileProgram(gl, ROUTE_VS, ROUTE_FS);
+    const pVao = gl.createVertexArray();
+    gl.bindVertexArray(pVao);
+    const pVbo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, pVbo);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 40, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 40, 12);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 40, 28);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 40, 36);
+    routeRes = {
+      prog: pProg,
+      vao: pVao,
+      vbo: pVbo,
+      uVP: gl.getUniformLocation(pProg, 'uVP'),
+      uTime: gl.getUniformLocation(pProg, 'uTime'),
+    };
+  }
+
+  function buildRoadOverlayGeometry(placements, camBasis, overlayStyle) {
+    const out = [];
+    const pushV = (x, y, z, r, g, b, a, lx, ly, kind) => out.push(x, y, z, r, g, b, a, lx, ly, kind);
+
+    // 1. Glowing route polyline painted directly onto the road surface.
+    const activeSeg = ROUTE_STEPS[activeStep];
+    let runDist = 0;
+    for (let i = 0; i < ROUTE_PTS.length - 1; i++) {
+      const a = ROUTE_PTS[i], b = ROUTE_PTS[i + 1];
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      const len = Math.hypot(dx, dz) || 1;
+      const nx = -dz / len, nz = dx / len;
+      const isAct = i >= activeSeg.segStart && i < activeSeg.segEnd;
+      const halfW = isAct ? 0.14 : 0.095;
+      const col = isAct ? [0.16, 0.90, 0.74, 0.94] : [0.22, 0.56, 0.88, 0.72];
+      const y = 0.008;
+      const d0 = runDist, d1 = runDist + len;
+      runDist = d1;
+
+      const aL = [a[0] - nx * halfW, y, a[1] - nz * halfW];
+      const aR = [a[0] + nx * halfW, y, a[1] + nz * halfW];
+      const bL = [b[0] - nx * halfW, y, b[1] - nz * halfW];
+      const bR = [b[0] + nx * halfW, y, b[1] + nz * halfW];
+
+      pushV(aL[0], aL[1], aL[2], col[0], col[1], col[2], col[3], -1, d0, 1);
+      pushV(aR[0], aR[1], aR[2], col[0], col[1], col[2], col[3],  1, d0, 1);
+      pushV(bL[0], bL[1], bL[2], col[0], col[1], col[2], col[3], -1, d1, 1);
+      pushV(bL[0], bL[1], bL[2], col[0], col[1], col[2], col[3], -1, d1, 1);
+      pushV(aR[0], aR[1], aR[2], col[0], col[1], col[2], col[3],  1, d0, 1);
+      pushV(bR[0], bR[1], bR[2], col[0], col[1], col[2], col[3],  1, d1, 1);
+    }
+
+    // 2. Driver puck along the current route position.
+    const car = sampleRoute(driveT);
+    const pr = 0.16;
+    const py = 0.012;
+    const pc = [1.0, 0.52, 0.25, 0.96];
+    pushV(car.x - pr, py, car.z - pr, pc[0], pc[1], pc[2], pc[3], -1, -1, 2);
+    pushV(car.x + pr, py, car.z - pr, pc[0], pc[1], pc[2], pc[3],  1, -1, 2);
+    pushV(car.x - pr, py, car.z + pr, pc[0], pc[1], pc[2], pc[3], -1,  1, 2);
+    pushV(car.x - pr, py, car.z + pr, pc[0], pc[1], pc[2], pc[3], -1,  1, 2);
+    pushV(car.x + pr, py, car.z - pr, pc[0], pc[1], pc[2], pc[3],  1, -1, 2);
+    pushV(car.x + pr, py, car.z + pr, pc[0], pc[1], pc[2], pc[3],  1,  1, 2);
+
+    // 3. Soft asphalt drop shadows and upright sign posts.
+    for (const p of placements) {
+      const s = p.item;
+      const b = overlayStyle === 'flat' ? s.bearing : (cam.headingDeg * Math.PI) / 180;
+      const cosB = Math.cos(b), sinB = Math.sin(b);
+      const sw = p.worldW * (overlayStyle === 'flat' ? 0.58 : 0.44);
+      const sh = overlayStyle === 'flat' ? p.worldH * 0.58 : 0.24;
+      const sx = s.x + (overlayStyle === 'flat' ? 0.03 : 0.0);
+      const sz = s.z + (overlayStyle === 'flat' ? 0.04 : 0.0);
+      const sy = 0.010;
+      const rx = [cosB * sw, sinB * sw];
+      const rz = [-sinB * sh, cosB * sh];
+      const c00 = [sx - rx[0] - rz[0], sy, sz - rx[1] - rz[1]];
+      const c10 = [sx + rx[0] - rz[0], sy, sz + rx[1] - rz[1]];
+      const c01 = [sx - rx[0] + rz[0], sy, sz - rx[1] + rz[1]];
+      const c11 = [sx + rx[0] + rz[0], sy, sz + rx[1] + rz[1]];
+      const sc = [0.02, 0.04, 0.07, overlayStyle === 'flat' ? 0.56 : 0.46];
+      pushV(c00[0], c00[1], c00[2], sc[0], sc[1], sc[2], sc[3], -1, -1, 0);
+      pushV(c10[0], c10[1], c10[2], sc[0], sc[1], sc[2], sc[3],  1, -1, 0);
+      pushV(c01[0], c01[1], c01[2], sc[0], sc[1], sc[2], sc[3], -1,  1, 0);
+      pushV(c01[0], c01[1], c01[2], sc[0], sc[1], sc[2], sc[3], -1,  1, 0);
+      pushV(c10[0], c10[1], c10[2], sc[0], sc[1], sc[2], sc[3],  1, -1, 0);
+      pushV(c11[0], c11[1], c11[2], sc[0], sc[1], sc[2], sc[3],  1,  1, 0);
+
+      if (overlayStyle === 'upright' || overlayStyle === 'billboard') {
+        const hw = 0.02;
+        const px = camBasis.right[0] * hw, pz = camBasis.right[2] * hw;
+        const postCol = s.id === activeOverlayId ? [0.22, 0.88, 0.72, 0.92] : [0.74, 0.84, 0.92, 0.85];
+        pushV(s.x - px, 0.01, s.z - pz, postCol[0], postCol[1], postCol[2], postCol[3], -1, 0, 3);
+        pushV(s.x + px, 0.01, s.z + pz, postCol[0], postCol[1], postCol[2], postCol[3],  1, 0, 3);
+        pushV(s.x - px, p.anchor[1], s.z - pz, postCol[0], postCol[1], postCol[2], postCol[3], -1, 1, 3);
+        pushV(s.x - px, p.anchor[1], s.z - pz, postCol[0], postCol[1], postCol[2], postCol[3], -1, 1, 3);
+        pushV(s.x + px, 0.01, s.z + pz, postCol[0], postCol[1], postCol[2], postCol[3],  1, 0, 3);
+        pushV(s.x + px, p.anchor[1], s.z + pz, postCol[0], postCol[1], postCol[2], postCol[3],  1, 1, 3);
+      }
+    }
+    return new Float32Array(out);
+  }
+
+  function showPlainFallback(reason) {
+    mode = 'plain';
+    stopDriving();
+    stageBox.classList.add('fallback');
+    fallbackGrid.hidden = false;
+    for (const o of OVERLAYS) fallbackGrid.append(o.el);
+    setNotice(reason);
+    hud.textContent = '2D road map + plain HTML fallback';
+    draw2D(false);
+  }
+
+  function restoreCanvasCards() {
+    stageBox.classList.remove('fallback');
+    fallbackGrid.hidden = true;
+    for (const o of OVERLAYS) canvas.append(o.el);
+    setNotice('');
+  }
+
+  // #region paint
+  function drawWebGL() {
+    if (!stage || !stage.begin([0.07, 0.10, 0.15, 1.0])) return;
+    const gl = stage.gl;
+    if (!cardProg) {
+      cardProg = gl.getParameter(gl.CURRENT_PROGRAM);
+      cardVao = gl.getParameter(gl.VERTEX_ARRAY_BINDING);
+    }
+    if (!roadRes) buildSceneResources(gl);
+
+    if (atlasDirty) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, roadRes.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlasCanvas);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      atlasDirty = false;
+    }
+
+    const cw = canvas.clientWidth || 1;
+    const ch = canvas.clientHeight || 1;
+    const overlayStyle = styleSelect.value;
+    const camBasis = buildCamera(cam, cw, ch);
+
+    // 1. Draw the tilted OpenStreetMap road plane.
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    gl.useProgram(roadRes.prog);
+    gl.bindVertexArray(roadRes.vao);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, roadRes.tex);
+    gl.uniform1i(roadRes.uMap, 0);
+    gl.uniformMatrix4fv(roadRes.uVP, false, camBasis.vp);
+    gl.uniform3fv(roadRes.uCamPos, camBasis.eye);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+    // 2. Project and sort the four live HTML street overlays back-to-front.
+    const placements = OVERLAYS.map((item) => computeCardPlacement(item, camBasis, cw, ch, overlayStyle));
+    placements.sort((a, b) => b.depth - a.depth);
+
+    // 3. Draw glowing route polyline, driver puck, ground shadows and upright posts.
+    const overlayData = buildRoadOverlayGeometry(placements, camBasis, overlayStyle);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    gl.useProgram(routeRes.prog);
+    gl.bindVertexArray(routeRes.vao);
+    gl.uniformMatrix4fv(routeRes.uVP, false, camBasis.vp);
+    gl.uniform1f(routeRes.uTime, reducedMotion ? 0 : performance.now() / 1000);
+    gl.bindBuffer(gl.ARRAY_BUFFER, routeRes.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, overlayData, gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.TRIANGLES, 0, overlayData.length / 10);
+
+    // 4. Restore ElementGL's shader and VAO, then draw the four live HTML overlays.
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    gl.useProgram(cardProg);
+    gl.bindVertexArray(cardVao);
+
+    const orderKey = placements.map((p) => p.item.id).join(',');
+    const orderChanged = orderKey !== lastOrderKey;
+    if (orderChanged) lastOrderKey = orderKey;
+
+    const isFlat = overlayStyle === 'flat' ? 1.0 : 0.0;
+    placements.forEach((p, idx) => {
+      if (orderChanged) p.item.el.style.zIndex = String(idx + 1);
+      if (p.visible) {
+        const fog = Math.max(0, (p.depth - 5.2) / 9.5);
+        const active = p.item.id === activeOverlayId ? 1.0 : 0.0;
+        stage.quad(p.item.el, p.clipMat, (g, u) => {
+          g.uniform1f(u('uFlat'), isFlat);
+          g.uniform1f(u('uActive'), active);
+          g.uniform1f(u('uFog'), fog);
+        });
+      }
+      applyHitGeometry(canvas, p.item.el, p.canvasMat, p.w, p.visible, lastGeom);
+    });
+
+    const tileLabel = tilesLoaded > 0
+      ? `OSM ${tilesLoaded}/${TILE_GRID * TILE_GRID}`
+      : (tilesFailed >= TILE_GRID * TILE_GRID ? 'Offline streets' : 'Loading OSM');
+    hud.textContent = `WebGL 2 · ${tileLabel} · ${overlayStyle} · ${paints} paints · ${uploads} uploads`;
+  }
+  // #endregion paint
+
+  // --------------------------------------------------------- 2D affine fallback
+  function draw2D(withElements) {
+    if (!ctx2d) ctx2d = canvas.getContext('2d');
+    if (!ctx2d) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const cw = canvas.clientWidth || 1;
+    const ch = canvas.clientHeight || 1;
+    const bw = Math.max(1, Math.round(cw * dpr));
+    const bh = Math.max(1, Math.round(ch * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+
+    const hRad = (cam.headingDeg * Math.PI) / 180;
+    const pRad = (cam.pitchDeg * Math.PI) / 180;
+    const tiltY = Math.max(0.36, Math.cos(pRad));
+    const pxPerWorld = (Math.min(cw, ch) * 1.05) / Math.max(2.9, cam.dist);
+    const cosH = Math.cos(-hRad), sinH = Math.sin(-hRad);
+
+    const worldTo2D = (wx, wz) => {
+      const dx = wx - cam.tx, dz = wz - cam.tz;
+      const rx = dx * cosH - dz * sinH;
+      const rz = dx * sinH + dz * cosH;
+      return [cw * 0.5 + rx * pxPerWorld, ch * 0.54 + rz * pxPerWorld * tiltY, rz];
+    };
+
+    ctx2d.save();
+    ctx2d.scale(dpr, dpr);
+    ctx2d.fillStyle = '#101822';
+    ctx2d.fillRect(0, 0, cw, ch);
+
+    // Draw the OpenStreetMap atlas rotated and foreshortened with a 2D affine transform.
+    ctx2d.save();
+    ctx2d.translate(cw * 0.5, ch * 0.54);
+    ctx2d.scale(1, tiltY);
+    ctx2d.rotate(-hRad);
+    ctx2d.translate(-cam.tx * pxPerWorld, -cam.tz * pxPerWorld);
+    const mapPx = WORLD_SPAN * pxPerWorld;
+    ctx2d.drawImage(atlasCanvas, -mapPx * 0.5, -mapPx * 0.5, mapPx, mapPx);
+    ctx2d.restore();
+
+    // Draw the route polyline on the 2D road plane.
+    const activeSeg = ROUTE_STEPS[activeStep];
+    for (let i = 0; i < ROUTE_PTS.length - 1; i++) {
+      const p0 = worldTo2D(ROUTE_PTS[i][0], ROUTE_PTS[i][1]);
+      const p1 = worldTo2D(ROUTE_PTS[i + 1][0], ROUTE_PTS[i + 1][1]);
+      const isAct = i >= activeSeg.segStart && i < activeSeg.segEnd;
+      ctx2d.strokeStyle = isAct ? '#38e0b8' : '#3a88d8';
+      ctx2d.lineWidth = isAct ? 6 : 4;
+      ctx2d.lineCap = 'round';
+      ctx2d.beginPath();
+      ctx2d.moveTo(p0[0], p0[1]);
+      ctx2d.lineTo(p1[0], p1[1]);
+      ctx2d.stroke();
+    }
+
+    if (withElements) {
+      const overlayStyle = styleSelect.value;
+      const items = OVERLAYS.map((o) => {
+        const [sx, sy, depth] = worldTo2D(o.x, o.z);
+        return { o, sx, sy, depth };
+      }).sort((a, b) => a.depth - b.depth);
+
+      for (const it of items) {
+        const w = it.o.el.offsetWidth || 214;
+        const h = it.o.el.offsetHeight || 112;
+        const k = Math.max(0.56, Math.min(0.86, 0.72 + it.depth * 0.03));
+        const yScale = overlayStyle === 'flat' ? k * tiltY : k;
+        const rot = overlayStyle === 'flat' ? it.o.bearing - hRad : 0;
+
+        ctx2d.save();
+        ctx2d.translate(it.sx, it.sy);
+        ctx2d.rotate(rot);
+        ctx2d.scale(k, yScale);
+        ctx2d.fillStyle = 'rgba(5, 10, 18, 0.42)';
+        ctx2d.fillRect(-w * 0.5 + 5, -h * 0.5 + 6, w, h);
+        ctx2d.drawElementImage(it.o.el, -w * 0.5, -h * 0.5, w, h);
+        ctx2d.restore();
+
+        const m = new DOMMatrix()
+          .translate(it.sx, it.sy)
+          .rotate((rot * 180) / Math.PI)
+          .scale(k, yScale)
+          .translate(-w * 0.5, -h * 0.5);
+        applyHitGeometry(canvas, it.o.el, m.toFloat32Array(), w, true, lastGeom);
+      }
+      hud.textContent = `2D affine fallback · ${overlayStyle} · ${paints} paints`;
+    }
+    ctx2d.restore();
+  }
+
+  function requestDraw() {
+    if (mode === 'webgl' || mode === '2d') canvas.requestPaint?.();
+    else draw2D(false);
+  }
+
+  // ------------------------------------------------------------------ startup
+  if (glSupported) {
+    try {
+      stage = new ElementGL(canvas, {
+        fragment: CARD_FRAGMENT,
+        attributes: { depth: true, antialias: true },
+        onLost: () => {
+          cardProg = null;
+          cardVao = null;
+          roadRes = null;
+          routeRes = null;
+          showPlainFallback('The browser took the WebGL 2 context away. The street overlays are shown as plain HTML until it returns.');
+        },
+        onRestored: () => {
+          mode = 'webgl';
+          cardProg = null;
+          cardVao = null;
+          roadRes = null;
+          routeRes = null;
+          atlasDirty = true;
+          lastGeom.clear();
+          restoreCanvasCards();
+          canvas.requestPaint?.();
+        },
+      });
+      mode = 'webgl';
+    } catch (err) {
+      if (canvas2dSupported) {
+        mode = '2d';
+        setNotice(`WebGL 2 couldn't start (${err.message}). Running the 2D affine road fallback.`);
+      } else {
+        showPlainFallback(`WebGL 2 couldn't start (${err.message}), and 2D drawElementImage() isn't available.`);
+      }
+    }
+  } else if (canvas2dSupported) {
+    mode = '2d';
+    setNotice("WebGL 2 texElementSubImage2D() isn't available here. Running the 2D affine road fallback with drawElementImage().");
+  } else {
+    showPlainFallback("HTML-in-canvas isn't enabled in this browser. The Central London street grid draws in 2D and the live overlays sit below as plain HTML.");
+  }
+
+  canvas.addEventListener('paint', (e) => {
+    paints++;
+    if (mode === 'webgl' && stage && !stage.lost) {
+      const changed = new Set(e.changedElements ?? []);
+      for (const o of OVERLAYS) {
+        if (changed.has(o.el) || !stage.has(o.el)) {
+          stage.upload(o.el);
+          uploads++;
+        }
+      }
+      drawWebGL();
+    } else if (mode === '2d') {
+      draw2D(true);
+    }
+  });
+
+  const ro = new ResizeObserver(() => requestDraw());
+  ro.observe(canvas);
+  updateTurnCard();
+  syncSliders();
+  loadOsmTiles();
+  requestDraw();
+
+  // ------------------------------------------------------------- live checks
+  function readCanvasViaCopy(srcCanvas) {
+    const copy = document.createElement('canvas');
+    copy.width = srcCanvas.width;
+    copy.height = srcCanvas.height;
+    const c = copy.getContext('2d', { willReadFrequently: true });
+    c.drawImage(srcCanvas, 0, 0);
+    return { copy, data: c.getImageData(0, 0, copy.width, copy.height).data };
+  }
+
+  function makeFixtureCanvas(w = 260, h = 180) {
+    const c = document.createElement('canvas');
+    c.setAttribute('content', 'drawable');
+    c.setAttribute('layoutsubtree', '');
+    c.style.cssText = `display:block;width:${w}px;height:${h}px;`;
+    testStage().append(c);
+    return c;
+  }
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'ElementGL renders a flat road-plane overlay in 3D perspective',
+      why: 'Uploads a street sign card with texElementSubImage2D() and draws it flat onto a 56-degree pitched road plane using ElementGL.',
+      run: async () => {
+        if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+        const c = makeFixtureCanvas(260, 180);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:160px;height:84px;background:#15363d;border:2px solid #38e0b8;color:#fff;padding:8px;font:700 13px system-ui';
+        card.textContent = 'Turn right · Embankment';
+        c.append(card);
+        const fx = new ElementGL(c, {
+          fragment: CARD_FRAGMENT,
+          attributes: { preserveDrawingBuffer: true },
+        });
+        try {
+          let drawn = 0;
+          const testCam = buildCamera({ tx: 0, tz: 0, headingDeg: 0, pitchDeg: 56, dist: 3.4 }, 260, 180);
+          const placed = computeCardPlacement({ el: card, x: 0, z: 0, bearing: 0 }, testCam, 260, 180, 'flat');
+          c.addEventListener('paint', () => {
+            fx.upload(card);
+            fx.begin([0, 0, 0, 0]);
+            fx.quad(card, placed.clipMat, (g, u) => {
+              g.uniform1f(u('uFlat'), 1.0);
+              g.uniform1f(u('uActive'), 1.0);
+              g.uniform1f(u('uFog'), 0.0);
+            });
+            const { data } = readCanvasViaCopy(c);
+            for (let i = 3; i < data.length; i += 16) if (data[i] > 20) drawn++;
+          }, { once: true });
+          await nextPaint(c);
+          if (!fx.has(card)) throw new Error('ElementGL did not record an uploaded texture');
+          if (!drawn) throw new Error('Readback copy found zero non-transparent pixels');
+          return `Uploaded flat road card and measured ${drawn} sampled non-transparent pixels in 3D perspective.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Projective updateElementGeometry() + geometryUnit() hit-tests a foreshortened flat card',
+      why: 'Applies the flat 3D projective canvasTransform scaled by geometryUnit(), toggles data-hit-tick, and tests elementFromPoint() on the projected button centre.',
+      run: async () => {
+        if (!glSupported || !('updateElementGeometry' in HTMLCanvasElement.prototype)) {
+          throw new Error('WebGL 2 texElementSubImage2D() or updateElementGeometry() is not available');
+        }
+        const c = makeFixtureCanvas(260, 180);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:150px;height:80px;background:#16212e;display:flex;align-items:center;justify-content:center';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Next step';
+        btn.style.cssText = 'width:96px;height:40px';
+        card.append(btn);
+        c.append(card);
+        const fx = new ElementGL(c, { fragment: CARD_FRAGMENT });
+        try {
+          let targetPt = null;
+          let placed = null;
+          c.addEventListener('paint', () => {
+            const testCam = buildCamera({ tx: 0, tz: 0, headingDeg: 10, pitchDeg: 54, dist: 3.1 }, 260, 180);
+            placed = computeCardPlacement({ el: card, x: 0, z: 0, bearing: 0.12 }, testCam, 260, 180, 'flat');
+            fx.upload(card);
+            fx.begin([0, 0, 0, 0]);
+            fx.quad(card, placed.clipMat, (g, u) => {
+              g.uniform1f(u('uFlat'), 1.0);
+              g.uniform1f(u('uActive'), 0.0);
+              g.uniform1f(u('uFog'), 0.0);
+            });
+            applyHitGeometry(c, card, placed.canvasMat, placed.w, placed.visible, null);
+            targetPt = projectPoint(placed.canvasMat, placed.w * 0.5, placed.h * 0.5);
+          }, { once: true });
+          await nextPaint(c);
+          const rect = c.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.left + targetPt.x, rect.top + targetPt.y);
+          if (hit !== btn) {
+            throw new Error(`elementFromPoint at (${targetPt.x.toFixed(1)}, ${targetPt.y.toFixed(1)}) returned <${hit?.tagName?.toLowerCase() ?? 'null'}> instead of <button>`);
+          }
+          return `Projected flat button centre (${targetPt.x.toFixed(1)}, ${targetPt.y.toFixed(1)}) hit <button> "Next step" (hitTick=${card.dataset.hitTick}).`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Painted-flat, Upright-sign and Billboard matrices switch perspective foreshortening',
+      why: 'Checks that Painted on road narrows the far top edge under 56-degree pitch, Upright sign widens toward the elevated camera, and Billboard faces the camera square-on with equal top and bottom edge lengths.',
+      run: async () => {
+        const testCam = buildCamera({ tx: 0, tz: 0, headingDeg: 0, pitchDeg: 56, dist: 4.0 }, 400, 300);
+        const dummy = { el: { offsetWidth: 214, offsetHeight: 112 }, x: 0, z: 0, bearing: 0 };
+        const flat = computeCardPlacement(dummy, testCam, 400, 300, 'flat');
+        const upright = computeCardPlacement(dummy, testCam, 400, 300, 'upright');
+        const billboard = computeCardPlacement(dummy, testCam, 400, 300, 'billboard');
+        const edgeLen = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+        const flatTop = edgeLen(flat.corners[0], flat.corners[1]);
+        const flatBot = edgeLen(flat.corners[3], flat.corners[2]);
+        const upTop = edgeLen(upright.corners[0], upright.corners[1]);
+        const upBot = edgeLen(upright.corners[3], upright.corners[2]);
+        const bbTop = edgeLen(billboard.corners[0], billboard.corners[1]);
+        const bbBot = edgeLen(billboard.corners[3], billboard.corners[2]);
+        const flatSpanY = Math.abs(flat.corners[3].y - flat.corners[0].y);
+        const upSpanY = Math.abs(upright.corners[3].y - upright.corners[0].y);
+        if (!(flatTop < flatBot - 8)) {
+          throw new Error(`Expected flat road card to foreshorten (top ${flatTop.toFixed(1)} vs bottom ${flatBot.toFixed(1)})`);
+        }
+        if (!(upTop > upBot + 4 && upSpanY > flatSpanY)) {
+          throw new Error(`Expected upright sign to widen toward the elevated camera and stand taller (top ${upTop.toFixed(1)}, bottom ${upBot.toFixed(1)}, h ${upSpanY.toFixed(1)} vs ${flatSpanY.toFixed(1)})`);
+        }
+        if (Math.abs(bbTop - bbBot) > 1.0) {
+          throw new Error(`Expected camera-facing billboard to stay rectangular (top ${bbTop.toFixed(1)} vs bottom ${bbBot.toFixed(1)})`);
+        }
+        return `Flat ${flatTop.toFixed(1)}/${flatBot.toFixed(1)} px; upright ${upTop.toFixed(1)}/${upBot.toFixed(1)} px; billboard ${bbTop.toFixed(1)}/${bbBot.toFixed(1)} px.`;
+      },
+    },
+    {
+      name: 'Route step DOM mutation raises paint with changedElements',
+      why: 'Confirms updating a painted turn card raises a paint event listing the mutated card so WebGL re-uploads its texture.',
+      run: async () => {
+        if (!canvas2dSupported) throw new Error('HTML-in-canvas is not available');
+        const c = makeFixtureCanvas(220, 120);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:170px;height:68px;padding:8px;background:#16212e;color:#fff';
+        const label = document.createElement('div');
+        label.textContent = 'In 120 m · Turn right';
+        card.append(label);
+        c.append(card);
+        try {
+          const ctx = c.getContext('2d');
+          c.addEventListener('paint', () => {
+            c.width = 220;
+            c.height = 120;
+            ctx.drawElementImage(card, 12, 12, card.offsetWidth, card.offsetHeight);
+          });
+          await nextPaint(c);
+          const changedPromise = new Promise((resolve) => {
+            c.addEventListener('paint', (e) => resolve(new Set(e.changedElements ?? [])), { once: true });
+          });
+          label.textContent = 'In 210 m · Keep left along Embankment';
+          card.style.borderColor = '#38e0b8';
+          const changed = await changedPromise;
+          if (!changed.has(card)) throw new Error('paint fired without listing the updated route card in changedElements');
+          return 'Mutating the turn-by-turn card raised paint with changedElements containing the card.';
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+    {
+      name: 'Zoom-16 OSM projection and procedural Central London street fallback',
+      why: 'Checks that Trafalgar Square and Embankment map inside the 4 by 4 zoom-16 atlas and that the offline street renderer draws coloured streets and river pixels.',
+      run: async () => {
+        const [uT, vT] = latLonToAtlasUV(51.5080, -0.1281);
+        const [uE, vE] = latLonToAtlasUV(51.5041, -0.1237);
+        if (uT < 0 || uT > 1 || vT < 0 || vT > 1 || uE < 0 || uE > 1 || vE < 0 || vE > 1) {
+          throw new Error(`Landmarks outside atlas UV: Trafalgar (${uT.toFixed(3)},${vT.toFixed(3)}), Embankment (${uE.toFixed(3)},${vE.toFixed(3)})`);
+        }
+        const off = document.createElement('canvas');
+        off.width = 256;
+        off.height = 256;
+        drawProceduralStreets(off);
+        const copy = document.createElement('canvas');
+        copy.width = 256;
+        copy.height = 256;
+        const cc = copy.getContext('2d', { willReadFrequently: true });
+        cc.drawImage(off, 0, 0);
+        const data = cc.getImageData(0, 0, 256, 256).data;
+        let riverPx = 0, roadPx = 0;
+        for (let i = 0; i < data.length; i += 16) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          if (b > r + 25 && b > 170) riverPx++;
+          if (r > 230 && g > 190 && b < 160) roadPx++;
+        }
+        if (!riverPx || !roadPx) throw new Error(`Expected river and road pixels, got river=${riverPx}, road=${roadPx}`);
+        return `Trafalgar UV (${uT.toFixed(2)}, ${vT.toFixed(2)}), Embankment UV (${uE.toFixed(2)}, ${vE.toFixed(2)}); fallback sampled ${roadPx} road and ${riverPx} Thames pixels.`;
+      },
+    },
+    {
+      name: '2D affine fallback draws a road overlay with five-argument drawElementImage()',
+      why: 'Confirms the scaled 2D fallback draws a tilted road card without setting willReadFrequently on the drawable canvas.',
+      run: async () => {
+        if (!canvas2dSupported) throw new Error('2D drawElementImage() is not available');
+        const c = makeFixtureCanvas(220, 140);
+        const card = document.createElement('div');
+        card.setAttribute('drawable', '');
+        card.style.cssText = 'position:absolute;left:0;top:0;width:150px;height:70px;background:#1f4e5f;color:#fff;padding:8px';
+        card.textContent = 'Whitehall · 20 mph';
+        c.append(card);
+        try {
+          const ctx = c.getContext('2d');
+          let ink = 0;
+          c.addEventListener('paint', () => {
+            const dpr = Math.min(window.devicePixelRatio || 1, 3);
+            c.width = Math.round(220 * dpr);
+            c.height = Math.round(140 * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.save();
+            ctx.translate(110, 72);
+            ctx.rotate(0.12);
+            ctx.scale(0.9, 0.58);
+            ctx.drawElementImage(card, -card.offsetWidth * 0.5, -card.offsetHeight * 0.5, card.offsetWidth, card.offsetHeight);
+            ctx.restore();
+            const { data } = readCanvasViaCopy(c);
+            for (let i = 3; i < data.length; i += 16) if (data[i] > 20) ink++;
+          }, { once: true });
+          await nextPaint(c);
+          if (!ink) throw new Error('2D fallback readback copy had zero non-transparent pixels');
+          return `2D affine drawElementImage() painted ${ink} sampled non-transparent pixels.`;
+        } finally {
+          window.__gfx?.retire(c);
+        }
+      },
+    },
+  ]);
+</script>
+</body>
+</html>

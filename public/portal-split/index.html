@@ -1,0 +1,2043 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Thinking with portals: split live HTML across Blue and Orange portals</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Drag or fling live HTML form cards halfway through a Blue portal on one 2D canvas and watch them emerge out of an angled Orange portal with momentum preserved and working controls on both halves.">
+<link rel="canonical" href="https://html-in-canvas.page/portal-split/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Thinking with portals: split live HTML across Blue and Orange portals">
+<meta property="og:description" content="Drag or fling live HTML form cards halfway through a Blue portal on one 2D canvas and watch them emerge out of an angled Orange portal with momentum preserved and working controls on both halves.">
+<meta property="og:url" content="https://html-in-canvas.page/portal-split/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Thinking with portals: split live HTML across Blue and Orange portals&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-22">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Thinking with portals: split live HTML across Blue and Orange portals">
+<meta name="twitter:description" content="Drag or fling live HTML form cards halfway through a Blue portal on one 2D canvas and watch them emerge out of an angled Orange portal with momentum preserved and working controls on both halves.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Thinking with portals: split live HTML across Blue and Orange portals&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/portal-split/",
+   "url": "https://html-in-canvas.page/portal-split/",
+   "mainEntityOfPage": "https://html-in-canvas.page/portal-split/",
+   "headline": "Thinking with portals: split live HTML across Blue and Orange portals",
+   "name": "Thinking with portals: split live HTML across Blue and Orange portals",
+   "description": "Drag or fling live HTML form cards halfway through a Blue portal on one 2D canvas and watch them emerge out of an angled Orange portal with momentum preserved and working controls on both halves.",
+   "abstract": "Can one live interactive HTML element pass halfway through a Blue portal and emerge simultaneously out of an angled Orange portal on a 2D canvas with momentum preserved and working controls on both halves?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-22",
+   "keywords": "drawElementImage, clip, hit testing, physics, forms, portals, drawElementImage\u0028), paint, requestPaint\u0028), layoutsubtree",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Thinking with portals: split live HTML across Blue and Orange portals",
+     "item": "https://html-in-canvas.page/portal-split/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .portal-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  #portal-canvas {
+    display: block;
+    width: 100%;
+    max-width: 840px;
+    height: 460px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #0f172a;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  @media (max-width: 560px) {
+    #portal-canvas {
+      height: 400px;
+    }
+  }
+  #portal-canvas[hidden] { display: none; }
+
+  .portal-controls {
+    width: 100%;
+    max-width: 840px;
+    justify-content: flex-start;
+  }
+  .portal-controls button {
+    min-height: 40px;
+  }
+  .portal-controls button[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .portal-controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .portal-controls input[type="range"] {
+    width: 108px;
+    accent-color: var(--accent);
+  }
+  .scale-readout {
+    font-family: var(--mono);
+    font-size: 13px;
+    min-width: 42px;
+  }
+  #chamber-status {
+    display: block;
+    width: 100%;
+    max-width: 840px;
+    min-height: 1.5em;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+  .chamber-hint {
+    margin: 0;
+    width: 100%;
+    max-width: 840px;
+  }
+  .plain-fallback {
+    width: 100%;
+    max-width: 840px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .plain-fallback .plain-note {
+    margin: 0;
+    flex-basis: 100%;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .plain-fallback button.retry-canvas { min-height: 40px; }
+
+  /* #region portal-css */
+  /* Drawable HTML cards painted inside the chamber. Fixed light surfaces keep
+     controls legible against the dark Aperture grid in both colour schemes. */
+  .aperture-card {
+    box-sizing: border-box;
+    width: 184px;
+    margin: 0;
+    padding: 0 0 10px;
+    border: 2px solid #94a3b8;
+    border-radius: 10px;
+    background: #f8fafc;
+    color: #0f172a;
+    font: 500 12.5px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    overflow: hidden;
+  }
+  .aperture-card .grip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 9px;
+    background: linear-gradient(90deg, #1d4ed8 0%, #0f172a 50%, #c2410c 100%);
+    color: #f8fafc;
+    font: 700 10px/1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: grab;
+  }
+  .aperture-card .body {
+    padding: 8px 10px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .aperture-card label.field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+  }
+  .aperture-card input[type="text"] {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 4px 7px;
+    border: 1px solid #94a3b8;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #0f172a;
+    font: 600 12.5px/1.2 system-ui, sans-serif;
+  }
+  .aperture-card input[type="text"]:focus-visible,
+  .aperture-card button:focus-visible,
+  .aperture-card select:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+  }
+  .aperture-card button {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    background: #0f172a;
+    color: #f8fafc;
+    font: 700 12px/1.1 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .aperture-card button:active {
+    background: #2563eb;
+    border-color: #2563eb;
+  }
+  .aperture-card label.check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #0f172a;
+    cursor: pointer;
+  }
+  .aperture-card label.check input {
+    margin: 0;
+    width: 15px;
+    height: 15px;
+    accent-color: #ea580c;
+  }
+  .aperture-card output {
+    display: block;
+    padding: 4px 6px;
+    border-radius: 5px;
+    background: #e2e8f0;
+    color: #0f172a;
+    font: 700 11px/1.2 var(--mono);
+  }
+
+  .companion-tile {
+    box-sizing: border-box;
+    width: 162px;
+    margin: 0;
+    padding: 0 0 9px;
+    border: 2px solid #f472b6;
+    border-radius: 10px;
+    background: #fffbeb;
+    color: #1e293b;
+    font: 500 12px/1.3 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    overflow: hidden;
+  }
+  .companion-tile[data-mode="Weighted"] {
+    border-color: #64748b;
+    background: #f1f5f9;
+  }
+  .companion-tile[data-mode="Edgeless"] {
+    border-color: #38bdf8;
+    background: #ecfeff;
+  }
+  .companion-tile .grip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 8px;
+    background: #1e293b;
+    color: #f8fafc;
+    font: 700 10px/1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: grab;
+  }
+  .companion-tile .body {
+    padding: 7px 9px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .companion-tile label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+  }
+  .companion-tile select {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid #94a3b8;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #0f172a;
+    font: 600 12px/1.2 system-ui, sans-serif;
+  }
+  .companion-tile button {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid #c2410c;
+    border-radius: 6px;
+    background: #ea580c;
+    color: #ffffff;
+    font: 700 12px/1.1 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .companion-tile output {
+    display: block;
+    padding: 4px 6px;
+    border-radius: 5px;
+    background: #e2e8f0;
+    color: #0f172a;
+    font: 700 10.5px/1.2 var(--mono);
+  }
+  @media (max-width: 560px) {
+    .aperture-card { width: 158px; font-size: 11.5px; }
+    .companion-tile { width: 142px; font-size: 11px; }
+  }
+  /* #endregion portal-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Thinking with portals: split live HTML across Blue and Orange portals</h1>
+  <p class="lede">
+    Inspired by Valve's <em>Portal</em> (2007) and building on <a href="/portal/">/portal/</a> and <a href="/dom-pinball/">/dom-pinball/</a>, I wanted to know if one live HTML card can sit halfway through a Blue portal while its other half sticks out of an angled Orange portal on one 2D canvas, keeping its momentum and working controls on both sides. Drag either card by its top bar, drag or rotate the portals, or tap a preset below.
+  </p>
+
+  <div class="stage portal-stage">
+    <canvas id="portal-canvas" content="drawable" layoutsubtree aria-label="Test chamber canvas with draggable Blue and Orange portals splitting live HTML cards">
+      <!-- #region portal-html -->
+      <section id="portal-card" class="aperture-card" drawable aria-label="Aperture test form card">
+        <div class="grip"><span>Test card 01</span><span>Drag</span></div>
+        <div class="body">
+          <label class="field">
+            Test subject
+            <input id="subject-input" type="text" value="Chell" autocomplete="off">
+          </label>
+          <button type="button" id="card-btn">Press button: 0</button>
+          <label class="check">
+            <input type="checkbox" id="momentum-check" checked>
+            <span>Preserve momentum</span>
+          </label>
+          <output id="card-crossings" aria-live="polite">Portals crossed: 0</output>
+        </div>
+      </section>
+
+      <section id="portal-note" class="companion-tile" data-mode="Companion" drawable aria-label="Companion note widget">
+        <div class="grip"><span>Tile 02</span><span>Drag</span></div>
+        <div class="body">
+          <label>
+            Cube mode
+            <select id="cube-mode">
+              <option value="Companion" selected>Companion</option>
+              <option value="Weighted">Weighted</option>
+              <option value="Edgeless">Edgeless</option>
+            </select>
+          </label>
+          <button type="button" id="stamp-btn">Stamp test: 0</button>
+          <output id="note-crossings" aria-live="polite">Crossings: 0 · Companion</output>
+        </div>
+      </section>
+      <!-- #endregion portal-html -->
+    </canvas>
+
+    <div class="row portal-controls" role="group" aria-label="Portal chamber presets">
+      <button type="button" data-preset="opposite" aria-pressed="true">Opposite walls</button>
+      <button type="button" data-preset="corner" aria-pressed="false">90° corner launch</button>
+      <button type="button" data-preset="upside-down" aria-pressed="false">Upside-down drop</button>
+      <button type="button" data-preset="infinite" aria-pressed="false">Infinite fall (floor to ceiling)</button>
+    </div>
+
+    <div class="row portal-controls">
+      <button type="button" id="btn-fling">Fling through Blue</button>
+      <button type="button" id="btn-loop">Drop in infinite loop</button>
+      <button type="button" id="btn-pause">Pause motion</button>
+      <button type="button" id="btn-reset">Reset chamber</button>
+      <label>
+        Exit scale
+        <input type="range" id="exit-scale" min="0.6" max="1.4" step="0.05" value="1">
+        <span id="exit-scale-val" class="scale-readout">1.00x</span>
+      </label>
+      <label><input type="checkbox" id="sightlines-toggle" checked> Portal sightlines</label>
+      <label><input type="checkbox" id="gravity-toggle"> Gravity</label>
+    </div>
+
+    <output id="chamber-status" class="note" aria-live="polite">Test card 01 is split across Blue and Orange. Click controls on either half.</output>
+    <p class="note chamber-hint">Drag a card's dark header bar to pull or fling it through a portal. Drag a portal rim to move it, or grab its round end knob to rotate its angle.</p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>half-plane clip splitting, rigid portal transform, hit-box draw order and fallback</small></summary>
+    <ol>
+      <li data-code="#portal-html"><b>Two live <code>drawable</code> HTML cards inside one 2D canvas.</b></li>
+      <li data-code="#portal-math"><b>Half-plane clipping, portal-to-portal rigid transform and velocity rotation.</b></li>
+      <li data-code="#portal-draw"><b>Drawing one element twice per frame with the pointer-side half drawn second.</b></li>
+      <li data-code="#portal-physics"><b>Portal crossing swap, momentum conservation and wall bounce.</b></li>
+      <li data-code="#portal-fallback"><b>Plain HTML fallback on <code>contextlost</code> and recovery on <code>contextrestored</code>.</b></li>
+      <li data-code="#portal-css"><b>Fixed-palette card styles so both halves stay readable in light and dark themes.</b></li>
+    </ol>
+  </details>
+
+  <h2 id="how">How it works</h2>
+  <p>
+    Both cards live inside one <code>&lt;canvas id="portal-canvas" content="drawable" layoutsubtree&gt;</code>.
+    Each portal has a centre position, a half-length and a unit normal vector pointing into the chamber.
+    When a card's oriented bounding box straddles the Blue portal plane, I don't clone the DOM node.
+    Instead, the paint pass draws the same element twice in one frame with five-argument <code>drawElementImage(el, -w / 2, -h / 2, w, h)</code>.
+  </p>
+  <p>
+    Pass A calls <code>ctx.clip()</code> on the half-plane in front of the entry portal and draws the card at its entry pose.
+    Pass B computes the rigid portal transform from entry to exit: it translates by <code>-entry</code>, rotates by <code>exitNormal - entryNormal + Math.PI</code>, applies the optional exit scale, translates to <code>exit</code>, clips to the half-plane in front of the exit portal, and draws the same element again.
+    Because the two clipped half-planes meet along the exact portal line, the card slices across the two angled portals with no gap and no overlap.
+  </p>
+  <p>
+    One element in HTML-in-canvas only has one hit-test region at a time (a limit first seen on <a href="/portal/">/portal/</a>).
+    On a 2D canvas, the last <code>drawElementImage()</code> call for an element sets that hit box.
+    So I track the pointer on <code>pointermove</code> and <code>pointerdown</code>, check which half is under or nearer the pointer, and draw that half second while toggling a <code>data-hit-tick</code> attribute to clear Chromium's hit-test cache.
+    Portal sightline previews are drawn before the main elements so they never steal hit testing from the cards.
+  </p>
+  <p>
+    When a moving card's centre crosses behind the entry portal plane, its position, angle and velocity swap onto the exit portal using Valve's <em>Portal</em> momentum rule ("speedy thing goes in, speedy thing comes out"): speed stays the same while the velocity vector rotates by <code>exitNormal - entryNormal + Math.PI</code>.
+    Unticking <code>Preserve momentum</code> inside the live card cuts exit speed to 35%, and changing <code>Cube mode</code> inside the second tile changes its bounce and gravity weight directly.
+    The loop pauses off screen via <code>IntersectionObserver</code>, respects <code>prefers-reduced-motion: reduce</code>, and moves both cards into plain HTML if <code>contextlost</code> fires.
+  </p>
+
+  <h2 id="checks">Live checks</h2>
+  <p>
+    The six checks wait for a tap so the chamber starts with nothing else running.
+    Each check creates its own isolated fixture on the test stage, reads pixels through a plain <code>drawImage()</code> copy canvas with <code>willReadFrequently: true</code>, retires its fixture via <code>window.__gfx?.retire()</code> and leaves the chamber above untouched.
+  </p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <p>
+    Not verified in Chromium or on an Android phone yet.
+    I built this experiment on 2026-11-22 crediting Valve's <em>Portal</em> (2007) for the Blue and Orange portal transform and momentum conservation rule, <a href="/portal/">/portal/</a> for double-drawing one element with pointer-tracked hit boxes, and <a href="/dom-pinball/">/dom-pinball/</a> for running live HTML form controls inside a 2D physics loop.
+  </p>
+  <ul class="findings">
+    <li><b>One element only has one hit box, so draw order decides which half you can click.</b> Calling <code>drawElementImage()</code> twice in one frame paints both clipped halves, and the second call sets the hit-test region. Drawing the half nearest the pointer second (and toggling <code>data-hit-tick</code> when that half flips) lets you click the button sticking out of Blue and type into the input sticking out of Orange without cloning the element. Check 3 tests this directly with <code>elementFromPoint()</code>.</li>
+    <li><b>Half-plane <code>ctx.clip()</code> splits live form controls cleanly across arbitrary exit angles.</b> Because the exit pass applies <code>exitNormal - entryNormal + Math.PI</code> before <code>drawElementImage()</code>, the same DOM element can enter horizontally on one wall and emerge rotated 90 degrees or upside down from another wall. Checks 1 and 2 verify both halves' pixels on a plain copy canvas.</li>
+    <li><b>Sightline previews must paint before the real elements.</b> Calling <code>drawElementImage()</code> inside a portal's elliptical sightline preview after the cards would hand the element's hit box to the tiny preview. Drawing sightlines behind the cards keeps the final hit box on the active split half.</li>
+    <li><b>Zero-hover touch taps on the inactive half rely on synchronous retargeting.</b> On a phone there is no <code>pointermove</code> before a tap, so capture-phase <code>pointerdown</code> flips the active half and redraws immediately (falling back to <code>requestPaint()</code> if the browser rejects an out-of-paint draw). Whether a single tap activates a button on the previously inactive half without a second tap needs testing on Chrome for Android.</li>
+    <li><b>Not verified:</b> Chromium 157 headless check results, Android 412 px touch dragging of cards and portal knobs, single-tap hit-box switching on the inactive half without hover, keyboard caret rendering when an <code>&lt;input&gt;</code> is cut directly across a portal line, and frame rate during infinite-fall loops with sightlines on.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, inkFraction, runTests, stillDrawn, supported, testStage } from '/shared/support.js';
+  banner();
+
+  const canvas = document.getElementById('portal-canvas');
+  const cardEl = document.getElementById('portal-card');
+  const noteEl = document.getElementById('portal-note');
+  const subjectInput = document.getElementById('subject-input');
+  const cardBtn = document.getElementById('card-btn');
+  const momentumCheck = document.getElementById('momentum-check');
+  const cardCrossingsEl = document.getElementById('card-crossings');
+  const cubeModeSelect = document.getElementById('cube-mode');
+  const stampBtn = document.getElementById('stamp-btn');
+  const noteCrossingsEl = document.getElementById('note-crossings');
+
+  const presetBtns = [...document.querySelectorAll('[data-preset]')];
+  const btnFling = document.getElementById('btn-fling');
+  const btnLoop = document.getElementById('btn-loop');
+  const btnPause = document.getElementById('btn-pause');
+  const btnReset = document.getElementById('btn-reset');
+  const exitScaleInput = document.getElementById('exit-scale');
+  const exitScaleVal = document.getElementById('exit-scale-val');
+  const sightlinesToggle = document.getElementById('sightlines-toggle');
+  const gravityToggle = document.getElementById('gravity-toggle');
+  const statusEl = document.getElementById('chamber-status');
+
+  const drawableChildren = [cardEl, noteEl];
+  const PAD = 14;
+  const MAX_SPEED = 780;
+  const SUBSTEPS = 4;
+
+  let chamberW = 760;
+  let chamberH = 460;
+  let activePreset = 'opposite';
+  let exitScale = 1;
+  let cardPresses = 0;
+  let stampPresses = 0;
+
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let paused = false;
+  let visible = false;
+  let contextLost = false;
+  let fallbackBox = null;
+  let rafId = 0;
+  let lastTime = 0;
+  let animPhase = 0;
+  let hasPainted = false;
+  let missedDraw = false;
+
+  const pointer = { x: -1, y: -1, known: false };
+  let drag = null;
+  let bursts = [];
+
+  const portals = {
+    blue: {
+      key: 'blue',
+      label: 'Blue',
+      x: 52,
+      y: 230,
+      theta: 0,
+      halfLen: 72,
+      core: '#2563eb',
+      glow: '#38bdf8',
+      tint: 'rgba(37, 99, 235, 0.24)',
+    },
+    orange: {
+      key: 'orange',
+      label: 'Orange',
+      x: 708,
+      y: 230,
+      theta: Math.PI - 0.28,
+      halfLen: 72,
+      core: '#ea580c',
+      glow: '#fb923c',
+      tint: 'rgba(234, 88, 12, 0.24)',
+    },
+  };
+
+  const bodies = [
+    {
+      key: 'card',
+      name: 'Test card 01',
+      el: cardEl,
+      x: 112,
+      y: 230,
+      vx: 0,
+      vy: 0,
+      rot: 0,
+      omega: 0,
+      scale: 1,
+      portal: 'blue',
+      hitSide: 'entry',
+      crossings: 0,
+      restitution: 0.78,
+      gravityScale: 1,
+      trail: [],
+    },
+    {
+      key: 'note',
+      name: 'Tile 02',
+      el: noteEl,
+      x: 380,
+      y: 270,
+      vx: 0,
+      vy: 0,
+      rot: 0,
+      omega: 0,
+      scale: 1,
+      portal: null,
+      hitSide: 'entry',
+      crossings: 0,
+      restitution: 0.78,
+      gravityScale: 1,
+      trail: [],
+    },
+  ];
+
+  function say(text) {
+    statusEl.textContent = text;
+  }
+
+  function clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+  }
+
+  function partnerOf(key) {
+    return key === 'blue' ? portals.orange : portals.blue;
+  }
+
+  function scaleRatioFor(entryKey) {
+    return entryKey === 'blue' ? exitScale : 1 / exitScale;
+  }
+
+  function updateCrossingLabels() {
+    cardCrossingsEl.textContent = `Portals crossed: ${bodies[0].crossings}`;
+    noteCrossingsEl.textContent = `Crossings: ${bodies[1].crossings} · ${cubeModeSelect.value}`;
+  }
+
+  // #region portal-math
+  // Clip to the active half-plane in front of a portal (dot(p - portal, normal) >= 0).
+  function clipHalfPlane(ctx, portal) {
+    const nx = Math.cos(portal.theta);
+    const ny = Math.sin(portal.theta);
+    const tx = -ny;
+    const ty = nx;
+    const M = 2400;
+    ctx.beginPath();
+    ctx.moveTo(portal.x - tx * M, portal.y - ty * M);
+    ctx.lineTo(portal.x + tx * M, portal.y + ty * M);
+    ctx.lineTo(portal.x + tx * M + nx * M, portal.y + ty * M + ny * M);
+    ctx.lineTo(portal.x - tx * M + nx * M, portal.y - ty * M + ny * M);
+    ctx.closePath();
+    ctx.clip();
+  }
+
+  // Rigid transform from entry portal space to exit portal space (with optional scale).
+  function portalExitPose(pose, entryPortal, exitPortal, scaleRatio = 1) {
+    const dTheta = exitPortal.theta - entryPortal.theta + Math.PI;
+    const c = Math.cos(dTheta);
+    const s = Math.sin(dTheta);
+    const dx = pose.x - entryPortal.x;
+    const dy = pose.y - entryPortal.y;
+    return {
+      x: exitPortal.x + scaleRatio * (c * dx - s * dy),
+      y: exitPortal.y + scaleRatio * (s * dx + c * dy),
+      rot: pose.rot + dTheta,
+      scale: pose.scale * scaleRatio,
+      dTheta,
+    };
+  }
+
+  // Rotate velocity vector by exitNormal - entryNormal + PI while conserving speed.
+  function transformPortalVelocity(vx, vy, entryPortal, exitPortal) {
+    const dTheta = exitPortal.theta - entryPortal.theta + Math.PI;
+    const c = Math.cos(dTheta);
+    const s = Math.sin(dTheta);
+    return {
+      vx: c * vx - s * vy,
+      vy: s * vx + c * vy,
+    };
+  }
+  // #endregion portal-math
+
+  function bodyHalfSize(body, scale = body.scale) {
+    const w = body.el.offsetWidth || (body.key === 'card' ? 184 : 162);
+    const h = body.el.offsetHeight || (body.key === 'card' ? 174 : 132);
+    return { hw: (w * scale) / 2, hh: (h * scale) / 2, w, h };
+  }
+
+  function bodyMetricsAgainstPortal(body, portal, pose = body) {
+    const { hw, hh } = bodyHalfSize(body, pose.scale);
+    const c = Math.cos(pose.rot);
+    const s = Math.sin(pose.rot);
+    const nx = Math.cos(portal.theta);
+    const ny = Math.sin(portal.theta);
+    const tx = -ny;
+    const ty = nx;
+    let minD = Infinity;
+    let maxD = -Infinity;
+    let minU = Infinity;
+    let maxU = -Infinity;
+    const corners = [
+      [-hw, -hh],
+      [hw, -hh],
+      [hw, hh],
+      [-hw, hh],
+    ];
+    for (const [lx, ly] of corners) {
+      const wx = pose.x + lx * c - ly * s;
+      const wy = pose.y + lx * s + ly * c;
+      const d = (wx - portal.x) * nx + (wy - portal.y) * ny;
+      const u = (wx - portal.x) * tx + (wy - portal.y) * ty;
+      if (d < minD) minD = d;
+      if (d > maxD) maxD = d;
+      if (u < minU) minU = u;
+      if (u > maxU) maxU = u;
+    }
+    const dc = (pose.x - portal.x) * nx + (pose.y - portal.y) * ny;
+    const uc = (pose.x - portal.x) * tx + (pose.y - portal.y) * ty;
+    return { minD, maxD, minU, maxU, dc, uc, hw, hh };
+  }
+
+  function pointInPoseHalf(px, py, body, pose, clipPortal) {
+    const { hw, hh } = bodyHalfSize(body, pose.scale);
+    if (clipPortal) {
+      const d = (px - clipPortal.x) * Math.cos(clipPortal.theta) + (py - clipPortal.y) * Math.sin(clipPortal.theta);
+      if (d < -2) return null;
+    }
+    const dx = px - pose.x;
+    const dy = py - pose.y;
+    const c = Math.cos(-pose.rot);
+    const s = Math.sin(-pose.rot);
+    const lx = dx * c - dy * s;
+    const ly = dx * s + dy * c;
+    if (Math.abs(lx) <= hw + 2 && Math.abs(ly) <= hh + 2) {
+      return { lx: lx / pose.scale, ly: ly / pose.scale, hw: hw / pose.scale, hh: hh / pose.scale };
+    }
+    return null;
+  }
+
+  function updatePortalEngagement(body) {
+    // Check if the currently engaged portal still intersects the body.
+    if (body.portal) {
+      const p = portals[body.portal];
+      const m = bodyMetricsAgainstPortal(body, p);
+      const overlapsSpan = m.maxU >= -p.halfLen + 4 && m.minU <= p.halfLen - 4 && Math.abs(m.uc) <= p.halfLen + Math.max(m.hw, m.hh) * 0.72;
+      if (m.minD < 1 && m.maxD > -1 && overlapsSpan) return;
+      body.portal = null;
+    }
+    // Otherwise check whether the body is entering either portal from its front side.
+    for (const p of [portals.blue, portals.orange]) {
+      const m = bodyMetricsAgainstPortal(body, p);
+      const overlapsSpan = m.maxU >= -p.halfLen + 4 && m.minU <= p.halfLen - 4 && Math.abs(m.uc) <= p.halfLen + Math.max(m.hw, m.hh) * 0.58;
+      if (m.minD < 0 && m.maxD > 0 && m.dc >= -14 && overlapsSpan) {
+        body.portal = p.key;
+        return;
+      }
+    }
+  }
+
+  function swapBodyThroughPortal(body, countCrossing = true) {
+    if (!body.portal) return;
+    const entry = portals[body.portal];
+    const exit = partnerOf(body.portal);
+    const ratio = scaleRatioFor(entry.key);
+    const next = portalExitPose(body, entry, exit, ratio);
+    body.x = next.x;
+    body.y = next.y;
+    body.rot = next.rot;
+    body.scale = clamp(next.scale, 0.58, 1.48);
+    const v = transformPortalVelocity(body.vx, body.vy, entry, exit);
+    const damp = momentumCheck.checked ? 1 : 0.35;
+    body.vx = v.vx * damp;
+    body.vy = v.vy * damp;
+    body.portal = exit.key;
+    body.hitSide = body.hitSide === 'entry' ? 'exit' : 'entry';
+    body.trail.length = 0;
+    body.el.toggleAttribute('data-hit-tick');
+    if (countCrossing) {
+      body.crossings++;
+      updateCrossingLabels();
+      bursts.push(
+        { x: entry.x, y: entry.y, r: 16, maxR: entry.halfLen * 0.85, alpha: 0.75, colour: entry.glow },
+        { x: exit.x, y: exit.y, r: 16, maxR: exit.halfLen * 0.85, alpha: 0.75, colour: exit.glow }
+      );
+    }
+  }
+
+  function updateHitSideForPointer(px, py) {
+    let flipped = false;
+    for (const body of bodies) {
+      if (!body.portal) {
+        if (body.hitSide !== 'entry') {
+          body.hitSide = 'entry';
+          body.el.toggleAttribute('data-hit-tick');
+          flipped = true;
+        }
+        continue;
+      }
+      const entry = portals[body.portal];
+      const exit = partnerOf(body.portal);
+      const exitPose = portalExitPose(body, entry, exit, scaleRatioFor(entry.key));
+      const overEntry = pointInPoseHalf(px, py, body, body, entry);
+      const overExit = pointInPoseHalf(px, py, body, exitPose, exit);
+      let want = body.hitSide;
+      if (overExit && !overEntry) want = 'exit';
+      else if (overEntry && !overExit) want = 'entry';
+      else {
+        const dEntry = Math.hypot(px - body.x, py - body.y);
+        const dExit = Math.hypot(px - exitPose.x, py - exitPose.y);
+        want = dExit < dEntry ? 'exit' : 'entry';
+      }
+      if (want !== body.hitSide) {
+        body.hitSide = want;
+        body.el.toggleAttribute('data-hit-tick');
+        flipped = true;
+        const sidePortal = want === 'entry' ? entry.label : exit.label;
+        say(`Hit box routed to ${body.name}'s ${sidePortal} half.`);
+      }
+    }
+    return flipped;
+  }
+
+  function portalKnobPos(p) {
+    const tx = -Math.sin(p.theta);
+    const ty = Math.cos(p.theta);
+    return {
+      x: p.x + tx * (p.halfLen + 14),
+      y: p.y + ty * (p.halfLen + 14),
+    };
+  }
+
+  function applyPreset(name, autoDrop = false) {
+    activePreset = name;
+    for (const btn of presetBtns) {
+      btn.setAttribute('aria-pressed', btn.dataset.preset === name ? 'true' : 'false');
+    }
+    const narrow = chamberW < 500;
+    const pLen = narrow ? 58 : 72;
+    portals.blue.halfLen = pLen;
+    portals.orange.halfLen = pLen;
+
+    const card = bodies[0];
+    const note = bodies[1];
+    card.scale = 1;
+    note.scale = 1;
+    card.omega = 0;
+    note.omega = 0;
+    card.trail.length = 0;
+    note.trail.length = 0;
+    bursts = [];
+
+    if (name === 'opposite') {
+      gravityToggle.checked = false;
+      portals.blue.x = narrow ? 40 : 54;
+      portals.blue.y = Math.round(chamberH * 0.46);
+      portals.blue.theta = 0;
+
+      portals.orange.x = chamberW - (narrow ? 40 : 54);
+      portals.orange.y = Math.round(chamberH * 0.48);
+      portals.orange.theta = Math.PI - 0.24;
+
+      // Park Test card 01 halfway across Blue and Orange so both halves are live immediately.
+      card.x = portals.blue.x + 14;
+      card.y = portals.blue.y;
+      card.rot = 0;
+      card.vx = 0;
+      card.vy = 0;
+      card.portal = 'blue';
+
+      note.x = Math.round(chamberW * 0.52);
+      note.y = Math.round(chamberH * 0.68);
+      note.rot = 0;
+      note.vx = 0;
+      note.vy = 0;
+      note.portal = null;
+      say('Opposite walls: Test card 01 is split across Blue and angled Orange. Click controls on either half.');
+    } else if (name === 'corner') {
+      gravityToggle.checked = true;
+      portals.blue.x = Math.round(chamberW * 0.66);
+      portals.blue.y = chamberH - 36;
+      portals.blue.theta = -Math.PI / 2;
+
+      portals.orange.x = narrow ? 40 : 52;
+      portals.orange.y = Math.round(chamberH * 0.34);
+      portals.orange.theta = 0;
+
+      card.x = portals.blue.x;
+      card.y = 92;
+      card.rot = 0;
+      card.vx = 0;
+      card.vy = 180;
+      card.portal = null;
+
+      note.x = Math.round(chamberW * 0.34);
+      note.y = chamberH - 96;
+      note.rot = 0;
+      note.vx = 0;
+      note.vy = 0;
+      note.portal = null;
+      say('90° corner launch: Test card 01 falls into floor Blue and shoots sideways out of wall Orange.');
+    } else if (name === 'upside-down') {
+      gravityToggle.checked = true;
+      portals.blue.x = Math.round(chamberW * 0.28);
+      portals.blue.y = chamberH - 36;
+      portals.blue.theta = -Math.PI / 2;
+
+      portals.orange.x = Math.round(chamberW * 0.72);
+      portals.orange.y = chamberH - 36;
+      portals.orange.theta = -Math.PI / 2;
+
+      card.x = portals.blue.x;
+      card.y = 104;
+      card.rot = 0;
+      card.vx = 0;
+      card.vy = 220;
+      card.portal = null;
+
+      note.x = Math.round(chamberW * 0.5);
+      note.y = 110;
+      note.rot = 0;
+      note.vx = 0;
+      note.vy = 0;
+      note.portal = null;
+      say('Upside-down drop: falling into floor Blue launches Test card 01 upside down out of floor Orange.');
+    } else if (name === 'infinite') {
+      gravityToggle.checked = true;
+      const cx = Math.round(chamberW * 0.36);
+      portals.blue.x = cx;
+      portals.blue.y = chamberH - 36;
+      portals.blue.theta = -Math.PI / 2;
+
+      portals.orange.x = cx;
+      portals.orange.y = 36;
+      portals.orange.theta = Math.PI / 2;
+
+      card.x = cx;
+      card.y = Math.round(chamberH * 0.45);
+      card.rot = 0;
+      card.vx = 0;
+      card.vy = autoDrop || !reducedMotion ? 260 : 0;
+      card.portal = null;
+
+      note.x = Math.round(chamberW * 0.76);
+      note.y = Math.round(chamberH * 0.5);
+      note.rot = 0;
+      note.vx = 0;
+      note.vy = 0;
+      note.portal = null;
+      say('Infinite fall: Test card 01 falls through floor Blue and re-enters from ceiling Orange.');
+    }
+
+    for (const b of bodies) {
+      updatePortalEngagement(b);
+      b.el.toggleAttribute('data-hit-tick');
+    }
+    if (paused && autoDrop) {
+      paused = false;
+      btnPause.textContent = 'Pause motion';
+    }
+    requestChamberPaint();
+    startLoop();
+  }
+
+  function flingCardThroughBlue() {
+    if (paused) {
+      paused = false;
+      btnPause.textContent = 'Pause motion';
+    }
+    const card = bodies[0];
+    const blue = portals.blue;
+    const nx = Math.cos(blue.theta);
+    const ny = Math.sin(blue.theta);
+    card.x = clamp(blue.x + nx * 128, PAD + 70, chamberW - PAD - 70);
+    card.y = clamp(blue.y + ny * 128, PAD + 70, chamberH - PAD - 70);
+    card.rot = 0;
+    card.omega = 0;
+    card.scale = 1;
+    card.vx = -nx * 460;
+    card.vy = -ny * 460;
+    card.portal = null;
+    card.trail.length = 0;
+    say('Flung Test card 01 straight into Blue at 460 px/s.');
+    startLoop();
+    requestChamberPaint();
+  }
+
+  // #region portal-physics
+  function stepPhysics(dt) {
+    const subDt = dt / SUBSTEPS;
+    const gravityOn = gravityToggle.checked;
+
+    for (let s = 0; s < SUBSTEPS; s++) {
+      for (const body of bodies) {
+        const isDragged = drag && drag.kind === 'body' && drag.body === body;
+        if (isDragged) {
+          updatePortalEngagement(body);
+          continue;
+        }
+
+        if (gravityOn) {
+          body.vy += 490 * body.gravityScale * subDt;
+        } else {
+          const dragFactor = Math.pow(0.86, subDt);
+          body.vx *= dragFactor;
+          body.vy *= dragFactor;
+          if (Math.hypot(body.vx, body.vy) < 4) {
+            body.vx = 0;
+            body.vy = 0;
+          }
+        }
+
+        body.x += body.vx * subDt;
+        body.y += body.vy * subDt;
+        body.rot += body.omega * subDt;
+        body.omega *= Math.pow(0.4, subDt);
+
+        const spd = Math.hypot(body.vx, body.vy);
+        if (spd > MAX_SPEED) {
+          const k = MAX_SPEED / spd;
+          body.vx *= k;
+          body.vy *= k;
+        }
+
+        updatePortalEngagement(body);
+
+        // Once the body centre crosses behind its entry portal plane, swap it to the exit portal.
+        if (body.portal) {
+          const entry = portals[body.portal];
+          const m = bodyMetricsAgainstPortal(body, entry);
+          if (m.dc < 0) {
+            swapBodyThroughPortal(body, true);
+            updatePortalEngagement(body);
+          }
+        }
+
+        // Bounce gently off chamber walls when not actively passing through a portal opening.
+        if (!body.portal) {
+          const { hw, hh } = bodyHalfSize(body);
+          const rx = Math.abs(hw * Math.cos(body.rot)) + Math.abs(hh * Math.sin(body.rot));
+          const ry = Math.abs(hw * Math.sin(body.rot)) + Math.abs(hh * Math.cos(body.rot));
+          const minX = PAD + rx;
+          const maxX = chamberW - PAD - rx;
+          const minY = PAD + ry;
+          const maxY = chamberH - PAD - ry;
+          const bnc = body.restitution;
+
+          if (minX <= maxX) {
+            if (body.x < minX) {
+              body.x = minX;
+              if (body.vx < 0) {
+                body.vx = -body.vx * bnc;
+                if (cubeModeSelect.value === 'Edgeless' && body.key === 'note') body.omega += 1.4;
+              }
+            } else if (body.x > maxX) {
+              body.x = maxX;
+              if (body.vx > 0) {
+                body.vx = -body.vx * bnc;
+                if (cubeModeSelect.value === 'Edgeless' && body.key === 'note') body.omega -= 1.4;
+              }
+            }
+          }
+          if (minY <= maxY) {
+            if (body.y < minY) {
+              body.y = minY;
+              if (body.vy < 0) body.vy = -body.vy * bnc;
+            } else if (body.y > maxY) {
+              body.y = maxY;
+              if (body.vy > 0) {
+                body.vy = -body.vy * bnc;
+                if (Math.abs(body.vy) < 30 && gravityOn) body.vy = 0;
+              }
+              body.vx *= Math.pow(0.45, subDt);
+            }
+          }
+        }
+      }
+    }
+
+    for (const body of bodies) {
+      if (Math.hypot(body.vx, body.vy) > 45) {
+        body.trail.push({ x: body.x, y: body.y });
+        if (body.trail.length > 9) body.trail.shift();
+      } else if (body.trail.length) {
+        body.trail.shift();
+      }
+    }
+
+    for (let i = bursts.length - 1; i >= 0; i--) {
+      bursts[i].r += 160 * dt;
+      bursts[i].alpha -= 2.2 * dt;
+      if (bursts[i].alpha <= 0) bursts.splice(i, 1);
+    }
+  }
+  // #endregion portal-physics
+
+  // #region portal-draw
+  function putElementAtPose(ctx, body, pose) {
+    const w = body.el.offsetWidth;
+    const h = body.el.offsetHeight;
+    if (!w || !h) { missedDraw = true; return; }
+    ctx.save();
+    ctx.translate(pose.x, pose.y);
+    ctx.rotate(pose.rot);
+    if (pose.scale !== 1) ctx.scale(pose.scale, pose.scale);
+    try {
+      ctx.drawElementImage(body.el, -w / 2, -h / 2, w, h);
+    } catch {
+      missedDraw = true;
+    }
+    ctx.restore();
+  }
+
+  function drawPortalApertureBack(ctx, portal) {
+    const partner = partnerOf(portal.key);
+    ctx.save();
+    ctx.translate(portal.x, portal.y);
+    ctx.rotate(portal.theta);
+
+    // Dark recessed aperture slit behind the portal plane.
+    ctx.beginPath();
+    ctx.ellipse(-5, 0, 12, portal.halfLen, 0, 0, Math.PI * 2);
+    ctx.fillStyle = '#020617';
+    ctx.fill();
+
+    // Optional live sightline preview inside the portal aperture (drawn before cards
+    // so it never claims an element's hit box).
+    if (sightlinesToggle.checked) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(-4, 0, 11, portal.halfLen - 2, 0, 0, Math.PI * 2);
+      ctx.clip();
+
+      ctx.fillStyle = partner.tint;
+      ctx.fillRect(-20, -portal.halfLen, 40, portal.halfLen * 2);
+
+      // Subtle partner-chamber grid glimpsed through the portal opening.
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.22)';
+      ctx.lineWidth = 1;
+      for (let g = -portal.halfLen; g <= portal.halfLen; g += 18) {
+        ctx.beginPath();
+        ctx.moveTo(-18, g);
+        ctx.lineTo(18, g);
+        ctx.stroke();
+      }
+
+      // Preview any live card sitting near the partner portal's front face.
+      ctx.rotate(-portal.theta);
+      ctx.translate(-portal.x, -portal.y);
+
+      const ratio = scaleRatioFor(partner.key);
+      ctx.globalAlpha = 0.72;
+      for (const body of bodies) {
+        const m = bodyMetricsAgainstPortal(body, partner);
+        if (m.dc > -10 && m.dc < 160 && Math.abs(m.uc) < partner.halfLen + 90) {
+          const previewPose = portalExitPose(body, partner, portal, ratio);
+          putElementAtPose(ctx, body, previewPose);
+        }
+      }
+      ctx.restore();
+    }
+
+    // Back halo of the swirling portal rim.
+    ctx.strokeStyle = portal.core;
+    ctx.lineWidth = 6;
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath();
+    ctx.ellipse(-4, 0, 11, portal.halfLen, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPortalRimFront(ctx, portal) {
+    const swirl = reducedMotion ? 0 : animPhase * (portal.key === 'blue' ? 2.4 : -2.4);
+    ctx.save();
+    ctx.translate(portal.x, portal.y);
+    ctx.rotate(portal.theta);
+
+    // Outer luminous energy rim along the portal plane.
+    ctx.strokeStyle = portal.glow;
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.ellipse(-2, 0, 9, portal.halfLen, 0, -Math.PI * 0.52, Math.PI * 0.52);
+    ctx.stroke();
+
+    // Animated energy arcs orbiting the rim.
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.6;
+    ctx.globalAlpha = 0.82;
+    for (let i = 0; i < 3; i++) {
+      const a0 = swirl + i * ((Math.PI * 2) / 3);
+      ctx.beginPath();
+      ctx.ellipse(-2, 0, 9.5, portal.halfLen, 0, a0, a0 + 0.55);
+      ctx.stroke();
+    }
+
+    // Front normal arrow showing which face objects enter and exit from.
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = portal.glow;
+    ctx.fillStyle = portal.glow;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(24, 0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(28, 0);
+    ctx.lineTo(21, -4.5);
+    ctx.lineTo(21, 4.5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Rotation knob at the tip of the portal segment.
+    const knobY = portal.halfLen + 14;
+    ctx.strokeStyle = portal.glow;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(0, portal.halfLen);
+    ctx.lineTo(0, knobY - 7);
+    ctx.stroke();
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(0, knobY, 7.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = portal.glow;
+    ctx.beginPath();
+    ctx.arc(0, knobY, 2.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Small portal tag on the opposite end.
+    ctx.font = '700 10px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = portal.glow;
+    ctx.fillText(portal.label.toUpperCase(), 0, -portal.halfLen - 8);
+    ctx.restore();
+  }
+
+  function drawChamber(ctx) {
+    if (!chamberW || !chamberH || !canvas.width || !canvas.height) return;
+    const scaleX = canvas.width / chamberW;
+    const scaleY = canvas.height / chamberH;
+    ctx.reset();
+    ctx.scale(scaleX, scaleY);
+    missedDraw = false;
+
+    // Aperture-inspired test chamber grid.
+    const bg = ctx.createLinearGradient(0, 0, 0, chamberH);
+    bg.addColorStop(0, '#0f172a');
+    bg.addColorStop(1, '#162033');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, chamberW, chamberH);
+
+    // Recessed concrete panel seams.
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+    ctx.lineWidth = 1;
+    const tile = 44;
+    ctx.beginPath();
+    for (let x = PAD; x <= chamberW - PAD; x += tile) {
+      ctx.moveTo(x, PAD);
+      ctx.lineTo(x, chamberH - PAD);
+    }
+    for (let y = PAD; y <= chamberH - PAD; y += tile) {
+      ctx.moveTo(PAD, y);
+      ctx.lineTo(chamberW - PAD, y);
+    }
+    ctx.stroke();
+
+    // Subtle chamber markings.
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.24)';
+    ctx.font = '700 11px ui-monospace, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('CHAMBER 07 // SPLIT-DOM TEST', PAD + 10, PAD + 18);
+
+    // Outer wall bevel frame.
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(PAD, PAD, chamberW - PAD * 2, chamberH - PAD * 2);
+
+    // Portal crossing bursts.
+    for (const b of bursts) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, b.alpha);
+      ctx.strokeStyle = b.colour;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Velocity trails.
+    for (const body of bodies) {
+      for (let i = 0; i < body.trail.length; i++) {
+        const pt = body.trail[i];
+        const frac = (i + 1) / body.trail.length;
+        ctx.fillStyle = body.key === 'card'
+          ? `rgba(56, 189, 248, ${frac * 0.2})`
+          : `rgba(251, 146, 60, ${frac * 0.2})`;
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 4 + frac * 7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Layer 1: portal recesses and optional sightline previews (drawn before cards).
+    drawPortalApertureBack(ctx, portals.blue);
+    drawPortalApertureBack(ctx, portals.orange);
+
+    // Layer 2: live HTML cards. Split cards draw twice; the half nearest the
+    // pointer draws second so it receives the element's single hit box.
+    for (const body of bodies) {
+      if (!body.portal) {
+        putElementAtPose(ctx, body, body);
+        continue;
+      }
+      const entry = portals[body.portal];
+      const exit = partnerOf(body.portal);
+      const exitPose = portalExitPose(body, entry, exit, scaleRatioFor(entry.key));
+
+      const drawEntryHalf = () => {
+        ctx.save();
+        clipHalfPlane(ctx, entry);
+        putElementAtPose(ctx, body, body);
+        ctx.restore();
+      };
+      const drawExitHalf = () => {
+        ctx.save();
+        clipHalfPlane(ctx, exit);
+        putElementAtPose(ctx, body, exitPose);
+        ctx.restore();
+      };
+
+      if (body.hitSide === 'exit') {
+        drawEntryHalf();
+        drawExitHalf();
+      } else {
+        drawExitHalf();
+        drawEntryHalf();
+      }
+    }
+
+    // Layer 3: glowing portal front rims and rotation knobs over the slice edge.
+    drawPortalRimFront(ctx, portals.blue);
+    drawPortalRimFront(ctx, portals.orange);
+  }
+  // #endregion portal-draw
+
+  // #region portal-fallback
+  function showPlainFallback(reason) {
+    contextLost = true;
+    stopLoop();
+    if (fallbackBox) return;
+    fallbackBox = document.createElement('div');
+    fallbackBox.className = 'plain-fallback';
+    const note = document.createElement('p');
+    note.className = 'plain-note';
+    note.textContent = `The portal canvas ${reason}, so both cards are shown below as plain HTML.`;
+    fallbackBox.append(note, ...drawableChildren);
+    if (supported) {
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'retry-canvas';
+      retry.textContent = 'Draw in the canvas again';
+      retry.addEventListener('click', restoreCanvasFromFallback);
+      fallbackBox.append(retry);
+    }
+    canvas.hidden = true;
+    canvas.after(fallbackBox);
+  }
+
+  function restoreCanvasFromFallback() {
+    if (!fallbackBox) return;
+    canvas.append(...drawableChildren);
+    fallbackBox.remove();
+    fallbackBox = null;
+    canvas.hidden = false;
+    contextLost = false;
+    syncCanvasSize();
+    requestChamberPaint();
+    if (visible && !paused) startLoop();
+  }
+  // #endregion portal-fallback
+
+  const ctx = supported ? canvas.getContext('2d') : null;
+
+  function requestChamberPaint() {
+    if (!supported || contextLost || !ctx || ctx.isContextLost?.()) return;
+    canvas.requestPaint?.();
+  }
+
+  function redrawNowOrRequest() {
+    if (!supported || contextLost || !ctx || ctx.isContextLost?.()) return;
+    if (hasPainted) {
+      try {
+        drawChamber(ctx);
+        if (!missedDraw) return;
+      } catch {}
+    }
+    canvas.requestPaint?.();
+  }
+
+  function syncCanvasSize(entry) {
+    if (contextLost || canvas.hidden) return;
+    const cssW = canvas.clientWidth;
+    const cssH = canvas.clientHeight;
+    if (!cssW || !cssH) return;
+    const prevW = chamberW;
+    const prevH = chamberH;
+    chamberW = cssW;
+    chamberH = cssH;
+
+    const box = entry?.devicePixelContentBoxSize?.[0];
+    const w = Math.round(box ? box.inlineSize : cssW * devicePixelRatio);
+    const h = Math.round(box ? box.blockSize : cssH * devicePixelRatio);
+    if (w > 0 && h > 0) {
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+    }
+
+    if (Math.abs(prevW - cssW) > 6 || Math.abs(prevH - cssH) > 6) {
+      applyPreset(activePreset, false);
+    }
+  }
+
+  function tick(now) {
+    rafId = 0;
+    if (!visible || contextLost || !supported) return;
+    const dt = lastTime ? Math.min(0.033, (now - lastTime) / 1000) : 0.016;
+    lastTime = now;
+    if (!reducedMotion) animPhase += dt;
+    if (!paused) stepPhysics(dt);
+    requestChamberPaint();
+    const anyMoving = !paused && (
+      gravityToggle.checked ||
+      bursts.length > 0 ||
+      bodies.some((b) => Math.hypot(b.vx, b.vy) > 1 || Math.abs(b.omega) > 0.01)
+    );
+    if (!reducedMotion || anyMoving || drag) {
+      rafId = requestAnimationFrame(tick);
+    }
+  }
+
+  function startLoop() {
+    if (rafId || !visible || contextLost || !supported) return;
+    lastTime = 0;
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function stopLoop() {
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+    lastTime = 0;
+  }
+
+  function clientToChamber(clientX, clientY) {
+    const r = canvas.getBoundingClientRect();
+    return {
+      x: ((clientX - r.left) / (r.width || 1)) * chamberW,
+      y: ((clientY - r.top) / (r.height || 1)) * chamberH,
+    };
+  }
+
+  function isInteractiveControlTarget(target) {
+    return !!(target && target.closest && target.closest('input, button, select, option, textarea, label'));
+  }
+
+  function hitTestBodyAt(px, py) {
+    for (let i = bodies.length - 1; i >= 0; i--) {
+      const body = bodies[i];
+      if (body.portal) {
+        const entry = portals[body.portal];
+        const exit = partnerOf(body.portal);
+        const exitPose = portalExitPose(body, entry, exit, scaleRatioFor(entry.key));
+        const inExit = pointInPoseHalf(px, py, body, exitPose, exit);
+        if (inExit) return { body, side: 'exit', local: inExit };
+        const inEntry = pointInPoseHalf(px, py, body, body, entry);
+        if (inEntry) return { body, side: 'entry', local: inEntry };
+      } else {
+        const inBody = pointInPoseHalf(px, py, body, body, null);
+        if (inBody) return { body, side: 'entry', local: inBody };
+      }
+    }
+    return null;
+  }
+
+  function hitTestPortalRim(px, py) {
+    for (const p of [portals.blue, portals.orange]) {
+      const nx = Math.cos(p.theta);
+      const ny = Math.sin(p.theta);
+      const tx = -ny;
+      const ty = nx;
+      const d = (px - p.x) * nx + (py - p.y) * ny;
+      const u = (px - p.x) * tx + (py - p.y) * ty;
+      if (Math.abs(d) <= 22 && Math.abs(u) <= p.halfLen + 10) return p;
+    }
+    return null;
+  }
+
+  // Capture-phase pointer routing for hit-box switching, card dragging/flinging and portal controls.
+  canvas.addEventListener('pointermove', (e) => {
+    const pt = clientToChamber(e.clientX, e.clientY);
+    pointer.x = pt.x;
+    pointer.y = pt.y;
+    pointer.known = true;
+    if (!drag && updateHitSideForPointer(pt.x, pt.y)) {
+      redrawNowOrRequest();
+    }
+  }, { capture: true, passive: true });
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const pt = clientToChamber(e.clientX, e.clientY);
+    pointer.x = pt.x;
+    pointer.y = pt.y;
+    pointer.known = true;
+
+    // 1. Check portal rotation knobs first.
+    for (const p of [portals.blue, portals.orange]) {
+      const knob = portalKnobPos(p);
+      if (Math.hypot(pt.x - knob.x, pt.y - knob.y) <= 18) {
+        e.preventDefault();
+        drag = { kind: 'rotate', portal: p, pointerId: e.pointerId };
+        canvas.setPointerCapture?.(e.pointerId);
+        startLoop();
+        return;
+      }
+    }
+
+    // 2. Sync split hit box immediately so touch taps on the inactive half land on its controls.
+    if (updateHitSideForPointer(pt.x, pt.y)) {
+      redrawNowOrRequest();
+    }
+
+    // 3. Let native clicks and typing pass straight through to form controls inside the cards.
+    const hit = hitTestBodyAt(pt.x, pt.y);
+    if (isInteractiveControlTarget(e.target)) return;
+    if (hit && hit.local.ly > -hit.local.hh + 26) {
+      // Touching the body area below the grip header on a newly flipped half: allow control tap.
+      return;
+    }
+
+    // 4. Drag a card by its grip bar (or anywhere on a card outside its controls).
+    if (hit) {
+      e.preventDefault();
+      const body = hit.body;
+      // If grabbing the exit half of a split card, swap primary pose to that side without moving pixels.
+      if (hit.side === 'exit' && body.portal) {
+        swapBodyThroughPortal(body, false);
+        updatePortalEngagement(body);
+      }
+      body.vx = 0;
+      body.vy = 0;
+      body.omega = 0;
+      drag = {
+        kind: 'body',
+        body,
+        pointerId: e.pointerId,
+        offX: body.x - pt.x,
+        offY: body.y - pt.y,
+        samples: [{ x: pt.x, y: pt.y, t: performance.now() }],
+      };
+      canvas.setPointerCapture?.(e.pointerId);
+      say(`Dragging ${body.name}. Release with motion to fling it.`);
+      startLoop();
+      return;
+    }
+
+    // 5. Drag a portal rim to reposition it inside the chamber.
+    const rim = hitTestPortalRim(pt.x, pt.y);
+    if (rim) {
+      e.preventDefault();
+      drag = {
+        kind: 'portal',
+        portal: rim,
+        pointerId: e.pointerId,
+        offX: rim.x - pt.x,
+        offY: rim.y - pt.y,
+      };
+      canvas.setPointerCapture?.(e.pointerId);
+      say(`Moving ${rim.label} portal.`);
+      startLoop();
+    }
+  }, { capture: true });
+
+  addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const pt = clientToChamber(e.clientX, e.clientY);
+    if (drag.kind === 'body') {
+      const b = drag.body;
+      b.x = clamp(pt.x + drag.offX, -80, chamberW + 80);
+      b.y = clamp(pt.y + drag.offY, -80, chamberH + 80);
+      updatePortalEngagement(b);
+      // If dragged completely behind the entry portal, swap seamlessly to the exit side.
+      if (b.portal) {
+        const entry = portals[b.portal];
+        const m = bodyMetricsAgainstPortal(b, entry);
+        if (m.maxD <= 2) {
+          swapBodyThroughPortal(b, true);
+          drag.offX = b.x - pt.x;
+          drag.offY = b.y - pt.y;
+          updatePortalEngagement(b);
+        }
+      }
+      b.el.toggleAttribute('data-hit-tick');
+      const now = performance.now();
+      drag.samples.push({ x: pt.x, y: pt.y, t: now });
+      while (drag.samples.length > 6 && now - drag.samples[0].t > 95) drag.samples.shift();
+      requestChamberPaint();
+    } else if (drag.kind === 'portal') {
+      const p = drag.portal;
+      p.x = clamp(pt.x + drag.offX, PAD + 16, chamberW - PAD - 16);
+      p.y = clamp(pt.y + drag.offY, PAD + 16, chamberH - PAD - 16);
+      for (const b of bodies) {
+        updatePortalEngagement(b);
+        b.el.toggleAttribute('data-hit-tick');
+      }
+      requestChamberPaint();
+    } else if (drag.kind === 'rotate') {
+      const p = drag.portal;
+      const angleToKnob = Math.atan2(pt.y - p.y, pt.x - p.x);
+      // Knob sits along +tangent (theta + PI/2), so theta = angleToKnob - PI/2.
+      p.theta = angleToKnob - Math.PI / 2;
+      for (const b of bodies) {
+        updatePortalEngagement(b);
+        b.el.toggleAttribute('data-hit-tick');
+      }
+      const deg = Math.round(((p.theta * 180) / Math.PI + 360) % 360);
+      say(`${p.label} portal angle: ${deg}°.`);
+      requestChamberPaint();
+    }
+  });
+
+  function finishDrag(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    if (drag.kind === 'body') {
+      const b = drag.body;
+      const samples = drag.samples;
+      if (samples.length >= 2) {
+        const a = samples[0];
+        const z = samples[samples.length - 1];
+        const dt = (z.t - a.t) / 1000;
+        if (dt > 0.008 && dt < 0.25) {
+          b.vx = clamp((z.x - a.x) / dt, -MAX_SPEED, MAX_SPEED);
+          b.vy = clamp((z.y - a.y) / dt, -MAX_SPEED, MAX_SPEED);
+        }
+      }
+      if (b.portal) {
+        const entry = portals[b.portal];
+        const m = bodyMetricsAgainstPortal(b, entry);
+        if (m.dc < 0) {
+          swapBodyThroughPortal(b, true);
+          updatePortalEngagement(b);
+        }
+      }
+      const spd = Math.round(Math.hypot(b.vx, b.vy));
+      say(spd > 25 ? `Flung ${b.name} at ${spd} px/s.` : `Placed ${b.name}.`);
+    }
+    drag = null;
+    requestChamberPaint();
+    startLoop();
+  }
+  addEventListener('pointerup', finishDrag);
+  addEventListener('pointercancel', finishDrag);
+
+  // Live HTML control listeners inside both drawable cards.
+  cardBtn.addEventListener('click', () => {
+    cardPresses++;
+    cardBtn.textContent = `Press button: ${cardPresses}`;
+    say(`Pressed button inside Test card 01 (${cardPresses} total).`);
+    requestChamberPaint();
+  });
+
+  subjectInput.addEventListener('input', () => {
+    say(`Test subject updated to "${subjectInput.value}".`);
+    requestChamberPaint();
+  });
+
+  momentumCheck.addEventListener('change', () => {
+    say(momentumCheck.checked ? 'Preserve momentum on: exit speed matches entry speed.' : 'Preserve momentum off: exit speed damped to 35%.');
+    requestChamberPaint();
+  });
+
+  cubeModeSelect.addEventListener('change', () => {
+    const mode = cubeModeSelect.value;
+    noteEl.dataset.mode = mode;
+    const noteBody = bodies[1];
+    if (mode === 'Companion') {
+      noteBody.restitution = 0.78;
+      noteBody.gravityScale = 1;
+    } else if (mode === 'Weighted') {
+      noteBody.restitution = 0.48;
+      noteBody.gravityScale = 1.35;
+    } else {
+      noteBody.restitution = 0.96;
+      noteBody.gravityScale = 0.85;
+    }
+    updateCrossingLabels();
+    say(`Tile 02 mode set to ${mode} (bounce ${noteBody.restitution}).`);
+    requestChamberPaint();
+  });
+
+  stampBtn.addEventListener('click', () => {
+    stampPresses++;
+    stampBtn.textContent = `Stamp test: ${stampPresses}`;
+    say(`Stamped Tile 02 (${stampPresses}).`);
+    requestChamberPaint();
+  });
+
+  // Chamber toolbar controls.
+  for (const btn of presetBtns) {
+    btn.addEventListener('click', () => applyPreset(btn.dataset.preset, true));
+  }
+
+  btnFling.addEventListener('click', flingCardThroughBlue);
+
+  btnLoop.addEventListener('click', () => applyPreset('infinite', true));
+
+  btnPause.addEventListener('click', () => {
+    paused = !paused;
+    btnPause.textContent = paused ? 'Resume motion' : 'Pause motion';
+    say(paused ? 'Motion paused. Controls on both split halves stay live.' : 'Motion resumed.');
+    if (!paused) startLoop();
+    requestChamberPaint();
+  });
+
+  btnReset.addEventListener('click', () => {
+    cardPresses = 0;
+    stampPresses = 0;
+    cardBtn.textContent = 'Press button: 0';
+    stampBtn.textContent = 'Stamp test: 0';
+    for (const b of bodies) b.crossings = 0;
+    exitScale = 1;
+    exitScaleInput.value = '1';
+    exitScaleVal.textContent = '1.00x';
+    updateCrossingLabels();
+    applyPreset('opposite', false);
+  });
+
+  exitScaleInput.addEventListener('input', () => {
+    exitScale = Number(exitScaleInput.value);
+    exitScaleVal.textContent = `${exitScale.toFixed(2)}x`;
+    for (const b of bodies) b.el.toggleAttribute('data-hit-tick');
+    say(`Exit scale set to ${exitScale.toFixed(2)}x.`);
+    requestChamberPaint();
+  });
+
+  sightlinesToggle.addEventListener('change', () => {
+    requestChamberPaint();
+  });
+
+  gravityToggle.addEventListener('change', () => {
+    say(gravityToggle.checked ? 'Gravity enabled.' : 'Gravity off.');
+    startLoop();
+  });
+
+  if (supported && ctx) {
+    let retries = 0;
+    canvas.addEventListener('paint', () => {
+      if (contextLost || ctx.isContextLost?.()) return;
+      hasPainted = true;
+      drawChamber(ctx);
+      if (missedDraw && retries++ < 40) requestAnimationFrame(requestChamberPaint);
+      else if (!missedDraw) retries = 0;
+    });
+
+    canvas.addEventListener('contextlost', (e) => {
+      e.preventDefault();
+      showPlainFallback('lost its 2D context');
+    });
+
+    canvas.addEventListener('contextrestored', () => {
+      restoreCanvasFromFallback();
+      say('Canvas context restored.');
+    });
+
+    new ResizeObserver(([entry]) => {
+      syncCanvasSize(entry);
+      requestChamberPaint();
+    }).observe(canvas);
+
+    new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      if (visible) {
+        syncCanvasSize();
+        requestChamberPaint();
+        startLoop();
+      } else {
+        stopLoop();
+      }
+    }, { rootMargin: '80px 0px' }).observe(canvas);
+
+    applyPreset('opposite', false);
+  } else {
+    showPlainFallback('cannot draw because HTML-in-canvas is not available in this browser');
+    say('Plain HTML cards active.');
+  }
+
+  // ---- Live checks (6 isolated fixtures on testStage()) ----
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const needApi = () => { if (!supported) throw new Error('this browser has no HTML-in-canvas API'); };
+
+  async function makeFixture(html, paintFn, w = 240, h = 120) {
+    needApi();
+    const fc = document.createElement('canvas');
+    fc.setAttribute('content', 'drawable');
+    fc.setAttribute('layoutsubtree', '');
+    fc.width = w;
+    fc.height = h;
+    fc.style.cssText = `flex:none;width:${w}px;height:${h}px`;
+    fc.innerHTML = html;
+    testStage().append(fc);
+    const fctx = fc.getContext('2d');
+    const st = { canvas: fc, ctx: fctx, paints: 0, error: null };
+    st.draw = () => {
+      fctx.reset();
+      try { paintFn(fctx, fc); st.error = null; } catch (err) { st.error = err; }
+    };
+    fc.addEventListener('paint', () => {
+      st.paints++;
+      st.draw();
+    });
+    st.frame = async () => {
+      const n = st.paints;
+      fc.requestPaint();
+      for (let i = 0; i < 60 && st.paints === n; i++) await sleep(20);
+      await sleep(30);
+    };
+    for (let i = 0; i < 10; i++) {
+      await st.frame();
+      if (st.paints && !st.error) break;
+    }
+    if (st.error) throw st.error;
+    await sleep(50);
+    return st;
+  }
+
+  // Copy pixels into a plain (non-drawable) 2D canvas with willReadFrequently before reading.
+  function readCopyPixel(sourceCanvas, x, y) {
+    const copy = document.createElement('canvas');
+    copy.width = 1;
+    copy.height = 1;
+    const cctx = copy.getContext('2d', { willReadFrequently: true });
+    cctx.drawImage(sourceCanvas, Math.round(x), Math.round(y), 1, 1, 0, 0, 1, 1);
+    const px = cctx.getImageData(0, 0, 1, 1).data;
+    window.__gfx?.retire?.(copy);
+    return [px[0], px[1], px[2], px[3]];
+  }
+
+  function pointOnFixture(st, x, y) {
+    const r = st.canvas.getBoundingClientRect();
+    return document.elementFromPoint(r.left + x, r.top + y);
+  }
+
+  runTests(document.getElementById('tests'), [
+    {
+      name: 'Split-clip drawing paints one element on both entry and exit sides simultaneously',
+      why: 'One two-tone drawable card straddling a Blue portal at x=30 must paint its right half in front of Blue and its left half emerging out of Orange at x=210 in the same frame.',
+      run: async () => {
+        const blue = { x: 30, y: 50, theta: 0 };
+        const orange = { x: 210, y: 50, theta: Math.PI };
+        const html = '<div class="split-el" drawable style="display:flex;width:80px;height:40px;margin:0"><span style="flex:1;background:#2563eb"></span><span style="flex:1;background:#ea580c"></span></div>';
+        const pose = { x: 30, y: 50, rot: 0, scale: 1 };
+        const exitPose = portalExitPose(pose, blue, orange, 1);
+        const st = await makeFixture(html, (c, el) => {
+          const box = el.querySelector('.split-el');
+          const w = box.offsetWidth;
+          const h = box.offsetHeight;
+          c.save();
+          clipHalfPlane(c, blue);
+          c.translate(pose.x, pose.y);
+          c.drawElementImage(box, -w / 2, -h / 2, w, h);
+          c.restore();
+
+          c.save();
+          clipHalfPlane(c, orange);
+          c.translate(exitPose.x, exitPose.y);
+          c.rotate(exitPose.rot);
+          c.drawElementImage(box, -w / 2, -h / 2, w, h);
+          c.restore();
+        }, 240, 100);
+        try {
+          const domCount = st.canvas.querySelectorAll('.split-el').length;
+          const blueSidePx = readCopyPixel(st.canvas, 50, 50);   // right half (#ea580c orange) sticking out of Blue
+          const orangeSidePx = readCopyPixel(st.canvas, 190, 50); // left half (#2563eb blue) emerging from Orange
+          const gapPx = readCopyPixel(st.canvas, 120, 50);       // middle chamber empty
+          if (domCount !== 1) throw new Error(`expected 1 DOM node, found ${domCount}`);
+          if (blueSidePx[0] < 190 || blueSidePx[2] > 60) throw new Error(`Blue-side half pixel was rgb(${blueSidePx.slice(0, 3)})`);
+          if (orangeSidePx[2] < 190 || orangeSidePx[0] > 80) throw new Error(`Orange-side half pixel was rgb(${orangeSidePx.slice(0, 3)})`);
+          if (gapPx[3] > 8) throw new Error(`middle gap was not transparent (alpha ${gapPx[3]})`);
+          return `1 DOM node painted both halves in one frame: Blue side rgb(${blueSidePx.slice(0, 3)}), Orange side rgb(${orangeSidePx.slice(0, 3)}).`;
+        } finally {
+          window.__gfx?.retire?.(st.canvas);
+        }
+      },
+    },
+    {
+      name: 'Angled exit portal rotates the emerging half by exitNormal - entryNormal + PI',
+      why: 'Entering a floor portal (normal up) and exiting a left-wall portal (normal right) must rotate a vertically striped element by -90 degrees so its stripes emerge stacked sideways.',
+      run: async () => {
+        const floorBlue = { x: 160, y: 95, theta: -Math.PI / 2 };
+        const wallOrange = { x: 30, y: 55, theta: 0 };
+        const html = '<div class="rot-el" drawable style="display:flex;flex-direction:column;width:44px;height:64px;margin:0"><span style="flex:1;background:#16a34a"></span><span style="flex:1;background:#dc2626"></span></div>';
+        // Bottom half (red) passes 18px behind the floor portal so it emerges 18px out of the wall portal.
+        const pose = { x: 160, y: 81, rot: 0, scale: 1 };
+        const exitPose = portalExitPose(pose, floorBlue, wallOrange, 1);
+        const st = await makeFixture(html, (c, el) => {
+          const box = el.querySelector('.rot-el');
+          const w = box.offsetWidth;
+          const h = box.offsetHeight;
+          c.save();
+          clipHalfPlane(c, floorBlue);
+          c.translate(pose.x, pose.y);
+          c.drawElementImage(box, -w / 2, -h / 2, w, h);
+          c.restore();
+
+          c.save();
+          clipHalfPlane(c, wallOrange);
+          c.translate(exitPose.x, exitPose.y);
+          c.rotate(exitPose.rot);
+          c.drawElementImage(box, -w / 2, -h / 2, w, h);
+          c.restore();
+        }, 220, 120);
+        try {
+          const deg = Math.round(((exitPose.rot * 180) / Math.PI) % 360);
+          const entryGreen = readCopyPixel(st.canvas, 160, 62); // top green half above floor
+          const exitRed = readCopyPixel(st.canvas, 42, 55);     // bottom red half rotated out of wall (+x)
+          if (entryGreen[1] < 130 || entryGreen[0] > 70) throw new Error(`entry green pixel was rgb(${entryGreen.slice(0, 3)})`);
+          if (exitRed[0] < 180 || exitRed[1] > 70) throw new Error(`rotated exit pixel was rgb(${exitRed.slice(0, 3)})`);
+          return `Exit rotation ${deg} deg. Entry green rgb(${entryGreen.slice(0, 3)}); rotated exit red at (42, 55) rgb(${exitRed.slice(0, 3)}).`;
+        } finally {
+          window.__gfx?.retire?.(st.canvas);
+        }
+      },
+    },
+    {
+      name: 'Last-draw-wins hit-box routing moves elementFromPoint() to whichever half is drawn second',
+      why: 'When one drawable button is drawn in two clipped halves, reversing draw order and toggling data-hit-tick must move the hit box from the right half to the left half.',
+      run: async () => {
+        let secondSide = 'right';
+        const html = '<button type="button" class="hit-btn" drawable style="width:72px;height:40px;margin:0;border:0;background:#0f172a;color:#fff">Hit</button>';
+        const st = await makeFixture(html, (c, el) => {
+          const btn = el.querySelector('.hit-btn');
+          const w = btn.offsetWidth;
+          const h = btn.offsetHeight;
+          const drawLeft = () => {
+            c.save();
+            c.beginPath(); c.rect(0, 0, 110, 90); c.clip();
+            c.drawElementImage(btn, 16, 24, w, h);
+            c.restore();
+          };
+          const drawRight = () => {
+            c.save();
+            c.beginPath(); c.rect(130, 0, 110, 90); c.clip();
+            c.drawElementImage(btn, 146, 24, w, h);
+            c.restore();
+          };
+          if (secondSide === 'right') { drawLeft(); drawRight(); }
+          else { drawRight(); drawLeft(); }
+          btn.toggleAttribute('data-hit-tick');
+        }, 240, 90);
+        try {
+          const btn = st.canvas.querySelector('.hit-btn');
+          const rightWhenRightSecond = pointOnFixture(st, 182, 44);
+          const leftWhenRightSecond = pointOnFixture(st, 52, 44);
+          if (rightWhenRightSecond !== btn) throw new Error(`expected <button> on right half when drawn second, got <${rightWhenRightSecond?.localName}>`);
+
+          secondSide = 'left';
+          await st.frame();
+          const leftWhenLeftSecond = pointOnFixture(st, 52, 44);
+          const rightWhenLeftSecond = pointOnFixture(st, 182, 44);
+          if (leftWhenLeftSecond !== btn) throw new Error(`expected <button> on left half after flipping draw order, got <${leftWhenLeftSecond?.localName}>`);
+          return `Right second -> right <button>, left <${leftWhenRightSecond?.localName}>; Left second -> left <button>, right <${rightWhenLeftSecond?.localName}>.`;
+        } finally {
+          window.__gfx?.retire?.(st.canvas);
+        }
+      },
+    },
+    {
+      name: 'Momentum vector rotation preserves speed across opposite, 90-degree and upside-down portals',
+      why: 'transformPortalVelocity() must rotate velocity by exitNormal - entryNormal + PI with identical speed magnitude.',
+      run: async () => {
+        const vOpp = transformPortalVelocity(-400, 0, { theta: 0 }, { theta: Math.PI });
+        const vCorner = transformPortalVelocity(0, 400, { theta: -Math.PI / 2 }, { theta: 0 });
+        const vUp = transformPortalVelocity(0, 400, { theta: -Math.PI / 2 }, { theta: -Math.PI / 2 });
+        const near = (a, b) => Math.abs(a - b) < 0.01;
+        if (!near(vOpp.vx, -400) || !near(vOpp.vy, 0)) throw new Error(`opposite walls gave (${vOpp.vx.toFixed(1)}, ${vOpp.vy.toFixed(1)})`);
+        if (!near(vCorner.vx, 400) || !near(vCorner.vy, 0)) throw new Error(`90 deg corner gave (${vCorner.vx.toFixed(1)}, ${vCorner.vy.toFixed(1)})`);
+        if (!near(vUp.vx, 0) || !near(vUp.vy, -400)) throw new Error(`upside-down floor gave (${vUp.vx.toFixed(1)}, ${vUp.vy.toFixed(1)})`);
+        const speedOut = Math.hypot(vCorner.vx, vCorner.vy);
+        return `Opposite (-400, 0), 90 deg corner (${vCorner.vx.toFixed(0)}, ${vCorner.vy.toFixed(0)}), floor-to-floor (${vUp.vx.toFixed(0)}, ${vUp.vy.toFixed(0)}); speed conserved at ${speedOut.toFixed(0)} px/s.`;
+      },
+    },
+    {
+      name: 'DOM mutation inside a split element raises paint and updates both halves',
+      why: 'Mutating a class on the one live element must trigger a real paint event without requestPaint() and re-colour both the entry and exit halves.',
+      run: async () => {
+        const blue = { x: 30, y: 45, theta: 0 };
+        const orange = { x: 210, y: 45, theta: Math.PI };
+        const pose = { x: 30, y: 45, rot: 0, scale: 1 };
+        const exitPose = portalExitPose(pose, blue, orange, 1);
+        const html = '<style>.mut-el{width:80px;height:40px;margin:0;background:#1d4ed8}.mut-el.lit{background:#facc15}</style><div class="mut-el" drawable></div>';
+        const st = await makeFixture(html, (c, el) => {
+          const box = el.querySelector('.mut-el');
+          const w = box.offsetWidth;
+          const h = box.offsetHeight;
+          c.save(); clipHalfPlane(c, blue); c.translate(pose.x, pose.y); c.drawElementImage(box, -w / 2, -h / 2, w, h); c.restore();
+          c.save(); clipHalfPlane(c, orange); c.translate(exitPose.x, exitPose.y); c.rotate(exitPose.rot); c.drawElementImage(box, -w / 2, -h / 2, w, h); c.restore();
+        }, 240, 90);
+        try {
+          const box = st.canvas.querySelector('.mut-el');
+          const n0 = st.paints;
+          box.classList.add('lit');
+          for (let i = 0; i < 30 && st.paints === n0; i++) await sleep(20);
+          await sleep(40);
+          const pEntry = readCopyPixel(st.canvas, 50, 45);
+          const pExit = readCopyPixel(st.canvas, 190, 45);
+          const paints = st.paints - n0;
+          if (!paints) throw new Error('no paint event fired after class mutation');
+          if (pEntry[0] < 210 || pEntry[1] < 170 || pExit[0] < 210 || pExit[1] < 170) {
+            throw new Error(`after mutation: entry rgb(${pEntry.slice(0, 3)}), exit rgb(${pExit.slice(0, 3)})`);
+          }
+          return `${paints} paint event(s). Entry half rgb(${pEntry.slice(0, 3)}), exit half rgb(${pExit.slice(0, 3)}).`;
+        } finally {
+          window.__gfx?.retire?.(st.canvas);
+        }
+      },
+    },
+    stillDrawn(() => [
+      {
+        name: 'Portal chamber canvas',
+        ink: async () => {
+          if (!supported || contextLost || canvas.hidden || !canvas.width || !canvas.height) return null;
+          const probe = document.createElement('canvas');
+          probe.width = Math.min(canvas.width, 240);
+          probe.height = Math.min(canvas.height, 160);
+          const pctx = probe.getContext('2d', { willReadFrequently: true });
+          pctx.drawImage(canvas, 0, 0, probe.width, probe.height);
+          const frac = inkFraction(pctx);
+          window.__gfx?.retire?.(probe);
+          return frac;
+        },
+        rescue: () => showPlainFallback('was blank after the live checks finished'),
+      },
+    ]),
+  ]);
+</script>
+</body>
+</html>
