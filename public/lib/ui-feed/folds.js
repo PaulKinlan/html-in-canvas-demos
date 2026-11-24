@@ -770,3 +770,6 @@ export class PosterTabs extends FeedControl {
   }
 }
 customElements.define('poster-tabs', PosterTabs);
+
+// Shared with trees.js and timelines.js.
+export { Fold, cached, focusRing };
