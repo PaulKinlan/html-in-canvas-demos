@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Canary crash repro runner</title>
+<!-- Isolated noopener tab that runs queued standalone repros one by one.
+     Communicates with /crashes/suite/ strictly via localStorage so a renderer crash
+     here leaves the suite page alive. -->
+<style>
+  body { font: 14px/1.45 system-ui, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
+  header { padding: 10px 14px; border-bottom: 1px solid #8886; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #msg { font: 13px/1.4 ui-monospace, monospace; flex: 1; }
+  iframe { flex: 1; width: 100%; border: 0; }
+</style>
+<header>
+  <strong>Crash repro runner (isolated tab)</strong>
+  <span id="msg">Starting...</span>
+  <button type="button" id="stop">Stop</button>
+</header>
+<iframe id="frame" title="Standalone repro frame"></iframe>
+<script>
+  const CHAIN_KEY = 'hic-suite-chain';
+  const HB_KEY = 'hic-suite-heartbeat';
+  const msg = document.getElementById('msg');
+  const frame = document.getElementById('frame');
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  let stopped = false;
+  document.getElementById('stop').onclick = () => {
+    stopped = true;
+    try {
+      const c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null');
+      if (c) { c.state = 'stopped'; localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); }
+    } catch {}
+    msg.textContent = 'Stopped. You can close this tab.';
+  };
+
+  const hbTimer = setInterval(() => {
+    try { localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
+  }, 250);
+
+  function isDone(item) {
+    try {
+      const raw = localStorage.getItem(item.storageKey);
+      if (!raw) return false;
+      if (item.storageKey === 'repro-readback-matrix') {
+        const obj = JSON.parse(raw);
+        return Object.keys(obj).length >= 7 && Object.values(obj).every((x) => x.state !== 'running');
+      }
+      const lines = raw.trim().split('\n').filter(Boolean);
+      const last = lines[lines.length - 1] || '';
+      return /done|DONE|PASS|FAIL|not available/i.test(last);
+    } catch {
+      return false;
+    }
+  }
+
+  async function main() {
+    let chain;
+    try { chain = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
+    if (!chain || !Array.isArray(chain.items) || !chain.items.length) {
+      msg.textContent = 'No queued repros. Open /crashes/suite/ to start a run.';
+      clearInterval(hbTimer);
+      return;
+    }
+    try { localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
+
+    for (let i = chain.index || 0; i < chain.items.length; i++) {
+      if (stopped) break;
+      const item = chain.items[i];
+      chain.index = i;
+      chain.currentId = item.id;
+      chain.state = 'running';
+      try {
+        localStorage.removeItem(item.storageKey);
+        localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
+        localStorage.setItem(HB_KEY, String(Date.now()));
+      } catch {}
+
+      msg.textContent = `Running ${i + 1}/${chain.items.length}: ${item.title}`;
+      frame.src = item.repro + item.autoQuery;
+
+      const deadline = Date.now() + (item.timeoutMs || 5000);
+      while (Date.now() < deadline && !stopped) {
+        await sleep(200);
+        if (isDone(item)) break;
+      }
+      if (!localStorage.getItem(item.storageKey) && !stopped) {
+        try { localStorage.setItem(item.storageKey, 'timed out waiting for repro'); } catch {}
+      }
+      chain.index = i + 1;
+      try { localStorage.setItem(CHAIN_KEY, JSON.stringify(chain)); } catch {}
+      await sleep(200);
+    }
+
+    clearInterval(hbTimer);
+    if (!stopped) {
+      chain.state = 'done';
+      chain.currentId = null;
+      try { localStorage.setItem(CHAIN_KEY, JSON.stringify(chain)); } catch {}
+      msg.textContent = 'All queued repros finished. Returning to /crashes/suite/.';
+      frame.src = 'about:blank';
+      setTimeout(() => { try { window.close(); } catch {} }, 400);
+    }
+  }
+  main();
+</script>
+</html>

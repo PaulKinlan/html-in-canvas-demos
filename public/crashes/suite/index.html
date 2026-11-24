@@ -110,7 +110,11 @@
   .pill.blank, .pill.engine { border-color: #6b7280; color: var(--muted); }
   .pill.ok { border-color: #2e7d4f; color: #2e7d4f; }
   .pill.fail { border-color: var(--bad); color: var(--bad); }
+  .pill.run { border-color: #2563eb; color: #2563eb; }
   .pill.skip { color: var(--muted); }
+  .act-cell { white-space: nowrap; }
+  .act-cell a { display: inline-block; margin-left: 8px; font-size: 13px; }
+  .scoreboard { max-width: 760px; font: 13px/1.5 var(--mono); color: var(--muted); margin: 4px 0 12px; }
   .meta-line { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
   .fixture-strip { max-width: 760px; min-height: 0; margin: 8px 0; }
   .stress-box { max-width: 760px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 12px 0 20px; }
@@ -137,36 +141,44 @@
   </p>
 
   <div class="env-box" id="envBox">Reading browser capabilities.</div>
+  <div class="scoreboard" id="scoreboard" role="status">Engine checks: 0/8 run | Crash repros: 0/12 run | Stress tests: 0/5 run</div>
 
   <div class="bar">
-    <button type="button" id="runEngineAll">Run all 8 engine checks</button>
-    <button type="button" id="refreshRepros">Refresh repro logs</button>
     <button type="button" id="copyReport">Copy Eng report (Markdown)</button>
     <a href="/crashes/">Back to /crashes/</a>
   </div>
 
-  <h2>1. Past crashes and lost contexts</h2>
+  <h2>1. Engine regression checks (runs right here)</h2>
   <p class="note">
-    Each row opens its own standalone HTML file in a new tab or popup (no site scripts, no guard) so a renderer crash can't take this page down.
-    Every repro writes its progress to <code>localStorage</code>; after you run a repro, come back here or press "Refresh repro logs" to read whether it finished or died mid-run.
+    Eight non-crashing checks from <code>/friction/</code> and <code>FINDINGS.md</code>. Pressing the button below runs all eight right in this table and retires every fixture canvas afterwards.
   </p>
-  <table class="suite-table">
-    <thead>
-      <tr><th>Kind</th><th>Case and baseline</th><th>This browser</th><th>Action</th></tr>
-    </thead>
-    <tbody id="reproRows"></tbody>
-  </table>
-
-  <h2>2. Non-crashing engine checks</h2>
-  <p class="note">
-    These eight checks test bugs from <code>/friction/</code> and <code>FINDINGS.md</code> that don't crash the tab: same-task <code>moveBefore()</code>, stale hit-test cache, <code>clearElementGeometry()</code>, 9-argument source-rect hit boxes, continuous <code>ctx.rotate()</code> text drops on Metal, nested inner canvases, snapshot release and WebGPU upload.
-  </p>
+  <div class="bar">
+    <button type="button" id="runEngineAll">Run all 8 checks</button>
+    <span id="engineStatus" class="meta-line" role="status"></span>
+  </div>
   <div id="checkStage" class="fixture-strip"></div>
   <table class="suite-table">
     <thead>
       <tr><th>Result</th><th>Check and baseline</th><th>Measured detail</th><th>Run</th></tr>
     </thead>
     <tbody id="engineRows"></tbody>
+  </table>
+
+  <h2>2. Past crashes and lost contexts (runs in an isolated tab)</h2>
+  <p class="note">
+    Crash repros run in a separate <code>noopener</code> tab so a renderer crash can't take this page down. Each repro runs with <code>?autorun=</code> and writes to <code>localStorage</code>; this table updates live as each one finishes or crashes. If a repro crashes that tab, press the Continue button to finish the remaining rows.
+  </p>
+  <div class="bar">
+    <button type="button" id="runReprosAll">Run all 11 crash repros</button>
+    <button type="button" id="continueRepros" hidden>Continue remaining</button>
+    <button type="button" id="clearRepros">Clear logs</button>
+  </div>
+  <div id="reproStatus" class="stats-line" role="status">Idle. Press "Run all 11 crash repros" or run any single row below.</div>
+  <table class="suite-table">
+    <thead>
+      <tr><th>Kind</th><th>Case and baseline</th><th>This browser</th><th>Action</th></tr>
+    </thead>
+    <tbody id="reproRows"></tbody>
   </table>
 
   <h2>3. Stress tests (pushing API limits)</h2>
@@ -261,10 +273,14 @@
   const $ = (id) => document.getElementById(id);
   const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
 
+  const CHAIN_KEY = 'hic-suite-chain';
+  const HB_KEY = 'hic-suite-heartbeat';
   const engineResults = new Map();
   const stressResults = new Map();
+  const activeReproState = new Map(); // id -> { state, cls, detail } while running in isolated tab
   let activeStressKey = '2d';
   let stopActiveStress = null;
+  let watchTimer = 0;
 
   // Browser capability summary (opens no graphics contexts on load)
   const hasDrawElement = 'requestPaint' in HTMLCanvasElement.prototype;
@@ -277,6 +293,7 @@
 
   // Parse localStorage logs left by standalone repro pages
   function readReproStatus(item) {
+    if (activeReproState.has(item.id)) return activeReproState.get(item.id);
     try {
       const raw = localStorage.getItem(item.storageKey);
       if (!raw) return { state: 'not run', cls: 'skip', detail: item.note };
@@ -293,8 +310,10 @@
       }
       const lines = raw.trim().split('\n').filter(Boolean);
       const last = lines[lines.length - 1] || '';
-      if (/RUNNING/.test(last)) return { state: 'crashed', cls: 'fail', detail: `last log line before death: ${last}` };
+      if (/RUNNING/.test(last)) return { state: 'crashed', cls: 'fail', detail: `tab died during run: ${last}` };
       if (/FAIL/.test(last)) return { state: 'failed', cls: 'fail', detail: last };
+      const dropMatch = last.match(/frames with dropped text [^=]*=\s*(\d+)/i);
+      if (dropMatch && Number(dropMatch[1]) > 0) return { state: 'dropped text', cls: 'fail', detail: last };
       if (/contextlost/i.test(raw) && !/lost events = 0|0 contextlost|0 webglcontextlost/i.test(raw)) {
         return { state: 'context lost', cls: 'loss', detail: last };
       }
@@ -305,31 +324,118 @@
     }
   }
 
+  function updateScoreboard() {
+    const engDone = [...engineResults.values()].filter((r) => r.status !== 'running').length;
+    const engPass = [...engineResults.values()].filter((r) => r.status === 'pass').length;
+    const reproStates = REPRO_CATALOG.map((item) => readReproStatus(item));
+    const repDone = reproStates.filter((s) => s.state !== 'not run' && s.state !== 'running...').length;
+    const repCrash = reproStates.filter((s) => s.state === 'crashed' || s.state === 'failed' || s.state === 'dropped text').length;
+    $('scoreboard').textContent = `Engine checks: ${engDone}/${ENGINE_CHECKS.length} run (${engPass} pass)  |  Crash repros: ${repDone}/${REPRO_CATALOG.length} run (${repCrash} crashed/failed)  |  Stress tests: ${stressResults.size}/5 run`;
+  }
+
+  function stopWatchingChain() {
+    if (watchTimer) { clearInterval(watchTimer); watchTimer = 0; }
+    activeReproState.clear();
+  }
+
+  function launchReproChain(items, startIndex = 0) {
+    stopWatchingChain();
+    const chain = { items, index: startIndex, currentId: items[startIndex]?.id || null, state: 'running', startedAt: Date.now() };
+    try {
+      localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
+      localStorage.setItem(HB_KEY, String(Date.now()));
+    } catch {}
+    $('continueRepros').hidden = true;
+    $('reproStatus').textContent = `Opened isolated runner tab (${startIndex + 1}/${items.length}: ${items[startIndex]?.title || ''})...`;
+    // noopener isolates the runner in its own BrowsingInstance / renderer process
+    window.open('/crashes/suite/runner.html', '_blank', 'noopener');
+    startWatchingChain();
+  }
+
+  function startWatchingChain() {
+    stopWatchingChain();
+    watchTimer = setInterval(() => {
+      let chain;
+      try { chain = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
+      if (!chain) { stopWatchingChain(); return; }
+      const hb = Number(localStorage.getItem(HB_KEY) || 0);
+      const staleMs = Date.now() - hb;
+
+      if (chain.state === 'done') {
+        stopWatchingChain();
+        $('continueRepros').hidden = true;
+        $('reproStatus').textContent = `Finished ${chain.items.length} repro${chain.items.length === 1 ? '' : 's'}. All results are in the table below.`;
+        renderRepros();
+        return;
+      }
+      if (chain.state === 'stopped') {
+        stopWatchingChain();
+        $('reproStatus').textContent = 'Stopped.';
+        renderRepros();
+        return;
+      }
+
+      const cur = chain.items[chain.index];
+      // If the runner heartbeat stops for >2.5 s while running a case, the runner tab crashed!
+      if (cur && staleMs > 2500) {
+        stopWatchingChain();
+        const existing = localStorage.getItem(cur.storageKey) || '';
+        if (!existing || !/done|DONE|PASS|FAIL/i.test(existing.trim().split('\n').pop() || '')) {
+          try {
+            if (!existing) localStorage.setItem(cur.storageKey, `RUNNING ${cur.id} (runner tab crashed)`);
+          } catch {}
+        }
+        const nextIdx = chain.index + 1;
+        const left = chain.items.length - nextIdx;
+        if (left > 0) {
+          chain.index = nextIdx;
+          chain.state = 'crashed';
+          try { localStorage.setItem(CHAIN_KEY, JSON.stringify(chain)); } catch {}
+          $('continueRepros').textContent = `Continue remaining (${left} left)`;
+          $('continueRepros').hidden = false;
+          $('reproStatus').textContent = `Runner tab crashed on "${cur.title}". This page survived; press "Continue remaining (${left} left)" to finish the rest.`;
+        } else {
+          $('reproStatus').textContent = `Runner tab crashed on the last repro ("${cur.title}").`;
+        }
+        renderRepros();
+        return;
+      }
+
+      activeReproState.clear();
+      if (cur) {
+        activeReproState.set(cur.id, { state: 'running...', cls: 'run', detail: `Running in isolated tab (${chain.index + 1}/${chain.items.length})...` });
+        $('reproStatus').textContent = `Running ${chain.index + 1}/${chain.items.length}: ${cur.title}`;
+      }
+      renderRepros();
+    }, 300);
+  }
+
   function renderRepros() {
     $('reproRows').replaceChildren(...REPRO_CATALOG.map((item) => {
       const st = readReproStatus(item);
-      const openBtn = el('button', { type: 'button', textContent: 'Open repro' });
-      openBtn.addEventListener('click', () => {
+      const runBtn = el('button', { type: 'button', textContent: item.skipInAll ? 'Run (7 reloads)' : 'Run' });
+      runBtn.addEventListener('click', () => {
         try { localStorage.removeItem(item.storageKey); } catch {}
-        window.open(item.repro, '_blank', 'noopener');
+        launchReproChain([item], 0);
       });
+      const openLink = el('a', { href: item.repro, target: '_blank', rel: 'noopener', textContent: 'Open' });
       return el('tr', {},
         el('td', {}, el('span', { className: `pill ${item.kind}`, textContent: item.kind })),
         el('td', {},
           el('strong', { textContent: item.title }),
-          el('div', { className: 'meta-line', textContent: `Before: ${item.before}` }),
-          el('div', { className: 'meta-line', textContent: `Press: ${item.button}` })),
+          el('div', { className: 'meta-line', textContent: `Before: ${item.before}` })),
         el('td', {},
           el('span', { className: `pill ${st.cls}`, textContent: st.state }),
           el('div', { className: 'meta-line', textContent: st.detail })),
-        el('td', {}, openBtn));
+        el('td', { className: 'act-cell' }, runBtn, openLink));
     }));
+    updateScoreboard();
   }
 
   function renderEngineChecks() {
     $('engineRows').replaceChildren(...ENGINE_CHECKS.map((chk) => {
       const r = engineResults.get(chk.id);
-      const cls = !r ? 'skip' : r.status === 'pass' ? 'ok' : r.status === 'fail' ? 'fail' : 'skip';
+      const cls = !r ? 'skip' : r.status === 'pass' ? 'ok' : r.status === 'fail' ? 'fail' : r.status === 'running' ? 'run' : 'skip';
       const label = !r ? 'not run' : r.status;
       const btn = el('button', { type: 'button', textContent: 'Run' });
       btn.addEventListener('click', () => runOneEngineCheck(chk));
@@ -341,6 +447,7 @@
         el('td', { textContent: r?.detail || '' }),
         el('td', {}, btn));
     }));
+    updateScoreboard();
   }
 
   async function runOneEngineCheck(chk) {
@@ -357,11 +464,40 @@
 
   $('runEngineAll').addEventListener('click', async () => {
     $('runEngineAll').disabled = true;
-    for (const chk of ENGINE_CHECKS) await runOneEngineCheck(chk);
+    $('engineStatus').textContent = 'Running 8 checks...';
+    for (let i = 0; i < ENGINE_CHECKS.length; i++) {
+      $('engineStatus').textContent = `Running ${i + 1}/${ENGINE_CHECKS.length}: ${ENGINE_CHECKS[i].id}`;
+      await runOneEngineCheck(ENGINE_CHECKS[i]);
+    }
+    const pass = [...engineResults.values()].filter((r) => r.status === 'pass').length;
+    $('engineStatus').textContent = `Done: ${pass}/${ENGINE_CHECKS.length} passed.`;
     $('runEngineAll').disabled = false;
   });
 
-  $('refreshRepros').addEventListener('click', renderRepros);
+  $('runReprosAll').addEventListener('click', () => {
+    const fast = REPRO_CATALOG.filter((item) => !item.skipInAll);
+    launchReproChain(fast, 0);
+  });
+
+  $('continueRepros').addEventListener('click', () => {
+    let chain;
+    try { chain = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
+    if (chain && Array.isArray(chain.items) && chain.index < chain.items.length) {
+      launchReproChain(chain.items, chain.index);
+    }
+  });
+
+  $('clearRepros').addEventListener('click', () => {
+    stopWatchingChain();
+    for (const item of REPRO_CATALOG) {
+      try { localStorage.removeItem(item.storageKey); } catch {}
+    }
+    try { localStorage.removeItem(CHAIN_KEY); localStorage.removeItem(HB_KEY); } catch {}
+    $('continueRepros').hidden = true;
+    $('reproStatus').textContent = 'Cleared saved repro logs.';
+    renderRepros();
+  });
+
   window.addEventListener('focus', renderRepros);
   window.addEventListener('storage', renderRepros);
 
@@ -464,6 +600,7 @@
     $('stressStats').textContent = `Starting ${spec.name}...`;
     const onStats = (stats) => {
       stressResults.set(key, stats);
+      updateScoreboard();
       if (stats.error) {
         $('stressStats').textContent = `Stopped: ${stats.error}`;
         return;
