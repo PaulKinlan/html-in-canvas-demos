@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Repro: animating ctx.rotate() every frame with drawElementImage() drops lines of text on Metal GPU</title>
+<!-- A reduced reproduction for a browser bug report. One file, no libraries and none of the site's scripts.
+     HTML-in-canvas must be on: chrome://flags/#canvas-draw-element. Listed at /crashes/ and /crashes/suite/. -->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 16px; max-width: 680px; }
+  h1 { font-size: 19px; line-height: 1.3; }
+  button { font: inherit; min-height: 44px; padding: 6px 14px; margin: 4px 6px 4px 0; }
+  #log { font: 12.5px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #8886; border-radius: 8px; padding: 8px; min-height: 6em; }
+  canvas { display: block; border: 1px solid #8886; margin: 8px 0; max-width: 100%; background: #eef1f5; }
+  .card { box-sizing: border-box; width: 320px; padding: 14px 16px; border-radius: 10px; background: #fff; color: #111; font: 15px/1.45 system-ui, sans-serif; }
+  .card h2 { margin: 0 0 6px; font-size: 18px; }
+  .card p { margin: 0 0 8px; }
+</style>
+<h1>Animating ctx.rotate() every frame with drawElementImage() drops lines of text</h1>
+<p>Draws a multi-line white card with dark text via <code>ctx.drawElementImage()</code> for 60 frames. Button A varies <code>ctx.rotate()</code> every frame (triggers dropped glyph lines on macOS Metal GPU in Chrome 157 and 160). Button B holds a fixed angle and only translates.</p>
+<p><button id="a">A: continuous ctx.rotate() (60 frames)</button><button id="b">B: fixed angle + translate (60 frames)</button> <a href="/crashes/suite/">Test suite</a></p>
+<div id="stage"></div>
+<pre id="log"></pre>
+<script>
+  const KEY = 'repro-rotated-draw-text-flicker';
+  const t0 = performance.now();
+  const logEl = document.getElementById('log'), stage = document.getElementById('stage');
+  const log = (text) => { const line = `${Math.round(performance.now() - t0)} ms  ${text}`; logEl.textContent += line + '\n'; try { localStorage.setItem(KEY, logEl.textContent); } catch {} };
+  log(navigator.userAgent);
+  if (!('requestPaint' in HTMLCanvasElement.prototype)) log('HTML-in-canvas is not available in this browser.');
+
+  async function run(animateRotate) {
+    stage.replaceChildren();
+    log(`RUNNING ${animateRotate ? 'A (animated ctx.rotate)' : 'B (fixed angle)'}`);
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable');
+    canvas.setAttribute('layoutsubtree', '');
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    const W = 400, H = 220;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    canvas.style.cssText = `width:${W}px;height:${H}px`;
+    canvas.innerHTML = `<div class="card" drawable><h2>Live HTML heading line one</h2><p>Second line of dark text inside the card.</p><p>Third line of dark text to test glyph atlas drops.</p></div>`;
+    stage.append(canvas);
+    const ctx = canvas.getContext('2d');
+    const el = canvas.firstElementChild;
+    const copy = document.createElement('canvas'); copy.width = W; copy.height = H;
+    const cctx = copy.getContext('2d', { willReadFrequently: true });
+
+    let frame = 0, darkCounts = [];
+    await new Promise((resolve) => {
+      canvas.onpaint = () => {
+        frame++;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, W, H);
+        ctx.save();
+        ctx.translate(W / 2, H / 2 + Math.sin(frame * 0.15) * 4);
+        ctx.rotate(animateRotate ? Math.sin(frame * 0.12) * 0.05 : -0.02);
+        ctx.drawElementImage(el, -el.offsetWidth / 2, -el.offsetHeight / 2, el.offsetWidth, el.offsetHeight);
+        ctx.restore();
+        cctx.clearRect(0, 0, W, H);
+        cctx.drawImage(canvas, 0, 0, W, H);
+        const d = cctx.getImageData(40, 30, W - 80, H - 60).data;
+        let dark = 0;
+        for (let i = 0; i < d.length; i += 4) if (d[i] < 110 && d[i + 1] < 110 && d[i + 2] < 110 && d[i + 3] > 200) dark++;
+        darkCounts.push(dark);
+        if (frame >= 60) { canvas.onpaint = null; resolve(); }
+      };
+      const tick = () => { if (frame < 60) { canvas.requestPaint(); requestAnimationFrame(tick); } };
+      tick();
+    });
+
+    const sorted = [...darkCounts].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)] || 1;
+    const drops = darkCounts.filter((c) => c < median * 0.85).length;
+    log(`DONE: 60 frames, median dark text px = ${median}, min = ${sorted[0]}, max = ${sorted[sorted.length - 1]}, frames with dropped text (>15% loss) = ${drops}`);
+  }
+
+  document.getElementById('a').onclick = () => run(true);
+  document.getElementById('b').onclick = () => run(false);
+  const auto = new URLSearchParams(location.search).get('autorun');
+  if (auto === 'a') run(true);
+  else if (auto === 'b') run(false);
+</script>
+</html>

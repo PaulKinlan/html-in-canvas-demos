@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Repro: multi-canvas WebGL loseContext() stress while uploading element textures</title>
+<!-- A reduced reproduction for a browser bug report. One file, no libraries and none of the site's scripts.
+     HTML-in-canvas must be on: chrome://flags/#canvas-draw-element. Listed at /crashes/ and /crashes/suite/. -->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 16px; max-width: 680px; }
+  h1 { font-size: 19px; line-height: 1.3; }
+  button { font: inherit; min-height: 44px; padding: 6px 14px; margin: 4px 6px 4px 0; }
+  #log { font: 12.5px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #8886; border-radius: 8px; padding: 8px; min-height: 6em; }
+  canvas { display: inline-block; border: 1px solid #8886; margin: 4px; }
+  .card { box-sizing: border-box; width: 140px; padding: 8px; background: #fff3d6; color: #222; font: 13px sans-serif; }
+</style>
+<h1>Multi-canvas WebGL loseContext() stress with element textures and iframes</h1>
+<p>Creates 4 drawable WebGL 2 canvases (each holding a drawable card and a same-origin iframe), uploads elements on every <code>paint</code> frame, then calls <code>WEBGL_lose_context.loseContext()</code> inside a live paint handler while removing half the canvases in the same task.</p>
+<p><b>Expected:</b> <code>webglcontextlost</code> fires cleanly without crashing the renderer.<br><b>Seen:</b> Chromium 157 crashed in fuller pages (<code>/protected/</code>, <code>/selection/</code>, <code>/player-fx/</code>, <code>/iframe-tiles/</code>) when losing a drawable WebGL context with active element textures.</p>
+<p><button id="a">A: loseContext() inside paint + remove</button><button id="b">B: loseContext() + restoreContext() cycle</button> <a href="/crashes/suite/">Test suite</a></p>
+<div id="stage"></div>
+<pre id="log"></pre>
+<script>
+  const KEY = 'repro-lose-context-stress';
+  const t0 = performance.now();
+  const logEl = document.getElementById('log'), stage = document.getElementById('stage');
+  const log = (text) => { const line = `${Math.round(performance.now() - t0)} ms  ${text}`; logEl.textContent += line + '\n'; try { localStorage.setItem(KEY, logEl.textContent); } catch {} };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try { const before = localStorage.getItem(KEY); if (before && /RUNNING/.test(before.trim().split('\n').pop())) logEl.textContent = '--- the log of the run before this page load. Its last line says RUNNING, so the page ended during the run: ---\n' + before + '--- end ---\n'; localStorage.removeItem(KEY); } catch {}
+  log(navigator.userAgent);
+  if (!('requestPaint' in HTMLCanvasElement.prototype)) log('HTML-in-canvas is not available in this browser.');
+
+  async function run(mode) {
+    stage.replaceChildren();
+    log(`RUNNING mode ${mode}`);
+    const items = [];
+    for (let i = 0; i < 4; i++) {
+      const c = document.createElement('canvas');
+      c.setAttribute('content', 'drawable');
+      c.setAttribute('layoutsubtree', '');
+      c.width = 160; c.height = 90;
+      c.style.cssText = 'width:160px;height:90px';
+      c.innerHTML = `<div class="card" drawable><b>GL #${i + 1}</b></div><iframe drawable srcdoc="<p>sub ${i}</p>" style="width:60px;height:30px;border:0"></iframe>`;
+      stage.append(c);
+      const gl = c.getContext('webgl2'); // gfx-allow: webgl-context standalone crash stress reproduction
+      if (!gl) { log('DONE: no WebGL 2'); return; }
+      const tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, 160, 90);
+      const ext = gl.getExtension('WEBGL_lose_context');
+      const item = { c, gl, tex, ext, lost: 0, restored: 0 };
+      c.addEventListener('webglcontextlost', (e) => { e.preventDefault(); item.lost++; });
+      c.addEventListener('webglcontextrestored', () => { item.restored++; });
+      items.push(item);
+    }
+
+    await sleep(300);
+    let lostTriggered = false;
+    await new Promise((resolve) => {
+      let paints = 0;
+      items.forEach((it, idx) => {
+        it.c.onpaint = () => {
+          paints++;
+          if (!it.gl.isContextLost()) {
+            it.gl.bindTexture(it.gl.TEXTURE_2D, it.tex);
+            try { it.gl.texElementSubImage2D?.(it.gl.TEXTURE_2D, 0, 0, 0, it.c.firstElementChild); } catch {}
+            it.gl.clearColor(0.2 * idx, 0.4, 0.8, 1);
+            it.gl.clear(it.gl.COLOR_BUFFER_BIT);
+          }
+          if (!lostTriggered && paints >= 8) {
+            lostTriggered = true;
+            log('triggering loseContext() inside paint handler');
+            items.forEach((x, j) => {
+              x.ext?.loseContext(); // gfx-allow: lose-context standalone crash stress reproduction
+              if (mode === 'A' && j < 2) x.c.remove();
+            });
+            if (mode === 'B') {
+              setTimeout(() => {
+                log('calling restoreContext()');
+                items.forEach((x) => { try { x.ext?.restoreContext(); } catch {} });
+              }, 300);
+            }
+            setTimeout(resolve, 1200);
+          }
+        };
+      });
+      const pump = () => {
+        if (!lostTriggered) {
+          for (const it of items) {
+            it.c.firstElementChild.textContent = `GL p${paints}`;
+            it.c.requestPaint();
+          }
+          requestAnimationFrame(pump);
+        }
+      };
+      pump();
+    });
+    const lostTotal = items.reduce((s, x) => s + x.lost, 0);
+    const restoredTotal = items.reduce((s, x) => s + x.restored, 0);
+    log(`DONE: mode ${mode}, lost events = ${lostTotal}, restored events = ${restoredTotal}, no crash`);
+  }
+
+  document.getElementById('a').onclick = () => run('A');
+  document.getElementById('b').onclick = () => run('B');
+  const auto = new URLSearchParams(location.search).get('autorun');
+  if (auto === 'a') run('A');
+  else if (auto === 'b') run('B');
+</script>
+</html>

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Repro: moveBefore() out of a drawable canvas and back in the same task</title>
+<!-- A reduced reproduction for a browser bug report. One file, no libraries and none of the site's scripts.
+     HTML-in-canvas must be on: chrome://flags/#canvas-draw-element. Listed at /crashes/ and /crashes/suite/. -->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 16px; max-width: 680px; }
+  h1 { font-size: 19px; line-height: 1.3; }
+  button { font: inherit; min-height: 44px; padding: 6px 14px; margin: 4px 6px 4px 0; }
+  #log { font: 12.5px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #8886; border-radius: 8px; padding: 8px; min-height: 6em; }
+  canvas { display: block; border: 1px solid #8886; margin: 8px 0; max-width: 100%; }
+  .card { box-sizing: border-box; width: 220px; padding: 10px; border-radius: 8px; background: #e8f5e9; color: #1b5e20; }
+</style>
+<h1>moveBefore() out of a drawable canvas and back in one task</h1>
+<p>Calls <code>moveBefore()</code> to move a painted drawable child out of its canvas and straight back into the same canvas in a single task, then draws it on the next <code>paint</code>.</p>
+<p><b>Expected:</b> <code>drawElementImage()</code> succeeds.<br><b>Seen:</b> Chromium 157 threw <code>InvalidStateError: The element can only be drawn into its nearest ancestor &lt;canvas&gt;</code>.</p>
+<p><button id="a">Run moveBefore() round-trip</button> <a href="/crashes/suite/">Test suite</a></p>
+<div id="holder"></div>
+<div id="stage"></div>
+<pre id="log"></pre>
+<script>
+  const logEl = document.getElementById('log'), stage = document.getElementById('stage'), holder = document.getElementById('holder');
+  const log = (t) => { logEl.textContent += t + '\n'; };
+  log(navigator.userAgent);
+  if (!('requestPaint' in HTMLCanvasElement.prototype)) log('HTML-in-canvas is not available in this browser.');
+
+  async function run() {
+    stage.replaceChildren();
+    holder.replaceChildren();
+    if (!('moveBefore' in Element.prototype)) { log('DONE: moveBefore() not supported'); return; }
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable');
+    canvas.setAttribute('layoutsubtree', '');
+    canvas.width = 280; canvas.height = 100;
+    canvas.style.cssText = 'width:280px;height:100px';
+    canvas.innerHTML = `<div class="card" drawable><b>Moved element</b></div>`;
+    stage.append(canvas);
+    const el = canvas.firstElementChild;
+    const ctx = canvas.getContext('2d');
+    const paint = () => new Promise((r) => { canvas.addEventListener('paint', r, { once: true }); canvas.requestPaint(); });
+    await paint();
+    ctx.drawElementImage(el, 10, 10, el.offsetWidth, el.offsetHeight);
+    log('initial draw succeeded');
+    holder.moveBefore(el, null);
+    canvas.moveBefore(el, null);
+    log('moveBefore() out and back in one task');
+    await paint();
+    try {
+      ctx.drawElementImage(el, 10, 10, el.offsetWidth, el.offsetHeight);
+      log('DONE: PASS: drawElementImage() succeeded after moveBefore() round-trip');
+    } catch (e) {
+      log(`DONE: FAIL: threw ${e.name}: ${e.message}`);
+    }
+  }
+
+  document.getElementById('a').onclick = run;
+  if (new URLSearchParams(location.search).get('autorun') === 'a') run();
+</script>
+</html>

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Repro: getImageData() after a forced repaint of a drawable canvas with an iframe holding a playing video</title>
+<!-- A reduced reproduction for a browser bug report. One file, no libraries and none of the site's scripts.
+     HTML-in-canvas must be on: chrome://flags/#canvas-draw-element. Listed at /crashes/ and /crashes/suite/. -->
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 16px; max-width: 680px; }
+  h1 { font-size: 19px; line-height: 1.3; }
+  button { font: inherit; min-height: 44px; padding: 6px 14px; margin: 4px 6px 4px 0; }
+  #log { font: 12.5px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid #8886; border-radius: 8px; padding: 8px; min-height: 6em; }
+  canvas { display: block; border: 1px solid #8886; margin: 8px 0; max-width: 100%; }
+</style>
+<h1>getImageData() after a forced repaint of a canvas with an iframe playing a video</h1>
+<p>A drawable 2D canvas has a same-origin <code>&lt;iframe drawable allow="media-playback-while-not-visible 'none'"&gt;</code> playing a synthesized MediaStream video. Button A forces a repaint, draws the iframe, and calls <code>getImageData()</code>. Button B skips the readback.</p>
+<p><b>Expected:</b> the frame draws and readback returns RGBA bytes.<br><b>Seen:</b> headless Chromium 157: tab crash in the /video/ check fixture when reading pixels after forced repaint.</p>
+<p><button id="a">A: iframe video + repaint + getImageData()</button><button id="b">B: iframe video + repaint, no readback</button> <a href="/crashes/suite/">Test suite</a></p>
+<div id="stage"></div>
+<pre id="log"></pre>
+<script>
+  const KEY = 'repro-video-iframe-readback';
+  const t0 = performance.now();
+  const logEl = document.getElementById('log'), stage = document.getElementById('stage');
+  const log = (text) => { const line = `${Math.round(performance.now() - t0)} ms  ${text}`; logEl.textContent += line + '\n'; try { localStorage.setItem(KEY, logEl.textContent); } catch {} };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  try { const before = localStorage.getItem(KEY); if (before && /RUNNING/.test(before.trim().split('\n').pop())) logEl.textContent = '--- the log of the run before this page load. Its last line says RUNNING, so the page ended during the run: ---\n' + before + '--- end ---\n'; localStorage.removeItem(KEY); } catch {}
+  log(navigator.userAgent);
+  if (!('requestPaint' in HTMLCanvasElement.prototype)) log('HTML-in-canvas is not available in this browser.');
+
+  const IFRAME_HTML = `<!doctype html><meta charset="utf-8"><style>body{margin:0;background:#10253a;color:#fff;font:12px sans-serif}video{display:block;width:200px;height:110px}</style><video id="v" muted autoplay playsinline></video><script>
+    const src = document.createElement('canvas'); src.width = 200; src.height = 110;
+    const sc = src.getContext('2d'); let n = 0;
+    const step = () => { n++; sc.fillStyle = '#0e4d64'; sc.fillRect(0, 0, 200, 110); sc.fillStyle = '#f59e0b'; sc.fillRect((n * 4) % 160, 20, 40, 70); sc.fillStyle = '#fff'; sc.fillText('Frame ' + n, 12, 18); requestAnimationFrame(step); };
+    step();
+    const v = document.getElementById('v');
+    v.srcObject = src.captureStream(30);
+    v.play().catch(() => {});
+  <\/script>`;
+
+  async function run(doRead) {
+    stage.replaceChildren();
+    log(`RUNNING ${doRead ? 'A (with readback)' : 'B (no readback)'}`);
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('content', 'drawable');
+    canvas.setAttribute('layoutsubtree', '');
+    canvas.width = 280; canvas.height = 150;
+    canvas.style.cssText = 'width:280px;height:150px';
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('drawable', '');
+    iframe.setAttribute('allow', "media-playback-while-not-visible 'none'");
+    iframe.style.cssText = 'width:200px;height:110px;border:0';
+    iframe.srcdoc = IFRAME_HTML;
+    canvas.append(iframe);
+    stage.append(canvas);
+    const ctx = canvas.getContext('2d');
+    let losses = 0;
+    canvas.addEventListener('contextlost', () => { losses++; log('contextlost'); });
+    await new Promise((r) => iframe.addEventListener('load', r, { once: true }));
+    await sleep(400);
+    let paints = 0;
+    for (let i = 0; i < 6; i++) {
+      await new Promise((resolve) => {
+        canvas.addEventListener('paint', () => {
+          paints++;
+          ctx.clearRect(0, 0, 280, 150);
+          ctx.drawElementImage(iframe, 20, 16, iframe.offsetWidth, iframe.offsetHeight);
+          resolve();
+        }, { once: true });
+        canvas.requestPaint();
+      });
+      if (doRead) {
+        // gfx-allow: timed-readback standalone bug reproduction triggered on button press
+        const px = ctx.getImageData(60, 50, 1, 1).data;
+        if (i === 0 || i === 5) log(`readback #${i + 1}: rgba(${px.join(',')})`);
+      }
+      await sleep(120);
+    }
+    log(`DONE: ${paints} paints, ${losses} contextlost, no crash`);
+  }
+
+  document.getElementById('a').onclick = () => run(true);
+  document.getElementById('b').onclick = () => run(false);
+  const auto = new URLSearchParams(location.search).get('autorun');
+  if (auto === 'a') run(true);
+  else if (auto === 'b') run(false);
+</script>
+</html>
