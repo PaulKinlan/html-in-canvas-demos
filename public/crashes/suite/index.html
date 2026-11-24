@@ -319,7 +319,7 @@
 
   const CHAIN_KEY = 'hic-suite-chain';
   const HB_KEY = 'hic-suite-heartbeat';
-  const RUNNER_REPORTS_KEY = 'hic-suite-runner-reports';
+  const EVENTS_KEY = 'hic-suite-events';
 
   const engineResults = new Map();
   const stressBenchResults = new Map(); // key -> { stats, obs }
@@ -331,6 +331,13 @@
   let suiteAborted = false;
 
   const obs = createSuiteObservers(() => renderObservers());
+
+  function syncRunnerEvents() {
+    try {
+      const raw = localStorage.getItem(EVENTS_KEY);
+      if (raw) obs.ingestRunnerEvents(raw);
+    } catch {}
+  }
 
   // Browser capability summary (opens no graphics contexts on load)
   const hasDrawElement = 'requestPaint' in HTMLCanvasElement.prototype;
@@ -348,7 +355,7 @@
     const repSurvived = reproStates.filter((s) => s.state === 'survived' || /no loss/.test(s.state)).length;
     const repCrashed = reproStates.filter((s) => s.state === 'crashed').length;
 
-    $('obsCrash').innerHTML = `<strong>Crash and context observers</strong>Crashes: ${repCrashed} (observer: ${t.crashesDetected})<br>Repros survived: ${repSurvived}/${REPRO_CATALOG.length}<br>__gfx.lost: ${g.lost} | ReportingObserver: ${t.browserReports}`;
+    $('obsCrash').innerHTML = `<strong>Crash and context observers</strong>Crashes: ${repCrashed} (observer: ${t.crashesDetected})<br>Context losses: ${t.contextLosses} (unexpected: ${t.unexpectedLosses})<br>Errors: ${t.errors} | ReportingObserver: ${t.browserReports}`;
     $('obsPerf').innerHTML = `<strong>PerformanceObserver</strong>LoAF: ${t.loafCount} (max ${t.loafMaxMs} ms, block ${t.loafBlockingMs} ms)<br>Long tasks: ${t.longTasks} (max ${t.longTaskMaxMs} ms)<br>CLS: ${t.cls.toFixed(4)} | Worst event: ${t.worstEventMs} ms`;
     $('obsGfx').innerHTML = `<strong>Graphics guard (window.__gfx)</strong>Canvas memory: ${g.memMB} MB<br>Snapshots open/peak: ${g.openSnapshots}/${g.peakSnapshots}<br>WebGL active: ${g.activeWebGL} | Reports filed: ${t.reportsFiled}`;
 
@@ -368,8 +375,22 @@
   function readReproStatus(item) {
     if (activeReproState.has(item.id)) return activeReproState.get(item.id);
     try {
+      const evs = obs.state.byCase.get(item.id);
+      const evNote = evs
+        ? [
+            evs.crashes ? `${evs.crashes} crash` : '',
+            evs.losses ? `${evs.losses} contextlost` : '',
+            evs.errors ? `${evs.errors} error` : '',
+            evs.reports ? `${evs.reports} browser report` : '',
+          ].filter(Boolean).join(', ')
+        : '';
       const raw = localStorage.getItem(item.storageKey);
-      if (!raw) return { state: 'not run', cls: 'skip', detail: item.note };
+      if (!raw) {
+        if (evs?.crashes) return { state: 'crashed', cls: 'fail', detail: evNote };
+        if (evs?.losses) return { state: 'context lost', cls: 'loss', detail: evNote };
+        if (evs?.errors) return { state: 'error', cls: 'fail', detail: evNote };
+        return { state: 'not run', cls: 'skip', detail: item.note };
+      }
       if (item.storageKey === 'repro-readback-matrix') {
         const obj = JSON.parse(raw);
         const entries = Object.values(obj);
@@ -383,16 +404,18 @@
       }
       const lines = raw.trim().split('\n').filter(Boolean);
       const last = lines[lines.length - 1] || '';
+      const suffix = evNote ? ` [${evNote}]` : '';
       const finished = /done|DONE|PASS|FAIL|not available/i.test(last);
-      if (/RUNNING/.test(raw) && !finished) return { state: 'crashed', cls: 'fail', detail: `tab died during run: ${last}` };
-      if (/FAIL/.test(last)) return { state: 'failed', cls: 'fail', detail: last };
+      if ((/RUNNING/.test(raw) && !finished) || evs?.crashes) return { state: 'crashed', cls: 'fail', detail: `tab died during run: ${last}${suffix}` };
+      if (/FAIL/.test(last)) return { state: 'failed', cls: 'fail', detail: `${last}${suffix}` };
       const dropMatch = last.match(/frames with dropped text [^=]*=\s*(\d+)/i);
-      if (dropMatch && Number(dropMatch[1]) > 0) return { state: 'dropped text', cls: 'fail', detail: last };
-      if (/contextlost/i.test(raw) && !/lost events = 0|0 contextlost|0 webglcontextlost/i.test(raw)) {
-        return { state: 'context lost', cls: 'loss', detail: last };
+      if (dropMatch && Number(dropMatch[1]) > 0) return { state: 'dropped text', cls: 'fail', detail: `${last}${suffix}` };
+      if ((/contextlost/i.test(raw) && !/lost events = 0|0 contextlost|0 webglcontextlost/i.test(raw)) || (evs?.losses && item.id !== 'lose-context-stress')) {
+        return { state: 'context lost', cls: 'loss', detail: `${last}${suffix}` };
       }
-      if (/done|DONE|PASS/i.test(last)) return { state: 'survived', cls: 'ok', detail: last };
-      return { state: 'ran', cls: 'engine', detail: last };
+      if (evs?.errors) return { state: 'error', cls: 'fail', detail: `${last}${suffix}` };
+      if (/done|DONE|PASS/i.test(last)) return { state: 'survived', cls: 'ok', detail: `${last}${suffix}` };
+      return { state: 'ran', cls: 'engine', detail: `${last}${suffix}` };
     } catch {
       return { state: 'not run', cls: 'skip', detail: item.note };
     }
@@ -440,7 +463,10 @@
     hideResumeControls();
     let idx = startIndex;
     const crashedIds = [];
-    try { localStorage.removeItem(RUNNER_REPORTS_KEY); } catch {}
+    if (startIndex === 0) {
+      obs.resetRunnerCursor();
+      try { localStorage.removeItem(EVENTS_KEY); } catch {}
+    }
 
     while (idx < items.length && !suiteAborted) {
       const chain = { items, index: idx, currentId: items[idx].id, state: 'running', startedAt: Date.now() };
@@ -486,6 +512,7 @@
       const outcome = await new Promise((resolve) => {
         stopWatchingChain();
         watchTimer = setInterval(() => {
+          syncRunnerEvents();
           if (suiteAborted) {
             stopWatchingChain();
             try {
@@ -504,14 +531,14 @@
 
           if (c.state === 'done') {
             stopWatchingChain();
-            const rr = localStorage.getItem(RUNNER_REPORTS_KEY);
-            if (rr) obs.recordRunnerReports(rr);
+            syncRunnerEvents();
             renderRepros();
             resolve({ outcome: 'done' });
             return;
           }
           if (c.state === 'stopped') {
             stopWatchingChain();
+            syncRunnerEvents();
             renderRepros();
             resolve({ outcome: 'stopped' });
             return;
@@ -520,8 +547,7 @@
           const cur = c.items[c.index];
           if (cur && staleMs > 4500) {
             stopWatchingChain();
-            const rr = localStorage.getItem(RUNNER_REPORTS_KEY);
-            if (rr) obs.recordRunnerReports(rr);
+            syncRunnerEvents();
             const existing = localStorage.getItem(cur.storageKey) || '';
             if (!existing) {
               try { localStorage.setItem(cur.storageKey, `RUNNING ${cur.id} (runner tab crashed)`); } catch {}
@@ -902,11 +928,12 @@
 
   $('clearRepros').addEventListener('click', () => {
     stopWatchingChain();
+    obs.resetRunnerCursor();
     for (const item of REPRO_CATALOG) {
       try { localStorage.removeItem(item.storageKey); } catch {}
     }
-    try { localStorage.removeItem(CHAIN_KEY); localStorage.removeItem(HB_KEY); localStorage.removeItem(RUNNER_REPORTS_KEY); } catch {}
-    $('continueRepros').hidden = true;
+    try { localStorage.removeItem(CHAIN_KEY); localStorage.removeItem(HB_KEY); localStorage.removeItem(EVENTS_KEY); } catch {}
+    hideResumeControls();
     $('reproStatus').textContent = 'Cleared saved repro logs.';
     renderRepros();
   });
@@ -953,8 +980,8 @@
     if (typeof stopActiveStress?.triggerLoss === 'function') stopActiveStress.triggerLoss();
   });
 
-  window.addEventListener('focus', renderRepros);
-  window.addEventListener('storage', renderRepros);
+  window.addEventListener('focus', () => { syncRunnerEvents(); renderRepros(); });
+  window.addEventListener('storage', () => { syncRunnerEvents(); renderRepros(); });
 
   // #region report
   function buildMarkdownReport() {
@@ -967,7 +994,7 @@
       `- User-Agent: \`${navigator.userAgent}\``,
       `- DPR: ${devicePixelRatio}`,
       `- APIs: requestPaint=${hasDrawElement}, captureElementImage=${hasCapture}, WebGPU=${hasWebGPU}`,
-      `- Observers: LoAF=${t.loafCount} (max ${t.loafMaxMs} ms, blocking ${t.loafBlockingMs} ms), longTasks=${t.longTasks} (max ${t.longTaskMaxMs} ms), CLS=${t.cls.toFixed(4)}, worstEvent=${t.worstEventMs} ms, ReportingObserver=${t.browserReports}, crashesDetected=${t.crashesDetected}, __gfx.lost=${g.lost}, canvasMem=${g.memMB} MB, openSnapshots=${g.openSnapshots}`,
+      `- Observers: LoAF=${t.loafCount} (max ${t.loafMaxMs} ms, blocking ${t.loafBlockingMs} ms), longTasks=${t.longTasks} (max ${t.longTaskMaxMs} ms), CLS=${t.cls.toFixed(4)}, worstEvent=${t.worstEventMs} ms, ReportingObserver=${t.browserReports}, crashesDetected=${t.crashesDetected}, contextLosses=${t.contextLosses} (unexpected=${t.unexpectedLosses}), errors=${t.errors}, __gfx.lost=${g.lost}, canvasMem=${g.memMB} MB, openSnapshots=${g.openSnapshots}`,
       '',
       '## 1. Past crashes & context losses',
       '| Case | Before | This browser | Detail |',

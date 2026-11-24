@@ -4,9 +4,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Canary crash repro runner</title>
-<!-- Isolated noopener tab that runs queued standalone repros one by one.
-     Communicates with /crashes/suite/ strictly via localStorage so a renderer crash
-     here leaves the suite page alive. -->
+<!-- Isolated noopener window that runs queued standalone repros one by one.
+     Hooks into each same-origin repro iframe (capture-phase contextlost, webglcontextlost,
+     error, unhandledrejection and ReportingObserver) and streams every event back to
+     /crashes/suite/ via localStorage so crashes, sub-frame crashes and lost contexts are
+     always reported to the parent. -->
 <style>
   body { font: 14px/1.45 system-ui, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
   header { padding: 10px 14px; border-bottom: 1px solid #8886; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -14,7 +16,7 @@
   iframe { flex: 1; width: 100%; border: 0; }
 </style>
 <header>
-  <strong>Crash repro runner (isolated tab)</strong>
+  <strong>Crash repro runner (isolated window)</strong>
   <span id="msg">Starting...</span>
   <button type="button" id="stop">Stop</button>
 </header>
@@ -22,32 +24,90 @@
 <script>
   const CHAIN_KEY = 'hic-suite-chain';
   const HB_KEY = 'hic-suite-heartbeat';
-  const REPORTS_KEY = 'hic-suite-runner-reports';
+  const EVENTS_KEY = 'hic-suite-events';
   const msg = document.getElementById('msg');
   const frame = document.getElementById('frame');
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const runnerReports = [];
-  if (typeof ReportingObserver !== 'undefined') {
+  let stopped = false;
+  let currentItem = null;
+  let caseCounters = { contextlost: 0, webglcontextlost: 0, errors: 0, reports: 0 };
+
+  function emitEvent(kind, caseId, detail, extra = {}) {
     try {
-      new ReportingObserver((list) => {
-        for (const r of list) {
-          const detail = r.body?.message || r.body?.reason || r.body?.id || JSON.stringify(r.body || {});
-          runnerReports.push({ type: r.type, detail: String(detail).slice(0, 140), at: Date.now() });
-          try { localStorage.setItem(REPORTS_KEY, JSON.stringify(runnerReports)); } catch {}
-        }
-      }, { types: ['crash', 'intervention', 'deprecation'], buffered: true }).observe();
+      const list = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
+      const seq = list.length ? (list[list.length - 1].seq || 0) + 1 : 1;
+      list.push({ seq, at: Date.now(), kind, caseId: caseId || 'runner', detail: String(detail || '').slice(0, 220), ...extra });
+      if (list.length > 200) list.splice(0, list.length - 200);
+      localStorage.setItem(EVENTS_KEY, JSON.stringify(list));
     } catch {}
   }
 
-  let stopped = false;
+  function attachReportingObserver(win, sourceLabel) {
+    if (!win || typeof win.ReportingObserver === 'undefined') return;
+    const handler = (list) => {
+      for (const r of list) {
+        caseCounters.reports++;
+        const detail = r.body?.message || r.body?.reason || r.body?.id || JSON.stringify(r.body || {});
+        emitEvent('reporting', currentItem?.id || sourceLabel, `[${r.type}] ${String(detail).slice(0, 160)}`, { reportType: r.type, source: sourceLabel });
+      }
+    };
+    try {
+      new win.ReportingObserver(handler, { types: ['crash', 'intervention', 'deprecation', 'permissions-policy-violation'], buffered: true }).observe();
+    } catch {
+      try {
+        new win.ReportingObserver(handler, { types: ['crash', 'intervention', 'deprecation'], buffered: true }).observe();
+      } catch {}
+    }
+  }
+
+  attachReportingObserver(window, 'runner');
+
+  // Capture every contextlost, webglcontextlost, error, unhandledrejection and ReportingObserver inside the repro iframe
+  frame.addEventListener('load', () => {
+    if (!currentItem) return;
+    const id = currentItem.id;
+    try {
+      const fwin = frame.contentWindow;
+      const fdoc = frame.contentDocument;
+      if (!fwin || !fdoc) return;
+
+      fdoc.addEventListener('contextlost', () => {
+        caseCounters.contextlost++;
+        emitEvent('contextlost', id, `2D contextlost inside ${id} (#${caseCounters.contextlost})`);
+      }, true);
+
+      fdoc.addEventListener('webglcontextlost', () => {
+        caseCounters.webglcontextlost++;
+        emitEvent('webglcontextlost', id, `webglcontextlost inside ${id} (#${caseCounters.webglcontextlost})`);
+      }, true);
+
+      fwin.addEventListener('error', (ev) => {
+        caseCounters.errors++;
+        const text = ev.message || ev.error?.message || 'script error';
+        emitEvent('error', id, `uncaught error in ${id}: ${text}`);
+      });
+
+      fwin.addEventListener('unhandledrejection', (ev) => {
+        caseCounters.errors++;
+        const r = ev.reason;
+        const text = r?.message || String(r || 'unhandled rejection');
+        emitEvent('error', id, `unhandled rejection in ${id}: ${text}`);
+      });
+
+      attachReportingObserver(fwin, id);
+    } catch (e) {
+      emitEvent('error', id, `could not attach frame observers: ${e.message}`);
+    }
+  });
+
   document.getElementById('stop').onclick = () => {
     stopped = true;
     try {
       const c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null');
       if (c) { c.state = 'stopped'; localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); }
     } catch {}
-    msg.textContent = 'Stopped. You can close this tab.';
+    msg.textContent = 'Stopped. You can close this window.';
   };
 
   const hbTimer = setInterval(() => {
@@ -78,8 +138,6 @@
       clearInterval(hbTimer);
       return;
     }
-    // If the user clicked Reload on an Aw, Snap! screen before the parent finished incrementing index,
-    // check whether the current item left an unfinished RUNNING log and skip past it automatically.
     let startIdx = chain.index || 0;
     if (chain.state === 'running' && chain.currentId && startIdx < chain.items.length) {
       const prevItem = chain.items[startIdx];
@@ -87,6 +145,7 @@
       const prevLines = prevRaw.trim().split('\n').filter(Boolean);
       const prevLast = prevLines[prevLines.length - 1] || '';
       if (/RUNNING/.test(prevRaw) && !/done|DONE|PASS|FAIL|not available/i.test(prevLast)) {
+        emitEvent('crash', prevItem.id, `runner reloaded after crash during ${prevItem.id}: ${prevLast}`);
         startIdx++;
         chain.index = startIdx;
       }
@@ -100,6 +159,8 @@
     for (let i = startIdx; i < chain.items.length; i++) {
       if (stopped) break;
       const item = chain.items[i];
+      currentItem = item;
+      caseCounters = { contextlost: 0, webglcontextlost: 0, errors: 0, reports: 0 };
       chain.index = i;
       chain.currentId = item.id;
       chain.state = 'running';
@@ -118,14 +179,36 @@
         await sleep(200);
         if (isDone(item)) break;
       }
-      if (!localStorage.getItem(item.storageKey) && !stopped) {
-        try { localStorage.setItem(item.storageKey, 'timed out waiting for repro'); } catch {}
+
+      if (!stopped) {
+        const raw = localStorage.getItem(item.storageKey) || '';
+        const lines = raw.trim().split('\n').filter(Boolean);
+        const last = lines[lines.length - 1] || '';
+        const finished = /done|DONE|PASS|FAIL|not available/i.test(last);
+        if (!raw) {
+          try { localStorage.setItem(item.storageKey, 'timed out waiting for repro'); } catch {}
+          emitEvent('timeout', item.id, `timed out after ${Math.round((item.timeoutMs || 5000) / 1000)} s with no log output`);
+        } else if (/RUNNING/.test(raw) && !finished) {
+          // The repro iframe crashed or hung without taking down the outer runner window!
+          emitEvent('crash', item.id, `repro frame died/hung mid-run: ${last}`);
+        } else {
+          const dropMatch = last.match(/frames with dropped text [^=]*=\s*(\d+)/i);
+          if (dropMatch && Number(dropMatch[1]) > 0) {
+            emitEvent('error', item.id, `dropped text lines detected: ${last}`);
+          }
+          // Check if the repro logged a contextlost line that occurred before our load listener attached
+          if (/contextlost/i.test(raw) && !/lost events = 0|0 contextlost|0 webglcontextlost/i.test(raw) && caseCounters.contextlost === 0 && caseCounters.webglcontextlost === 0) {
+            emitEvent('contextlost', item.id, `contextlost reported in repro log: ${last}`);
+          }
+        }
       }
+
       chain.index = i + 1;
       try { localStorage.setItem(CHAIN_KEY, JSON.stringify(chain)); } catch {}
       await sleep(200);
     }
 
+    currentItem = null;
     clearInterval(hbTimer);
     if (!stopped) {
       chain.state = 'done';
