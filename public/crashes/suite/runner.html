@@ -78,9 +78,26 @@
       clearInterval(hbTimer);
       return;
     }
-    try { localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
+    // If the user clicked Reload on an Aw, Snap! screen before the parent finished incrementing index,
+    // check whether the current item left an unfinished RUNNING log and skip past it automatically.
+    let startIdx = chain.index || 0;
+    if (chain.state === 'running' && chain.currentId && startIdx < chain.items.length) {
+      const prevItem = chain.items[startIdx];
+      const prevRaw = localStorage.getItem(prevItem.storageKey) || '';
+      const prevLines = prevRaw.trim().split('\n').filter(Boolean);
+      const prevLast = prevLines[prevLines.length - 1] || '';
+      if (/RUNNING/.test(prevRaw) && !/done|DONE|PASS|FAIL|not available/i.test(prevLast)) {
+        startIdx++;
+        chain.index = startIdx;
+      }
+    }
+    chain.state = 'running';
+    try {
+      localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
+      localStorage.setItem(HB_KEY, String(Date.now()));
+    } catch {}
 
-    for (let i = chain.index || 0; i < chain.items.length; i++) {
+    for (let i = startIdx; i < chain.items.length; i++) {
       if (stopped) break;
       const item = chain.items[i];
       chain.index = i;

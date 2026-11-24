@@ -148,6 +148,8 @@
   <div class="hero-run">
     <div class="bar" style="margin-top:0">
       <button type="button" id="runFullSuite" class="primary">Run full Canary suite (automated)</button>
+      <button type="button" id="heroContinue" class="primary" hidden>Continue after crash</button>
+      <button type="button" id="heroSkipPhase1" hidden>Skip rest of phase 1</button>
       <button type="button" id="stopFullSuite" disabled>Stop</button>
       <button type="button" id="copyReport">Copy Eng report (Markdown)</button>
       <a href="/crashes/">Back to /crashes/</a>
@@ -401,91 +403,168 @@
     activeReproState.clear();
   }
 
-  // Launches the isolated noopener runner tab and resolves when the chain finishes, stops, or crashes.
-  function runReproChainAsync(items, startIndex = 0, onStep = null) {
-    return new Promise((resolve) => {
-      stopWatchingChain();
-      const chain = { items, index: startIndex, currentId: items[startIndex]?.id || null, state: 'running', startedAt: Date.now() };
-      try {
-        localStorage.removeItem(RUNNER_REPORTS_KEY);
-        localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
-        localStorage.setItem(HB_KEY, String(Date.now()));
-      } catch {}
-      $('continueRepros').hidden = true;
-      $('reproStatus').textContent = `Opened isolated window (${startIndex + 1}/${items.length}: ${items[startIndex]?.title || ''})...`;
-      window.open('/crashes/suite/runner.html', '_blank', 'noopener,width=680,height=520');
+  let resumeWaiter = null; // { resolve } when waiting on popup-blocked crash resume
 
-      watchTimer = setInterval(() => {
-        if (suiteAborted) {
-          stopWatchingChain();
-          try {
-            const c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null');
-            if (c) { c.state = 'stopped'; localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); }
-          } catch {}
-          renderRepros();
-          resolve({ outcome: 'stopped' });
-          return;
-        }
-        let c;
-        try { c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
-        if (!c) { stopWatchingChain(); resolve({ outcome: 'missing' }); return; }
-        const hb = Number(localStorage.getItem(HB_KEY) || 0);
-        const staleMs = Date.now() - hb;
+  function hideResumeControls() {
+    $('continueRepros').hidden = true;
+    $('heroContinue').hidden = true;
+    $('heroSkipPhase1').hidden = true;
+  }
 
-        if (c.state === 'done') {
-          stopWatchingChain();
-          const rr = localStorage.getItem(RUNNER_REPORTS_KEY);
-          if (rr) obs.recordRunnerReports(rr);
-          $('continueRepros').hidden = true;
-          $('reproStatus').textContent = `Phase 1 finished: ${c.items.length} repro${c.items.length === 1 ? '' : 's'} completed.`;
-          renderRepros();
-          resolve({ outcome: 'done' });
-          return;
-        }
-        if (c.state === 'stopped') {
-          stopWatchingChain();
-          $('reproStatus').textContent = 'Phase 1 stopped.';
-          renderRepros();
-          resolve({ outcome: 'stopped' });
-          return;
-        }
+  function showResumeControls(left, crashedTitle) {
+    const label = `Continue remaining (${left} left)`;
+    $('continueRepros').textContent = label;
+    $('continueRepros').hidden = false;
+    $('heroContinue').textContent = label;
+    $('heroContinue').hidden = false;
+    $('heroSkipPhase1').hidden = false;
+    const hint = `Runner crashed on "${crashedTitle}". Chrome blocked auto-reopening the next window: press "${label}" or click Reload in the crashed window (allow popups for this site to auto-advance through crashes).`;
+    $('reproStatus').textContent = hint;
+    $('suiteStatus').textContent = hint;
+  }
 
-        const cur = c.items[c.index];
-        if (cur && staleMs > 4500) {
-          stopWatchingChain();
-          const rr = localStorage.getItem(RUNNER_REPORTS_KEY);
-          if (rr) obs.recordRunnerReports(rr);
-          const existing = localStorage.getItem(cur.storageKey) || '';
-          if (!existing) {
-            try { localStorage.setItem(cur.storageKey, `RUNNING ${cur.id} (runner tab crashed)`); } catch {}
+  function openRunnerPopup(chain) {
+    try {
+      localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
+      localStorage.setItem(HB_KEY, '0');
+    } catch {}
+    window.open('/crashes/suite/runner.html', '_blank', 'noopener,width=680,height=520');
+  }
+
+  // Runs a list of repros in an isolated noopener window. If a repro crashes the window,
+  // marks it crashed, files a canary-crash report, automatically tries to open a fresh window
+  // for the next repro (works hands-free when popups are allowed), and if blocked waits for
+  // either Continue, Reload in the crashed window, or Skip.
+  async function runReproChainAsync(items, startIndex = 0, onStep = null) {
+    stopWatchingChain();
+    hideResumeControls();
+    let idx = startIndex;
+    const crashedIds = [];
+    try { localStorage.removeItem(RUNNER_REPORTS_KEY); } catch {}
+
+    while (idx < items.length && !suiteAborted) {
+      const chain = { items, index: idx, currentId: items[idx].id, state: 'running', startedAt: Date.now() };
+      const launchAt = Date.now();
+      $('reproStatus').textContent = `Opening isolated window (${idx + 1}/${items.length}: ${items[idx].title})...`;
+      openRunnerPopup(chain);
+
+      // Wait up to 2.2 s to verify the isolated window actually started ticking HB_KEY
+      let started = false;
+      while (Date.now() - launchAt < 2200 && !suiteAborted) {
+        if (Number(localStorage.getItem(HB_KEY) || 0) >= launchAt) { started = true; break; }
+        await new Promise((r) => setTimeout(r, 120));
+      }
+
+      if (!started && !suiteAborted) {
+        // Popup was blocked by Chrome after a prior crash; wait for Continue, Reload in the dead tab, or Skip.
+        const prevTitle = idx > 0 ? items[idx - 1].title : items[idx].title;
+        showResumeControls(items.length - idx, prevTitle);
+        const action = await new Promise((resolve) => {
+          resumeWaiter = { resolve, since: launchAt };
+          watchTimer = setInterval(() => {
+            if (suiteAborted) { clearInterval(watchTimer); watchTimer = 0; resumeWaiter = null; resolve('stop'); return; }
+            // If the user clicked Reload in the Aw, Snap! window, HB_KEY ticks above launchAt!
+            if (Number(localStorage.getItem(HB_KEY) || 0) >= launchAt) {
+              clearInterval(watchTimer); watchTimer = 0; resumeWaiter = null; resolve('reloaded');
+            }
+          }, 200);
+        });
+        hideResumeControls();
+        if (action === 'stop' || action === 'skip') break;
+        if (action === 'reopened') {
+          // User clicked Continue which opened the new popup synchronously; wait briefly for its heartbeat.
+          const tReopen = Date.now();
+          while (Date.now() - tReopen < 2500 && !suiteAborted) {
+            if (Number(localStorage.getItem(HB_KEY) || 0) >= tReopen) break;
+            await new Promise((r) => setTimeout(r, 120));
           }
-          obs.recordCrash(cur.id, cur.title, existing ? existing.trim().split('\n').pop() : 'runner heartbeat stopped');
-          const nextIdx = c.index + 1;
-          const left = c.items.length - nextIdx;
-          if (left > 0) {
+        }
+        // action === 'reloaded' or 'reopened': runner is alive at idx, fall through to monitor it!
+      }
+
+      // Monitor the running isolated window until done, stopped, or crashed (heartbeat stale > 4.5 s)
+      const outcome = await new Promise((resolve) => {
+        stopWatchingChain();
+        watchTimer = setInterval(() => {
+          if (suiteAborted) {
+            stopWatchingChain();
+            try {
+              const c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null');
+              if (c) { c.state = 'stopped'; localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); }
+            } catch {}
+            renderRepros();
+            resolve({ outcome: 'stopped' });
+            return;
+          }
+          let c;
+          try { c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
+          if (!c) { stopWatchingChain(); resolve({ outcome: 'missing' }); return; }
+          const hb = Number(localStorage.getItem(HB_KEY) || 0);
+          const staleMs = Date.now() - hb;
+
+          if (c.state === 'done') {
+            stopWatchingChain();
+            const rr = localStorage.getItem(RUNNER_REPORTS_KEY);
+            if (rr) obs.recordRunnerReports(rr);
+            renderRepros();
+            resolve({ outcome: 'done' });
+            return;
+          }
+          if (c.state === 'stopped') {
+            stopWatchingChain();
+            renderRepros();
+            resolve({ outcome: 'stopped' });
+            return;
+          }
+
+          const cur = c.items[c.index];
+          if (cur && staleMs > 4500) {
+            stopWatchingChain();
+            const rr = localStorage.getItem(RUNNER_REPORTS_KEY);
+            if (rr) obs.recordRunnerReports(rr);
+            const existing = localStorage.getItem(cur.storageKey) || '';
+            if (!existing) {
+              try { localStorage.setItem(cur.storageKey, `RUNNING ${cur.id} (runner tab crashed)`); } catch {}
+            }
+            obs.recordCrash(cur.id, cur.title, existing ? existing.trim().split('\n').pop() : 'runner heartbeat stopped');
+            crashedIds.push(cur.id);
+            const nextIdx = c.index + 1;
             c.index = nextIdx;
             c.state = 'crashed';
             try { localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); } catch {}
-            $('continueRepros').textContent = `Continue remaining (${left} left)`;
-            $('continueRepros').hidden = false;
-            $('reproStatus').textContent = `Isolated tab crashed on "${cur.title}". This page survived; ${left} repros remain.`;
-          } else {
-            $('reproStatus').textContent = `Isolated tab crashed on final repro ("${cur.title}"). This page survived.`;
+            renderRepros();
+            resolve({ outcome: 'crashed', nextIdx, crashedTitle: cur.title });
+            return;
+          }
+
+          activeReproState.clear();
+          if (cur) {
+            activeReproState.set(cur.id, { state: 'running...', cls: 'run', detail: `Running in isolated window (${c.index + 1}/${c.items.length})...` });
+            $('reproStatus').textContent = `Running ${c.index + 1}/${c.items.length}: ${cur.title}`;
+            onStep?.(c.index, c.items.length, cur);
           }
           renderRepros();
-          resolve({ outcome: 'crashed', crashedId: cur.id, remaining: left });
-          return;
-        }
+        }, 250);
+      });
 
-        activeReproState.clear();
-        if (cur) {
-          activeReproState.set(cur.id, { state: 'running...', cls: 'run', detail: `Running in isolated tab (${c.index + 1}/${c.items.length})...` });
-          $('reproStatus').textContent = `Running ${c.index + 1}/${c.items.length}: ${cur.title}`;
-          onStep?.(c.index, c.items.length, cur);
+      if (outcome.outcome === 'done' || outcome.outcome === 'stopped' || outcome.outcome === 'missing') {
+        break;
+      }
+      if (outcome.outcome === 'crashed') {
+        idx = outcome.nextIdx;
+        if (idx < items.length) {
+          $('reproStatus').textContent = `Crashed on "${outcome.crashedTitle}". Moving on to ${idx + 1}/${items.length}...`;
+          $('suiteStatus').textContent = `Phase 1/3: Crashed on "${outcome.crashedTitle}". Auto-advancing to ${idx + 1}/${items.length}...`;
         }
-        renderRepros();
-      }, 300);
-    });
+      }
+    }
+
+    hideResumeControls();
+    $('reproStatus').textContent = suiteAborted
+      ? 'Phase 1 stopped.'
+      : `Phase 1 finished (${items.length} repros; ${crashedIds.length} crashed).`;
+    renderRepros();
+    return { crashedIds };
   }
 
   function renderRepros() {
@@ -784,6 +863,8 @@
     suiteAborted = true;
     stopStress();
     stopWatchingChain();
+    if (resumeWaiter) { const w = resumeWaiter; resumeWaiter = null; w.resolve('stop'); }
+    hideResumeControls();
   });
 
   $('runReprosAll').addEventListener('click', () => {
@@ -792,13 +873,31 @@
     runReproChainAsync(fast, 0);
   });
 
-  $('continueRepros').addEventListener('click', () => {
+  const handleContinueClick = () => {
     suiteAborted = false;
+    if (resumeWaiter) {
+      // Open synchronously inside the click handler so browser user activation is guaranteed.
+      stopWatchingChain();
+      let c;
+      try { c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
+      if (c) openRunnerPopup({ ...c, state: 'running', currentId: c.items[c.index]?.id || null });
+      const w = resumeWaiter;
+      resumeWaiter = null;
+      w.resolve('reopened');
+      return;
+    }
     let c;
     try { c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
     if (c && Array.isArray(c.items) && c.index < c.items.length) {
       runReproChainAsync(c.items, c.index);
     }
+  };
+  $('continueRepros').addEventListener('click', handleContinueClick);
+  $('heroContinue').addEventListener('click', handleContinueClick);
+  $('heroSkipPhase1').addEventListener('click', () => {
+    stopWatchingChain();
+    if (resumeWaiter) { const w = resumeWaiter; resumeWaiter = null; w.resolve('skip'); }
+    hideResumeControls();
   });
 
   $('clearRepros').addEventListener('click', () => {
