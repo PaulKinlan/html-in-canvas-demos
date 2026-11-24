@@ -79,18 +79,6 @@ export const REPRO_CATALOG = [
     note: 'C158 & C160 (2026-11-24): fixed, 2 s of paints with no crash.',
   },
   {
-    id: 'view-transition-drawable-child',
-    kind: 'crash',
-    title: 'element.startViewTransition() on a drawable child',
-    before: 'C157 & C158: crashed renderer',
-    repro: '/crashes/repro/view-transition-drawable-child.html',
-    autoQuery: '?autorun=a',
-    timeoutMs: 3500,
-    button: 'A: drawable child',
-    storageKey: 'repro-view-transition-drawable-child',
-    note: 'C160.0.8180.0 (2026-11-24): still crashes renderer.',
-  },
-  {
     id: 'lose-context-stress',
     kind: 'crash',
     // gfx-allow: lose-context prose description of a crash case
@@ -175,6 +163,18 @@ export const REPRO_CATALOG = [
     button: 'Make 17 WebGL contexts',
     storageKey: 'repro-ninth-webgl-context',
     note: 'Confirms oldest context eviction timing.',
+  },
+  {
+    id: 'view-transition-drawable-child',
+    kind: 'crash',
+    title: 'element.startViewTransition() on a drawable child (runs last)',
+    before: 'C157 & C158: crashed renderer',
+    repro: '/crashes/repro/view-transition-drawable-child.html',
+    autoQuery: '?autorun=a',
+    timeoutMs: 3500,
+    button: 'A: drawable child',
+    storageKey: 'repro-view-transition-drawable-child',
+    note: 'C160.0.8180.0 (2026-11-24): still crashes renderer. Placed last so all earlier repros finish in one pass.',
   },
   {
     id: 'readback-matrix',
@@ -323,8 +323,11 @@ export const ENGINE_CHECKS = [
       const counts = [];
       try {
         await new Promise((resolve) => {
-          let f = 0;
+          let f = 0, done = false;
+          const finish = () => { if (!done) { done = true; canvas.onpaint = null; resolve(); } };
+          const guard = setTimeout(finish, 4000);
           canvas.onpaint = () => {
+            if (done) return;
             f++;
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx.clearRect(0, 0, W, H);
@@ -339,9 +342,9 @@ export const ENGINE_CHECKS = [
             let dark = 0;
             for (let i = 0; i < data.length; i += 4) if (data[i] < 110 && data[i + 1] < 110 && data[i + 2] < 110 && data[i + 3] > 200) dark++;
             counts.push(dark);
-            if (f >= 45) { canvas.onpaint = null; resolve(); }
+            if (f >= 45) { clearTimeout(guard); finish(); }
           };
-          const pump = () => { if (f < 45) { canvas.requestPaint(); requestAnimationFrame(pump); } };
+          const pump = () => { if (!done && f < 45) { canvas.requestPaint(); requestAnimationFrame(pump); } };
           pump();
         });
         const sorted = [...counts].sort((a, b) => a - b);

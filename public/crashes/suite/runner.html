@@ -22,9 +22,23 @@
 <script>
   const CHAIN_KEY = 'hic-suite-chain';
   const HB_KEY = 'hic-suite-heartbeat';
+  const REPORTS_KEY = 'hic-suite-runner-reports';
   const msg = document.getElementById('msg');
   const frame = document.getElementById('frame');
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const runnerReports = [];
+  if (typeof ReportingObserver !== 'undefined') {
+    try {
+      new ReportingObserver((list) => {
+        for (const r of list) {
+          const detail = r.body?.message || r.body?.reason || r.body?.id || JSON.stringify(r.body || {});
+          runnerReports.push({ type: r.type, detail: String(detail).slice(0, 140), at: Date.now() });
+          try { localStorage.setItem(REPORTS_KEY, JSON.stringify(runnerReports)); } catch {}
+        }
+      }, { types: ['crash', 'intervention', 'deprecation'], buffered: true }).observe();
+    } catch {}
+  }
 
   let stopped = false;
   document.getElementById('stop').onclick = () => {
@@ -83,6 +97,7 @@
 
       const deadline = Date.now() + (item.timeoutMs || 5000);
       while (Date.now() < deadline && !stopped) {
+        try { localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
         await sleep(200);
         if (isDone(item)) break;
       }

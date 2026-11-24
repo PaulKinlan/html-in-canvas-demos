@@ -98,8 +98,14 @@
 <!-- social:end -->
 <link rel="stylesheet" href="/shared/style.css">
 <style>
-  .env-box { max-width: 760px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 10px 0 16px; font: 13px/1.5 var(--mono); overflow-wrap: anywhere; }
-  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0; max-width: 760px; }
+  .hero-run { max-width: 760px; border: 1px solid var(--ink); border-radius: 12px; padding: 14px 16px; margin: 12px 0 18px; }
+  .hero-run .primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 600; }
+  .hero-run progress { width: 100%; height: 10px; margin: 10px 0 6px; display: block; }
+  .env-box { max-width: 760px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0 12px; font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; color: var(--muted); }
+  .obs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; max-width: 760px; margin: 10px 0 18px; }
+  .obs-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 12.5px/1.55 var(--mono); overflow-wrap: anywhere; }
+  .obs-card strong { display: block; font-family: var(--sans, system-ui, sans-serif); font-size: 13.5px; margin-bottom: 4px; color: var(--ink); }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; max-width: 760px; }
   .bar button, .suite-table button, .stress-controls button, .stress-tabs button { font: inherit; min-height: 44px; padding: 6px 12px; border-radius: 8px; }
   .bar label, .stress-controls label { display: inline-flex; gap: 6px; align-items: center; min-height: 44px; font-size: 14px; }
   .suite-table { width: 100%; max-width: 760px; border-collapse: collapse; font-size: 14px; margin: 10px 0 20px; }
@@ -114,7 +120,6 @@
   .pill.skip { color: var(--muted); }
   .act-cell { white-space: nowrap; }
   .act-cell a { display: inline-block; margin-left: 8px; font-size: 13px; }
-  .scoreboard { max-width: 760px; font: 13px/1.5 var(--mono); color: var(--muted); margin: 4px 0 12px; }
   .meta-line { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
   .fixture-strip { max-width: 760px; min-height: 0; margin: 8px 0; }
   .stress-box { max-width: 760px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 12px 0 20px; }
@@ -122,8 +127,9 @@
   .stress-tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .stress-controls { display: flex; gap: 8px 12px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
   .stress-controls select { font: inherit; min-height: 44px; padding: 4px 8px; border-radius: 8px; }
-  .stats-line { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 2.8em; margin: 8px 0; overflow-wrap: anywhere; }
+  .stats-line { font: 13px/1.5 var(--mono); color: var(--muted); min-height: 2.2em; margin: 6px 0; overflow-wrap: anywhere; }
   #stressStage { min-height: 40px; margin-top: 8px; }
+  .event-log { max-width: 760px; max-height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 12.5px/1.5 var(--mono); white-space: pre-wrap; margin: 8px 0 20px; }
   .smoke-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; max-width: 760px; margin: 10px 0 20px; }
   .smoke-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
   .smoke-card a { font-weight: 600; }
@@ -136,24 +142,60 @@
   <div id="support"></div>
   <h1>Canary crash and stress suite</h1>
   <p class="lede">
-    Chrome engineers asked me to re-test the HTML-in-canvas crashes I hit earlier on Canary after landing fixes.
-    This page puts every recorded crash reproduction, eight non-crashing engine checks and five tap-to-run stress tests in one place, and copies the whole run as Markdown.
+    Press one button below to run the whole suite automatically: 11 past crash and context-loss reproductions (in an isolated tab so a renderer crash can't kill this page), 8 non-crashing engine checks and 5 timed stress benchmarks, while watching crashes, long animation frames, layout shifts and browser reports through the site's observers.
   </p>
 
-  <div class="env-box" id="envBox">Reading browser capabilities.</div>
-  <div class="scoreboard" id="scoreboard" role="status">Engine checks: 0/8 run | Crash repros: 0/12 run | Stress tests: 0/5 run</div>
-
-  <div class="bar">
-    <button type="button" id="copyReport">Copy Eng report (Markdown)</button>
-    <a href="/crashes/">Back to /crashes/</a>
+  <div class="hero-run">
+    <div class="bar" style="margin-top:0">
+      <button type="button" id="runFullSuite" class="primary">Run full Canary suite (automated)</button>
+      <button type="button" id="stopFullSuite" disabled>Stop</button>
+      <button type="button" id="copyReport">Copy Eng report (Markdown)</button>
+      <a href="/crashes/">Back to /crashes/</a>
+    </div>
+    <progress id="suiteProgress" max="24" value="0"></progress>
+    <div id="suiteStatus" class="stats-line" role="status">Ready. Press "Run full Canary suite (automated)" once to run all 3 phases (~45 s) and file a summary report to /api/reports.</div>
   </div>
 
-  <h2>1. Engine regression checks (runs right here)</h2>
+  <div class="env-box" id="envBox">Reading browser capabilities.</div>
+
+  <div class="obs-grid" aria-label="Live observer telemetry">
+    <div class="obs-card" id="obsCrash">
+      <strong>Crash and context observers</strong>
+      Waiting for run.
+    </div>
+    <div class="obs-card" id="obsPerf">
+      <strong>PerformanceObserver (LoAF / tasks / CLS)</strong>
+      Waiting for run.
+    </div>
+    <div class="obs-card" id="obsGfx">
+      <strong>Graphics guard (window.__gfx)</strong>
+      Waiting for run.
+    </div>
+  </div>
+
+  <h2>1. Past crashes and lost contexts (Phase 1, isolated tab)</h2>
   <p class="note">
-    Eight non-crashing checks from <code>/friction/</code> and <code>FINDINGS.md</code>. Pressing the button below runs all eight right in this table and retires every fixture canvas afterwards.
+    Runs automatically in a separate <code>noopener</code> tab so a renderer crash leaves this page alive. The one crash still open in Canary 160 (<code>startViewTransition()</code> on a drawable child) runs last so all ten earlier cases finish in a single pass. You can also run any row on its own.
   </p>
   <div class="bar">
-    <button type="button" id="runEngineAll">Run all 8 checks</button>
+    <button type="button" id="runReprosAll">Run phase 1 only (11 repros)</button>
+    <button type="button" id="continueRepros" hidden>Continue remaining</button>
+    <button type="button" id="clearRepros">Clear logs</button>
+  </div>
+  <div id="reproStatus" class="stats-line" role="status">Idle.</div>
+  <table class="suite-table">
+    <thead>
+      <tr><th>Kind</th><th>Case and baseline</th><th>This browser</th><th>Action</th></tr>
+    </thead>
+    <tbody id="reproRows"></tbody>
+  </table>
+
+  <h2>2. Non-crashing engine checks (Phase 2, inline)</h2>
+  <p class="note">
+    Eight checks from <code>/friction/</code> and <code>FINDINGS.md</code> that run right here in temporary fixtures and retire every canvas afterwards.
+  </p>
+  <div class="bar">
+    <button type="button" id="runEngineAll">Run phase 2 only (8 checks)</button>
     <span id="engineStatus" class="meta-line" role="status"></span>
   </div>
   <div id="checkStage" class="fixture-strip"></div>
@@ -164,29 +206,22 @@
     <tbody id="engineRows"></tbody>
   </table>
 
-  <h2>2. Past crashes and lost contexts (runs in an isolated tab)</h2>
+  <h2>3. Stress benchmarks (Phase 3, 2.5 s each)</h2>
   <p class="note">
-    Crash repros run in a separate <code>noopener</code> tab so a renderer crash can't take this page down. Each repro runs with <code>?autorun=</code> and writes to <code>localStorage</code>; this table updates live as each one finishes or crashes. If a repro crashes that tab, press the Continue button to finish the remaining rows.
+    Each workload runs automatically for 2.5 s during Phase 3 while <code>PerformanceObserver</code> records long animation frames (LoAF), long tasks and layout shifts, and <code>window.__gfx</code> tracks context losses and canvas memory.
   </p>
   <div class="bar">
-    <button type="button" id="runReprosAll">Run all 11 crash repros</button>
-    <button type="button" id="continueRepros" hidden>Continue remaining</button>
-    <button type="button" id="clearRepros">Clear logs</button>
+    <button type="button" id="runStressAll">Run phase 3 only (all 5 benchmarks)</button>
   </div>
-  <div id="reproStatus" class="stats-line" role="status">Idle. Press "Run all 11 crash repros" or run any single row below.</div>
   <table class="suite-table">
     <thead>
-      <tr><th>Kind</th><th>Case and baseline</th><th>This browser</th><th>Action</th></tr>
+      <tr><th>Workload</th><th>FPS</th><th>Avg paint / upload</th><th>LoAF (count / max)</th><th>Long tasks / losses</th></tr>
     </thead>
-    <tbody id="reproRows"></tbody>
+    <tbody id="stressBenchRows"></tbody>
   </table>
 
-  <h2>3. Stress tests (pushing API limits)</h2>
-  <p class="note">
-    Nothing starts until you pick a test and press Start. Only one stress test runs at a time, and stopping retires its canvas cleanly via <code>window.__gfx.retire()</code>.
-  </p>
   <div class="stress-box">
-    <div class="stress-tabs" role="group" aria-label="Choose a stress test">
+    <div class="stress-tabs" role="group" aria-label="Interactive stress runner">
       <button type="button" data-stress="2d" aria-pressed="true">2D DOM wall</button>
       <button type="button" data-stress="snapshots" aria-pressed="false">Snapshot churn</button>
       <button type="button" data-stress="webgl" aria-pressed="false">WebGL 2 (16 tex + FBO)</button>
@@ -196,15 +231,21 @@
     <p id="stressDesc" class="note"></p>
     <div id="stressControls" class="stress-controls"></div>
     <div class="bar">
-      <button type="button" id="stressStart">Start stress test</button>
+      <button type="button" id="stressStart">Start interactive</button>
       <button type="button" id="stressStop" disabled>Stop</button>
       <button type="button" id="stressLoseBtn" hidden>Trigger loseContext() + restore</button>
     </div>
-    <div id="stressStats" class="stats-line" role="status">Idle. Pick a test and press Start.</div>
+    <div id="stressStats" class="stats-line" role="status">Idle.</div>
     <div id="stressStage"></div>
   </div>
 
-  <h2>4. Heavy site demos to smoke-test on Canary</h2>
+  <h2>4. Live observer and crash log</h2>
+  <p class="note">
+    Entries from <code>PerformanceObserver</code> (<code>long-animation-frame</code>, <code>layout-shift</code>), <code>ReportingObserver</code> (<code>crash</code>, <code>intervention</code>, <code>deprecation</code>), isolated runner crashes and <code>window.__gfx.report()</code> calls sent to <code>/api/reports</code> (read with <code>npm run reports -- --type canary-suite --list</code>).
+  </p>
+  <pre id="observerLog" class="event-log">No observer events yet.</pre>
+
+  <h2>5. Heavy site demos to smoke-test on Canary</h2>
   <p class="note">Full pages from this repo that hit the hardest paths in real usage.</p>
   <div class="smoke-grid">
     <div class="smoke-card"><a href="/portal-room/">/portal-room/</a><p>WebGL 2 offscreen FBO portal render + 3D perspective hit-testing on a live console.</p></div>
@@ -219,8 +260,9 @@
   </div>
 
   <details class="show-code">
-    <summary>Show the code <small>crash catalog, engine checks, five stress runners, report builder</small></summary>
+    <summary>Show the code <small>observers, crash catalog, engine checks, five stress runners, report builder</small></summary>
     <ol>
+      <li data-code="/crashes/suite/observers.js#observers"><b>PerformanceObserver, ReportingObserver and __gfx wrapper.</b> Scoped LoAF, long-task, CLS, event-timing, ReportingObserver and <code>/api/reports</code> filing.</li>
       <li data-code="/crashes/suite/stress.js#catalog"><b>Crash and loss catalog.</b> Links each historical bug to its standalone repro and <code>localStorage</code> key.</li>
       <li data-code="/crashes/suite/stress.js#checks"><b>Eight engine regression checks.</b> Isolated fixtures that retire their canvas after each check.</li>
       <li data-code="/crashes/suite/stress.js#stress-2d"><b>2D DOM wall stress test.</b> Up to 128 live interactive elements per frame with optional rotation and reflow churn.</li>
@@ -228,26 +270,25 @@
       <li data-code="/crashes/suite/stress.js#stress-webgl"><b>WebGL 2 multi-texture + mipmap + FBO stress test.</b> 16 live mutating DOM textures and a chromatic wave post-pass.</li>
       <li data-code="/crashes/suite/stress.js#stress-webgpu"><b>WebGPU upload stress test.</b> Eight live elements via <code>drawElementImageToTexture()</code> on the shared device.</li>
       <li data-code="/crashes/suite/stress.js#stress-lifecycle"><b>DOM, iframe and geometry churn test.</b> Animated iframe child, live button hit-testing and transient drawable nodes.</li>
-      <li data-code="#report"><b>Markdown report builder.</b> Formats browser details, repro results, engine checks and stress stats.</li>
+      <li data-code="#report"><b>Markdown report builder.</b> Formats browser details, observer telemetry, repro results, engine checks and stress stats.</li>
     </ol>
   </details>
 
   <h2>How it works</h2>
   <ul>
-    <li>The crash rows never run inside this document. Opening a row launches the standalone file in <code>/crashes/repro/</code>, which has no site scripts and writes every step to <code>localStorage</code>. If the renderer dies mid-run, the stored log still ends with <code>RUNNING</code>, and this page flags it as crashed when you return.</li>
-    <li>The eight engine checks run on demand in a temporary fixture strip directly on this page, then retire every canvas via <code>window.__gfx.retire()</code>.</li>
-    <li>Each stress test opens at most one graphics context at a time and closes every <code>ElementImage</code> handle on stop.</li>
-    <li>"Copy Eng report (Markdown)" builds a plain Markdown table of the current browser version, every check you ran and the last recorded stress metrics.</li>
+    <li>Pressing "Run full Canary suite (automated)" opens <code>/crashes/suite/runner.html</code> immediately inside the click handler with <code>noopener</code> (so the popup blocker doesn't block it and the runner sits in a separate renderer process). Once Phase 1 completes or detects a renderer crash via the runner heartbeat, Phases 2 and 3 continue automatically right on this page.</li>
+    <li><code>observers.js</code> attaches <code>PerformanceObserver</code> for <code>long-animation-frame</code>, <code>longtask</code>, <code>layout-shift</code> and <code>event</code>, plus <code>ReportingObserver</code> for <code>crash</code>, <code>intervention</code> and <code>deprecation</code>. Every timed stress benchmark runs inside a scoped observer window.</li>
+    <li>Detected runner crashes are filed to <code>/api/reports</code> via <code>window.__gfx.report('canary-crash', …)</code> and the end-of-run summary is filed via <code>window.__gfx.report('canary-suite', …)</code> (outside localhost, matching the site's guard).</li>
   </ul>
 
   <h2>Live checks</h2>
-  <p class="note">Checks that this suite's harness and APIs are present. Runs on tap.</p>
+  <p class="note">Checks that this suite's harness, observers and repro files are present. Runs on tap.</p>
   <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="results"></tbody></table>
 
   <h2>Findings</h2>
   <p class="note">Measured on 2026-11-24 on macOS (Apple M4 Pro, ANGLE Metal) comparing Chrome 158.0.8127.88 and Chrome Canary 160.0.8180.0 with <code>CanvasDrawElement</code> and <code>ScopedViewTransitions</code> enabled.</p>
   <ul class="findings" id="findings">
-    <li><strong>Four renderer crashes that died in Chrome 158 are fixed in Canary 160.0.8180.0:</strong> removing an iframe inside a <code>paint</code> handler (<code>iframe-in-paint.html</code> button B), calling <code>adoptNode()</code> on a painted drawable canvas into a same-origin iframe (<code>adopt-painted-canvas.html</code> button A), and both modes of the new 4-canvas WebGL <code>loseContext()</code> stress repro (<code>lose-context-stress.html</code> buttons A and B) all crashed Chrome 158 and all survive with no crash in Canary 160.</li>
+    <li><strong>Four renderer crashes that died in Chrome 158 are fixed in Canary 160.0.8180.0:</strong> removing an iframe inside a <code>paint</code> handler (<code>iframe-in-paint.html</code> button B), calling <code>adoptNode()</code> on a painted drawable canvas into a same-origin iframe (<code>adopt-painted-canvas.html</code> button A), and both modes of the 4-canvas WebGL <code>loseContext()</code> stress repro (<code>lose-context-stress.html</code> buttons A and B) all crashed Chrome 158 and all survive with no crash in Canary 160.</li>
     <li><strong>Three earlier Chromium 157 failures were already fixed by Chrome 158 (and stay fixed in Canary 160):</strong> <code>opacity: 0.02</code> around a drawable canvas inside a drawn iframe (<code>opacity-in-drawn-iframe.html</code>), same-task <code>moveBefore()</code> out and back into a drawable canvas, and <code>clearElementGeometry()</code> clearing the hit box.</li>
     <li><strong>One renderer crash still reproduces in Canary 160.0.8180.0:</strong> calling <code>element.startViewTransition()</code> on a <code>drawable</code> child of a drawable canvas (<code>view-transition-drawable-child.html</code> button A) still crashes the renderer in both Chrome 158 and Canary 160.</li>
     <li><strong>Four non-crashing engine bugs still reproduce in Canary 160.0.8180.0:</strong> stale hit-test cache after moving a drawn element without toggling an attribute; 9-argument source-rect draw leaving the hit region clipped after <code>updateElementGeometry()</code>; a nested plain <code>&lt;canvas&gt;</code> inside a padded drawable element drawing shifted by minus its padding; and continuous <code>ctx.rotate()</code> with <code>drawElementImage()</code> dropping lines of text on Apple Metal (2 of 60 frames lost over 15% of dark text pixels; fixed angle lost 0).</li>
@@ -258,6 +299,7 @@
 
 <script type="module">
   import { banner, runTests } from '/shared/support.js';
+  import { createSuiteObservers } from '/crashes/suite/observers.js';
   import {
     REPRO_CATALOG,
     ENGINE_CHECKS,
@@ -275,12 +317,18 @@
 
   const CHAIN_KEY = 'hic-suite-chain';
   const HB_KEY = 'hic-suite-heartbeat';
+  const RUNNER_REPORTS_KEY = 'hic-suite-runner-reports';
+
   const engineResults = new Map();
-  const stressResults = new Map();
-  const activeReproState = new Map(); // id -> { state, cls, detail } while running in isolated tab
+  const stressBenchResults = new Map(); // key -> { stats, obs }
+  const activeReproState = new Map();
   let activeStressKey = '2d';
   let stopActiveStress = null;
   let watchTimer = 0;
+  let suiteRunning = false;
+  let suiteAborted = false;
+
+  const obs = createSuiteObservers(() => renderObservers());
 
   // Browser capability summary (opens no graphics contexts on load)
   const hasDrawElement = 'requestPaint' in HTMLCanvasElement.prototype;
@@ -288,8 +336,31 @@
   const hasWebGPU = 'gpu' in navigator;
   $('envBox').textContent = [
     `UA: ${navigator.userAgent}`,
-    `DPR: ${devicePixelRatio}  |  HTML-in-canvas: ${hasDrawElement ? 'yes' : 'no'}  |  captureElementImage: ${hasCapture ? 'yes' : 'no'}  |  WebGPU: ${hasWebGPU ? 'yes' : 'no'}`,
+    `DPR: ${devicePixelRatio} | HTML-in-canvas: ${hasDrawElement ? 'yes' : 'no'} | captureElementImage: ${hasCapture ? 'yes' : 'no'} | WebGPU: ${hasWebGPU ? 'yes' : 'no'} | LoAF: ${obs.state.supported.loaf ? 'yes' : 'no'} | ReportingObserver: ${obs.state.supported.reporting ? 'yes' : 'no'}`,
   ].join('\n');
+
+  function renderObservers() {
+    const t = obs.state.totals;
+    const g = obs.gfxSnapshot();
+    const reproStates = REPRO_CATALOG.map((item) => readReproStatus(item));
+    const repSurvived = reproStates.filter((s) => s.state === 'survived' || /no loss/.test(s.state)).length;
+    const repCrashed = reproStates.filter((s) => s.state === 'crashed').length;
+
+    $('obsCrash').innerHTML = `<strong>Crash and context observers</strong>Crashes: ${repCrashed} (observer: ${t.crashesDetected})<br>Repros survived: ${repSurvived}/${REPRO_CATALOG.length}<br>__gfx.lost: ${g.lost} | ReportingObserver: ${t.browserReports}`;
+    $('obsPerf').innerHTML = `<strong>PerformanceObserver</strong>LoAF: ${t.loafCount} (max ${t.loafMaxMs} ms, block ${t.loafBlockingMs} ms)<br>Long tasks: ${t.longTasks} (max ${t.longTaskMaxMs} ms)<br>CLS: ${t.cls.toFixed(4)} | Worst event: ${t.worstEventMs} ms`;
+    $('obsGfx').innerHTML = `<strong>Graphics guard (window.__gfx)</strong>Canvas memory: ${g.memMB} MB<br>Snapshots open/peak: ${g.openSnapshots}/${g.peakSnapshots}<br>WebGL active: ${g.activeWebGL} | Reports filed: ${t.reportsFiled}`;
+
+    $('observerLog').textContent = obs.state.events.length
+      ? obs.state.events.map((e) => `${e.at} [${e.kind}] ${e.message}`).join('\n')
+      : 'No observer events yet.';
+  }
+
+  function updateProgress(doneSteps, totalSteps, label) {
+    $('suiteProgress').max = totalSteps;
+    $('suiteProgress').value = doneSteps;
+    if (label) $('suiteStatus').textContent = label;
+    renderObservers();
+  }
 
   // Parse localStorage logs left by standalone repro pages
   function readReproStatus(item) {
@@ -310,7 +381,8 @@
       }
       const lines = raw.trim().split('\n').filter(Boolean);
       const last = lines[lines.length - 1] || '';
-      if (/RUNNING/.test(last)) return { state: 'crashed', cls: 'fail', detail: `tab died during run: ${last}` };
+      const finished = /done|DONE|PASS|FAIL|not available/i.test(last);
+      if (/RUNNING/.test(raw) && !finished) return { state: 'crashed', cls: 'fail', detail: `tab died during run: ${last}` };
       if (/FAIL/.test(last)) return { state: 'failed', cls: 'fail', detail: last };
       const dropMatch = last.match(/frames with dropped text [^=]*=\s*(\d+)/i);
       if (dropMatch && Number(dropMatch[1]) > 0) return { state: 'dropped text', cls: 'fail', detail: last };
@@ -324,90 +396,96 @@
     }
   }
 
-  function updateScoreboard() {
-    const engDone = [...engineResults.values()].filter((r) => r.status !== 'running').length;
-    const engPass = [...engineResults.values()].filter((r) => r.status === 'pass').length;
-    const reproStates = REPRO_CATALOG.map((item) => readReproStatus(item));
-    const repDone = reproStates.filter((s) => s.state !== 'not run' && s.state !== 'running...').length;
-    const repCrash = reproStates.filter((s) => s.state === 'crashed' || s.state === 'failed' || s.state === 'dropped text').length;
-    $('scoreboard').textContent = `Engine checks: ${engDone}/${ENGINE_CHECKS.length} run (${engPass} pass)  |  Crash repros: ${repDone}/${REPRO_CATALOG.length} run (${repCrash} crashed/failed)  |  Stress tests: ${stressResults.size}/5 run`;
-  }
-
   function stopWatchingChain() {
     if (watchTimer) { clearInterval(watchTimer); watchTimer = 0; }
     activeReproState.clear();
   }
 
-  function launchReproChain(items, startIndex = 0) {
-    stopWatchingChain();
-    const chain = { items, index: startIndex, currentId: items[startIndex]?.id || null, state: 'running', startedAt: Date.now() };
-    try {
-      localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
-      localStorage.setItem(HB_KEY, String(Date.now()));
-    } catch {}
-    $('continueRepros').hidden = true;
-    $('reproStatus').textContent = `Opened isolated runner tab (${startIndex + 1}/${items.length}: ${items[startIndex]?.title || ''})...`;
-    // noopener isolates the runner in its own BrowsingInstance / renderer process
-    window.open('/crashes/suite/runner.html', '_blank', 'noopener');
-    startWatchingChain();
-  }
+  // Launches the isolated noopener runner tab and resolves when the chain finishes, stops, or crashes.
+  function runReproChainAsync(items, startIndex = 0, onStep = null) {
+    return new Promise((resolve) => {
+      stopWatchingChain();
+      const chain = { items, index: startIndex, currentId: items[startIndex]?.id || null, state: 'running', startedAt: Date.now() };
+      try {
+        localStorage.removeItem(RUNNER_REPORTS_KEY);
+        localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
+        localStorage.setItem(HB_KEY, String(Date.now()));
+      } catch {}
+      $('continueRepros').hidden = true;
+      $('reproStatus').textContent = `Opened isolated window (${startIndex + 1}/${items.length}: ${items[startIndex]?.title || ''})...`;
+      window.open('/crashes/suite/runner.html', '_blank', 'noopener,width=680,height=520');
 
-  function startWatchingChain() {
-    stopWatchingChain();
-    watchTimer = setInterval(() => {
-      let chain;
-      try { chain = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
-      if (!chain) { stopWatchingChain(); return; }
-      const hb = Number(localStorage.getItem(HB_KEY) || 0);
-      const staleMs = Date.now() - hb;
-
-      if (chain.state === 'done') {
-        stopWatchingChain();
-        $('continueRepros').hidden = true;
-        $('reproStatus').textContent = `Finished ${chain.items.length} repro${chain.items.length === 1 ? '' : 's'}. All results are in the table below.`;
-        renderRepros();
-        return;
-      }
-      if (chain.state === 'stopped') {
-        stopWatchingChain();
-        $('reproStatus').textContent = 'Stopped.';
-        renderRepros();
-        return;
-      }
-
-      const cur = chain.items[chain.index];
-      // If the runner heartbeat stops for >2.5 s while running a case, the runner tab crashed!
-      if (cur && staleMs > 2500) {
-        stopWatchingChain();
-        const existing = localStorage.getItem(cur.storageKey) || '';
-        if (!existing || !/done|DONE|PASS|FAIL/i.test(existing.trim().split('\n').pop() || '')) {
+      watchTimer = setInterval(() => {
+        if (suiteAborted) {
+          stopWatchingChain();
           try {
-            if (!existing) localStorage.setItem(cur.storageKey, `RUNNING ${cur.id} (runner tab crashed)`);
+            const c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null');
+            if (c) { c.state = 'stopped'; localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); }
           } catch {}
+          renderRepros();
+          resolve({ outcome: 'stopped' });
+          return;
         }
-        const nextIdx = chain.index + 1;
-        const left = chain.items.length - nextIdx;
-        if (left > 0) {
-          chain.index = nextIdx;
-          chain.state = 'crashed';
-          try { localStorage.setItem(CHAIN_KEY, JSON.stringify(chain)); } catch {}
-          $('continueRepros').textContent = `Continue remaining (${left} left)`;
-          $('continueRepros').hidden = false;
-          $('reproStatus').textContent = `Runner tab crashed on "${cur.title}". This page survived; press "Continue remaining (${left} left)" to finish the rest.`;
-        } else {
-          $('reproStatus').textContent = `Runner tab crashed on the last repro ("${cur.title}").`;
+        let c;
+        try { c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
+        if (!c) { stopWatchingChain(); resolve({ outcome: 'missing' }); return; }
+        const hb = Number(localStorage.getItem(HB_KEY) || 0);
+        const staleMs = Date.now() - hb;
+
+        if (c.state === 'done') {
+          stopWatchingChain();
+          const rr = localStorage.getItem(RUNNER_REPORTS_KEY);
+          if (rr) obs.recordRunnerReports(rr);
+          $('continueRepros').hidden = true;
+          $('reproStatus').textContent = `Phase 1 finished: ${c.items.length} repro${c.items.length === 1 ? '' : 's'} completed.`;
+          renderRepros();
+          resolve({ outcome: 'done' });
+          return;
+        }
+        if (c.state === 'stopped') {
+          stopWatchingChain();
+          $('reproStatus').textContent = 'Phase 1 stopped.';
+          renderRepros();
+          resolve({ outcome: 'stopped' });
+          return;
+        }
+
+        const cur = c.items[c.index];
+        if (cur && staleMs > 4500) {
+          stopWatchingChain();
+          const rr = localStorage.getItem(RUNNER_REPORTS_KEY);
+          if (rr) obs.recordRunnerReports(rr);
+          const existing = localStorage.getItem(cur.storageKey) || '';
+          if (!existing) {
+            try { localStorage.setItem(cur.storageKey, `RUNNING ${cur.id} (runner tab crashed)`); } catch {}
+          }
+          obs.recordCrash(cur.id, cur.title, existing ? existing.trim().split('\n').pop() : 'runner heartbeat stopped');
+          const nextIdx = c.index + 1;
+          const left = c.items.length - nextIdx;
+          if (left > 0) {
+            c.index = nextIdx;
+            c.state = 'crashed';
+            try { localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); } catch {}
+            $('continueRepros').textContent = `Continue remaining (${left} left)`;
+            $('continueRepros').hidden = false;
+            $('reproStatus').textContent = `Isolated tab crashed on "${cur.title}". This page survived; ${left} repros remain.`;
+          } else {
+            $('reproStatus').textContent = `Isolated tab crashed on final repro ("${cur.title}"). This page survived.`;
+          }
+          renderRepros();
+          resolve({ outcome: 'crashed', crashedId: cur.id, remaining: left });
+          return;
+        }
+
+        activeReproState.clear();
+        if (cur) {
+          activeReproState.set(cur.id, { state: 'running...', cls: 'run', detail: `Running in isolated tab (${c.index + 1}/${c.items.length})...` });
+          $('reproStatus').textContent = `Running ${c.index + 1}/${c.items.length}: ${cur.title}`;
+          onStep?.(c.index, c.items.length, cur);
         }
         renderRepros();
-        return;
-      }
-
-      activeReproState.clear();
-      if (cur) {
-        activeReproState.set(cur.id, { state: 'running...', cls: 'run', detail: `Running in isolated tab (${chain.index + 1}/${chain.items.length})...` });
-        $('reproStatus').textContent = `Running ${chain.index + 1}/${chain.items.length}: ${cur.title}`;
-      }
-      renderRepros();
-    }, 300);
+      }, 300);
+    });
   }
 
   function renderRepros() {
@@ -416,7 +494,7 @@
       const runBtn = el('button', { type: 'button', textContent: item.skipInAll ? 'Run (7 reloads)' : 'Run' });
       runBtn.addEventListener('click', () => {
         try { localStorage.removeItem(item.storageKey); } catch {}
-        launchReproChain([item], 0);
+        runReproChainAsync([item], 0);
       });
       const openLink = el('a', { href: item.repro, target: '_blank', rel: 'noopener', textContent: 'Open' });
       return el('tr', {},
@@ -429,7 +507,7 @@
           el('div', { className: 'meta-line', textContent: st.detail })),
         el('td', { className: 'act-cell' }, runBtn, openLink));
     }));
-    updateScoreboard();
+    renderObservers();
   }
 
   function renderEngineChecks() {
@@ -447,122 +525,112 @@
         el('td', { textContent: r?.detail || '' }),
         el('td', {}, btn));
     }));
-    updateScoreboard();
+    renderObservers();
   }
 
   async function runOneEngineCheck(chk) {
     engineResults.set(chk.id, { status: 'running', detail: 'running...' });
     renderEngineChecks();
+    obs.beginWindow(`check:${chk.id}`);
     try {
       const res = await chk.run($('checkStage'));
-      engineResults.set(chk.id, res);
+      const w = obs.endWindow();
+      engineResults.set(chk.id, { ...res, obs: w });
     } catch (e) {
+      obs.endWindow();
       engineResults.set(chk.id, { status: 'fail', detail: `${e.name}: ${e.message}` });
     }
     renderEngineChecks();
   }
 
-  $('runEngineAll').addEventListener('click', async () => {
-    $('runEngineAll').disabled = true;
-    $('engineStatus').textContent = 'Running 8 checks...';
-    for (let i = 0; i < ENGINE_CHECKS.length; i++) {
-      $('engineStatus').textContent = `Running ${i + 1}/${ENGINE_CHECKS.length}: ${ENGINE_CHECKS[i].id}`;
-      await runOneEngineCheck(ENGINE_CHECKS[i]);
-    }
-    const pass = [...engineResults.values()].filter((r) => r.status === 'pass').length;
-    $('engineStatus').textContent = `Done: ${pass}/${ENGINE_CHECKS.length} passed.`;
-    $('runEngineAll').disabled = false;
-  });
-
-  $('runReprosAll').addEventListener('click', () => {
-    const fast = REPRO_CATALOG.filter((item) => !item.skipInAll);
-    launchReproChain(fast, 0);
-  });
-
-  $('continueRepros').addEventListener('click', () => {
-    let chain;
-    try { chain = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
-    if (chain && Array.isArray(chain.items) && chain.index < chain.items.length) {
-      launchReproChain(chain.items, chain.index);
-    }
-  });
-
-  $('clearRepros').addEventListener('click', () => {
-    stopWatchingChain();
-    for (const item of REPRO_CATALOG) {
-      try { localStorage.removeItem(item.storageKey); } catch {}
-    }
-    try { localStorage.removeItem(CHAIN_KEY); localStorage.removeItem(HB_KEY); } catch {}
-    $('continueRepros').hidden = true;
-    $('reproStatus').textContent = 'Cleared saved repro logs.';
-    renderRepros();
-  });
-
-  window.addEventListener('focus', renderRepros);
-  window.addEventListener('storage', renderRepros);
-
-  // Stress test selector and lifecycle
+  // Stress test selector, interactive stage and automated benchmark runner
   const STRESS_SPECS = {
     '2d': {
-      name: '2D DOM wall',
-      desc: 'Draws 24, 64 or 128 live interactive cards (each with a checkbox and button) on every frame while mutating 4 cards per frame. Turn on continuous rotation to hit the Apple Metal text-drop path at scale.',
+      name: '2D DOM wall (128 cards + reflow)',
+      autoOpts: { count: 128, rotate: false, reflow: true },
+      desc: 'Draws 24, 64 or 128 live interactive cards on every frame while mutating 4 cards per frame. Turn on continuous rotation to hit the Apple Metal text-drop path at scale.',
       controls: () => [
-        el('label', {}, 'Elements ', (() => {
-          const s = el('select', { id: 'opt2dCount' },
-            el('option', { value: '24', textContent: '24' }),
-            el('option', { value: '64', textContent: '64', selected: true }),
-            el('option', { value: '128', textContent: '128' }));
-          return s;
-        })()),
+        el('label', {}, 'Elements ', el('select', { id: 'opt2dCount' },
+          el('option', { value: '24', textContent: '24' }),
+          el('option', { value: '64', textContent: '64' }),
+          el('option', { value: '128', textContent: '128', selected: true }))),
         el('label', {}, el('input', { type: 'checkbox', id: 'opt2dRotate' }), ' Continuous ctx.rotate()'),
-        el('label', {}, el('input', { type: 'checkbox', id: 'opt2dReflow' }), ' DOM reflow churn'),
+        el('label', {}, el('input', { type: 'checkbox', id: 'opt2dReflow', checked: true }), ' DOM reflow churn'),
       ],
-      start: (stage, onStats) => start2DWallStress(stage, {
-        count: +($('opt2dCount')?.value || 64),
+      start: (stage, onStats, optsOverride) => start2DWallStress(stage, optsOverride || {
+        count: +($('opt2dCount')?.value || 128),
         rotate: !!$('opt2dRotate')?.checked,
         reflow: !!$('opt2dReflow')?.checked,
       }, onStats),
     },
     snapshots: {
-      name: 'Snapshot churn',
-      desc: 'Captures a new ElementImage with captureElementImage() every frame, composites a moving trail of live snapshots, and calls close() on every retired handle to test allocation speed and GPU memory cleanup.',
+      name: 'Snapshot churn (24-deep ring)',
+      autoOpts: { trail: 24 },
+      desc: 'Captures a new ElementImage with captureElementImage() every frame, composites a moving trail of live snapshots, and calls close() on every retired handle.',
       controls: () => [
-        el('label', {}, 'Trail depth ', (() => {
-          const s = el('select', { id: 'optSnapTrail' },
-            el('option', { value: '16', textContent: '16 open' }),
-            el('option', { value: '24', textContent: '24 open', selected: true }),
-            el('option', { value: '48', textContent: '48 open' }));
-          return s;
-        })()),
+        el('label', {}, 'Trail depth ', el('select', { id: 'optSnapTrail' },
+          el('option', { value: '16', textContent: '16 open' }),
+          el('option', { value: '24', textContent: '24 open', selected: true }),
+          el('option', { value: '48', textContent: '48 open' }))),
       ],
-      start: (stage, onStats) => startSnapshotStress(stage, { trail: +($('optSnapTrail')?.value || 24) }, onStats),
+      start: (stage, onStats, optsOverride) => startSnapshotStress(stage, optsOverride || { trail: +($('optSnapTrail')?.value || 24) }, onStats),
     },
     webgl: {
-      name: 'WebGL 2 (16 tex + FBO)',
-      desc: 'Uploads 16 live mutating HTML panels via texElementSubImage2D() every frame, generates mipmaps, draws them into an offscreen FBO and runs a chromatic wave post-pass. Use the optional button to test manual context loss and recovery.',
+      name: 'WebGL 2 (16 tex + mipmaps + FBO + resize)',
+      autoOpts: { textures: 16, mipmaps: true, resize: true },
+      desc: 'Uploads 16 live mutating HTML panels via texElementSubImage2D() every frame, generates mipmaps, renders through an offscreen FBO and runs a chromatic wave post-pass.',
       controls: () => [
         el('label', {}, el('input', { type: 'checkbox', id: 'optGlMip', checked: true }), ' Generate mipmaps every frame'),
-        el('label', {}, el('input', { type: 'checkbox', id: 'optGlResize' }), ' Backing-store resize every 45 frames'),
+        el('label', {}, el('input', { type: 'checkbox', id: 'optGlResize', checked: true }), ' Backing-store resize every 45 frames'),
       ],
-      start: (stage, onStats) => startWebGLStress(stage, {
+      start: (stage, onStats, optsOverride) => startWebGLStress(stage, optsOverride || {
         textures: 16,
         mipmaps: !!$('optGlMip')?.checked,
         resize: !!$('optGlResize')?.checked,
       }, onStats),
     },
     webgpu: {
-      name: 'WebGPU upload',
+      name: 'WebGPU (8 live DOM textures + WGSL)',
+      autoOpts: {},
       desc: 'Uses the shared WebGPU device to upload 8 live mutating DOM cards every frame with queue.drawElementImageToTexture() and render them through a WGSL wave shader.',
       controls: () => [],
       start: (stage, onStats) => startWebGPUStress(stage, onStats),
     },
     lifecycle: {
-      name: 'DOM + iframe + hit-test',
+      name: 'DOM + iframe + updateElementGeometry()',
+      autoOpts: {},
       desc: 'Combines an animated interactive button and slider updated via updateElementGeometry(), a live ticking same-origin iframe child, and continuous insertion and removal of transient drawable nodes.',
       controls: () => [],
       start: (stage, onStats) => startLifecycleStress(stage, onStats),
     },
   };
+
+  function renderStressBenchTable() {
+    $('stressBenchRows').replaceChildren(...Object.entries(STRESS_SPECS).map(([key, spec]) => {
+      const entry = stressBenchResults.get(key);
+      if (!entry) {
+        return el('tr', {},
+          el('td', {}, el('strong', { textContent: spec.name })),
+          el('td', { colSpan: 4, textContent: 'not run' }));
+      }
+      if (entry.running) {
+        return el('tr', {},
+          el('td', {}, el('strong', { textContent: spec.name })),
+          el('td', { colSpan: 4 }, el('span', { className: 'pill run', textContent: 'running (2.5 s)...' })));
+      }
+      const s = entry.stats || {};
+      const w = entry.obs || {};
+      const avgMs = s.avgPaintMs ?? s.avgCaptureMs ?? s.avgUploadMs ?? 'n/a';
+      const errs = (s.losses || 0) + (s.errors || 0) + (s.uploadErrors || 0) + (w.newLosses || 0);
+      return el('tr', {},
+        el('td', {}, el('strong', { textContent: spec.name })),
+        el('td', { textContent: s.error ? `error: ${s.error}` : `${s.fps ?? '?'} fps` }),
+        el('td', { textContent: avgMs === 'n/a' ? 'n/a' : `${avgMs} ms` }),
+        el('td', { textContent: `${w.loafCount ?? 0} / ${w.loafMaxMs ?? 0} ms` }),
+        el('td', { textContent: `${w.longTasks ?? 0} long tasks, ${errs} err/loss` }));
+    }));
+    renderObservers();
+  }
 
   function stopStress() {
     if (stopActiveStress) {
@@ -584,8 +652,175 @@
     $('stressDesc').textContent = spec.desc;
     $('stressControls').replaceChildren(...spec.controls());
     $('stressStage').replaceChildren();
-    $('stressStats').textContent = `Ready: ${spec.name}. Press Start to run.`;
+    $('stressStats').textContent = `Ready: ${spec.name}.`;
   }
+
+  async function runTimedStress(key, durationMs = 2500) {
+    selectStress(key);
+    const spec = STRESS_SPECS[key];
+    stressBenchResults.set(key, { running: true });
+    renderStressBenchTable();
+    let latestStats = {};
+    obs.beginWindow(`stress:${key}`);
+    $('stressStart').disabled = true;
+    $('stressStop').disabled = false;
+    const handle = await spec.start($('stressStage'), (stats) => {
+      latestStats = stats;
+      $('stressStats').textContent = stats.error
+        ? `Stopped: ${stats.error}`
+        : Object.entries(stats).map(([k, v]) => `${k}: ${v}`).join(' | ');
+    }, spec.autoOpts);
+    stopActiveStress = handle;
+    const end = Date.now() + durationMs;
+    while (Date.now() < end && !suiteAborted) {
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    stopStress();
+    const w = obs.endWindow();
+    stressBenchResults.set(key, { stats: latestStats, obs: w });
+    renderStressBenchTable();
+    return { stats: latestStats, obs: w };
+  }
+
+  async function runAllEngineChecksPhase(baseStep = 0, totalSteps = 8) {
+    $('runEngineAll').disabled = true;
+    for (let i = 0; i < ENGINE_CHECKS.length; i++) {
+      if (suiteAborted) break;
+      const chk = ENGINE_CHECKS[i];
+      $('engineStatus').textContent = `Running ${i + 1}/${ENGINE_CHECKS.length}: ${chk.id}`;
+      updateProgress(baseStep + i, totalSteps, `Phase 2/3: Engine check ${i + 1}/${ENGINE_CHECKS.length} (${chk.id})`);
+      await runOneEngineCheck(chk);
+    }
+    const pass = [...engineResults.values()].filter((r) => r.status === 'pass').length;
+    $('engineStatus').textContent = `Done: ${pass}/${ENGINE_CHECKS.length} passed.`;
+    $('runEngineAll').disabled = false;
+  }
+
+  async function runAllStressPhase(baseStep = 0, totalSteps = 5) {
+    $('runStressAll').disabled = true;
+    const keys = Object.keys(STRESS_SPECS);
+    for (let i = 0; i < keys.length; i++) {
+      if (suiteAborted) break;
+      const k = keys[i];
+      updateProgress(baseStep + i, totalSteps, `Phase 3/3: Stress benchmark ${i + 1}/${keys.length} (${STRESS_SPECS[k].name}, 2.5 s)`);
+      await runTimedStress(k, 2500);
+    }
+    $('runStressAll').disabled = false;
+  }
+
+  function fileEndOfRunSummary() {
+    const reproStates = REPRO_CATALOG.map((item) => ({ id: item.id, ...readReproStatus(item) }));
+    const crashed = reproStates.filter((r) => r.state === 'crashed').map((r) => r.id);
+    const survived = reproStates.filter((r) => r.state === 'survived').length;
+    const engPass = [...engineResults.values()].filter((r) => r.status === 'pass').length;
+    const engFail = [...engineResults.entries()].filter(([, r]) => r.status === 'fail').map(([id]) => id);
+    const stressSummary = Object.fromEntries(
+      [...stressBenchResults.entries()].map(([k, v]) => [k, { fps: v.stats?.fps, loaf: v.obs?.loafCount, loafMaxMs: v.obs?.loafMaxMs, losses: v.stats?.losses ?? 0 }])
+    );
+    const msg = `repros ${survived} survived / ${crashed.length} crashed (${crashed.join(',') || 'none'}), engine ${engPass}/${ENGINE_CHECKS.length} pass, LoAF ${obs.state.totals.loafCount} (max ${obs.state.totals.loafMaxMs} ms)`;
+    obs.fileSummaryReport(msg, { crashed, survived, engPass, engFail, stress: stressSummary, ua: navigator.userAgent });
+    return msg;
+  }
+
+  async function waitUntilVisible(statusText) {
+    if (!document.hidden) return;
+    const origTitle = document.title;
+    document.title = 'Switch back to finish Canary suite';
+    $('suiteStatus').textContent = statusText;
+    await new Promise((resolve) => {
+      const onVis = () => {
+        if (!document.hidden || suiteAborted) {
+          document.removeEventListener('visibilitychange', onVis);
+          document.title = origTitle;
+          resolve();
+        }
+      };
+      document.addEventListener('visibilitychange', onVis);
+    });
+  }
+
+  // ONE-CLICK FULL AUTOMATED SUITE: Phase 1 (isolated repros) -> Phase 2 (engine checks) -> Phase 3 (5 stress benchmarks)
+  $('runFullSuite').addEventListener('click', async () => {
+    if (suiteRunning) return;
+    suiteRunning = true;
+    suiteAborted = false;
+    $('runFullSuite').disabled = true;
+    $('stopFullSuite').disabled = false;
+
+    const fastRepros = REPRO_CATALOG.filter((item) => !item.skipInAll);
+    const totalSteps = fastRepros.length + ENGINE_CHECKS.length + Object.keys(STRESS_SPECS).length;
+    obs.pushEvent('suite', `Started automated Canary suite (${fastRepros.length} repros, ${ENGINE_CHECKS.length} checks, 5 stress benchmarks)`);
+
+    // Phase 1 MUST launch synchronously inside click handler so user activation opens the isolated noopener popup cleanly.
+    updateProgress(0, totalSteps, `Phase 1/3: Running ${fastRepros.length} past crash repros in an isolated popup...`);
+    await runReproChainAsync(fastRepros, 0, (idx, len, cur) => {
+      updateProgress(idx, totalSteps, `Phase 1/3: Crash repro ${idx + 1}/${len} (${cur.title})`);
+    });
+
+    if (!suiteAborted) {
+      try { window.focus(); } catch {}
+      await waitUntilVisible('Phase 1 finished. Switch back to this tab to run Phases 2 and 3 at full frame rate.');
+    }
+    if (!suiteAborted) {
+      await runAllEngineChecksPhase(fastRepros.length, totalSteps);
+    }
+    if (!suiteAborted) {
+      await runAllStressPhase(fastRepros.length + ENGINE_CHECKS.length, totalSteps);
+    }
+
+    suiteRunning = false;
+    $('runFullSuite').disabled = false;
+    $('stopFullSuite').disabled = true;
+
+    if (suiteAborted) {
+      updateProgress($('suiteProgress').value, totalSteps, 'Stopped by user.');
+    } else {
+      const summary = fileEndOfRunSummary();
+      updateProgress(totalSteps, totalSteps, `Done. ${summary}`);
+    }
+  });
+
+  $('stopFullSuite').addEventListener('click', () => {
+    suiteAborted = true;
+    stopStress();
+    stopWatchingChain();
+  });
+
+  $('runReprosAll').addEventListener('click', () => {
+    suiteAborted = false;
+    const fast = REPRO_CATALOG.filter((item) => !item.skipInAll);
+    runReproChainAsync(fast, 0);
+  });
+
+  $('continueRepros').addEventListener('click', () => {
+    suiteAborted = false;
+    let c;
+    try { c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
+    if (c && Array.isArray(c.items) && c.index < c.items.length) {
+      runReproChainAsync(c.items, c.index);
+    }
+  });
+
+  $('clearRepros').addEventListener('click', () => {
+    stopWatchingChain();
+    for (const item of REPRO_CATALOG) {
+      try { localStorage.removeItem(item.storageKey); } catch {}
+    }
+    try { localStorage.removeItem(CHAIN_KEY); localStorage.removeItem(HB_KEY); localStorage.removeItem(RUNNER_REPORTS_KEY); } catch {}
+    $('continueRepros').hidden = true;
+    $('reproStatus').textContent = 'Cleared saved repro logs.';
+    renderRepros();
+  });
+
+  $('runEngineAll').addEventListener('click', async () => {
+    suiteAborted = false;
+    await runAllEngineChecksPhase(0, ENGINE_CHECKS.length);
+  });
+
+  $('runStressAll').addEventListener('click', async () => {
+    suiteAborted = false;
+    await runAllStressPhase(0, Object.keys(STRESS_SPECS).length);
+  });
 
   document.querySelectorAll('.stress-tabs button').forEach((b) => {
     b.addEventListener('click', () => selectStress(b.dataset.stress));
@@ -598,16 +833,12 @@
     $('stressStart').disabled = true;
     $('stressStop').disabled = false;
     $('stressStats').textContent = `Starting ${spec.name}...`;
-    const onStats = (stats) => {
-      stressResults.set(key, stats);
-      updateScoreboard();
-      if (stats.error) {
-        $('stressStats').textContent = `Stopped: ${stats.error}`;
-        return;
-      }
-      $('stressStats').textContent = Object.entries(stats).map(([k, v]) => `${k}: ${v}`).join('  |  ');
-    };
-    const handle = await spec.start($('stressStage'), onStats);
+    const handle = await spec.start($('stressStage'), (stats) => {
+      $('stressStats').textContent = stats.error
+        ? `Stopped: ${stats.error}`
+        : Object.entries(stats).map(([k, v]) => `${k}: ${v}`).join(' | ');
+      renderObservers();
+    });
     stopActiveStress = handle;
     if (key === 'webgl' && typeof handle?.triggerLoss === 'function') {
       $('stressLoseBtn').hidden = false;
@@ -616,24 +847,28 @@
 
   $('stressStop').addEventListener('click', () => {
     stopStress();
-    $('stressStats').textContent += '  (stopped)';
+    $('stressStats').textContent += ' (stopped)';
   });
 
   $('stressLoseBtn').addEventListener('click', () => {
-    if (typeof stopActiveStress?.triggerLoss === 'function') {
-      stopActiveStress.triggerLoss();
-    }
+    if (typeof stopActiveStress?.triggerLoss === 'function') stopActiveStress.triggerLoss();
   });
+
+  window.addEventListener('focus', renderRepros);
+  window.addEventListener('storage', renderRepros);
 
   // #region report
   function buildMarkdownReport() {
+    const t = obs.state.totals;
+    const g = obs.gfxSnapshot();
     const lines = [
-      '# HTML-in-canvas Canary Regression & Stress Report',
+      '# HTML-in-canvas Canary Regression, Observer & Stress Report',
       '',
       `- Date: ${new Date().toISOString()}`,
       `- User-Agent: \`${navigator.userAgent}\``,
       `- DPR: ${devicePixelRatio}`,
       `- APIs: requestPaint=${hasDrawElement}, captureElementImage=${hasCapture}, WebGPU=${hasWebGPU}`,
+      `- Observers: LoAF=${t.loafCount} (max ${t.loafMaxMs} ms, blocking ${t.loafBlockingMs} ms), longTasks=${t.longTasks} (max ${t.longTaskMaxMs} ms), CLS=${t.cls.toFixed(4)}, worstEvent=${t.worstEventMs} ms, ReportingObserver=${t.browserReports}, crashesDetected=${t.crashesDetected}, __gfx.lost=${g.lost}, canvasMem=${g.memMB} MB, openSnapshots=${g.openSnapshots}`,
       '',
       '## 1. Past crashes & context losses',
       '| Case | Before | This browser | Detail |',
@@ -651,10 +886,15 @@
         return `| ${chk.id} | ${r ? r.status : 'not run'} | ${(r?.detail || '').replace(/\|/g, '/')} |`;
       }),
     ];
-    if (stressResults.size) {
-      lines.push('', '## 3. Stress tests', '| Test | Metrics |', '|---|---|');
-      for (const [k, v] of stressResults.entries()) {
-        lines.push(`| ${k} | ${Object.entries(v).map(([a, b]) => `${a}=${b}`).join(', ')} |`);
+    if (stressBenchResults.size) {
+      lines.push('', '## 3. Automated stress benchmarks (2.5 s each)', '| Workload | FPS | Avg ms | LoAF (count/max) | Long tasks | Losses/errors |', '|---|---|---|---|---|---|');
+      for (const [k, v] of stressBenchResults.entries()) {
+        if (v.running) continue;
+        const s = v.stats || {};
+        const w = v.obs || {};
+        const avg = s.avgPaintMs ?? s.avgCaptureMs ?? s.avgUploadMs ?? 'n/a';
+        const errs = (s.losses || 0) + (s.errors || 0) + (s.uploadErrors || 0) + (w.newLosses || 0);
+        lines.push(`| ${k} | ${s.error || s.fps || '?'} | ${avg} | ${w.loafCount ?? 0} / ${w.loafMaxMs ?? 0} ms | ${w.longTasks ?? 0} | ${errs} |`);
       }
     }
     return lines.join('\n');
@@ -675,59 +915,42 @@
 
   renderRepros();
   renderEngineChecks();
+  renderStressBenchTable();
   selectStress('2d');
+  renderObservers();
 
-  // Expose helper for automated CLI comparison runs
   window.__canarySuite = {
     runAllEngineChecks: async () => {
-      const out = {};
-      for (const chk of ENGINE_CHECKS) {
-        await runOneEngineCheck(chk);
-        out[chk.id] = engineResults.get(chk.id);
-      }
-      return out;
+      await runAllEngineChecksPhase(0, ENGINE_CHECKS.length);
+      return Object.fromEntries(engineResults.entries());
     },
-    runStressFor: async (key, durationMs = 2500, opts = {}) => {
-      selectStress(key);
-      if (key === '2d') {
-        if (opts.count && $('opt2dCount')) $('opt2dCount').value = String(opts.count);
-        if ('rotate' in opts && $('opt2dRotate')) $('opt2dRotate').checked = !!opts.rotate;
-        if ('reflow' in opts && $('opt2dReflow')) $('opt2dReflow').checked = !!opts.reflow;
-      }
-      if (key === 'webgl') {
-        if ('mipmaps' in opts && $('optGlMip')) $('optGlMip').checked = !!opts.mipmaps;
-        if ('resize' in opts && $('optGlResize')) $('optGlResize').checked = !!opts.resize;
-      }
-      $('stressStart').click();
-      await new Promise((r) => setTimeout(r, durationMs));
-      const snap = stressResults.get(key) || { error: 'no stats reported' };
-      stopStress();
-      return snap;
-    },
+    runStressFor: async (key, durationMs = 2500) => runTimedStress(key, durationMs),
     buildMarkdownReport,
+    observers: obs,
   };
 
   runTests($('results'), [
     {
-      name: 'HTML-in-canvas API is available on this browser',
-      why: 'Checks HTMLCanvasElement.prototype.requestPaint and CanvasRenderingContext2D.prototype.drawElementImage.',
+      name: 'HTML-in-canvas API and observers are available',
+      why: 'Checks requestPaint, drawElementImage, PerformanceObserver and ReportingObserver.',
       run: () => {
         if (!('requestPaint' in HTMLCanvasElement.prototype)) throw new Error('requestPaint missing');
         if (!('drawElementImage' in CanvasRenderingContext2D.prototype)) throw new Error('drawElementImage missing');
-        return 'requestPaint and drawElementImage present';
+        return `APIs OK; LoAF=${obs.state.supported.loaf}, ReportingObserver=${obs.state.supported.reporting}`;
       },
     },
     {
-      name: 'All 12 standalone repro paths resolve (HTTP 200)',
-      why: 'Fetches HEAD for every repro listed in REPRO_CATALOG so no link is broken.',
+      name: 'All 12 standalone repro paths and isolated runner resolve (HTTP 200)',
+      why: 'Fetches HEAD for runner.html and every repro listed in REPRO_CATALOG.',
       run: async () => {
+        const urls = ['/crashes/suite/runner.html', ...REPRO_CATALOG.map((item) => item.repro)];
         const missing = [];
-        for (const item of REPRO_CATALOG) {
-          const r = await fetch(item.repro, { method: 'HEAD' });
-          if (!r.ok) missing.push(`${item.repro} (${r.status})`);
+        for (const u of urls) {
+          const r = await fetch(u, { method: 'HEAD' });
+          if (!r.ok) missing.push(`${u} (${r.status})`);
         }
         if (missing.length) throw new Error(missing.join(', '));
-        return `${REPRO_CATALOG.length} repro files reachable`;
+        return `${urls.length} files reachable`;
       },
     },
   ]);
