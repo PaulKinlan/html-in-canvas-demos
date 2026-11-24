@@ -102,6 +102,17 @@ export const ENTRIES = [
     source: 'findings/media-tiles.md',
   },
   {
+    id: 'rotated-draw-text-flicker', kind: 'engine', area: 'Drawing', date: '2026-11-23',
+    title: 'Animating ctx.rotate() every frame with drawElementImage() drops lines of text on Metal GPU',
+    expected: 'Rotating a 2D canvas smoothly with Math.sin(time / 900) * 0.04 and drawing elements with drawElementImage() keeps every line of text visible on every frame.',
+    actual: 'Entire lines of text vanish for single frames and reappear (20 large frame drops in 1.2 s in Chrome 157 and 21 in Chrome Canary 160 on Apple M4 Pro Metal GPU, reproduced on both <canvas-slot> and a plain <canvas content="drawable"> with no shadow DOM). Does not occur with static rotation, translation-only animation, or software rendering.',
+    browser: 'Chrome 157 & 160 (macOS Metal)', how: 'measured',
+    where: [['/slot/hello.html', 'reported flickering before switching to fixed tilt + vertical bob'], ['/slot/', 'hero wobble animation']],
+    fix: 'Keep the 2D rotation angle fixed (or quantised to a small set of angles) and animate translation instead, or rotate the uploaded element texture in WebGL/WebGPU.',
+    status: 'Candidate Chromium/Skia Graphite glyph-atlas bug. Not filed.',
+    source: 'findings/slots.md',
+  },
+  {
     id: 'movebefore-same-task', kind: 'engine', area: 'Drawing', date: '2026-11-20',
     title: 'After moveBefore() takes an element out of a canvas and back in one task, drawing it throws',
     expected: 'An element that is a child of the canvas again can be drawn.',
