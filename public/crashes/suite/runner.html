@@ -3,12 +3,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Canary crash repro runner</title>
-<!-- Isolated noopener window that runs queued standalone repros one by one.
-     Hooks into each same-origin repro iframe (capture-phase contextlost, webglcontextlost,
-     error, unhandledrejection and ReportingObserver) and streams every event back to
-     /crashes/suite/ via localStorage so crashes, sub-frame crashes and lost contexts are
-     always reported to the parent. -->
+<title>Canary crash &amp; demo runner</title>
+<!-- Isolated noopener window that runs queued heavy site demos AND standalone crash repros
+     one by one. Hooks into each same-origin iframe (contextlost, webglcontextlost, error,
+     unhandledrejection, ReportingObserver, PerformanceObserver LoAF, and window.__gfx) and
+     streams sequenced events + trace logs back to /crashes/suite/ via localStorage. -->
 <style>
   body { font: 14px/1.45 system-ui, sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; }
   header { padding: 10px 14px; border-bottom: 1px solid #8886; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -16,11 +15,11 @@
   iframe { flex: 1; width: 100%; border: 0; }
 </style>
 <header>
-  <strong>Crash repro runner (isolated window)</strong>
-  <span id="msg">Starting... (If this window shows Aw, Snap!, press Reload to advance to the next test in this same window.)</span>
+  <strong>Canary isolated runner</strong>
+  <span id="msg">Starting... (If this window shows Aw, Snap!, click Reload to advance to the next test in this same window.)</span>
   <button type="button" id="stop">Stop</button>
 </header>
-<iframe id="frame" title="Standalone repro frame"></iframe>
+<iframe id="frame" title="Isolated test frame"></iframe>
 <script>
   const CHAIN_KEY = 'hic-suite-chain';
   const HB_KEY = 'hic-suite-heartbeat';
@@ -31,10 +30,30 @@
 
   let stopped = false;
   let myToken = null;
+  let mySuiteId = null;
   let currentItem = null;
-  let caseCounters = { contextlost: 0, webglcontextlost: 0, errors: 0, reports: 0 };
+  let frameLoaded = false;
+  let caseCounters = { contextlost: 0, webglcontextlost: 0, errors: 0, reports: 0, loaf: 0, loafMaxMs: 0 };
 
-  // Close this runner automatically if the parent spawns a newer runner window (new runToken)
+  function emitEvent(kind, caseId, detail, extra = {}) {
+    console.log(`[canary-runner] [${kind}] ${caseId}: ${detail}`);
+    try {
+      const list = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
+      const seq = list.length ? (list[list.length - 1].seq || 0) + 1 : 1;
+      list.push({
+        seq,
+        at: Date.now(),
+        suiteId: mySuiteId,
+        kind,
+        caseId: caseId || 'runner',
+        detail: String(detail || '').slice(0, 240),
+        ...extra,
+      });
+      if (list.length > 300) list.splice(0, list.length - 300);
+      localStorage.setItem(EVENTS_KEY, JSON.stringify(list));
+    } catch {}
+  }
+
   window.addEventListener('storage', (ev) => {
     if (ev.key !== CHAIN_KEY || !myToken) return;
     try {
@@ -47,16 +66,6 @@
       }
     } catch {}
   });
-
-  function emitEvent(kind, caseId, detail, extra = {}) {
-    try {
-      const list = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
-      const seq = list.length ? (list[list.length - 1].seq || 0) + 1 : 1;
-      list.push({ seq, at: Date.now(), kind, caseId: caseId || 'runner', detail: String(detail || '').slice(0, 220), ...extra });
-      if (list.length > 200) list.splice(0, list.length - 200);
-      localStorage.setItem(EVENTS_KEY, JSON.stringify(list));
-    } catch {}
-  }
 
   function attachReportingObserver(win, sourceLabel) {
     if (!win || typeof win.ReportingObserver === 'undefined') return;
@@ -78,10 +87,11 @@
 
   attachReportingObserver(window, 'runner');
 
-  // Capture every contextlost, webglcontextlost, error, unhandledrejection and ReportingObserver inside the repro iframe
   frame.addEventListener('load', () => {
     if (!currentItem) return;
     const id = currentItem.id;
+    frameLoaded = true;
+    emitEvent('trace', id, `iframe loaded (${currentItem.mode === 'demo' ? currentItem.path : currentItem.repro})`);
     try {
       const fwin = frame.contentWindow;
       const fdoc = frame.contentDocument;
@@ -110,6 +120,18 @@
         emitEvent('error', id, `unhandled rejection in ${id}: ${text}`);
       });
 
+      if (fwin.PerformanceObserver?.supportedEntryTypes?.includes('long-animation-frame')) {
+        try {
+          new fwin.PerformanceObserver((list) => {
+            for (const e of list.getEntries()) {
+              caseCounters.loaf++;
+              const d = Math.round(e.duration || 0);
+              if (d > caseCounters.loafMaxMs) caseCounters.loafMaxMs = d;
+            }
+          }).observe({ type: 'long-animation-frame' });
+        } catch {}
+      }
+
       attachReportingObserver(fwin, id);
     } catch (e) {
       emitEvent('error', id, `could not attach frame observers: ${e.message}`);
@@ -129,7 +151,7 @@
     try { localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
   }, 250);
 
-  function isDone(item) {
+  function isReproDone(item) {
     try {
       const raw = localStorage.getItem(item.storageKey);
       if (!raw) return false;
@@ -145,95 +167,187 @@
     }
   }
 
+  async function runDemoSmoke(item) {
+    frameLoaded = false;
+    frame.src = item.path;
+    const loadDeadline = Date.now() + 5000;
+    while (!frameLoaded && Date.now() < loadDeadline && !stopped) {
+      try { localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
+      await sleep(120);
+    }
+    if (stopped) return;
+    if (!frameLoaded) {
+      emitEvent('demo-done', item.id, 'load timed out after 5 s', { status: 'error', metrics: { error: 'load timeout' } });
+      return;
+    }
+
+    // Measure live frame rate inside the demo for durationMs
+    let frames = 0;
+    const t0 = performance.now();
+    const duration = item.durationMs || 3000;
+    let rafActive = true;
+    try {
+      const fwin = frame.contentWindow;
+      const tick = () => {
+        if (!rafActive || stopped) return;
+        frames++;
+        try { fwin.requestAnimationFrame(tick); } catch {}
+      };
+      fwin.requestAnimationFrame(tick);
+    } catch {}
+
+    const end = Date.now() + duration;
+    while (Date.now() < end && !stopped) {
+      try { localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
+      await sleep(200);
+    }
+    rafActive = false;
+    if (stopped) return;
+
+    const elapsed = Math.max(1, performance.now() - t0);
+    const fps = Number(((frames * 1000) / elapsed).toFixed(1));
+    let canvases = 0, visibleCanvases = 0, gfxLost = 0, memMB = 0, halted = false, openSnaps = 0, noSize = 0;
+    try {
+      const fwin = frame.contentWindow;
+      const fdoc = frame.contentDocument;
+      const list = [...fdoc.querySelectorAll('canvas')];
+      canvases = list.length;
+      visibleCanvases = list.filter((c) => c.width > 0 && c.height > 0).length;
+      const g = fwin.__gfx;
+      if (g) {
+        gfxLost = g.lost?.length ?? 0;
+        const m = g.memory?.();
+        memMB = m?.bytes != null ? Number((m.bytes / 1e6).toFixed(1)) : 0;
+        halted = !!g.halted;
+        openSnaps = g.snapshots?.open ?? 0;
+        noSize = g.draws?.noSize ?? 0;
+      }
+    } catch {}
+
+    const totalLosses = Math.max(gfxLost, caseCounters.contextlost + caseCounters.webglcontextlost);
+    const status = halted || totalLosses > 0 ? 'lost' : caseCounters.errors > 0 ? 'error' : 'pass';
+    const summary = `${fps} fps, ${visibleCanvases}/${canvases} canvases, ${memMB} MB, LoAF ${caseCounters.loaf} (max ${caseCounters.loafMaxMs} ms), ${totalLosses} losses, ${caseCounters.errors} errors`;
+    emitEvent('demo-done', item.id, summary, {
+      status,
+      metrics: { fps, canvases, visibleCanvases, memMB, loaf: caseCounters.loaf, loafMaxMs: caseCounters.loafMaxMs, losses: totalLosses, errors: caseCounters.errors, openSnaps, noSize, halted },
+    });
+  }
+
+  async function runReproItem(item) {
+    frameLoaded = false;
+    try { localStorage.removeItem(item.storageKey); } catch {}
+    frame.src = item.repro + item.autoQuery;
+
+    const deadline = Date.now() + (item.timeoutMs || 6500);
+    while (Date.now() < deadline && !stopped) {
+      try { localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
+      await sleep(200);
+      if (isReproDone(item)) break;
+    }
+    if (stopped) return;
+
+    const raw = localStorage.getItem(item.storageKey) || '';
+    const lines = raw.trim().split('\n').filter(Boolean);
+    const last = lines[lines.length - 1] || '';
+    const finished = /done|DONE|PASS|FAIL|not available/i.test(last);
+    if (!raw) {
+      try { localStorage.setItem(item.storageKey, 'timed out waiting for repro'); } catch {}
+      emitEvent('timeout', item.id, `timed out after ${Math.round((item.timeoutMs || 6500) / 1000)} s with no log output`);
+    } else if (/RUNNING/.test(raw) && !finished) {
+      emitEvent('crash', item.id, `repro frame died/hung mid-run: ${last}`);
+    } else {
+      emitEvent('trace', item.id, `repro finished: ${last}`);
+      const dropMatch = last.match(/frames with dropped text [^=]*=\s*(\d+)/i);
+      if (dropMatch && Number(dropMatch[1]) > 0) {
+        emitEvent('error', item.id, `dropped text lines detected: ${last}`);
+      }
+      if (/contextlost/i.test(raw) && !/lost events = 0|0 contextlost|0 webglcontextlost/i.test(raw) && caseCounters.contextlost === 0 && caseCounters.webglcontextlost === 0) {
+        emitEvent('contextlost', item.id, `contextlost reported in repro log: ${last}`);
+      }
+    }
+  }
+
   async function main() {
     let chain;
     try { chain = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
     if (!chain || !Array.isArray(chain.items) || !chain.items.length) {
-      msg.textContent = 'No queued repros. Open /crashes/suite/ to start a run.';
+      msg.textContent = 'No queued tests. Open /crashes/suite/ to start a run.';
       clearInterval(hbTimer);
       return;
     }
     myToken = chain.runToken || Date.now();
+    mySuiteId = chain.suiteId || null;
     let startIdx = chain.index || 0;
-    // Only skip past startIdx on Reload if the parent has NOT already incremented chain.index
-    // (parent sets state='crashed' when it increments index; if state==='running', Reload beat the parent's timeout).
+
+    // On Reload after a crash, skip past the item that crashed if parent hadn't incremented index yet
     if (chain.state === 'running' && chain.currentId && startIdx < chain.items.length && chain.items[startIdx].id === chain.currentId) {
       const prevItem = chain.items[startIdx];
-      const prevRaw = localStorage.getItem(prevItem.storageKey) || '';
-      const prevLines = prevRaw.trim().split('\n').filter(Boolean);
-      const prevLast = prevLines[prevLines.length - 1] || '';
-      if (/RUNNING/.test(prevRaw) && !/done|DONE|PASS|FAIL|not available/i.test(prevLast)) {
-        emitEvent('crash', prevItem.id, `runner reloaded after crash during ${prevItem.id}: ${prevLast}`);
+      if (prevItem.mode === 'demo') {
+        emitEvent('crash', prevItem.id, `runner reloaded after crash during demo ${prevItem.path}`);
         startIdx++;
         chain.index = startIdx;
+      } else {
+        const prevRaw = localStorage.getItem(prevItem.storageKey) || '';
+        const prevLines = prevRaw.trim().split('\n').filter(Boolean);
+        const prevLast = prevLines[prevLines.length - 1] || '';
+        if (/RUNNING/.test(prevRaw) && !/done|DONE|PASS|FAIL|not available/i.test(prevLast)) {
+          emitEvent('crash', prevItem.id, `runner reloaded after crash during ${prevItem.id}: ${prevLast}`);
+          startIdx++;
+          chain.index = startIdx;
+        }
       }
     }
+
     if (startIdx >= chain.items.length) {
       chain.state = 'done';
       chain.currentId = null;
       try { localStorage.setItem(CHAIN_KEY, JSON.stringify(chain)); localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
       clearInterval(hbTimer);
-      msg.textContent = 'All queued repros finished.';
+      msg.textContent = 'All queued tests finished.';
       setTimeout(() => { try { window.close(); } catch {} }, 300);
       return;
     }
+
     chain.state = 'running';
     chain.currentId = chain.items[startIdx].id;
     try {
       localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
       localStorage.setItem(HB_KEY, String(Date.now()));
     } catch {}
+    emitEvent('trace', 'runner', `booted at item ${startIdx + 1}/${chain.items.length} (${chain.items[startIdx].id})`);
 
     for (let i = startIdx; i < chain.items.length; i++) {
       if (stopped) break;
       const item = chain.items[i];
       currentItem = item;
-      caseCounters = { contextlost: 0, webglcontextlost: 0, errors: 0, reports: 0 };
+      caseCounters = { contextlost: 0, webglcontextlost: 0, errors: 0, reports: 0, loaf: 0, loafMaxMs: 0 };
       chain.index = i;
       chain.currentId = item.id;
+      chain.itemStartedAt = Date.now();
       chain.state = 'running';
       try {
-        localStorage.removeItem(item.storageKey);
         localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
         localStorage.setItem(HB_KEY, String(Date.now()));
       } catch {}
 
       msg.textContent = `Running ${i + 1}/${chain.items.length}: ${item.title}`;
-      frame.src = item.repro + item.autoQuery;
+      emitEvent('trace', item.id, `starting ${i + 1}/${chain.items.length} (${item.mode || 'repro'})`);
 
-      const deadline = Date.now() + (item.timeoutMs || 5000);
-      while (Date.now() < deadline && !stopped) {
-        try { localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
-        await sleep(200);
-        if (isDone(item)) break;
+      if (item.mode === 'demo') {
+        await runDemoSmoke(item);
+      } else {
+        await runReproItem(item);
       }
 
-      if (!stopped) {
-        const raw = localStorage.getItem(item.storageKey) || '';
-        const lines = raw.trim().split('\n').filter(Boolean);
-        const last = lines[lines.length - 1] || '';
-        const finished = /done|DONE|PASS|FAIL|not available/i.test(last);
-        if (!raw) {
-          try { localStorage.setItem(item.storageKey, 'timed out waiting for repro'); } catch {}
-          emitEvent('timeout', item.id, `timed out after ${Math.round((item.timeoutMs || 5000) / 1000)} s with no log output`);
-        } else if (/RUNNING/.test(raw) && !finished) {
-          // The repro iframe crashed or hung without taking down the outer runner window!
-          emitEvent('crash', item.id, `repro frame died/hung mid-run: ${last}`);
-        } else {
-          const dropMatch = last.match(/frames with dropped text [^=]*=\s*(\d+)/i);
-          if (dropMatch && Number(dropMatch[1]) > 0) {
-            emitEvent('error', item.id, `dropped text lines detected: ${last}`);
-          }
-          // Check if the repro logged a contextlost line that occurred before our load listener attached
-          if (/contextlost/i.test(raw) && !/lost events = 0|0 contextlost|0 webglcontextlost/i.test(raw) && caseCounters.contextlost === 0 && caseCounters.webglcontextlost === 0) {
-            emitEvent('contextlost', item.id, `contextlost reported in repro log: ${last}`);
-          }
-        }
-      }
-
+      if (stopped) break;
+      // Clear iframe briefly between runs to free GPU resources cleanly
+      frame.src = 'about:blank';
       chain.index = i + 1;
-      try { localStorage.setItem(CHAIN_KEY, JSON.stringify(chain)); } catch {}
-      await sleep(200);
+      try {
+        localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
+        localStorage.setItem(HB_KEY, String(Date.now()));
+      } catch {}
+      await sleep(220);
     }
 
     currentItem = null;
@@ -241,9 +355,12 @@
     if (!stopped) {
       chain.state = 'done';
       chain.currentId = null;
-      try { localStorage.setItem(CHAIN_KEY, JSON.stringify(chain)); } catch {}
-      msg.textContent = 'All queued repros finished. Returning to /crashes/suite/.';
-      frame.src = 'about:blank';
+      try {
+        localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
+        localStorage.setItem(HB_KEY, String(Date.now()));
+      } catch {}
+      emitEvent('trace', 'runner', 'queue complete, closing window');
+      msg.textContent = 'All queued tests finished. Returning to /crashes/suite/.';
       setTimeout(() => { try { window.close(); } catch {} }, 400);
     }
   }
