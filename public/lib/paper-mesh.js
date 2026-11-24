@@ -69,7 +69,9 @@ export function drawTriangle(ctx, image, scale, u0, v0, u1, v1, u2, v2, x0, y0, 
   if (!det) return;
   const a = ((x1 - x0) * (v2 - v0) - (x2 - x0) * (v1 - v0)) / det, c = ((x2 - x0) * (u1 - u0) - (x1 - x0) * (u2 - u0)) / det;
   const b = ((y1 - y0) * (v2 - v0) - (y2 - y0) * (v1 - v0)) / det, d = ((y2 - y0) * (u1 - u0) - (y1 - y0) * (u2 - u0)) / det;
-  const su = Math.min(u0, u1, u2), sv = Math.min(v0, v1, v2), sw = Math.max(u0, u1, u2) - su, sh = Math.max(v0, v1, v2) - sv;
+  // The piece of the image that is drawn: the triangle's box and 1 px more on each side. The path below is a
+  // little larger than the triangle, and with no margin its rim would be left empty and show as a pale seam.
+  const su = Math.min(u0, u1, u2) - 1, sv = Math.min(v0, v1, v2) - 1, sw = Math.max(u0, u1, u2) - su + 1, sh = Math.max(v0, v1, v2) - sv + 1;
   ctx.save();
   trace(ctx, x0, y0, x1, y1, x2, y2);
   ctx.clip();
