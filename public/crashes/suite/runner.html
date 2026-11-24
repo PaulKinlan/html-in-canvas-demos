@@ -17,7 +17,7 @@
 </style>
 <header>
   <strong>Crash repro runner (isolated window)</strong>
-  <span id="msg">Starting...</span>
+  <span id="msg">Starting... (If this window shows Aw, Snap!, press Reload to advance to the next test in this same window.)</span>
   <button type="button" id="stop">Stop</button>
 </header>
 <iframe id="frame" title="Standalone repro frame"></iframe>
@@ -30,8 +30,23 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   let stopped = false;
+  let myToken = null;
   let currentItem = null;
   let caseCounters = { contextlost: 0, webglcontextlost: 0, errors: 0, reports: 0 };
+
+  // Close this runner automatically if the parent spawns a newer runner window (new runToken)
+  window.addEventListener('storage', (ev) => {
+    if (ev.key !== CHAIN_KEY || !myToken) return;
+    try {
+      const c = JSON.parse(ev.newValue || 'null');
+      if (c && c.runToken && c.runToken !== myToken) {
+        stopped = true;
+        clearInterval(hbTimer);
+        frame.src = 'about:blank';
+        try { window.close(); } catch {}
+      }
+    } catch {}
+  });
 
   function emitEvent(kind, caseId, detail, extra = {}) {
     try {
@@ -138,8 +153,11 @@
       clearInterval(hbTimer);
       return;
     }
+    myToken = chain.runToken || Date.now();
     let startIdx = chain.index || 0;
-    if (chain.state === 'running' && chain.currentId && startIdx < chain.items.length) {
+    // Only skip past startIdx on Reload if the parent has NOT already incremented chain.index
+    // (parent sets state='crashed' when it increments index; if state==='running', Reload beat the parent's timeout).
+    if (chain.state === 'running' && chain.currentId && startIdx < chain.items.length && chain.items[startIdx].id === chain.currentId) {
       const prevItem = chain.items[startIdx];
       const prevRaw = localStorage.getItem(prevItem.storageKey) || '';
       const prevLines = prevRaw.trim().split('\n').filter(Boolean);
@@ -150,7 +168,17 @@
         chain.index = startIdx;
       }
     }
+    if (startIdx >= chain.items.length) {
+      chain.state = 'done';
+      chain.currentId = null;
+      try { localStorage.setItem(CHAIN_KEY, JSON.stringify(chain)); localStorage.setItem(HB_KEY, String(Date.now())); } catch {}
+      clearInterval(hbTimer);
+      msg.textContent = 'All queued repros finished.';
+      setTimeout(() => { try { window.close(); } catch {} }, 300);
+      return;
+    }
     chain.state = 'running';
+    chain.currentId = chain.items[startIdx].id;
     try {
       localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
       localStorage.setItem(HB_KEY, String(Date.now()));

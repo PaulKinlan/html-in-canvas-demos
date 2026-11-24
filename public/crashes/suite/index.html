@@ -447,17 +447,21 @@
   }
 
   function openRunnerPopup(chain) {
+    const token = Date.now() + Math.random();
+    const withToken = { ...chain, runToken: token };
     try {
-      localStorage.setItem(CHAIN_KEY, JSON.stringify(chain));
-      localStorage.setItem(HB_KEY, '0');
+      localStorage.setItem(CHAIN_KEY, JSON.stringify(withToken));
     } catch {}
+    // Unique window target with noopener isolates renderer crashes from this suite tab.
+    // Any older alive runner sees the new runToken via storage event and closes itself.
     window.open('/crashes/suite/runner.html', '_blank', 'noopener,width=680,height=520');
+    return withToken;
   }
 
   // Runs a list of repros in an isolated noopener window. If a repro crashes the window,
   // marks it crashed, files a canary-crash report, automatically tries to open a fresh window
   // for the next repro (works hands-free when popups are allowed), and if blocked waits for
-  // either Continue, Reload in the crashed window, or Skip.
+  // either Continue (opens a new window) or Reload in the crashed window (reuses it cleanly).
   async function runReproChainAsync(items, startIndex = 0, onStep = null) {
     stopWatchingChain();
     hideResumeControls();
@@ -469,15 +473,17 @@
     }
 
     while (idx < items.length && !suiteAborted) {
-      const chain = { items, index: idx, currentId: items[idx].id, state: 'running', startedAt: Date.now() };
+      const baselineHb = Number(localStorage.getItem(HB_KEY) || 0);
       const launchAt = Date.now();
+      const chain = { items, index: idx, currentId: items[idx].id, state: 'running', startedAt: launchAt };
       $('reproStatus').textContent = `Opening isolated window (${idx + 1}/${items.length}: ${items[idx].title})...`;
       openRunnerPopup(chain);
 
-      // Wait up to 2.2 s to verify the isolated window actually started ticking HB_KEY
+      // Wait up to 2.5 s to verify the isolated window booted and ticked HB_KEY above baselineHb
       let started = false;
-      while (Date.now() - launchAt < 2200 && !suiteAborted) {
-        if (Number(localStorage.getItem(HB_KEY) || 0) >= launchAt) { started = true; break; }
+      while (Date.now() - launchAt < 2500 && !suiteAborted) {
+        const hbNow = Number(localStorage.getItem(HB_KEY) || 0);
+        if (hbNow > baselineHb && hbNow >= launchAt - 50) { started = true; break; }
         await new Promise((r) => setTimeout(r, 120));
       }
 
@@ -485,12 +491,13 @@
         // Popup was blocked by Chrome after a prior crash; wait for Continue, Reload in the dead tab, or Skip.
         const prevTitle = idx > 0 ? items[idx - 1].title : items[idx].title;
         showResumeControls(items.length - idx, prevTitle);
+        const waitBaseHb = Number(localStorage.getItem(HB_KEY) || 0);
         const action = await new Promise((resolve) => {
-          resumeWaiter = { resolve, since: launchAt };
+          resumeWaiter = { resolve, since: Date.now() };
           watchTimer = setInterval(() => {
             if (suiteAborted) { clearInterval(watchTimer); watchTimer = 0; resumeWaiter = null; resolve('stop'); return; }
-            // If the user clicked Reload in the Aw, Snap! window, HB_KEY ticks above launchAt!
-            if (Number(localStorage.getItem(HB_KEY) || 0) >= launchAt) {
+            const hbNow = Number(localStorage.getItem(HB_KEY) || 0);
+            if (hbNow > waitBaseHb) {
               clearInterval(watchTimer); watchTimer = 0; resumeWaiter = null; resolve('reloaded');
             }
           }, 200);
@@ -498,17 +505,19 @@
         hideResumeControls();
         if (action === 'stop' || action === 'skip') break;
         if (action === 'reopened') {
-          // User clicked Continue which opened the new popup synchronously; wait briefly for its heartbeat.
           const tReopen = Date.now();
+          const preReopenHb = Number(localStorage.getItem(HB_KEY) || 0);
           while (Date.now() - tReopen < 2500 && !suiteAborted) {
-            if (Number(localStorage.getItem(HB_KEY) || 0) >= tReopen) break;
+            if (Number(localStorage.getItem(HB_KEY) || 0) > preReopenHb) break;
             await new Promise((r) => setTimeout(r, 120));
           }
         }
-        // action === 'reloaded' or 'reopened': runner is alive at idx, fall through to monitor it!
       }
 
-      // Monitor the running isolated window until done, stopped, or crashed (heartbeat stale > 4.5 s)
+      // Monitor the running isolated window using a monotonically tracked lastSeenHb
+      // (never compare against 0, so a slow boot or instant crash never falsely triggers early).
+      let lastSeenHb = Date.now();
+      let lastHbVal = Number(localStorage.getItem(HB_KEY) || 0);
       const outcome = await new Promise((resolve) => {
         stopWatchingChain();
         watchTimer = setInterval(() => {
@@ -526,8 +535,13 @@
           let c;
           try { c = JSON.parse(localStorage.getItem(CHAIN_KEY) || 'null'); } catch {}
           if (!c) { stopWatchingChain(); resolve({ outcome: 'missing' }); return; }
-          const hb = Number(localStorage.getItem(HB_KEY) || 0);
-          const staleMs = Date.now() - hb;
+
+          const hbVal = Number(localStorage.getItem(HB_KEY) || 0);
+          if (hbVal > lastHbVal) {
+            lastHbVal = hbVal;
+            lastSeenHb = Date.now();
+          }
+          const staleMs = Date.now() - lastSeenHb;
 
           if (c.state === 'done') {
             stopWatchingChain();
@@ -556,6 +570,7 @@
             crashedIds.push(cur.id);
             const nextIdx = c.index + 1;
             c.index = nextIdx;
+            c.currentId = c.items[nextIdx]?.id || null;
             c.state = 'crashed';
             try { localStorage.setItem(CHAIN_KEY, JSON.stringify(c)); } catch {}
             renderRepros();
@@ -580,7 +595,7 @@
         idx = outcome.nextIdx;
         if (idx < items.length) {
           $('reproStatus').textContent = `Crashed on "${outcome.crashedTitle}". Moving on to ${idx + 1}/${items.length}...`;
-          $('suiteStatus').textContent = `Phase 1/3: Crashed on "${outcome.crashedTitle}". Auto-advancing to ${idx + 1}/${items.length}...`;
+          $('suiteStatus').textContent = `Phase 1/3: Crashed on "${outcome.crashedTitle}". Opening fresh window for ${idx + 1}/${items.length}...`;
         }
       }
     }
