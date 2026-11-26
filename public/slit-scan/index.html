@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Slit-scan time ribbon</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A 64-layer WebGL 2 TEXTURE_2D_ARRAY ring buffer that warps live typing, scrolling and CSS animation across space and time in one ElementGL canvas, with zero open ElementImage snapshots and no CPU readback.">
+<link rel="canonical" href="https://html-in-canvas.page/slit-scan/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Slit-scan time ribbon">
+<meta property="og:description" content="A 64-layer WebGL 2 TEXTURE_2D_ARRAY ring buffer that warps live typing, scrolling and CSS animation across space and time in one ElementGL canvas, with zero open ElementImage snapshots and no CPU readback.">
+<meta property="og:url" content="https://html-in-canvas.page/slit-scan/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Slit-scan time ribbon&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-26">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Slit-scan time ribbon">
+<meta name="twitter:description" content="A 64-layer WebGL 2 TEXTURE_2D_ARRAY ring buffer that warps live typing, scrolling and CSS animation across space and time in one ElementGL canvas, with zero open ElementImage snapshots and no CPU readback.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Slit-scan time ribbon&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/slit-scan/",
+   "url": "https://html-in-canvas.page/slit-scan/",
+   "mainEntityOfPage": "https://html-in-canvas.page/slit-scan/",
+   "headline": "Slit-scan time ribbon",
+   "name": "Slit-scan time ribbon",
+   "description": "A 64-layer WebGL 2 TEXTURE_2D_ARRAY ring buffer that warps live typing, scrolling and CSS animation across space and time in one ElementGL canvas, with zero open ElementImage snapshots and no CPU readback.",
+   "abstract": "Can a WebGL 2 TEXTURE_2D_ARRAY ring buffer warp live scrolling, typing and animating HTML across 64 frames of history with zero open ElementImage snapshots and no CPU readback, avoiding the GPU snapshot memory ceiling hit by captureElementImage\u0028) timelines?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-26",
+   "keywords": "WebGL2, TEXTURE_2D_ARRAY, ElementGL, slit-scan, texElementSubImage2D\u0028), texSubImage3D\u0028), copyTexSubImage3D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Slit-scan time ribbon",
+     "item": "https://html-in-canvas.page/slit-scan/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .ss-stage {
+    position: relative;
+    height: 490px;
+    padding: 0;
+    overflow: hidden;
+    background: #14161d;
+  }
+  .ss-stage.brush-painting {
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .ss-stage.brush-painting #ss-panel {
+    pointer-events: none;
+    user-select: none;
+  }
+  #ss-canvas {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .ss-stage.plain #ss-canvas { display: none; }
+
+  /* Live interactive HTML panel drawn into the WebGL 2 ring buffer. */
+  #ss-panel {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    overflow: hidden;
+    background: #f6f4ef;
+    color: #161514;
+    font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  #ss-panel.is-dark {
+    background: #15171f;
+    color: #f4f1ea;
+  }
+
+  /* High-contrast animated top strip: bends into waves under slit-scan. */
+  .ss-ribbon-header {
+    position: relative;
+    flex: none;
+    border-radius: 9px;
+    overflow: hidden;
+    border: 2px solid #161514;
+    background: #161514;
+    color: #ffffff;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #ss-panel.is-dark .ss-ribbon-header {
+    border-color: #f4f1ea;
+    background: #f4f1ea;
+    color: #161514;
+  }
+  .ss-pendulum-track {
+    position: relative;
+    flex: 1 1 auto;
+    height: 28px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.08) 0 12px,
+      transparent 12px 24px
+    );
+  }
+  #ss-panel.is-dark .ss-pendulum-track {
+    background: repeating-linear-gradient(
+      90deg,
+      rgba(22, 21, 20, 0.12) 0 12px,
+      transparent 12px 24px
+    );
+  }
+  .ss-pendulum-block {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 0;
+    width: 44px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #d2491f 0 50%, #f2c14e 50% 100%);
+    animation: ss-sweep var(--ss-period, 2.2s) ease-in-out infinite alternate;
+  }
+  .ss-pendulum-block.is-second {
+    width: 24px;
+    background: #2f80ed;
+    animation-duration: calc(var(--ss-period, 2.2s) * 0.67);
+    animation-direction: alternate-reverse;
+  }
+  @keyframes ss-sweep {
+    from { transform: translateX(4px); }
+    to { transform: translateX(calc(var(--ss-track-w, 260px) - 48px)); }
+  }
+  .ss-clock {
+    flex: none;
+    font: 700 18px/1 var(--mono);
+    letter-spacing: -0.02em;
+    min-width: 72px;
+    text-align: right;
+  }
+
+  /* Animated equaliser columns + live editable typography. */
+  .ss-live-row {
+    flex: none;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: stretch;
+  }
+  .ss-type-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .ss-type-input {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 2px solid #161514;
+    background: #ffffff;
+    color: #161514;
+    font: 700 16px/1.2 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  #ss-panel.is-dark .ss-type-input {
+    border-color: #f4f1ea;
+    background: #0d0f15;
+    color: #ffffff;
+  }
+  .ss-echo {
+    font: 800 22px/1.1 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: clip;
+    color: #d2491f;
+    min-height: 26px;
+    transition: transform 0.14s ease;
+  }
+  #ss-panel.is-dark .ss-echo {
+    color: #ff8559;
+  }
+  .ss-echo.is-kicked {
+    transform: translateX(18px) skewX(-8deg);
+  }
+
+  .ss-eq {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: #161514;
+    height: 72px;
+  }
+  #ss-panel.is-dark .ss-eq {
+    background: #232735;
+  }
+  .ss-eq i {
+    display: block;
+    width: 10px;
+    height: 100%;
+    border-radius: 3px;
+    transform-origin: bottom;
+    background: #f2c14e;
+    animation: ss-eq-bounce var(--ss-period, 2.2s) ease-in-out infinite alternate;
+  }
+  .ss-eq i:nth-child(2n) { background: #d2491f; }
+  .ss-eq i:nth-child(3n) { background: #4aa3ff; }
+  .ss-eq i:nth-child(1) { animation-delay: -0.1s; }
+  .ss-eq i:nth-child(2) { animation-delay: -0.4s; }
+  .ss-eq i:nth-child(3) { animation-delay: -0.7s; }
+  .ss-eq i:nth-child(4) { animation-delay: -1.0s; }
+  .ss-eq i:nth-child(5) { animation-delay: -1.3s; }
+  .ss-eq i:nth-child(6) { animation-delay: -1.6s; }
+  @keyframes ss-eq-bounce {
+    0% { transform: scaleY(0.18); }
+    100% { transform: scaleY(1); }
+  }
+
+  /* Interactive controls inside the live HTML panel. */
+  .ss-panel-actions {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .ss-panel-actions button {
+    min-height: 36px;
+    padding: 5px 10px;
+    border-radius: 7px;
+    border: 2px solid #161514;
+    background: #ffffff;
+    color: #161514;
+    font: 600 13px/1 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  #ss-panel.is-dark .ss-panel-actions button {
+    border-color: #f4f1ea;
+    background: #232735;
+    color: #f4f1ea;
+  }
+  .ss-panel-actions button.is-hot {
+    background: #d2491f;
+    border-color: #d2491f;
+    color: #ffffff;
+  }
+  .ss-speed-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: 600 12.5px var(--mono);
+    margin-left: auto;
+  }
+  .ss-speed-wrap input[type="range"] {
+    width: 92px;
+    accent-color: #d2491f;
+  }
+
+  /* Scrollable mini-article inside the live HTML panel. */
+  #ss-article {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    border-radius: 9px;
+    border: 2px solid #161514;
+    background: #ffffff;
+    color: #161514;
+    padding: 10px 12px 24px;
+  }
+  #ss-panel.is-dark #ss-article {
+    border-color: #4b5063;
+    background: #0f1118;
+    color: #ece8df;
+  }
+  #ss-article h3 {
+    margin: 0 0 6px;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+  }
+  #ss-article p {
+    margin: 0 0 10px;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .ss-stripes {
+    height: 26px;
+    border-radius: 6px;
+    margin: 8px 0 10px;
+    border: 1px solid #161514;
+    background: repeating-linear-gradient(
+      90deg,
+      #161514 0 14px,
+      #ffffff 14px 28px,
+      #d2491f 28px 42px,
+      #1d5fa8 42px 56px
+    );
+  }
+  .ss-pulse-flash {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(210, 73, 31, 0.72), rgba(242, 193, 78, 0.72), transparent);
+    transform: translateX(-110%);
+  }
+  .ss-pulse-flash.is-running {
+    animation: ss-flash-sweep 0.55s linear forwards;
+  }
+  @keyframes ss-flash-sweep {
+    from { transform: translateX(-110%); }
+    to { transform: translateX(110%); }
+  }
+
+  #ss-panel.is-paused .ss-pendulum-block,
+  #ss-panel.is-paused .ss-eq i {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ss-pendulum-block, .ss-eq i {
+      animation-duration: 6s;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .ss-stage { height: 500px; }
+    #ss-panel { padding: 10px; gap: 8px; }
+    .ss-live-row { grid-template-columns: 1fr; }
+    .ss-eq { height: 42px; justify-content: space-between; }
+    .ss-eq i { flex: 1 1 auto; width: auto; }
+    .ss-echo { font-size: 18px; }
+    .ss-speed-wrap { margin-left: 0; }
+  }
+
+  /* Page controls outside the canvas. */
+  .ss-controls {
+    margin-top: 12px;
+    display: grid;
+    gap: 10px;
+  }
+  .ss-modes button,
+  .ss-brush-tools button {
+    min-height: 40px;
+  }
+  .ss-modes button[aria-pressed="true"],
+  .ss-brush-tools button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  .ss-brush-tools {
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--card);
+  }
+  .ss-brush-tools[hidden] { display: none; }
+  .ss-sliders {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px 14px;
+    align-items: center;
+  }
+  .ss-sliders label {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 8px;
+    align-items: center;
+    font-size: 13.5px;
+  }
+  .ss-sliders input[type="range"] {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin: 0;
+  }
+  .ss-sliders output {
+    font: 12px var(--mono);
+    color: var(--muted);
+  }
+  .ss-check-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    min-height: 40px;
+  }
+  #ss-telemetry {
+    font: 12.5px/1.5 var(--mono);
+    color: var(--muted);
+    min-height: 2.2em;
+    margin: 8px 0 0;
+  }
+  .ss-notice {
+    margin: 8px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .ss-notice[hidden] { display: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Slit-scan time ribbon</h1>
+  <p class="lede">
+    I wanted to know if a WebGL 2 <code>TEXTURE_2D_ARRAY</code> ring buffer can warp live scrolling, typing and CSS animation across 64 frames of history with zero open <code>ElementImage</code> snapshots and no CPU readback. Type in the input, scroll the article or tap the panel buttons to send waves across space and time.
+  </p>
+
+  <div class="stage ss-stage" id="ss-stage">
+    <!-- #region markup -->
+    <canvas id="ss-canvas" content="drawable" layoutsubtree>
+      <section id="ss-panel" drawable aria-label="Live interactive HTML source panel">
+        <div class="ss-pulse-flash" id="ss-pulse-flash" aria-hidden="true"></div>
+
+        <div class="ss-ribbon-header">
+          <div class="ss-pendulum-track" id="ss-track" aria-hidden="true">
+            <div class="ss-pendulum-block"></div>
+            <div class="ss-pendulum-block is-second"></div>
+          </div>
+          <output class="ss-clock" id="ss-clock" aria-label="Elapsed seconds">00.00s</output>
+        </div>
+
+        <div class="ss-live-row">
+          <div class="ss-type-box">
+            <input
+              type="text"
+              class="ss-type-input"
+              id="ss-type"
+              value="Type here to bend letters in time"
+              aria-label="Live text input warped across 64 frames"
+            >
+            <div class="ss-echo" id="ss-echo" aria-live="off">Type here to bend letters in time</div>
+          </div>
+          <div class="ss-eq" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+
+        <div class="ss-panel-actions">
+          <button type="button" id="ss-invert-btn">Invert panel</button>
+          <button type="button" id="ss-pulse-btn" class="is-hot">Pulse sweep</button>
+          <button type="button" id="ss-tap-btn">Tap count: 0</button>
+          <label class="ss-speed-wrap">
+            <span>Speed</span>
+            <input type="range" id="ss-speed" min="0.6" max="3.5" step="0.1" value="2.2" aria-label="Animation period in seconds">
+          </label>
+        </div>
+
+        <article id="ss-article" tabindex="0" aria-label="Scrollable mini-article inside the slit-scan canvas">
+          <h3>Scroll this column to stretch lines in time</h3>
+          <p>
+            Every pixel in this panel is uploaded into a single <code>ElementGL</code> WebGL 2 context via
+            <code>texElementSubImage2D()</code> and copied on the GPU into the next slice of a 64-layer
+            <code>TEXTURE_2D_ARRAY</code> with <code>copyTexSubImage3D()</code>.
+          </p>
+          <div class="ss-stripes" aria-hidden="true"></div>
+          <p>
+            In vertical slit-scan mode, the top edge shows the current frame while the bottom edge shows one second in
+            the past. Scrolling downward stretches tall glyphs; scrolling upward compresses them into tight bands.
+          </p>
+          <div class="ss-stripes" aria-hidden="true"></div>
+          <p>
+            Switch to radial ripple to watch waves spread from the centre, diagonal ribbon to shear time across the
+            controls, or time-freeze brush to paint an <code>R8</code> delay mask directly on the canvas.
+          </p>
+          <p>
+            Because no <code>captureElementImage()</code> snapshots are kept open, <code>window.__gfx.snapshots.open</code>
+            stays at zero even after thousands of frames.
+          </p>
+        </article>
+      </section>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="ss-controls">
+    <div class="row ss-modes" role="group" aria-label="Time displacement mode">
+      <button type="button" data-mode="0" aria-pressed="true">Vertical slit-scan</button>
+      <button type="button" data-mode="1" aria-pressed="false">Radial time ripple</button>
+      <button type="button" data-mode="2" aria-pressed="false">Diagonal ribbon</button>
+      <button type="button" data-mode="3" aria-pressed="false">Time-freeze brush</button>
+    </div>
+
+    <div class="row ss-brush-tools" id="ss-brush-tools" hidden>
+      <button type="button" data-brush="freeze" aria-pressed="true">Freeze brush</button>
+      <button type="button" data-brush="erase" aria-pressed="false">Live eraser</button>
+      <button type="button" data-brush="interact" aria-pressed="false">Interact DOM</button>
+      <button type="button" id="ss-clear-mask">Clear mask</button>
+      <label class="ss-check-toggle">
+        <span>Brush size</span>
+        <input type="range" id="ss-brush-size" min="6" max="28" step="1" value="14">
+      </label>
+    </div>
+
+    <div class="ss-sliders">
+      <label>
+        <span>Time depth</span>
+        <output id="ss-depth-out">56 slices</output>
+        <input type="range" id="ss-depth" min="0" max="63" step="1" value="56">
+      </label>
+      <label>
+        <span>Capture stride</span>
+        <output id="ss-stride-out">every frame</output>
+        <input type="range" id="ss-stride" min="1" max="3" step="1" value="1">
+      </label>
+      <div class="row">
+        <button type="button" id="ss-pause-btn" aria-pressed="false">Pause capture</button>
+        <label class="ss-check-toggle">
+          <input type="checkbox" id="ss-timemap"> Show time map
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <p id="ss-telemetry" role="status">&nbsp;</p>
+  <p id="ss-notice" class="ss-notice" hidden></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>TEXTURE_2D_ARRAY GPU ring buffer, copyTexSubImage3D, slit-scan shader and R8 freeze brush</small></summary>
+    <ol>
+      <li data-code="#markup"><b>One drawable panel in one canvas.</b> The live input, animated bars, buttons and scrollable article sit inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>.</li>
+      <li data-code="/slit-scan/slitscan.js#ring-buffer"><b>Zero-snapshot GPU ring buffer.</b> Allocates one 64-layer <code>TEXTURE_2D_ARRAY</code> inside a VRAM cap (24 MB on narrow screens, 32 MB on wide screens) and copies each frame on the GPU with <code>blitFramebuffer()</code> and <code>copyTexSubImage3D()</code>.</li>
+      <li data-code="/slit-scan/slitscan.js#shader"><b>Space-time fragment shader.</b> Computes a per-pixel delay from vertical position, radial distance, diagonal shear or the painted <code>R8</code> mask, then interpolates between adjacent ring slices.</li>
+      <li data-code="/slit-scan/slitscan.js#paint"><b>Paint loop and synced hit boxes.</b> Uploads the panel with <code>ElementGL.upload()</code>, pushes into the ring buffer, draws the time-displaced quad, and keeps controls reachable with <code>updateElementGeometry()</code>.</li>
+      <li data-code="/slit-scan/slitscan.js#brush"><b>Time-freeze brush mask.</b> Paints delay values into a 128 by 128 <code>Uint8Array</code> and uploads it to an <code>R8</code> texture with <code>texSubImage2D()</code> only when you draw.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    In <a href="/time-scrubber/">/time-scrubber/</a>, keeping a history of live HTML frames meant storing over a hundred open
+    <code>ElementImage</code> objects from <code>captureElementImage()</code>. Each open snapshot holds GPU memory until
+    <code>close()</code> runs, and the site's graphics guard flags pages that leave more than eight open. I built this page
+    to test whether a fixed-size WebGL 2 <code>TEXTURE_2D_ARRAY</code> ring buffer can store 64 frames of history directly on
+    the GPU without calling <code>captureElementImage()</code> or reading any pixels back to the CPU.
+  </p>
+  <p>
+    Everything runs inside one <code>ElementGL</code> context from <code>/lib/element-gl.js</code>. On each captured frame,
+    <code>stage.upload(panel)</code> calls <code>gl.texElementSubImage2D()</code> to update the live 2D texture at native
+    resolution. That texture is attached to a <code>READ_FRAMEBUFFER</code>. When the live texture is larger than the ring
+    buffer's VRAM budget (capped at 24 MB on narrow screens and 32 MB on desktop, with a 512 px maximum side),
+    <code>gl.blitFramebuffer()</code> downscales it on the GPU into a single-frame scratch framebuffer first. Then
+    <code>gl.copyTexSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, head, 0, 0, w, h)</code> copies the frame straight into slice
+    <code>head = (head + 1) % 64</code>. No pixels ever cross back to JavaScript.
+  </p>
+  <p>
+    The fragment shader maps each screen pixel's UV to a fractional frame age using one of four modes: vertical slit-scan,
+    radial ripple, diagonal ribbon, or a 128 by 128 <code>R8</code> delay texture painted with your finger or mouse. Where
+    age is below half a frame, the shader samples the full-resolution live texture directly; older regions interpolate
+    between two consecutive layers in the <code>TEXTURE_2D_ARRAY</code> so fast motion doesn't step between discrete slices.
+    After drawing, <code>canvas.updateElementGeometry()</code> syncs the panel's hit box at its unwarped position so typing,
+    scrolling and button taps still land on the live DOM. An <code>IntersectionObserver</code> pauses capture whenever the
+    stage scrolls off screen, and <code>pagehide</code> deletes the ring buffer textures and framebuffers.
+  </p>
+
+  <h2>Live checks</h2>
+  <p>These wait for a tap so the demo starts with no extra WebGL contexts running. Each check builds its own small fixture in the corner of the window and retires it afterwards.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>A 64-layer <code>RGBA8</code> <code>TEXTURE_2D_ARRAY</code> bounded to 24 MB on phones and 32 MB on desktop keeps GPU memory predictable while holding about one second of 60 fps history (or three seconds at capture stride 3) and zero open <code>ElementImage</code> snapshots.</li>
+    <li><code>gl.copyTexSubImage3D()</code> copies pixels 1:1 from <code>READ_FRAMEBUFFER</code> and can't rescale on its own. On high-DPI screens, <code>texElementSubImage2D()</code> uploads at device pixels (often over 1,000 px wide), so adding a GPU <code>blitFramebuffer()</code> step into a small scratch framebuffer avoids cropping the element into the capped ring buffer.</li>
+    <li>Sampling the full-DPR live texture when a pixel's delay is zero and blending into the capped <code>TEXTURE_2D_ARRAY</code> for delayed regions keeps unpainted live UI sharp in time-freeze brush mode without tripling ring VRAM.</li>
+    <li>The time-freeze paint brush needs a mode switch between painting on the canvas (with <code>pointer-events: none</code> on the drawable child and <code>touch-action: none</code> on the stage) and interacting with the DOM through the painted mask, otherwise dragging selects text or scrolls the article instead of painting.</li>
+    <li>Not verified yet in a live browser (written 2026-11-26): running all four live checks in headless Chromium 157 and on Chrome 159 on Android (412 px wide, DPR 2.625), verifying <code>npm run check:jank -- /slit-scan/</code>, and checking real frame rate and context stability while typing and scrolling on a phone.</li>
+  </ul>
+</main>
+
+<script type="module" src="./slitscan.js"></script>
+</body>
+</html>

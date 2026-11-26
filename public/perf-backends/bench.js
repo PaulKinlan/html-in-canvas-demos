@@ -1827,19 +1827,20 @@ async function init() {
   banner();
   state.capabilities.webgl2 = webgl2();
   const tier = state.capabilities.tier;
-  const gpuProbe = await softwareGpu();
-  state.capabilities.gpuAdapterInfo = gpuProbe.detail || (gpuProbe.webgpu ? (gpuProbe.fallback ? 'software' : 'hardware') : 'none');
 
-  ui.deviceInfo.textContent = [
-    `Tier: ${tier.tier} (${tier.source})`,
-    `DPR: ${state.capabilities.dpr.toFixed(2)}`,
-    `Viewport: ${innerWidth}×${innerHeight}`,
-    `LoAF: ${state.capabilities.loaf ? 'supported' : 'not supported'}`,
-    `WebGL2 upload: ${supportedGL && state.capabilities.webgl2 ? 'supported' : 'no'}`,
-    `WebGPU upload: ${supportedGPU ? `${gpuMethod}() (${gpuProbe.fallback ? 'software adapter, off-screen checks only' : (gpuProbe.detail || 'adapter present')})` : 'no'}`,
-  ].join(' · ');
+  const renderDeviceInfo = (gpuLabel) => {
+    ui.deviceInfo.textContent = [
+      `Tier: ${tier.tier} (${tier.source})`,
+      `DPR: ${state.capabilities.dpr.toFixed(2)}`,
+      `Viewport: ${innerWidth}×${innerHeight}`,
+      `LoAF: ${state.capabilities.loaf ? 'supported' : 'not supported'}`,
+      `WebGL2 upload: ${supportedGL && state.capabilities.webgl2 ? 'supported' : 'no'}`,
+      `WebGPU upload: ${supportedGPU ? `${gpuMethod}() (${gpuLabel})` : 'no'}`,
+    ].join(' · ');
+  };
+  renderDeviceInfo('probing adapter…');
 
-  // Start on the lightest route: 2D, 8 tiles, 64 px, one crisp initial frame (no heavy loop on load).
+  // Start on the lightest route immediately: 2D, 8 tiles, 64 px, one crisp initial frame (no heavy loop on load).
   if (supported2D) {
     await mountScene('2d', Number(ui.countSel.value), Number(ui.sizeSel.value));
     ui.status.textContent = 'Ready on 2D (8 tiles, 64 px). Press Run backend sweep to compare all four routes.';
@@ -1848,6 +1849,14 @@ async function init() {
     ui.status.textContent = 'API unavailable in this browser.';
     setBusy(false);
   }
+
+  softwareGpu().then((gpuProbe) => {
+    state.capabilities.gpuAdapterInfo = gpuProbe.detail || (gpuProbe.webgpu ? (gpuProbe.fallback ? 'software' : 'hardware') : 'none');
+    renderDeviceInfo(gpuProbe.fallback ? 'software adapter, off-screen checks only' : (gpuProbe.detail || 'adapter present'));
+  }).catch(() => {
+    state.capabilities.gpuAdapterInfo = 'none';
+    renderDeviceInfo('probe failed');
+  });
 
   renderResultsTable();
   renderChart();

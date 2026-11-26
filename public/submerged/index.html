@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Submerged page</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A live interactive HTML form drawn beneath a real-time 2D shallow-water heightfield in one WebGL 2 canvas.">
+<link rel="canonical" href="https://html-in-canvas.page/submerged/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Submerged page">
+<meta property="og:description" content="A live interactive HTML form drawn beneath a real-time 2D shallow-water heightfield in one WebGL 2 canvas.">
+<meta property="og:url" content="https://html-in-canvas.page/submerged/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Submerged page&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-26">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Submerged page">
+<meta name="twitter:description" content="A live interactive HTML form drawn beneath a real-time 2D shallow-water heightfield in one WebGL 2 canvas.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Submerged page&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/submerged/",
+   "url": "https://html-in-canvas.page/submerged/",
+   "mainEntityOfPage": "https://html-in-canvas.page/submerged/",
+   "headline": "Submerged page",
+   "name": "Submerged page",
+   "description": "A live interactive HTML form drawn beneath a real-time 2D shallow-water heightfield in one WebGL 2 canvas. The fragment shader bends the DOM with Snell refraction, draws Jacobian optical caustics across the text and keeps a movable shoreline meniscus while buttons, sliders and touch scroll stay usable.",
+   "abstract": "Can a live interactive HTML form stay legible and clickable beneath a real-time 2D wave-equation water surface with Snell refraction, optical caustics, and an interactive shoreline meniscus, without per-frame CPU readback or losing touch scroll?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-26",
+   "keywords": "WebGL, ElementGL, refraction, caustics, updateElementGeometry, texElementSubImage2D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Submerged page",
+     "item": "https://html-in-canvas.page/submerged/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .sub-stage {
+    position: relative;
+    height: 470px;
+    padding: 0;
+    overflow: hidden;
+    background: #102433;
+    touch-action: pan-y;
+  }
+  @media (max-width: 560px) {
+    .sub-stage { height: 550px; }
+  }
+  #sub-canvas {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: pan-y;
+  }
+  .sub-stage.plain #sub-canvas { display: none; }
+
+  /* Live interactive tide-station form drawn beneath the water surface. */
+  #sub-card {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 16px 18px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background:
+      linear-gradient(90deg, rgba(16, 48, 72, 0.05) 1px, transparent 1px) 0 0 / 28px 28px,
+      linear-gradient(rgba(16, 48, 72, 0.05) 1px, transparent 1px) 0 0 / 28px 28px,
+      #f6f9fb;
+    color: #102232;
+    font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    touch-action: pan-y;
+  }
+  .sub-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #12283a;
+    color: #f4f8fb;
+  }
+  .sub-title-wrap {
+    min-width: 0;
+  }
+  .sub-kicker {
+    display: block;
+    font: 600 10.5px/1.2 var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #7ccbe8;
+  }
+  .sub-head strong {
+    display: block;
+    font-size: 16px;
+    line-height: 1.25;
+    margin-top: 2px;
+  }
+  .sub-tide-badge {
+    flex: none;
+    font: 700 16px/1 var(--mono);
+    font-variant-numeric: tabular-nums;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: #c8421b;
+    color: #ffffff;
+  }
+
+  /* High-contrast depth ruler makes Snell bending and dispersion easy to inspect. */
+  .sub-ruler {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    height: 14px;
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid #12283a;
+    flex: none;
+  }
+  .sub-ruler i { display: block; }
+
+  .sub-field {
+    display: grid;
+    gap: 5px;
+    min-width: 0;
+  }
+  .sub-field label {
+    font: 600 12px/1.2 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #2a465c;
+  }
+  .sub-field input[type="text"] {
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 2px solid #20425c;
+    background: #ffffff;
+    color: #0e1d2b;
+    font: 15px system-ui, sans-serif;
+  }
+
+  .sub-ranges {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+  }
+  @media (max-width: 560px) {
+    .sub-ranges { grid-template-columns: 1fr; gap: 8px; }
+  }
+  .sub-range-box {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid #b8cad8;
+  }
+  .sub-range-box span {
+    font: 600 13px/1.2 system-ui, sans-serif;
+    color: #13283a;
+  }
+  .sub-range-box output {
+    font: 700 12.5px/1 var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: #c8421b;
+  }
+  .sub-range-box input[type="range"] {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin: 2px 0 0;
+    accent-color: #165e85;
+  }
+
+  .sub-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+  .sub-checks label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: #ffffff;
+    border: 1px solid #b8cad8;
+    font: 600 13.5px/1.2 system-ui, sans-serif;
+    color: #13283a;
+    cursor: pointer;
+  }
+  .sub-checks input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: #c8421b;
+  }
+
+  .sub-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .sub-actions button {
+    min-height: 40px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font: 600 14px/1 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .sub-btn-primary {
+    background: #145374;
+    color: #ffffff;
+    border: 1px solid #0e3b54;
+  }
+  .sub-btn-primary:hover { border-color: #092636; }
+  .sub-btn-sonar {
+    background: #c8421b;
+    color: #ffffff;
+    border: 1px solid #962f11;
+  }
+  .sub-btn-sonar:hover { border-color: #691f0a; }
+  .sub-btn-plain {
+    background: #ffffff;
+    color: #13283a;
+    border: 1px solid #8ea7ba;
+  }
+
+  .sub-readout {
+    margin-top: auto;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: #0f2130;
+    color: #a9e6f7;
+    font: 12px/1.4 var(--mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Page chrome controls below the stage (site tokens only). */
+  .sub-controls {
+    margin-top: 12px;
+    display: grid;
+    gap: 10px;
+  }
+  .sub-sliders {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px 16px;
+  }
+  .sub-sliders label {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 8px;
+    align-items: center;
+    font-size: 14px;
+  }
+  .sub-sliders output {
+    font: 12.5px var(--mono);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .sub-sliders input[type="range"] {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin: 0;
+  }
+  .sub-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: center;
+  }
+  .sub-toggles button {
+    min-height: 40px;
+    font-weight: 600;
+  }
+  .sub-toggles label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #sub-status {
+    font: 12.5px var(--mono);
+    color: var(--muted);
+    min-height: 2.6em;
+    margin: 8px 0 0;
+  }
+  .sub-notice {
+    margin: 8px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .sub-notice[hidden] { display: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Submerged page</h1>
+  <p class="lede">
+    I wanted to know if a live HTML form stays readable and clickable beneath a 2D wave-equation water surface with Snell refraction, optical caustics and a movable shoreline meniscus, without reading pixels back from the GPU or breaking touch scroll. Tap or drag on the water, type in the log box, slide the waterline from dry to submerged, and try the buttons underwater.
+  </p>
+
+  <div class="stage sub-stage" id="sub-stage">
+    <!-- #region markup -->
+    <canvas id="sub-canvas" content="drawable" layoutsubtree>
+      <form id="sub-card" drawable autocomplete="off">
+        <div class="sub-head">
+          <div class="sub-title-wrap">
+            <span class="sub-kicker">North Sea Gauge · Live HTML Form</span>
+            <strong>Tide Station 04</strong>
+          </div>
+          <span class="sub-tide-badge" id="sub-tide-badge">+2.44 m</span>
+        </div>
+
+        <div class="sub-ruler" aria-hidden="true">
+          <i style="background:#12283a"></i>
+          <i style="background:#ffffff"></i>
+          <i style="background:#c8421b"></i>
+          <i style="background:#ffffff"></i>
+          <i style="background:#146b8c"></i>
+          <i style="background:#ffffff"></i>
+          <i style="background:#12283a"></i>
+          <i style="background:#e6b83a"></i>
+        </div>
+
+        <div class="sub-field">
+          <label for="sub-note">Station log note (typing splashes ripples)</label>
+          <input type="text" id="sub-note" value="Swell rising on east pier" placeholder="Log an observation">
+        </div>
+
+        <div class="sub-ranges">
+          <label class="sub-range-box">
+            <span>Floodgate valve</span>
+            <output id="sub-valve-out" for="sub-valve">64%</output>
+            <input type="range" id="sub-valve" min="0" max="100" value="64">
+          </label>
+          <label class="sub-range-box">
+            <span>Beacon gain</span>
+            <output id="sub-gain-out" for="sub-gain">14 dB</output>
+            <input type="range" id="sub-gain" min="0" max="24" value="14">
+          </label>
+        </div>
+
+        <div class="sub-checks">
+          <label><input type="checkbox" id="sub-interlock" checked> Floodgate interlock</label>
+          <label><input type="checkbox" id="sub-alarm"> Storm surge alarm</label>
+        </div>
+
+        <div class="sub-actions">
+          <button type="submit" class="sub-btn-primary">Log reading</button>
+          <button type="button" id="sub-ping" class="sub-btn-sonar">Ping sonar</button>
+          <button type="button" id="sub-reset" class="sub-btn-plain">Reset</button>
+        </div>
+
+        <output class="sub-readout" id="sub-card-out" aria-live="polite">Station online</output>
+      </form>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="sub-controls">
+    <div class="sub-sliders">
+      <label>
+        <span>Water level (dry to submerged)</span>
+        <output id="sub-level-out" for="sub-level">58%</output>
+        <input type="range" id="sub-level" min="0" max="100" step="1" value="58">
+      </label>
+      <label>
+        <span>Depth and refraction</span>
+        <output id="sub-depth-out" for="sub-depth">1.15</output>
+        <input type="range" id="sub-depth" min="0" max="2.0" step="0.05" value="1.15">
+      </label>
+    </div>
+
+    <div class="sub-toggles">
+      <button type="button" id="sub-splash">Splash</button>
+      <label><input type="checkbox" id="sub-rain" checked> Raindrops</label>
+      <label><input type="checkbox" id="sub-refract-hit"> Refraction hit-test offset</label>
+    </div>
+  </div>
+
+  <p id="sub-status" role="status">&nbsp;</p>
+  <p id="sub-notice" class="sub-notice" hidden></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>shallow-water PDE, Snell refraction and Jacobian caustics shader, ElementGL paint and hit-test offset</small></summary>
+    <ol>
+      <li data-code="#markup"><b>One drawable form in one canvas.</b> The live tide-station form sits inside a single <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>.</li>
+      <li data-code="/submerged/water.js#pde"><b>2D shallow-water heightfield PDE.</b> A 128 by 128 typed-array wave grid steps on the CPU with aspect-corrected Laplacian weights and packs height and gradients into an <code>RGBA8</code> texture.</li>
+      <li data-code="/submerged/water.js#shader"><b>Snell refraction, Jacobian caustics and meniscus.</b> The WebGL 2 fragment shader bends R, G and B through the water normal map, computes <code>1 / det(J)</code> caustics across the live HTML texture and splits dry from wet at the undulating shoreline.</li>
+      <li data-code="/submerged/water.js#paint"><b>Single-context paint and geometry sync.</b> <code>ElementGL</code> uploads the DOM texture only when the form changes, uploads the 64 KB water texture each frame and keeps hit boxes synced with <code>updateElementGeometry()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    The entire tide-station form sits as one <code>drawable</code> child inside one WebGL 2 canvas managed by
+    <code>ElementGL</code> from <code>/lib/element-gl.js</code>. Inside the <code>paint</code> handler,
+    <code>stage.upload()</code> calls <code>gl.texElementSubImage2D()</code> only when the form changes (typing,
+    toggling a checkbox, moving a slider, focus or resize). While ripples animate across calm DOM, the element texture
+    stays on the GPU with zero re-uploads and zero readback.
+  </p>
+  <p>
+    The water surface is a 128 by 128 2D damped wave equation in <code>WaterField</code>. I ran the PDE on
+    <code>Float32Array</code> buffers on the CPU and packed height, <code>dh/dx</code>, <code>dh/dy</code> and
+    curvature into one 64 KB <code>RGBA8</code> texture uploaded with <code>gl.texSubImage2D()</code> each frame. That
+    avoids floating-point framebuffer extensions that can fail on mobile GPUs, gives hardware bilinear filtering
+    everywhere, and lets JavaScript read the exact surface gradient under the pointer with zero GPU readback.
+  </p>
+  <p>
+    In the fragment shader, the shoreline height undulates with the live wave field. Above the waterline the form renders
+    unrefracted. Below it, the shader computes a surface normal from the heightfield gradient plus subtle capillary
+    ripples, refracts the view ray with Snell's law (<code>n = 1.333</code>) and slight RGB dispersion, and takes finite
+    differences of the refracted UV map to form its 2 by 2 Jacobian determinant <code>det(J)</code>. Where wave crests
+    converge rays (<code>det(J) &lt; 1</code>), light scales up as <code>1 / det(J)</code> to project bright optical
+    caustics straight over the live HTML text and controls.
+  </p>
+  <p>
+    Standard <code>updateElementGeometry()</code> leaves the form's hit box at its unrefracted CSS coordinates. Turning
+    on <b>Refraction hit-test offset</b> evaluates the local Snell displacement at the pointer from the CPU heightfield
+    and translates the element's <code>canvasTransform</code> matrix (toggling <code>dataset.hitTick</code> to clear
+    Chromium's hit-test cache) so the control under the pointer tracks its refracted image. The stage keeps
+    <code>touch-action: pan-y</code> and uses passive pointer listeners so vertical swipes on a phone scroll the page
+    normally while taps reach the underwater controls. An <code>IntersectionObserver</code> pauses the simulation loop
+    when the stage scrolls off screen.
+  </p>
+
+  <h2>Live checks</h2>
+  <p>These run on their own small fixtures in the corner of the window and leave the demo above untouched.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Running the 128 by 128 shallow-water PDE on CPU typed arrays and uploading one 64 KB <code>RGBA8</code> texture avoids float framebuffer compatibility issues, keeps <code>ElementGL</code> on a single WebGL 2 context, and lets hit-test compensation read wave slopes with zero GPU readback.</li>
+    <li><code>updateElementGeometry()</code> accepts one <code>DOMMatrix</code> per drawable element. That lets me shift the form's hit box to match the local Snell refraction directly under the pointer, but it can't represent a non-linear per-pixel wave warp across several controls at once unless each control is split into its own drawable child.</li>
+    <li>Using passive pointer listeners and <code>touch-action: pan-y</code> on the stage lets vertical touch swipes scroll the page while taps still trigger underwater buttons, checkboxes, sliders and splashes.</li>
+    <li>Not verified: live rendering, caustic clarity, hit-test accuracy, frame rate and touch scrolling in Chromium 157 (headless) and Chrome 159 on Android. Open this page in a browser with HTML-in-canvas enabled and tap Run on the live checks above to verify on your device.</li>
+  </ul>
+</main>
+<script type="module" src="/submerged/water.js"></script>
+</body>
+</html>

@@ -160,6 +160,7 @@ export function computeLayout(n, viewportWidth, nativeDpr = window.devicePixelRa
 
 export function createControlElement(index, theme, w, h, onMutate) {
   const el = document.createElement('div');
+  el.setAttribute('drawable', '');
   el.className = 'ctrl-card';
   el.dataset.index = String(index);
   el.dataset.theme = theme;

@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Escher Droste spiral</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A live editable HTML card wrapped across ten or more scale octaves by a conformal complex-logarithm Escher Droste shader and a ping-pong mirror tunnel on one WebGL 2 canvas.">
+<link rel="canonical" href="https://html-in-canvas.page/droste/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Escher Droste spiral">
+<meta property="og:description" content="A live editable HTML card wrapped across ten or more scale octaves by a conformal complex-logarithm Escher Droste shader and a ping-pong mirror tunnel on one WebGL 2 canvas.">
+<meta property="og:url" content="https://html-in-canvas.page/droste/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Escher Droste spiral&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-26">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Escher Droste spiral">
+<meta name="twitter:description" content="A live editable HTML card wrapped across ten or more scale octaves by a conformal complex-logarithm Escher Droste shader and a ping-pong mirror tunnel on one WebGL 2 canvas.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Escher Droste spiral&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/droste/",
+   "url": "https://html-in-canvas.page/droste/",
+   "mainEntityOfPage": "https://html-in-canvas.page/droste/",
+   "headline": "Escher Droste spiral",
+   "name": "Escher Droste spiral",
+   "description": "A live editable HTML card wrapped across ten or more scale octaves by a conformal complex-logarithm Escher Droste shader and a ping-pong mirror tunnel on one WebGL 2 canvas. Switch between bilinear, trilinear mipmaps and anisotropic filtering to compare legibility after texElementSubImage2D\u0028).",
+   "abstract": "Can an analytic complex-logarithm Escher Droste spiral and an infinite ping-pong mirror tunnel wrap a live editable HTML card across 10+ octaves of scale, and do gl.generateMipmap\u0028) and anisotropic filtering work cleanly on a texElementSubImage2D\u0028) texture without shimmer or artefacts?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-26",
+   "keywords": "WebGL, ElementGL, mipmaps, Droste, updateElementGeometry, texElementSubImage2D\u0028), generateMipmap\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Escher Droste spiral",
+     "item": "https://html-in-canvas.page/droste/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .dr-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 660px;
+    margin: 0 auto;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: #0d1017;
+  }
+
+  #droste-canvas {
+    display: block;
+    width: 100%;
+    height: min(500px, 88vw);
+    min-height: 320px;
+    touch-action: none;
+    cursor: grab;
+    background: #0d1017;
+  }
+  #droste-canvas.dragging { cursor: grabbing; }
+  .dr-wrap.plain #droste-canvas { display: none; }
+  .dr-wrap.plain {
+    background: var(--bg);
+    padding: 16px;
+  }
+  .dr-wrap.plain #droste-card {
+    margin: 0 auto;
+    pointer-events: auto;
+  }
+
+  .dr-hint {
+    position: absolute;
+    left: 10px;
+    bottom: 8px;
+    margin: 0;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgb(13 16 23 / 0.78);
+    color: #d6deed;
+    font: 12px/1.35 var(--mono);
+    pointer-events: none;
+  }
+  .dr-wrap.plain .dr-hint { display: none; }
+
+  /* Live framed HTML card with a transparent cutout centre */
+  #droste-card {
+    --c-bg: #102a5c;
+    --c-panel: #f7f9fd;
+    --c-fg: #0c1730;
+    --c-muted: #40557d;
+    --c-accent: #1d5cff;
+    --c-accent-fg: #ffffff;
+    --c-border: #0a1b3d;
+    --c-stripe-a: #0a1b3d;
+    --c-stripe-b: #f7f9fd;
+    box-sizing: border-box;
+    width: 320px;
+    height: 320px;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-rows: 27% 46% 27%;
+    grid-template-columns: 27% 46% 27%;
+    background: transparent;
+    color: var(--c-fg);
+    font: 13px/1.25 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    pointer-events: none;
+    user-select: none;
+  }
+  #droste-card[data-theme="vermilion"] {
+    --c-bg: #7a1d0e;
+    --c-panel: #fff8f4;
+    --c-fg: #2b0c06;
+    --c-muted: #7a3e30;
+    --c-accent: #d94418;
+    --c-accent-fg: #ffffff;
+    --c-border: #3d0f06;
+    --c-stripe-a: #3d0f06;
+    --c-stripe-b: #fff8f4;
+  }
+  #droste-card[data-theme="emerald"] {
+    --c-bg: #0b4a33;
+    --c-panel: #f4fcf8;
+    --c-fg: #08291d;
+    --c-muted: #2c6650;
+    --c-accent: #0f8a5f;
+    --c-accent-fg: #ffffff;
+    --c-border: #062b1e;
+    --c-stripe-a: #062b1e;
+    --c-stripe-b: #f4fcf8;
+  }
+  #droste-card[data-theme="noir"] {
+    --c-bg: #111216;
+    --c-panel: #1c1e26;
+    --c-fg: #f3f5fa;
+    --c-muted: #a2abc2;
+    --c-accent: #f0b429;
+    --c-accent-fg: #111216;
+    --c-border: #f0b429;
+    --c-stripe-a: #f0b429;
+    --c-stripe-b: #111216;
+  }
+  #droste-card.inverted {
+    filter: invert(1) hue-rotate(180deg);
+  }
+
+  .d-frame {
+    pointer-events: auto;
+    box-sizing: border-box;
+    background: var(--c-panel);
+    overflow: hidden;
+  }
+
+  .d-top {
+    grid-row: 1;
+    grid-column: 1 / -1;
+    border: 4px solid var(--c-border);
+    border-bottom: 3px solid var(--c-border);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .d-ruler {
+    height: 10px;
+    flex: none;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--c-stripe-a) 0 4px,
+      var(--c-stripe-b) 4px 8px
+    );
+    border-bottom: 2px solid var(--c-border);
+  }
+  .d-top-body {
+    flex: 1;
+    min-height: 0;
+    padding: 4px 10px 5px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+  }
+  .d-top-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .d-title {
+    font: 800 15px/1.05 system-ui, -apple-system, sans-serif;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .d-clock {
+    flex: none;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--c-accent);
+    color: var(--c-accent-fg);
+    font: 700 11px/1.2 var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .d-echo {
+    font: 600 11.5px/1.2 var(--mono);
+    color: var(--c-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .d-left {
+    grid-row: 2;
+    grid-column: 1;
+    border-left: 4px solid var(--c-border);
+    border-right: 3px solid var(--c-border);
+    padding: 5px 6px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+  }
+  .d-rail-label {
+    font: 700 9.5px/1.1 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--c-muted);
+    text-align: center;
+  }
+  .d-swatch-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    min-height: 24px;
+    padding: 2px 5px;
+    border: 1.5px solid var(--c-border);
+    border-radius: 4px;
+    background: var(--c-panel);
+    color: var(--c-fg);
+    font: 700 10.5px/1 system-ui, sans-serif;
+    cursor: pointer;
+    text-align: left;
+  }
+  .d-swatch-btn[aria-pressed="true"] {
+    background: var(--c-accent);
+    color: var(--c-accent-fg);
+    border-color: var(--c-border);
+  }
+  .d-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex: none;
+    border: 1px solid rgb(0 0 0 / 0.35);
+  }
+
+  .d-cutout {
+    grid-row: 2;
+    grid-column: 2;
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .d-right {
+    grid-row: 2;
+    grid-column: 3;
+    border-left: 3px solid var(--c-border);
+    border-right: 4px solid var(--c-border);
+    padding: 5px 6px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  .d-test-grid {
+    flex: 1;
+    min-height: 36px;
+    border: 1.5px solid var(--c-border);
+    border-radius: 4px;
+    background:
+      repeating-linear-gradient(
+        45deg,
+        var(--c-stripe-a) 0 2px,
+        var(--c-stripe-b) 2px 4px
+      );
+  }
+  .d-mini-btn {
+    width: 100%;
+    min-height: 26px;
+    padding: 2px 4px;
+    border: 1.5px solid var(--c-border);
+    border-radius: 4px;
+    background: var(--c-accent);
+    color: var(--c-accent-fg);
+    font: 700 10.5px/1 var(--mono);
+    cursor: pointer;
+  }
+  .d-mini-btn.alt {
+    background: var(--c-panel);
+    color: var(--c-fg);
+  }
+
+  .d-bottom {
+    grid-row: 3;
+    grid-column: 1 / -1;
+    border: 4px solid var(--c-border);
+    border-top: 3px solid var(--c-border);
+    padding: 6px 10px 5px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  #droste-input {
+    width: 100%;
+    min-height: 32px;
+    padding: 4px 8px;
+    border: 2px solid var(--c-border);
+    border-radius: 5px;
+    background: #ffffff;
+    color: #0c1730;
+    font: 700 13px/1.2 var(--mono);
+    user-select: text;
+    -webkit-user-select: text;
+  }
+  #droste-card[data-theme="noir"] #droste-input {
+    background: #111216;
+    color: #f3f5fa;
+    border-color: #f0b429;
+  }
+  #droste-input:focus-visible,
+  #droste-card button:focus-visible {
+    outline: 3px solid #d2491f;
+    outline-offset: 1px;
+  }
+  .d-foot-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font: 700 10px/1.1 var(--mono);
+    color: var(--c-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  /* Controls beneath the stage */
+  .dr-controls {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .dr-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .dr-group-label {
+    font: 600 11px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin-right: 2px;
+  }
+  .dr-controls button {
+    min-height: 40px;
+    padding: 6px 12px;
+    font-size: 14px;
+    touch-action: manipulation;
+  }
+  .dr-controls button[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+    font-weight: 600;
+  }
+  .dr-controls button:disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
+  }
+  .dr-slider {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    font-size: 14px;
+  }
+  .dr-slider input[type="range"] {
+    width: 124px;
+    height: 28px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
+  .dr-slider output {
+    min-width: 3.4em;
+    font: 13px var(--mono);
+    color: var(--muted);
+  }
+  .dr-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .dr-subpanel[hidden] { display: none; }
+
+  .dr-status {
+    display: block;
+    margin-top: 10px;
+    min-height: 2.8em;
+    font: 12.5px/1.45 var(--mono);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .dr-notice {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+  }
+  .dr-notice[hidden] { display: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Escher Droste spiral</h1>
+  <p class="lede">
+    I wanted to know if an analytic complex-logarithm Droste spiral and a ping-pong mirror tunnel could wrap one live editable HTML card across 10+ octaves of scale, and whether <code>gl.generateMipmap()</code> and anisotropic filtering stay artefact-free on a <code>texElementSubImage2D()</code> texture.
+    Type in the input, switch the card's colour theme, drag the canvas to zoom or twist, and toggle between bilinear, trilinear mipmaps and anisotropic filtering to compare legibility across the inner turns.
+  </p>
+
+  <div class="stage">
+    <!-- #region card-markup -->
+    <div id="droste-wrap" class="dr-wrap">
+      <canvas id="droste-canvas" content="drawable" layoutsubtree>
+        <div id="droste-card" drawable data-theme="cobalt">
+          <div class="d-frame d-top">
+            <div class="d-ruler" aria-hidden="true"></div>
+            <div class="d-top-body">
+              <div class="d-top-row">
+                <span class="d-title" id="card-headline">DROSTE LIVE</span>
+                <span class="d-clock" id="card-clock">00:00:00 · #00</span>
+              </div>
+              <div class="d-echo" id="card-echo">Type below to update every turn</div>
+            </div>
+          </div>
+
+          <div class="d-frame d-left" role="group" aria-label="Card colour theme">
+            <span class="d-rail-label">Theme</span>
+            <button type="button" class="d-swatch-btn" data-card-theme="cobalt" aria-pressed="true"><span class="d-dot" style="background:#1d5cff"></span>Cobalt</button>
+            <button type="button" class="d-swatch-btn" data-card-theme="vermilion" aria-pressed="false"><span class="d-dot" style="background:#d94418"></span>Vermilion</button>
+            <button type="button" class="d-swatch-btn" data-card-theme="emerald" aria-pressed="false"><span class="d-dot" style="background:#0f8a5f"></span>Emerald</button>
+            <button type="button" class="d-swatch-btn" data-card-theme="noir" aria-pressed="false"><span class="d-dot" style="background:#f0b429"></span>Noir</button>
+          </div>
+
+          <div id="droste-cutout" class="d-cutout" aria-hidden="true"></div>
+
+          <div class="d-frame d-right">
+            <span class="d-rail-label">2px grid</span>
+            <div class="d-test-grid" aria-hidden="true"></div>
+            <button type="button" class="d-mini-btn" id="card-pulse">+1 Pulse</button>
+            <button type="button" class="d-mini-btn alt" id="card-invert" aria-pressed="false">Invert</button>
+          </div>
+
+          <div class="d-frame d-bottom">
+            <input id="droste-input" type="text" value="ESCHER 1956" placeholder="Type here and watch it spiral to infinity" aria-label="Live text inside the Droste card">
+            <div class="d-foot-row">
+              <span id="card-meta">11 chars · cobalt</span>
+              <span>Mipmap check</span>
+            </div>
+          </div>
+        </div>
+      </canvas>
+      <p class="dr-hint" id="droste-hint">Drag canvas to zoom and rotate · tap controls on the outer frame</p>
+    </div>
+    <!-- #endregion card-markup -->
+
+    <div class="dr-controls">
+      <div class="dr-group" role="group" aria-label="Recursive mode">
+        <span class="dr-group-label">Mode</span>
+        <button type="button" data-mode="droste" aria-pressed="true">Conformal Droste spiral</button>
+        <button type="button" data-mode="mirror" aria-pressed="false">Infinite mirror tunnel</button>
+      </div>
+
+      <div class="dr-group" role="group" aria-label="Texture filtering">
+        <span class="dr-group-label">Filter</span>
+        <button type="button" data-filter="linear" aria-pressed="false">LINEAR (no mipmaps)</button>
+        <button type="button" data-filter="mipmap" aria-pressed="false">Trilinear mipmaps</button>
+        <button type="button" data-filter="aniso" id="btn-aniso" aria-pressed="true">Anisotropic (max)</button>
+      </div>
+
+      <div id="panel-droste" class="dr-controls dr-subpanel">
+        <div class="dr-group" role="group" aria-label="Spiral strands">
+          <span class="dr-group-label">Strands</span>
+          <button type="button" data-strands="0" aria-pressed="false">0 (concentric)</button>
+          <button type="button" data-strands="1" aria-pressed="true">1 strand</button>
+          <button type="button" data-strands="2" aria-pressed="false">2 strands</button>
+          <button type="button" data-strands="3" aria-pressed="false">3 strands</button>
+        </div>
+
+        <div class="dr-group">
+          <label class="dr-slider">
+            Perspective tilt
+            <input type="range" id="ctl-tilt" min="0" max="60" step="1" value="0">
+            <output id="out-tilt">0 deg</output>
+          </label>
+          <button type="button" id="btn-tilt-aniso">Tilt 52 deg (test aniso)</button>
+          <button type="button" id="btn-autozoom" aria-pressed="false">Auto-zoom</button>
+          <label class="dr-check">
+            <input type="checkbox" id="ctl-heatmap">
+            Mipmap LOD tint
+          </label>
+          <button type="button" id="btn-reset">Reset view</button>
+        </div>
+      </div>
+
+      <div id="panel-mirror" class="dr-controls dr-subpanel" hidden>
+        <div class="dr-group">
+          <label class="dr-slider">
+            Echo shrink
+            <input type="range" id="ctl-shrink" min="76" max="94" step="1" value="86">
+            <output id="out-shrink">0.86x</output>
+          </label>
+          <label class="dr-slider">
+            Echo twist
+            <input type="range" id="ctl-twist" min="-18" max="18" step="1" value="6">
+            <output id="out-twist">6 deg</output>
+          </label>
+          <label class="dr-slider">
+            Colour shift
+            <input type="range" id="ctl-hue" min="0" max="100" step="2" value="36">
+            <output id="out-hue">36%</output>
+          </label>
+        </div>
+        <div class="dr-group">
+          <button type="button" id="btn-mirror-pulse" aria-pressed="false">Continuous echo</button>
+          <button type="button" id="btn-mirror-clear">Clear mirror buffer</button>
+        </div>
+      </div>
+    </div>
+
+    <output id="droste-status" class="dr-status" aria-live="polite">Starting WebGL 2 Droste stage...</output>
+    <p id="droste-notice" class="dr-notice" hidden></p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>framed cutout card, complex-log Droste shader, mipmap upload, ping-pong tunnel and hit sync</small></summary>
+    <ol>
+      <li data-code="#card-markup"><b>The framed card with a transparent cutout.</b> Four grid rails carry the live input, theme buttons, ticking clock and 2 px test patterns while <code>#droste-cutout</code> stays empty and lets pointer drags pass through to the canvas.</li>
+      <li data-code="/droste/droste.js#droste-shader"><b>The conformal Escher Droste fragment shader.</b> Maps screen coordinates through a perspective homography and complex logarithm, wraps each octave to the measured cutout ratio, and passes the analytic Jacobian to <code>textureGrad()</code> so mipmaps and anisotropy stay free of branch-cut seams.</li>
+      <li data-code="/droste/droste.js#mirror-shader"><b>The ping-pong mirror tunnel pass.</b> Composites the live framed card over a shrunk, rotated and colour-shifted copy of the previous framebuffer so every keystroke or button tap echoes down the tunnel.</li>
+      <li data-code="/droste/droste.js#mipmap-upload"><b>Uploading with <code>texElementSubImage2D()</code> and building mipmaps.</b> Calls <code>gl.generateMipmap(gl.TEXTURE_2D)</code> right after upload and switches between <code>LINEAR</code>, <code>LINEAR_MIPMAP_LINEAR</code> and <code>EXT_texture_filter_anisotropic</code>.</li>
+      <li data-code="/droste/droste.js#hit-sync"><b>Keeping the outer frame clickable.</b> Updates <code>canvas.updateElementGeometry()</code> with the outermost card transform and toggles <code>card.dataset.hitTick</code> so Chromium refreshes its hit-test cache.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    M. C. Escher's 1956 lithograph <em>Print Gallery</em> hides a conformal logarithmic spiral inside a rectangular frame, worked out analytically by Hendrik Lenstra and Bart de Smit in 2003.
+    I wanted to test the same mapping on a live HTML form drawn by <code>texElementSubImage2D()</code>, because a Droste spiral packs ten or more octaves of minification into one frame and immediately exposes whether WebGL 2 mipmaps and anisotropic filtering behave on a live DOM texture.
+  </p>
+  <p>
+    One <code>ElementGL</code> instance from <code>/lib/element-gl.js</code> owns the page's single WebGL 2 context.
+    The source card (<code>#droste-card</code>) is a square 3 by 3 CSS grid whose centre cell (<code>#droste-cutout</code>) has a transparent background and <code>pointer-events: none</code>.
+    Each time the card paints, <code>stage.upload(card)</code> copies its current picture into an <code>RGBA8</code> texture via <code>gl.texElementSubImage2D()</code>, and when mipmaps are enabled the page calls <code>gl.generateMipmap(gl.TEXTURE_2D)</code> straight afterwards.
+    WebGL 2 permits mipmap chains on non-power-of-two textures, which matters here because a responsive HTML card at device scale 2.625 almost never lands on a power-of-two pixel size.
+  </p>
+  <p>
+    In Conformal Droste mode, the fragment shader measures the card's actual cutout ratio <code>r1 = cutout.offsetWidth / card.offsetWidth</code>, sets the log-period <code>L = ln(1 / r1)</code>, and maps complex coordinates <code>z</code> through <code>w' = (1 + i * strands * L / (2 * pi)) * (ln(z) - offset)</code>.
+    Because crossing the <code>atan2</code> branch cut shifts <code>w'</code> by an exact integer multiple of <code>L</code> and a full <code>2 * pi</code> turn, wrapping the Chebyshev norm <code>max(|x|, |y|)</code> into <code>[r1, 1]</code> produces no seam.
+    Calling plain <code>texture()</code> across that wrap boundary still spikes hardware screen-space derivatives and leaves a 1 px blurry line, so the shader computes the smooth derivative <code>dFdx(z)</code> and <code>dFdy(z)</code> before the logarithm, multiplies by the analytic complex Jacobian <code>c * zTile / z</code>, and samples with <code>textureGrad()</code>.
+    Tilting the plane in perspective turns the isotropic spiral footprint into an elongated ellipse, which lets you see the difference between <code>LINEAR_MIPMAP_LINEAR</code> and <code>EXT_texture_filter_anisotropic</code> on the 2 px grid and typography.
+  </p>
+  <p>
+    In Infinite Mirror Tunnel mode, the same <code>stage.gl</code> context drives two small <code>RGBA8</code> ping-pong framebuffers (capped at 768 px on a side).
+    Pass 1 samples the previous framebuffer shrunk, rotated and subtly hue-shifted, then composites the upright live card over it so the transparent cutout reveals an endless stack of earlier frames.
+    Every keystroke, theme switch or clock tick triggers a short burst of feedback passes so the change ripples down the hall of mirrors before settling to rest.
+  </p>
+  <p>
+    After layout or view updates, the page calls <code>canvas.updateElementGeometry(card, { canvasTransform })</code> and increments <code>card.dataset.hitTick</code> so clicks and typing land on the outermost frame.
+    An <code>IntersectionObserver</code> pauses the 1 Hz clock and any auto-zoom loop when the stage leaves the viewport.
+    If WebGL 2 isn't available, a 2D canvas fallback draws concentric nested copies using five-argument <code>drawElementImage()</code>; if HTML-in-canvas isn't enabled or the WebGL context is lost, <code>#droste-card</code> moves out of the canvas so the controls stay usable as plain HTML.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These checks wait for a tap so the demo opens with one GPU context. Each check builds its own small fixture on the test stage and retires its canvas when finished.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Not verified in a live browser yet: none of the live checks or visual modes have been run in Chromium 157 or Chrome 159 for Android. Open this page with HTML-in-canvas enabled and run the checks above to record results on your device.</li>
+    <li>Sampling a Droste wrap with <code>textureGrad()</code> and the analytic Jacobian <code>0.5 * c * (zTile / z) * dFdx(z)</code> avoids the 1 px coarse-mipmap seam that hardware <code>dFdx(uv)</code> produces at the <code>atan2</code> branch cut and octave wrap edge.</li>
+    <li>A pure conformal Droste transform has an isotropic 1:1 texture footprint everywhere, so <code>EXT_texture_filter_anisotropic</code> only diverges visibly from trilinear <code>LINEAR_MIPMAP_LINEAR</code> once you add perspective tilt (the 52 deg preset exposes foreshortened turns right away).</li>
+    <li>Setting <code>pointer-events: none</code> on <code>#droste-card</code> and <code>#droste-cutout</code> while keeping <code>pointer-events: auto</code> on the four frame rails lets drags inside the centre window zoom and rotate the spiral while taps on the outer frame hit the live input and theme buttons.</li>
+    <li>Both the analytic Droste shader and the two-FBO ping-pong mirror tunnel share one <code>ElementGL</code> WebGL 2 context, keeping the page at one GPU context and well inside the 4 megapixel and 96 MB mobile canvas limits.</li>
+  </ul>
+</main>
+
+<script type="module" src="/droste/droste.js"></script>
+</body>
+</html>
