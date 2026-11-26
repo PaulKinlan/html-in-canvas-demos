@@ -52,13 +52,15 @@
 // The element stays where layout put it for hit testing: effects are visual.
 
 import { SurfaceElement, ElementTexture, supported, supportedGL } from './surface.js';
-import { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, inverseHomography, setupQuad, compileEffect, setEffectUniforms, sharedGL, hasWGSL, gpuEffect, gpuEffectProblem, gpuSampler, WGSL_UNIFORM_SIZE, packWGSLUniforms } from './effects.js';
+import { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, hasActiveCSSAnimation, watchEnvironment, inverseHomography, setupQuad, compileEffect, setEffectUniforms, sharedGL, hasWGSL, gpuEffect, gpuEffectProblem, gpuSampler, WGSL_UNIFORM_SIZE, packWGSLUniforms } from './effects.js';
 import { supportedGPU, GPUCanvas, GPUElementTexture, watchFrame } from './gpu-util.js';
 import { webgpu } from '../shared/backend.js';
 
 export { effects, defineEffect };
 
 const KINDS = ['webgpu', 'gl', 'direct', 'shared'];
+const FAR_POINTER = { x: -1e4, y: -1e4 };
+const WAKE_EVENTS = ['pointerenter', 'pointerup', 'focusin', 'focusout', 'input', 'change', 'transitionrun', 'transitionstart', 'transitionend', 'transitioncancel', 'animationstart', 'animationend', 'animationcancel'];
 const MAX_DIRECT = 8;
 let liveDirect = 0;
 
@@ -109,9 +111,15 @@ export class FxSurface extends SurfaceElement {
   #pointer = null;
   #hover = 0;
   #clicks = [];
+  #clicksBuf = new Float32Array(16);
   #visible = true;
   #io = null;
   #mo = null;
+  #unwatch = null;
+  #sharedScale = 0;
+  #sharedBleed = -1;
+  #sharedW = 0;
+  #sharedH = 0;
   #signature = '';
   #error = null;
   frames = 0;
@@ -233,23 +241,44 @@ export class FxSurface extends SurfaceElement {
     this.addEventListener('pointermove', this.#onMove);
     this.addEventListener('pointerleave', this.#onLeave);
     this.addEventListener('pointerdown', this.#onDown);
+    for (const ev of WAKE_EVENTS) this.addEventListener(ev, this.#onWake);
+    this.#unwatch = watchEnvironment(this, this.#onWake);
     this.#io = new IntersectionObserver(([entry]) => {
       this.#visible = entry.isIntersecting;
       if (this.#visible) this.invalidate();
     }, { rootMargin: '100px' });
     this.#io.observe(this);
     // If the author takes the fx attribute off, hand the element back.
-    this.#mo = new MutationObserver(() => {
-      if (this.adopted && !this.querySelector(':scope > [fx]')) FxSurface.release(this);
-      else this.effectChanged();
+    this.#mo = new MutationObserver((records) => {
+      if (this.adopted && !this.querySelector(':scope > [fx]')) {
+        FxSurface.release(this);
+        return;
+      }
+      let wake = false;
+      for (const r of records) {
+        if (r.attributeName === 'fx' || r.attributeName === 'fx-backend') {
+          this.effectChanged();
+          return;
+        }
+        if (r.target === this && (r.attributeName === 'bleed' || r.attributeName === 'plain')) continue;
+        wake = true;
+      }
+      if (wake && this.#visible) this.invalidate();
     });
-    this.#mo.observe(this, { attributes: true, subtree: true, attributeFilter: ['fx', 'fx-backend', 'style', 'class'] });
+    this.#mo.observe(this, { attributes: true, subtree: true });
   }
 
   disconnected() {
     FxSurface.instances.delete(this);
+    this.removeEventListener('pointermove', this.#onMove);
+    this.removeEventListener('pointerleave', this.#onLeave);
+    this.removeEventListener('pointerdown', this.#onDown);
+    for (const ev of WAKE_EVENTS) this.removeEventListener(ev, this.#onWake);
+    this.#unwatch?.();
+    this.#unwatch = null;
     this.#io?.disconnect();
     this.#mo?.disconnect();
+    shared.release(this);
     if (this.backend === 'webgpu') {
       this.#dropGPU();
       this.ctx = null;
@@ -295,11 +324,15 @@ export class FxSurface extends SurfaceElement {
     if (this.backend === 'direct') {
       liveDirect = Math.max(0, liveDirect - 1); // swapCanvas() retires the old canvas
     }
+    shared.release(this);
     this.#dropGPU();
     this.backend = null;
     this.swapCanvas();
   }
 
+  #onWake = () => {
+    if (this.#visible) this.invalidate();
+  };
   #onMove = (e) => {
     this.#pointer = this.localPoint(e);
     this.invalidate();
@@ -353,18 +386,32 @@ export class FxSurface extends SurfaceElement {
     this.#hover += (hoverTarget - this.#hover) * (still ? 1 : 0.18);
     if (Math.abs(hoverTarget - this.#hover) < 0.004) this.#hover = hoverTarget;
     const t = performance.now();
-    this.#clicks = this.#clicks.filter((c) => t - c.t < 2600);
-    const clicks = new Float32Array(16).fill(-1);
-    this.#clicks.forEach((c, i) => clicks.set([c.x, c.y, still ? -1 : (t - c.t) / 1000, 0], i * 4));
+    if (this.#clicks.length) {
+      let write = 0;
+      for (let i = 0; i < this.#clicks.length; i++) {
+        if (t - this.#clicks[i].t < 2600) this.#clicks[write++] = this.#clicks[i];
+      }
+      this.#clicks.length = write;
+    }
+    const clicks = this.#clicksBuf;
+    clicks.fill(-1);
+    for (let i = 0; i < this.#clicks.length; i++) {
+      const c = this.#clicks[i], o = i * 4;
+      clicks[o] = c.x;
+      clicks[o + 1] = c.y;
+      clicks[o + 2] = still ? -1 : (t - c.t) / 1000;
+      clicks[o + 3] = 0;
+    }
 
-    const moving = (def.animated && !still) || this.#clicks.length > 0 || this.#hover !== hoverTarget;
+    const animating = (def.animated && !still) || (!still && this.#clicks.length > 0) || this.#hover !== hoverTarget;
+    const keepAlive = animating || hasActiveCSSAnimation(this.target);
     const time = effectTime();
-    const p = this.#pointer ?? { x: -1e4, y: -1e4 };
-    const signature = `${name}|${progress}|${amount}|${x},${y}|${p.x},${p.y}|${this.#hover}|${this.canvas.width}x${this.canvas.height}|${moving ? time : ''}`;
-    // CSS can change --fx-progress at any time (a transition, :hover), and
-    // there is no event for that, so keep sampling while on screen and only
-    // draw when a uniform actually changed.
-    if (signature === this.#signature && !this.contentDirty) return true;
+    const p = this.#pointer ?? FAR_POINTER;
+    const signature = `${name}|${progress}|${amount}|${x},${y}|${p.x},${p.y}|${this.#hover}|${this.canvas.width}x${this.canvas.height}|${animating ? time : ''}`;
+    // Only redraw when a uniform or the DOM changed, and stop the rAF loop
+    // whenever nothing is animating (wake listeners restart it on input,
+    // scroll, style/class mutations or CSS transitions/animations).
+    if (signature === this.#signature && !this.contentDirty) return keepAlive;
     this.#signature = signature;
 
     // An effect that moves the element (tilt) says where, so hit testing follows.
@@ -394,7 +441,7 @@ export class FxSurface extends SurfaceElement {
     this.setGeometry(matrix ? this.restMatrix.multiply(matrix) : undefined);
     this.contentDirty = false;
     this.frames++;
-    return true;
+    return keepAlive;
   }
 
   #setUniforms(gl, u, uniforms, texOrigin, texSize) {
@@ -502,15 +549,29 @@ export class FxSurface extends SurfaceElement {
     const ctx = this.ctx;
     const { width: cw, height: ch } = this.canvas;
     const s = this.scale;
-    ctx.setTransform(s, 0, 0, s, 0, 0);
-    ctx.clearRect(0, 0, cw / s, ch / s);
-    ctx.drawElementImage(this.content, this.bleed, this.bleed, this.width, this.height);
     const gl = shared.ensure();
-    if (!gl) return; // no WebGL at all: the plain drawing stays
+    if (!gl) {
+      ctx.setTransform(s, 0, 0, s, 0, 0);
+      ctx.clearRect(0, 0, cw / s, ch / s);
+      ctx.drawElementImage(this.content, this.bleed, this.bleed, this.width, this.height);
+      return; // no WebGL at all: the plain drawing stays
+    }
     if (shared.canvas.width < cw) shared.canvas.width = cw;
     if (shared.canvas.height < ch) shared.canvas.height = ch;
     const { program: prog, u } = compileEffect(gl, shared.programs, name);
-    shared.upload(this.canvas);
+    const same = !this.contentDirty && this.#sharedScale === s && this.#sharedBleed === this.bleed && this.#sharedW === this.width && this.#sharedH === this.height && shared.hasTexture(this, cw, ch);
+    if (same) {
+      shared.bind(this);
+    } else {
+      ctx.setTransform(s, 0, 0, s, 0, 0);
+      ctx.clearRect(0, 0, cw / s, ch / s);
+      ctx.drawElementImage(this.content, this.bleed, this.bleed, this.width, this.height);
+      shared.upload(this.canvas, this);
+      this.#sharedScale = s;
+      this.#sharedBleed = this.bleed;
+      this.#sharedW = this.width;
+      this.#sharedH = this.height;
+    }
     gl.viewport(0, 0, cw, ch);
     gl.useProgram(prog);
     this.#setUniforms(gl, u, uniforms, [this.bleed, this.bleed], [cw / s, ch / s]);

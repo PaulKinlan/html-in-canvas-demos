@@ -50,7 +50,7 @@ const supportedGL =
   'texElementSubImage2D' in WebGL2RenderingContext.prototype;
 
 const MAX_DIM = 8192;
-const MAX_AREA = 16e6;
+const MAX_AREA = 3_900_000;
 
 const CSS = `
   :host { display: block; position: relative; }
@@ -136,6 +136,11 @@ class SurfaceElement extends HTMLElement {
   #sizer = null;
   #observers = [];
   #raf = 0;
+  #sizeRaf = 0;
+  #sizerW = '';
+  #sizerH = '';
+  #sizerWVal = 0;
+  #sizerHVal = 0;
   #painted = false;
   #sized = false;
   #canvasRO = null;
@@ -281,14 +286,45 @@ class SurfaceElement extends HTMLElement {
     if (!this.live) return;
     this.bleed = Number(this.getAttribute('bleed') ?? this.constructor.defaultBleed) || 0;
     this.canvas.style.setProperty('--surface-bleed', this.bleed + 'px');
+    const applySizer = (w, h) => {
+      const nextH = h > 0 ? Math.round(h * 100) / 100 + 'px' : '';
+      const nextW = this.hasAttribute('inline') && w > 0 ? Math.round(w * 100) / 100 + 'px' : '';
+      this.#sizerHVal = h;
+      this.#sizerWVal = w;
+      if (nextH !== this.#sizerH) {
+        this.#sizerH = nextH;
+        this.#sizer.style.height = nextH;
+      }
+      if (nextW !== this.#sizerW) {
+        this.#sizerW = nextW;
+        this.#sizer.style.width = nextW;
+      }
+    };
+    const initW = this.content.offsetWidth;
+    const initH = this.content.offsetHeight;
+    if (initW > 0 && initH > 0) {
+      this.width = initW;
+      this.height = initH;
+      applySizer(initW, initH);
+    }
     const contentRO = new ResizeObserver(([entry]) => {
       const box = entry.borderBoxSize?.[0];
       const w = box ? box.inlineSize : entry.contentRect.width;
       const h = box ? box.blockSize : entry.contentRect.height;
       this.width = w;
       this.height = h;
-      this.#sizer.style.height = h + 'px';
-      this.#sizer.style.width = this.hasAttribute('inline') ? w + 'px' : '';
+      const needH = (!this.#sizerH && h > 0) || Math.abs(h - this.#sizerHVal) > 0.6;
+      const needW = this.hasAttribute('inline') && ((!this.#sizerW && w > 0) || Math.abs(w - this.#sizerWVal) > 0.6);
+      if (!needH && !needW) return;
+      // Mutating #sizer inside contentRO resizes :host and <canvas> (a shallower ancestor
+      // of #content), triggering "ResizeObserver loop completed with undelivered notifications".
+      if (!this.#sizeRaf) {
+        this.#sizeRaf = requestAnimationFrame(() => {
+          this.#sizeRaf = 0;
+          if (!this.isConnected || !this.live) return;
+          applySizer(this.width, this.height);
+        });
+      }
     });
     contentRO.observe(this.content);
 
@@ -300,8 +336,8 @@ class SurfaceElement extends HTMLElement {
       let w = box ? box.inlineSize : Math.round(cssW * devicePixelRatio);
       let h = box ? box.blockSize : Math.round(cssH * devicePixelRatio);
       const k = Math.min(1, MAX_DIM / w, MAX_DIM / h, Math.sqrt(MAX_AREA / (w * h)));
-      w = Math.max(1, Math.round(w * k));
-      h = Math.max(1, Math.round(h * k));
+      w = Math.max(1, k < 1 ? Math.floor(w * k) : Math.round(w));
+      h = Math.max(1, k < 1 ? Math.floor(h * k) : Math.round(h));
       if (this.canvas.width !== w) this.canvas.width = w;
       if (this.canvas.height !== h) this.canvas.height = h;
       // Capping rounds the two sides separately; use the smaller ratio so the
@@ -331,6 +367,12 @@ class SurfaceElement extends HTMLElement {
     this.#canvasRO = null;
     cancelAnimationFrame(this.#raf);
     this.#raf = 0;
+    cancelAnimationFrame(this.#sizeRaf);
+    this.#sizeRaf = 0;
+    this.#sizerW = '';
+    this.#sizerH = '';
+    this.#sizerWVal = 0;
+    this.#sizerHVal = 0;
   }
 
   createContext(canvas) {
@@ -629,11 +671,14 @@ const reducedMotion = typeof matchMedia !== 'undefined' ? matchMedia('(prefers-r
 const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
 const effectTime = () => (reducedMotion.matches ? 0 : (performance.now() - t0) / 1000);
 
+const FAR_POINTER = { x: -1e4, y: -1e4 };
+
 /** Pointer, hover and click state for one shaded element. */
 class Interaction {
   pointer = null;
   hover = 0;
   clicks = [];
+  #clickBuf = new Float32Array(16);
   move(p) {
     this.pointer = p;
   }
@@ -651,11 +696,140 @@ class Interaction {
     this.hover += (target - this.hover) * (still ? 1 : 0.18);
     if (Math.abs(target - this.hover) < 0.004) this.hover = target;
     const now = performance.now();
-    this.clicks = this.clicks.filter((c) => now - c.t < 2600);
-    const clicks = new Float32Array(16).fill(-1);
-    this.clicks.forEach((c, i) => clicks.set([c.x, c.y, still ? -1 : (now - c.t) / 1000, 0], i * 4));
-    return { hover: this.hover, pointer: this.pointer ?? { x: -1e4, y: -1e4 }, clicks, moving: this.clicks.length > 0 || this.hover !== target };
+    if (this.clicks.length) {
+      let write = 0;
+      for (let i = 0; i < this.clicks.length; i++) {
+        if (now - this.clicks[i].t < 2600) this.clicks[write++] = this.clicks[i];
+      }
+      this.clicks.length = write;
+    }
+    const clicks = this.#clickBuf;
+    clicks.fill(-1);
+    for (let i = 0; i < this.clicks.length; i++) {
+      const c = this.clicks[i], o = i * 4;
+      clicks[o] = c.x;
+      clicks[o + 1] = c.y;
+      clicks[o + 2] = still ? -1 : (now - c.t) / 1000;
+      clicks[o + 3] = 0;
+    }
+    return { hover: this.hover, pointer: this.pointer ?? FAR_POINTER, clicks, moving: (!still && this.clicks.length > 0) || this.hover !== target };
   }
+}
+
+/**
+ * True when an element (or an ancestor animating a custom property) has a
+ * running wall-clock CSS transition or animation. Scroll-driven animations
+ * (ScrollTimeline / ViewTimeline) use a different timeline and only change on
+ * scroll, so they do not keep an idle frame loop spinning.
+ */
+function hasActiveCSSAnimation(el) {
+  if (!el?.getAnimations) return false;
+  const timeline = el.ownerDocument?.timeline;
+  const check = (node, customOnly) => {
+    const anims = node.getAnimations();
+    for (let i = 0; i < anims.length; i++) {
+      const a = anims[i];
+      if (a.timeline !== timeline) continue;
+      if (a.playState !== 'running' && a.playState !== 'pending') continue;
+      if ('transitionProperty' in a) {
+        if (a.transitionProperty.startsWith('--')) return true;
+        continue;
+      }
+      if (!customOnly) return true;
+      const frames = a.effect?.getKeyframes?.();
+      if (frames) {
+        for (let j = 0; j < frames.length; j++) {
+          for (const k in frames[j]) if (k.startsWith('--')) return true;
+        }
+      }
+    }
+    return false;
+  };
+  if (check(el, false)) return true;
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (check(p, true)) return true;
+  }
+  return false;
+}
+
+const docWatchers = new WeakMap();
+
+/**
+ * Share one set of document-level wake listeners (scroll, resize, ancestor
+ * style/class changes, CSS transitions/animations, reduced-motion changes)
+ * across all shaded hosts in the same document. Returns an unsubscribe fn.
+ */
+function watchEnvironment(host, onWake) {
+  const doc = host?.ownerDocument;
+  if (!doc) return () => {};
+  let state = docWatchers.get(doc);
+  if (!state) {
+    const win = doc.defaultView;
+    const subs = new Map();
+    const wakeAll = () => { for (const fn of subs.values()) fn(); };
+    const wakeInside = (target) => {
+      if (!target || target === doc || target === win || target === doc.documentElement || target === doc.body) return wakeAll();
+      if (typeof target.contains !== 'function') return;
+      for (const [h, fn] of subs) if (target.contains(h)) fn();
+    };
+    const wakeRelated = (target) => {
+      if (!target || target === doc || target === win || target === doc.documentElement || target === doc.body) return wakeAll();
+      if (typeof target.contains !== 'function') return;
+      for (const [h, fn] of subs) if (target.contains(h) || h.contains(target)) fn();
+    };
+    const onScroll = (e) => wakeInside(e.target);
+    const onResize = () => wakeAll();
+    const onTransition = (e) => { if (!e.propertyName || e.propertyName.startsWith('--')) wakeRelated(e.target); };
+    const onAnim = (e) => wakeRelated(e.target);
+    const onMotion = () => wakeAll();
+    const mo = new MutationObserver((records) => {
+      let seen = null;
+      for (let i = 0; i < records.length; i++) {
+        const r = records[i];
+        if (r.type === 'attributes') {
+          const t = r.target;
+          if (t === doc.documentElement || t === doc.body) { wakeAll(); return; }
+          if (records.length > 1) {
+            seen ??= new Set();
+            if (seen.has(t)) continue;
+            seen.add(t);
+          }
+          wakeInside(t);
+        } else {
+          for (const n of r.addedNodes) {
+            if (n.nodeType === 1 && (n.localName === 'style' || n.localName === 'link')) { wakeAll(); return; }
+          }
+          for (const n of r.removedNodes) {
+            if (n.nodeType === 1 && (n.localName === 'style' || n.localName === 'link')) { wakeAll(); return; }
+          }
+        }
+      }
+    });
+    doc.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    win?.addEventListener('resize', onResize, { passive: true });
+    for (const ev of ['transitionrun', 'transitionstart', 'transitionend', 'transitioncancel']) doc.addEventListener(ev, onTransition, { passive: true });
+    for (const ev of ['animationstart', 'animationend', 'animationcancel']) doc.addEventListener(ev, onAnim, { passive: true });
+    reducedMotion.addEventListener?.('change', onMotion);
+    if (doc.documentElement) mo.observe(doc.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'class'] });
+    state = {
+      subs,
+      destroy() {
+        doc.removeEventListener('scroll', onScroll, true);
+        win?.removeEventListener('resize', onResize);
+        for (const ev of ['transitionrun', 'transitionstart', 'transitionend', 'transitioncancel']) doc.removeEventListener(ev, onTransition);
+        for (const ev of ['animationstart', 'animationend', 'animationcancel']) doc.removeEventListener(ev, onAnim);
+        reducedMotion.removeEventListener?.('change', onMotion);
+        mo.disconnect();
+        docWatchers.delete(doc);
+      },
+    };
+    docWatchers.set(doc, state);
+  }
+  state.subs.set(host, onWake);
+  return () => {
+    state.subs.delete(host);
+    if (state.subs.size === 0) state.destroy();
+  };
 }
 
 const IDENTITY3 = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
@@ -732,6 +906,16 @@ function setupQuad(gl) {
   gl.disable(gl.BLEND);
 }
 
+function createSharedTexture(gl) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return tex;
+}
+
 /**
  * One page-wide WebGL context for surfaces that cannot have their own (a page
  * only gets about 16). Draw into it, then copy the result out.
@@ -741,30 +925,77 @@ const sharedGL = {
   gl: null,
   programs: new Map(),
   texture: null,
+  texWidth: 0,
+  texHeight: 0,
+  textures: new Map(),
   ensure() {
     if (this.gl && !this.gl.isContextLost()) return this.gl;
     this.canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(2, 2) : document.createElement('canvas');
     this.gl = this.canvas.getContext('webgl2', { premultipliedAlpha: true, antialias: false });
     this.programs = new Map();
     this.texture = null;
+    this.texWidth = 0;
+    this.texHeight = 0;
+    this.textures = new Map();
     if (this.gl) setupQuad(this.gl);
     return this.gl;
   },
-  /** The scratch texture, bound to unit 0 and loaded from a canvas. */
-  upload(source) {
+  /** True when a cached texture for `key` already exists on the live context at size w × h. */
+  hasTexture(key, w, h) {
+    if (!this.gl || this.gl.isContextLost()) return false;
+    const entry = this.textures.get(key);
+    return !!entry && w > 0 && h > 0 && entry.w === w && entry.h === h;
+  },
+  /** Bind the cached texture for `key` (or the default scratch texture) to unit 0. */
+  bind(key = null) {
     const gl = this.gl;
-    if (!this.texture) {
-      this.texture = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D, this.texture);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    const tex = key == null ? this.texture : this.textures.get(key)?.tex;
+    if (!gl || !tex) return false;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    return true;
+  },
+  /** The scratch (or per-key) texture, bound to unit 0 and loaded from a canvas. */
+  upload(source, key = null) {
+    const gl = this.gl;
+    const w = source.width, h = source.height;
+    let tex, prevW, prevH, entry = null;
+    if (key == null) {
+      if (!this.texture) {
+        this.texture = createSharedTexture(gl);
+        this.texWidth = 0;
+        this.texHeight = 0;
+      }
+      tex = this.texture;
+      prevW = this.texWidth;
+      prevH = this.texHeight;
+    } else {
+      entry = this.textures.get(key);
+      if (!entry) {
+        entry = { tex: createSharedTexture(gl), w: 0, h: 0 };
+        this.textures.set(key, entry);
+      }
+      tex = entry.tex;
+      prevW = entry.w;
+      prevH = entry.h;
     }
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    if (w > 0 && h > 0 && w === prevW && h === prevH) {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    } else {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      if (entry) { entry.w = w; entry.h = h; }
+      else { this.texWidth = w; this.texHeight = h; }
+    }
+  },
+  /** Delete the cached texture for `key`, freeing its GPU memory. */
+  release(key) {
+    const entry = this.textures.get(key);
+    if (!entry) return;
+    this.textures.delete(key);
+    if (this.gl && !this.gl.isContextLost()) this.gl.deleteTexture(entry.tex);
   },
 };
 
@@ -848,15 +1079,38 @@ const WGSL_TAIL = `
 }`;
 /** Byte size of the U struct above. */
 const WGSL_UNIFORM_SIZE = 192;
+const wgslUniformScratch = new Float32Array(WGSL_UNIFORM_SIZE / 4);
 
-/** Pack the uniform values (same object as setEffectUniforms) into the U struct. */
-function packWGSLUniforms(v, scale) {
-  const f = new Float32Array(WGSL_UNIFORM_SIZE / 4);
-  f.set([v.canvas[0], v.canvas[1], v.origin[0], v.origin[1], v.size[0], v.size[1], v.texSize[0], v.texSize[1], v.pointer.x, v.pointer.y, v.x ?? 0, v.y ?? 0, v.time, v.progress, v.amount, v.hover, scale], 0);
+/**
+ * Pack the uniform values (same object as setEffectUniforms) into the U struct.
+ * Reuses a module-level scratch buffer by default (callers copy synchronously
+ * via queue.writeBuffer); pass `out` to write into a caller-owned Float32Array.
+ */
+function packWGSLUniforms(v, scale, out = wgslUniformScratch) {
+  out[0] = v.canvas[0];
+  out[1] = v.canvas[1];
+  out[2] = v.origin[0];
+  out[3] = v.origin[1];
+  out[4] = v.size[0];
+  out[5] = v.size[1];
+  out[6] = v.texSize[0];
+  out[7] = v.texSize[1];
+  out[8] = v.pointer.x;
+  out[9] = v.pointer.y;
+  out[10] = v.x ?? 0;
+  out[11] = v.y ?? 0;
+  out[12] = v.time;
+  out[13] = v.progress;
+  out[14] = v.amount;
+  out[15] = v.hover;
+  out[16] = scale;
   const m = v.inv ?? IDENTITY3;
-  f.set([m[0], m[1], m[2], 0, m[3], m[4], m[5], 0, m[6], m[7], m[8], 0], 20); // offset 80
-  f.set(v.clicks, 32); // offset 128
-  return f;
+  // offset 80 (float index 20): mat3x3f is three 16-byte-aligned vec3f columns
+  out[20] = m[0]; out[21] = m[1]; out[22] = m[2]; out[23] = 0;
+  out[24] = m[3]; out[25] = m[4]; out[26] = m[5]; out[27] = 0;
+  out[28] = m[6]; out[29] = m[7]; out[30] = m[8]; out[31] = 0;
+  out.set(v.clicks, 32); // offset 128
+  return out;
 }
 
 /** True when a registered effect also has WGSL source, so WebGPU can draw it. */
@@ -1224,7 +1478,7 @@ const CURL = {
 };
 defineEffect('curl', CURL);
 defineEffect('page-curl', CURL);
-return { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, Interaction, inverseHomography, VERT, FRAG_HEAD, FRAG_TAIL, setupQuad, sharedGL, compileEffect, setEffectUniforms, WGSL_HEAD, WGSL_TAIL, WGSL_UNIFORM_SIZE, packWGSLUniforms, hasWGSL, gpuEffect, gpuEffectProblem, checkEffectWGSL, gpuSampler, tiltMatrix };
+return { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, Interaction, hasActiveCSSAnimation, watchEnvironment, inverseHomography, VERT, FRAG_HEAD, FRAG_TAIL, setupQuad, sharedGL, compileEffect, setEffectUniforms, WGSL_HEAD, WGSL_TAIL, WGSL_UNIFORM_SIZE, packWGSLUniforms, hasWGSL, gpuEffect, gpuEffectProblem, checkEffectWGSL, gpuSampler, tiltMatrix };
 })();
 
 // ---- public/lib/gpu-util.js ----
@@ -1716,13 +1970,15 @@ const m0 = (() => {
 // The element stays where layout put it for hit testing: effects are visual.
 
 const { SurfaceElement, ElementTexture, supported, supportedGL } = m1;
-const { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, inverseHomography, setupQuad, compileEffect, setEffectUniforms, sharedGL, hasWGSL, gpuEffect, gpuEffectProblem, gpuSampler, WGSL_UNIFORM_SIZE, packWGSLUniforms } = m2;
+const { effects, defineEffect, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, hasActiveCSSAnimation, watchEnvironment, inverseHomography, setupQuad, compileEffect, setEffectUniforms, sharedGL, hasWGSL, gpuEffect, gpuEffectProblem, gpuSampler, WGSL_UNIFORM_SIZE, packWGSLUniforms } = m2;
 const { supportedGPU, GPUCanvas, GPUElementTexture, watchFrame } = m3;
 const { webgpu } = m4;
 
 
 
 const KINDS = ['webgpu', 'gl', 'direct', 'shared'];
+const FAR_POINTER = { x: -1e4, y: -1e4 };
+const WAKE_EVENTS = ['pointerenter', 'pointerup', 'focusin', 'focusout', 'input', 'change', 'transitionrun', 'transitionstart', 'transitionend', 'transitioncancel', 'animationstart', 'animationend', 'animationcancel'];
 const MAX_DIRECT = 8;
 let liveDirect = 0;
 
@@ -1773,9 +2029,15 @@ class FxSurface extends SurfaceElement {
   #pointer = null;
   #hover = 0;
   #clicks = [];
+  #clicksBuf = new Float32Array(16);
   #visible = true;
   #io = null;
   #mo = null;
+  #unwatch = null;
+  #sharedScale = 0;
+  #sharedBleed = -1;
+  #sharedW = 0;
+  #sharedH = 0;
   #signature = '';
   #error = null;
   frames = 0;
@@ -1897,23 +2159,44 @@ class FxSurface extends SurfaceElement {
     this.addEventListener('pointermove', this.#onMove);
     this.addEventListener('pointerleave', this.#onLeave);
     this.addEventListener('pointerdown', this.#onDown);
+    for (const ev of WAKE_EVENTS) this.addEventListener(ev, this.#onWake);
+    this.#unwatch = watchEnvironment(this, this.#onWake);
     this.#io = new IntersectionObserver(([entry]) => {
       this.#visible = entry.isIntersecting;
       if (this.#visible) this.invalidate();
     }, { rootMargin: '100px' });
     this.#io.observe(this);
     // If the author takes the fx attribute off, hand the element back.
-    this.#mo = new MutationObserver(() => {
-      if (this.adopted && !this.querySelector(':scope > [fx]')) FxSurface.release(this);
-      else this.effectChanged();
+    this.#mo = new MutationObserver((records) => {
+      if (this.adopted && !this.querySelector(':scope > [fx]')) {
+        FxSurface.release(this);
+        return;
+      }
+      let wake = false;
+      for (const r of records) {
+        if (r.attributeName === 'fx' || r.attributeName === 'fx-backend') {
+          this.effectChanged();
+          return;
+        }
+        if (r.target === this && (r.attributeName === 'bleed' || r.attributeName === 'plain')) continue;
+        wake = true;
+      }
+      if (wake && this.#visible) this.invalidate();
     });
-    this.#mo.observe(this, { attributes: true, subtree: true, attributeFilter: ['fx', 'fx-backend', 'style', 'class'] });
+    this.#mo.observe(this, { attributes: true, subtree: true });
   }
 
   disconnected() {
     FxSurface.instances.delete(this);
+    this.removeEventListener('pointermove', this.#onMove);
+    this.removeEventListener('pointerleave', this.#onLeave);
+    this.removeEventListener('pointerdown', this.#onDown);
+    for (const ev of WAKE_EVENTS) this.removeEventListener(ev, this.#onWake);
+    this.#unwatch?.();
+    this.#unwatch = null;
     this.#io?.disconnect();
     this.#mo?.disconnect();
+    shared.release(this);
     if (this.backend === 'webgpu') {
       this.#dropGPU();
       this.ctx = null;
@@ -1959,11 +2242,15 @@ class FxSurface extends SurfaceElement {
     if (this.backend === 'direct') {
       liveDirect = Math.max(0, liveDirect - 1); // swapCanvas() retires the old canvas
     }
+    shared.release(this);
     this.#dropGPU();
     this.backend = null;
     this.swapCanvas();
   }
 
+  #onWake = () => {
+    if (this.#visible) this.invalidate();
+  };
   #onMove = (e) => {
     this.#pointer = this.localPoint(e);
     this.invalidate();
@@ -2017,18 +2304,32 @@ class FxSurface extends SurfaceElement {
     this.#hover += (hoverTarget - this.#hover) * (still ? 1 : 0.18);
     if (Math.abs(hoverTarget - this.#hover) < 0.004) this.#hover = hoverTarget;
     const t = performance.now();
-    this.#clicks = this.#clicks.filter((c) => t - c.t < 2600);
-    const clicks = new Float32Array(16).fill(-1);
-    this.#clicks.forEach((c, i) => clicks.set([c.x, c.y, still ? -1 : (t - c.t) / 1000, 0], i * 4));
+    if (this.#clicks.length) {
+      let write = 0;
+      for (let i = 0; i < this.#clicks.length; i++) {
+        if (t - this.#clicks[i].t < 2600) this.#clicks[write++] = this.#clicks[i];
+      }
+      this.#clicks.length = write;
+    }
+    const clicks = this.#clicksBuf;
+    clicks.fill(-1);
+    for (let i = 0; i < this.#clicks.length; i++) {
+      const c = this.#clicks[i], o = i * 4;
+      clicks[o] = c.x;
+      clicks[o + 1] = c.y;
+      clicks[o + 2] = still ? -1 : (t - c.t) / 1000;
+      clicks[o + 3] = 0;
+    }
 
-    const moving = (def.animated && !still) || this.#clicks.length > 0 || this.#hover !== hoverTarget;
+    const animating = (def.animated && !still) || (!still && this.#clicks.length > 0) || this.#hover !== hoverTarget;
+    const keepAlive = animating || hasActiveCSSAnimation(this.target);
     const time = effectTime();
-    const p = this.#pointer ?? { x: -1e4, y: -1e4 };
-    const signature = `${name}|${progress}|${amount}|${x},${y}|${p.x},${p.y}|${this.#hover}|${this.canvas.width}x${this.canvas.height}|${moving ? time : ''}`;
-    // CSS can change --fx-progress at any time (a transition, :hover), and
-    // there is no event for that, so keep sampling while on screen and only
-    // draw when a uniform actually changed.
-    if (signature === this.#signature && !this.contentDirty) return true;
+    const p = this.#pointer ?? FAR_POINTER;
+    const signature = `${name}|${progress}|${amount}|${x},${y}|${p.x},${p.y}|${this.#hover}|${this.canvas.width}x${this.canvas.height}|${animating ? time : ''}`;
+    // Only redraw when a uniform or the DOM changed, and stop the rAF loop
+    // whenever nothing is animating (wake listeners restart it on input,
+    // scroll, style/class mutations or CSS transitions/animations).
+    if (signature === this.#signature && !this.contentDirty) return keepAlive;
     this.#signature = signature;
 
     // An effect that moves the element (tilt) says where, so hit testing follows.
@@ -2058,7 +2359,7 @@ class FxSurface extends SurfaceElement {
     this.setGeometry(matrix ? this.restMatrix.multiply(matrix) : undefined);
     this.contentDirty = false;
     this.frames++;
-    return true;
+    return keepAlive;
   }
 
   #setUniforms(gl, u, uniforms, texOrigin, texSize) {
@@ -2166,15 +2467,29 @@ class FxSurface extends SurfaceElement {
     const ctx = this.ctx;
     const { width: cw, height: ch } = this.canvas;
     const s = this.scale;
-    ctx.setTransform(s, 0, 0, s, 0, 0);
-    ctx.clearRect(0, 0, cw / s, ch / s);
-    ctx.drawElementImage(this.content, this.bleed, this.bleed, this.width, this.height);
     const gl = shared.ensure();
-    if (!gl) return; // no WebGL at all: the plain drawing stays
+    if (!gl) {
+      ctx.setTransform(s, 0, 0, s, 0, 0);
+      ctx.clearRect(0, 0, cw / s, ch / s);
+      ctx.drawElementImage(this.content, this.bleed, this.bleed, this.width, this.height);
+      return; // no WebGL at all: the plain drawing stays
+    }
     if (shared.canvas.width < cw) shared.canvas.width = cw;
     if (shared.canvas.height < ch) shared.canvas.height = ch;
     const { program: prog, u } = compileEffect(gl, shared.programs, name);
-    shared.upload(this.canvas);
+    const same = !this.contentDirty && this.#sharedScale === s && this.#sharedBleed === this.bleed && this.#sharedW === this.width && this.#sharedH === this.height && shared.hasTexture(this, cw, ch);
+    if (same) {
+      shared.bind(this);
+    } else {
+      ctx.setTransform(s, 0, 0, s, 0, 0);
+      ctx.clearRect(0, 0, cw / s, ch / s);
+      ctx.drawElementImage(this.content, this.bleed, this.bleed, this.width, this.height);
+      shared.upload(this.canvas, this);
+      this.#sharedScale = s;
+      this.#sharedBleed = this.bleed;
+      this.#sharedW = this.width;
+      this.#sharedH = this.height;
+    }
     gl.viewport(0, 0, cw, ch);
     gl.useProgram(prog);
     this.#setUniforms(gl, u, uniforms, [this.bleed, this.bleed], [cw / s, ch / s]);

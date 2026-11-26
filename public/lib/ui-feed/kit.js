@@ -91,7 +91,9 @@ export class FeedControl extends HTMLElement {
   static html = '';
   static css = '';
 
-  #built = false; #lost = false; #visible = false; #queued = 0; #retries = 0; #last = 0;
+  #built = false; #lost = false; #visible = false; #near = null;
+  #rafId = 0; #timerId = 0; #lostTimer = 0; #retries = 0; #last = 0;
+  #pw = 0; #ph = 0; #ro = null; #io = null; #nearIo = null;
 
   constructor() {
     super();
@@ -117,10 +119,48 @@ export class FeedControl extends HTMLElement {
     const a = abs(el), b = abs(host);
     return { top: a.top - b.top, left: a.left - b.left, w: host.offsetWidth, h: host.offsetHeight, ew: el.offsetWidth, eh: el.offsetHeight };
   }
-  request() { if (!this.#lost && !this.plain) this.canvas?.requestPaint?.(); }
+  request() {
+    if (!this.#lost && !this.plain && this.#near !== false && this.canvas?.width && this.canvas?.height) {
+      this.canvas.requestPaint?.();
+    }
+  }
+
+  #cancelFrame() {
+    if (this.#rafId) { cancelAnimationFrame(this.#rafId); this.#rafId = 0; }
+    if (this.#timerId) { clearTimeout(this.#timerId); this.#timerId = 0; }
+  }
+
+  #syncSize() {
+    const canvas = this.canvas;
+    if (!canvas || this.plain || this.#lost) return;
+    if (!this.#near) {
+      this.#cancelFrame();
+      if (canvas.width !== 0) canvas.width = 0;
+      if (canvas.height !== 0) canvas.height = 0;
+      evictScratch(this);
+      return;
+    }
+    const w = this.#pw || Math.round(canvas.clientWidth * devicePixelRatio);
+    const h = this.#ph || Math.round(canvas.clientHeight * devicePixelRatio);
+    if (!w || !h) return;
+    // Assigning width or height clears the canvas, so do it only when the size changed.
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
+    this.request();
+  }
+
+  #observe() {
+    if (this.plain || !this.canvas) return;
+    this.#ro?.observe(this.canvas, { box: 'device-pixel-content-box' });
+    this.#io?.observe(this.canvas);
+    this.#nearIo?.observe(this.canvas);
+  }
 
   connectedCallback() {
-    if (this.#built) return;
+    if (this.#built) {
+      this.#observe();
+      return;
+    }
     this.#built = true;
     const C = this.constructor, [W, H] = C.size, root = this.shadowRoot;
     const base = `:host{display:block;position:relative;width:100%;max-width:${W}px;-webkit-tap-highlight-color:transparent}
@@ -134,12 +174,13 @@ export class FeedControl extends HTMLElement {
         > *{position:absolute;left:0;top:0;margin:0;box-sizing:border-box}
         ${C.css}}</style><canvas content="drawable" layoutsubtree>${C.html}</canvas>`;
     const canvas = this.canvas = root.querySelector('canvas');
+    canvas.width = 0; canvas.height = 0;
     for (const el of canvas.children) el.setAttribute('drawable', '');
     const ctx = this.ctx = canvas.getContext('2d');
     this.ready?.();
 
     canvas.addEventListener('paint', () => {
-      if (this.#lost || !canvas.clientWidth) return;
+      if (this.#lost || this.plain || !this.#near || !canvas.clientWidth || !canvas.width || !canvas.height) return;
       const now = performance.now();
       this.dt = clamp((now - this.#last) / 1000, 1 / 240, 1 / 30);
       this.#last = now;
@@ -150,21 +191,40 @@ export class FeedControl extends HTMLElement {
       let again = this.draw(ctx, W, H, now);
       // An element has no picture until the browser has painted it once. Try again next frame.
       if (missed && this.#retries++ < 60) again = true; else if (!missed) this.#retries = 0;
-      if (again && this.#visible && !this.#queued) {
-        const next = () => { this.#queued = requestAnimationFrame(() => { this.#queued = 0; this.request(); }); };
+      if (again && this.#visible && this.#near && !this.#rafId && !this.#timerId) {
+        const next = () => {
+          this.#timerId = 0;
+          this.#rafId = requestAnimationFrame(() => { this.#rafId = 0; this.request(); });
+        };
         // A control whose picture only drifts (static fps) is drawn less often than the screen refreshes.
-        if (C.fps) this.#queued = setTimeout(next, 1000 / C.fps - 8); else next();
+        if (C.fps) this.#timerId = setTimeout(next, 1000 / C.fps - 8); else next();
       }
     });
-    new ResizeObserver(([e]) => {
+    this.#ro = new ResizeObserver((entries) => {
+      const e = entries.at(-1);
       const box = e.devicePixelContentBoxSize?.[0] ?? { inlineSize: Math.round(canvas.clientWidth * devicePixelRatio), blockSize: Math.round(canvas.clientHeight * devicePixelRatio) };
       if (!box.inlineSize || !box.blockSize) return;
-      // Assigning width or height clears the canvas, so do it only when the size changed.
-      if (canvas.width !== box.inlineSize) canvas.width = box.inlineSize;
-      if (canvas.height !== box.blockSize) canvas.height = box.blockSize;
-      this.request();
-    }).observe(canvas, { box: 'device-pixel-content-box' });
-    new IntersectionObserver(([e]) => { this.#visible = e.isIntersecting; if (this.#visible) this.request(); }, { rootMargin: '80px 0px' }).observe(canvas);
+      this.#pw = box.inlineSize;
+      this.#ph = box.blockSize;
+      if (this.#near === null) {
+        const r = canvas.getBoundingClientRect();
+        this.#near = r.top < innerHeight * 2 && r.bottom > -innerHeight;
+      }
+      this.#syncSize();
+    });
+    this.#io = new IntersectionObserver((entries) => {
+      this.#visible = entries.at(-1).isIntersecting;
+      if (this.#visible) this.request();
+      else this.#cancelFrame();
+    }, { rootMargin: '80px 0px' });
+    // Far from the viewport, shrink the backing store and any dotBoard scratch canvases to 0 x 0.
+    this.#nearIo = new IntersectionObserver((entries) => {
+      const near = entries.at(-1).isIntersecting;
+      if (near === this.#near) return;
+      this.#near = near;
+      this.#syncSize();
+    }, { rootMargin: '100% 0px' });
+    this.#observe();
     // State that changes no pixel of an element's picture raises no paint event, so ask after each of these.
     for (const type of ['input', 'change', 'focusin', 'focusout', 'keydown', 'keyup', 'pointerdown', 'pointerup', 'slotchange']) {
       root.addEventListener(type, () => this.request());
@@ -173,14 +233,46 @@ export class FeedControl extends HTMLElement {
     // (shared/context-guard.js asks for a paint then). If it stays lost, show the controls as plain HTML.
     canvas.addEventListener('contextlost', () => {
       this.#lost = true;
-      setTimeout(() => { if (this.#lost) this.#plain(base, 'The canvas lost its drawing context. The control is shown as plain HTML.'); }, 1500);
+      this.#cancelFrame();
+      if (this.#lostTimer) clearTimeout(this.#lostTimer);
+      this.#lostTimer = setTimeout(() => {
+        this.#lostTimer = 0;
+        if (this.#lost) this.#plain(base, 'The canvas lost its drawing context. The control is shown as plain HTML.');
+      }, 1500);
     });
-    canvas.addEventListener('contextrestored', () => { this.#lost = false; this.request(); });
+    canvas.addEventListener('contextrestored', () => {
+      if (this.#lostTimer) { clearTimeout(this.#lostTimer); this.#lostTimer = 0; }
+      this.#lost = false;
+      invalidateScratchPatterns(this);
+      this.#syncSize();
+    });
+  }
+
+  disconnectedCallback() {
+    this.#cancelFrame();
+    if (this.#lostTimer) { clearTimeout(this.#lostTimer); this.#lostTimer = 0; }
+    this.#ro?.disconnect();
+    this.#io?.disconnect();
+    this.#nearIo?.disconnect();
+    this.#visible = false;
+    this.#near = null;
+    this.#pw = 0;
+    this.#ph = 0;
+    if (this.canvas) window.__gfx?.retire(this.canvas);
+    retireScratch(this);
   }
 
   #plain(base, note) {
     if (this.plain) return;
     this.plain = true;
+    this.#cancelFrame();
+    if (this.#lostTimer) { clearTimeout(this.#lostTimer); this.#lostTimer = 0; }
+    this.#ro?.disconnect();
+    this.#io?.disconnect();
+    this.#nearIo?.disconnect();
+    this.#visible = false;
+    this.#near = false;
+    retireScratch(this);
     const root = this.shadowRoot, old = this.canvas;
     const box = document.createElement('div');
     box.className = 'plain';
@@ -210,15 +302,41 @@ export class FeedControl extends HTMLElement {
 // 3. It is drawn back enlarged with smoothing off, through a mask that has one disc (or square) per cell.
 // The colours are the element's own, so :checked, :disabled and ::selection styles show on the board.
 const scratch = new WeakMap();
+const mkCanvas = () => { const c = document.createElement('canvas'); c.width = c.height = 1; return c; };
 function scratchOf(control, id) {
   let m = scratch.get(control);
   if (!m) scratch.set(control, m = new Map());
   let s = m.get(id);
   if (!s) {
-    const mk = () => { const c = document.createElement('canvas'); c.width = c.height = 1; return c; };
-    m.set(id, s = { low: mk(), big: mk(), dot: mk(), key: '' });
+    m.set(id, s = { low: mkCanvas(), big: mkCanvas(), dot: mkCanvas(), glow: null, key: '', bigPat: null, ctxPat: null, ctxFor: null });
   }
   return s;
+}
+function evictScratch(control) {
+  const m = scratch.get(control);
+  if (!m) return;
+  for (const s of m.values()) {
+    for (const c of [s.low, s.big, s.glow]) {
+      if (c && (c.width || c.height)) { c.width = 0; c.height = 0; }
+    }
+  }
+}
+function invalidateScratchPatterns(control) {
+  const m = scratch.get(control);
+  if (!m) return;
+  for (const s of m.values()) { s.bigPat = null; s.ctxPat = null; s.ctxFor = null; }
+}
+function retireScratch(control) {
+  const m = scratch.get(control);
+  if (!m) return;
+  for (const s of m.values()) {
+    for (const c of [s.low, s.big, s.dot, s.glow]) {
+      if (!c) continue;
+      if (c.width || c.height) { c.width = 0; c.height = 0; }
+      window.__gfx?.retire(c);
+    }
+    s.key = ''; s.bigPat = null; s.ctxPat = null; s.ctxFor = null;
+  }
 }
 
 export function dotBoard(control, ctx, o, drawSource) {
@@ -254,6 +372,8 @@ export function dotBoard(control, ctx, o, drawSource) {
     dc.fillStyle = '#fff';
     if (shape === 'square') dc.fillRect(0, 0, Math.max(1, Math.round(cp * fill)), Math.max(1, Math.round(cp * fill)));
     else { dc.beginPath(); dc.arc(cp / 2, cp / 2, (cp * fill) / 2, 0, TAU); dc.fill(); }
+    s.bigPat = null;
+    s.ctxPat = null;
   }
 
   // 3. enlarge with smoothing off, then keep only what is under the mask
@@ -264,7 +384,8 @@ export function dotBoard(control, ctx, o, drawSource) {
   bc.imageSmoothingEnabled = false;
   bc.drawImage(s.low, 0, 0, cols, rows, 0, 0, BW, BH);
   bc.globalCompositeOperation = 'destination-in';
-  bc.fillStyle = bc.createPattern(s.dot, 'repeat');
+  if (!s.bigPat) s.bigPat = bc.createPattern(s.dot, 'repeat');
+  bc.fillStyle = s.bigPat;
   bc.fillRect(0, 0, BW, BH);
 
   ctx.save();
@@ -276,21 +397,34 @@ export function dotBoard(control, ctx, o, drawSource) {
   ctx.fillRect(Math.round(x * px), Math.round(y * px), Math.round(w * px), Math.round(h * px));
   const ox = X + Math.floor((w * px - BW) / 2), oy = Y + Math.floor((h * px - BH) / 2);
   if (off) {                                              // the unlit dots
+    if (!s.ctxPat || s.ctxFor !== ctx) { s.ctxPat = ctx.createPattern(s.dot, 'repeat'); s.ctxFor = ctx; }
     ctx.save();
     ctx.translate(ox, oy);
     ctx.globalAlpha = off;
-    ctx.fillStyle = ctx.createPattern(s.dot, 'repeat');
+    ctx.fillStyle = s.ctxPat;
     ctx.fillRect(0, 0, BW, BH);
     ctx.restore();
   }
   if (glow) {
+    // Blur at dot resolution (s.low) instead of full DPR (s.big), then composite scaled up.
+    const target = Math.max(1, glow * px) / cp;
+    const r = target > 0.5 ? Math.sqrt(target * target - 0.16) : target * 0.6;
+    const pad = Math.max(1, Math.ceil(r * 3));
+    const gw = cols + pad * 2, gh = rows + pad * 2;
+    if (!s.glow) s.glow = mkCanvas();
+    if (s.glow.width !== gw || s.glow.height !== gh) { s.glow.width = gw; s.glow.height = gh; }
+    const gc = s.glow.getContext('2d');
+    gc.clearRect(0, 0, gw, gh);
+    gc.filter = `blur(${r.toFixed(2)}px)`;
+    gc.drawImage(s.low, pad, pad);
+    gc.filter = 'none';
+    const area = shape === 'square' ? fill * fill : (Math.PI / 4) * fill * fill;
+    ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.filter = `blur(${Math.max(1, glow * px)}px)`;
-    ctx.globalAlpha = 0.7;
-    ctx.drawImage(s.big, ox, oy);
-    ctx.filter = 'none';
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 0.7 * area;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(s.glow, 0, 0, gw, gh, ox - pad * cp, oy - pad * cp, gw * cp, gh * cp);
+    ctx.restore();
   }
   ctx.drawImage(s.big, ox, oy);
   ctx.restore();

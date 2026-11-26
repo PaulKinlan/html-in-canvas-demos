@@ -42,12 +42,21 @@ const SUPPORTED =
   typeof CanvasRenderingContext2D !== 'undefined' &&
   'drawElementImage' in CanvasRenderingContext2D.prototype;
 
+const EMPTY_SET = new Set();
+
 export class CanvasSlot extends HTMLElement {
   #root;
   #canvas;
   #ctx = null;
   #worker = null;
   #slots = new Map();
+  #elements = new Map();
+  #elemSizes = new WeakMap();
+  #elemRo = null;
+  #observedElems = new Set();
+  #io = null;
+  #animate = false;
+  #visible = true;
   #sent = new WeakSet();
   #raf = 0;
   #dpr = devicePixelRatio;
@@ -126,11 +135,14 @@ export class CanvasSlot extends HTMLElement {
     const canvas = old.cloneNode(false);
     canvas.append(...old.childNodes);
     this.#ro?.unobserve(old);
+    old.removeEventListener('paint', this.#paint);
+    old.removeEventListener('contextrestored', this.#onRestored);
     old.replaceWith(canvas);
+    window.__gfx?.retire(old);
     this.#canvas = canvas;
     this.#observeSize();
     canvas.addEventListener('paint', this.#paint);
-    canvas.addEventListener('contextrestored', () => this.requestPaint());
+    canvas.addEventListener('contextrestored', this.#onRestored);
   }
 
   #start(replace = false) {
@@ -204,6 +216,115 @@ export class CanvasSlot extends HTMLElement {
   }
 
   #paint = (e) => this.#onPaint(e);
+  #onRestored = () => this.requestPaint();
+  #onSlotChange = () => {
+    this.#rebuildElements();
+    this.requestPaint();
+  };
+  #tick = () => {
+    if (!this.#animate || !this.#visible || this.#gaveUp || !this.isConnected) {
+      this.#raf = 0;
+      return;
+    }
+    this.requestPaint();
+    this.#raf = requestAnimationFrame(this.#tick);
+  };
+  #renderArg = {
+    ctx: null,
+    canvas: null,
+    width: 0,
+    height: 0,
+    dpr: 1,
+    elements: null,
+    draw: null,
+    time: 0,
+    event: null,
+  };
+
+  #syncAnim() {
+    if (this.#animate && this.#visible && !this.#gaveUp && this.isConnected) {
+      if (!this.#raf) this.#tick();
+    } else if (this.#raf) {
+      cancelAnimationFrame(this.#raf);
+      this.#raf = 0;
+    }
+  }
+
+  #elemSize(el) {
+    const cached = this.#elemSizes.get(el);
+    if (cached && cached.width > 0 && cached.height > 0) return cached;
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
+    if (width > 0 && height > 0) {
+      if (cached) {
+        cached.width = width;
+        cached.height = height;
+        return cached;
+      }
+      const size = { width, height };
+      this.#elemSizes.set(el, size);
+      return size;
+    }
+    return { width, height };
+  }
+
+  #rebuildElements() {
+    this.#elements.clear();
+    const seen = new Set();
+    for (const [name, slot] of this.#slots) {
+      const [el] = slot.assignedElements();
+      if (el) {
+        this.#elements.set(name, el);
+        seen.add(el);
+        if (this.#elemRo && !this.#observedElems.has(el)) {
+          try {
+            this.#elemRo.observe(el, { box: 'border-box' });
+          } catch {
+            this.#elemRo.observe(el);
+          }
+          this.#observedElems.add(el);
+        }
+      }
+    }
+    if (this.#elemRo) {
+      for (const el of this.#observedElems) {
+        if (!seen.has(el)) {
+          this.#elemRo.unobserve(el);
+          this.#observedElems.delete(el);
+        }
+      }
+    }
+  }
+
+  #draw = (name, x = 0, y = 0, w, h) => {
+    const el = typeof name === 'string' ? this.#elements.get(name) : name;
+    if (!el || !this.#ctx) return;
+    try {
+      const size = w == null || h == null ? this.#elemSize(el) : null;
+      this.#ctx.drawElementImage(el, x, y, w ?? size.width, h ?? size.height);
+      this.#retries = 0;
+    } catch (err) {
+      // An element that was slotted or moved a moment ago may not have been
+      // laid out inside the canvas yet, and a canvas that is scrolled far
+      // off screen has no painted content to draw. Skip the element this
+      // frame and paint again: quickly at first, then twice a second.
+      if (this.#retries++ < 3) requestAnimationFrame(() => this.requestPaint());
+      else {
+        if (this.#retries === 4) console.warn('<canvas-slot>: could not draw', el, err.message);
+        clearTimeout(this.#retryTimer);
+        this.#retryTimer = setTimeout(() => this.requestPaint(), 500);
+      }
+    }
+  };
+
+  #defaultRenderer = ({ width, elements, draw }) => {
+    let y = 0;
+    for (const [, el] of elements) {
+      const size = this.#elemSize(el);
+      draw(el, (width - size.width) / 2, y, size.width, size.height);
+      y += size.height + 8;
+    }
+  };
 
   #observeSize() {
     try {
@@ -237,15 +358,32 @@ export class CanvasSlot extends HTMLElement {
 
   /** Map of slot name -> the light-DOM element currently assigned to it. */
   get elements() {
-    const map = new Map();
-    for (const [name, slot] of this.#slots) {
-      const [el] = slot.assignedElements();
-      if (el) map.set(name, el);
+    for (const [name, el] of this.#elements) {
+      if (el.parentNode !== this || el.getAttribute('slot') !== name) {
+        this.#rebuildElements();
+        break;
+      }
     }
-    return map;
+    return this.#elements;
   }
 
   connectedCallback() {
+    this.#elemRo = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const el = entry.target;
+        const box = entry.borderBoxSize?.[0];
+        const width = box ? Math.round(box.inlineSize) : el.offsetWidth;
+        const height = box ? Math.round(box.blockSize) : el.offsetHeight;
+        let rec = this.#elemSizes.get(el);
+        if (!rec) {
+          rec = { width, height };
+          this.#elemSizes.set(el, rec);
+        } else {
+          rec.width = width;
+          rec.height = height;
+        }
+      }
+    });
     if (this.hasAttribute('from')) this.#syncFrom();
     this.#syncSlots();
     this.#mo = new MutationObserver(() => this.#syncSlots());
@@ -265,6 +403,14 @@ export class CanvasSlot extends HTMLElement {
       this.requestPaint();
     });
     this.#observeSize();
+    if (typeof IntersectionObserver !== 'undefined') {
+      this.#visible = true;
+      this.#io = new IntersectionObserver(([entry]) => {
+        this.#visible = entry.isIntersecting;
+        this.#syncAnim();
+      });
+      this.#io.observe(this);
+    }
 
     if (!SUPPORTED) {
       this.toggleAttribute('plain', true);
@@ -286,6 +432,8 @@ export class CanvasSlot extends HTMLElement {
       this.#start(this.#mode !== null);
     }
     this.#canvas.addEventListener('paint', this.#paint);
+    this.#canvas.addEventListener('contextrestored', this.#onRestored);
+    this.#syncAnim();
   }
 
   #mo;
@@ -294,13 +442,22 @@ export class CanvasSlot extends HTMLElement {
   disconnectedCallback() {
     this.#mo?.disconnect();
     this.#ro?.disconnect();
+    this.#elemRo?.disconnect();
+    this.#elemRo = null;
+    this.#observedElems.clear();
+    this.#io?.disconnect();
+    this.#io = null;
     cancelAnimationFrame(this.#raf);
+    this.#raf = 0;
     clearTimeout(this.#retryTimer);
+    this.#canvas.removeEventListener('paint', this.#paint);
+    this.#canvas.removeEventListener('contextrestored', this.#onRestored);
     this.#worker?.terminate();
     this.#worker = null;
     this.#fx?.destroy();
     this.#fx = null;
     this.#loading++;
+    window.__gfx?.retire(this.#canvas);
   }
 
   /**
@@ -394,7 +551,7 @@ export class CanvasSlot extends HTMLElement {
     this.#loading++;
     this.#fx?.destroy();
     this.#fx = null;
-    cancelAnimationFrame(this.#raf);
+    this.#syncAnim();
     for (const slot of this.#slots.values()) this.#root.append(slot);
     const note = document.createElement('small');
     note.setAttribute('part', 'notice');
@@ -404,15 +561,10 @@ export class CanvasSlot extends HTMLElement {
     this.setAttribute('plain', reason);
   }
 
-  /** Keep firing paint every frame (for animated renderers). */
+  /** Keep firing paint every frame while visible (for animated renderers). */
   set animate(on) {
-    cancelAnimationFrame(this.#raf);
-    if (!on) return;
-    const tick = () => {
-      this.requestPaint();
-      this.#raf = requestAnimationFrame(tick);
-    };
-    tick();
+    this.#animate = !!on;
+    this.#syncAnim();
   }
 
   #syncSlots() {
@@ -428,31 +580,33 @@ export class CanvasSlot extends HTMLElement {
       if (this.#slots.has(name)) continue;
       const slot = document.createElement('slot');
       slot.name = name;
-      slot.addEventListener('slotchange', () => this.requestPaint());
+      slot.addEventListener('slotchange', this.#onSlotChange);
       (SUPPORTED ? this.#canvas : this.#root).append(slot);
       this.#slots.set(name, slot);
     }
     for (const [name, slot] of this.#slots) {
       if (!names.has(name)) {
+        slot.removeEventListener('slotchange', this.#onSlotChange);
         slot.remove();
         this.#slots.delete(name);
       }
     }
+    this.#rebuildElements();
     this.requestPaint();
   }
 
   #onPaint(event) {
-    const elements = this.elements;
+    const elements = this.#elements;
     if (this.#worker) {
       // #region worker
       // Capture snapshots for changed elements (or all of them the first time)
       // and transfer them to the worker that owns the OffscreenCanvas.
-      const changed = new Set(event.changedElements ?? []);
+      const changed = event.changedElements?.length ? new Set(event.changedElements) : EMPTY_SET;
       const images = {};
       const sizes = {};
       const transfer = [];
       for (const [name, el] of elements) {
-        sizes[name] = { width: el.offsetWidth, height: el.offsetHeight };
+        sizes[name] = this.#elemSize(el);
         if (this.#sent.has(el) && !changed.has(el)) continue;
         try {
           const img = this.#canvas.captureElementImage(el);
@@ -470,8 +624,9 @@ export class CanvasSlot extends HTMLElement {
 
     if (this.#fx) {
       // Shader mode: same renderer contract, but draw() shades each slot.
-      this.#fx.paint({ elements, renderer: this.onrender ?? defaultRenderer, event, dpr: this.#dpr });
-      this.dispatchEvent(new CustomEvent('render', { detail: { elements, changed: new Set(event.changedElements ?? []), dpr: this.#dpr } }));
+      this.#fx.paint({ elements, renderer: this.onrender ?? this.#defaultRenderer, event, dpr: this.#dpr });
+      const changed = event.changedElements?.length ? new Set(event.changedElements) : EMPTY_SET;
+      this.dispatchEvent(new CustomEvent('render', { detail: { elements, changed, dpr: this.#dpr } }));
       return;
     }
     const ctx = this.#ctx;
@@ -481,29 +636,21 @@ export class CanvasSlot extends HTMLElement {
     const height = this.#canvas.height / dpr;
     ctx.reset();
     ctx.scale(dpr, dpr);
-    const draw = (name, x = 0, y = 0, w, h) => {
-      const el = typeof name === 'string' ? elements.get(name) : name;
-      if (!el) return;
-      try {
-        ctx.drawElementImage(el, x, y, w ?? el.offsetWidth, h ?? el.offsetHeight);
-        this.#retries = 0;
-      } catch (err) {
-        // An element that was slotted or moved a moment ago may not have been
-        // laid out inside the canvas yet, and a canvas that is scrolled far
-        // off screen has no painted content to draw. Skip the element this
-        // frame and paint again: quickly at first, then twice a second.
-        if (this.#retries++ < 3) requestAnimationFrame(() => this.requestPaint());
-        else {
-          if (this.#retries === 4) console.warn('<canvas-slot>: could not draw', el, err.message);
-          clearTimeout(this.#retryTimer);
-          this.#retryTimer = setTimeout(() => this.requestPaint(), 500);
-        }
-      }
-    };
-    const renderer = this.onrender ?? defaultRenderer;
-    renderer({ ctx, canvas: this.#canvas, width, height, dpr, elements, draw, time: performance.now(), event });
+    const renderArg = this.#renderArg;
+    renderArg.ctx = ctx;
+    renderArg.canvas = this.#canvas;
+    renderArg.width = width;
+    renderArg.height = height;
+    renderArg.dpr = dpr;
+    renderArg.elements = elements;
+    renderArg.draw = this.#draw;
+    renderArg.time = performance.now();
+    renderArg.event = event;
+    const renderer = this.onrender ?? this.#defaultRenderer;
+    renderer(renderArg);
     // Let others (e.g. slot-share.js) react to a finished frame.
-    this.dispatchEvent(new CustomEvent('render', { detail: { elements, changed: new Set(event.changedElements ?? []), dpr } }));
+    const changed = event.changedElements?.length ? new Set(event.changedElements) : EMPTY_SET;
+    this.dispatchEvent(new CustomEvent('render', { detail: { elements, changed, dpr } }));
   }
 }
 
@@ -524,14 +671,6 @@ function move(parent, el, before) {
     } catch {}
   }
   parent.insertBefore(el, before);
-}
-
-function defaultRenderer({ width, elements, draw }) {
-  let y = 0;
-  for (const [, el] of elements) {
-    draw(el, (width - el.offsetWidth) / 2, y);
-    y += el.offsetHeight + 8;
-  }
 }
 
 if (!customElements.get('canvas-slot')) customElements.define('canvas-slot', CanvasSlot);

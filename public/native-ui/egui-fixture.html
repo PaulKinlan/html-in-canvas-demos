@@ -22,7 +22,24 @@ import init, { start } from '/native-ui/egui/egui_dom.js';
 await init();
 const focus = HTMLElement.prototype.focus;
 HTMLElement.prototype.focus = function () {}; // eframe focuses its text input on start-up
-try { await start(document.getElementById('app')); } finally { HTMLElement.prototype.focus = focus; }
+const app = document.getElementById('app');
+const rawAdd = app.addEventListener;
+app.addEventListener = function (type, listener, options) {
+  if ((type === 'touchstart' || type === 'touchmove') && listener) {
+    const fn = typeof listener === 'function' ? listener : listener.handleEvent?.bind(listener);
+    if (fn) {
+      return rawAdd.call(this, type, function (e) {
+        if (!e.cancelable) {
+          Object.defineProperty(e, 'preventDefault', { value() {}, configurable: true });
+          try { return fn.call(this, e); } finally { delete e.preventDefault; }
+        }
+        return fn.call(this, e);
+      }, options);
+    }
+  }
+  return rawAdd.call(this, type, listener, options);
+};
+try { await start(app); } finally { HTMLElement.prototype.focus = focus; }
 window.__started = true;
 </script>
 </body>

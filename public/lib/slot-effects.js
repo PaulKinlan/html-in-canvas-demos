@@ -19,11 +19,13 @@
 
 import { ElementTexture, geometryUnit, cssZoom, supportedGL } from './surface.js';
 import {
-  effects, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, Interaction, inverseHomography,
+  effects, onEffectChange, resolveEffect, readParams, reducedMotion, effectTime, Interaction, hasActiveCSSAnimation, watchEnvironment, inverseHomography,
   setupQuad, compileEffect, setEffectUniforms, sharedGL, WGSL_UNIFORM_SIZE, packWGSLUniforms, hasWGSL, gpuEffect, gpuSampler,
 } from './effects.js';
 import { blankWatch, supportedGPU, uploadElement, watchFrame } from './gpu-util.js';
 import { webgpu } from '../shared/backend.js';
+
+const WAKE_EVENTS = ['pointerenter', 'pointerup', 'focusin', 'focusout', 'input', 'change', 'transitionrun', 'transitionstart', 'transitionend', 'transitioncancel', 'animationstart', 'animationend', 'animationcancel'];
 
 export { supportedGL, supportedGPU };
 
@@ -144,6 +146,7 @@ class GLBackend {
 class SharedBackend {
   kind = 'shared';
   ready = Promise.resolve();
+  #entries = new Map();
 
   constructor(canvas, onfail) {
     this.canvas = canvas;
@@ -169,12 +172,25 @@ class SharedBackend {
     return true;
   }
 
-  texture(el, _dirty, x, y, dpr) {
+  texture(el, dirty, x, y, dpr) {
     const { ctx, canvas } = this;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
-    ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight);
-    sharedGL.upload(canvas);
+    const w = el.offsetWidth, h = el.offsetHeight;
+    let entry = this.#entries.get(el);
+    if (!entry) this.#entries.set(el, (entry = { x: NaN, y: NaN, w: 0, h: 0, dpr: 0 }));
+    const same = !dirty && entry.x === x && entry.y === y && entry.w === w && entry.h === h && entry.dpr === dpr && sharedGL.hasTexture(entry, canvas.width, canvas.height);
+    if (same) {
+      sharedGL.bind(entry);
+    } else {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+      ctx.drawElementImage(el, x, y, w, h);
+      sharedGL.upload(canvas, entry);
+      entry.x = x;
+      entry.y = y;
+      entry.w = w;
+      entry.h = h;
+      entry.dpr = dpr;
+    }
     return { width: canvas.width, height: canvas.height, origin: [x, y] };
   }
 
@@ -182,9 +198,10 @@ class SharedBackend {
     return true;
   }
 
-  draw(_el, name, uniforms) {
+  draw(el, name, uniforms) {
     const gl = sharedGL.gl;
     const { program, u } = compileEffect(gl, sharedGL.programs, name);
+    sharedGL.bind(this.#entries.get(el));
     gl.useProgram(program);
     setEffectUniforms(gl, u, uniforms);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -197,6 +214,12 @@ class SharedBackend {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, cw, ch);
     ctx.drawImage(sharedGL.canvas, 0, sharedGL.canvas.height - ch, cw, ch, 0, 0, cw, ch);
+    for (const [el, entry] of this.#entries) {
+      if (!el.isConnected) {
+        sharedGL.release(entry);
+        this.#entries.delete(el);
+      }
+    }
   }
 
   async pixel(x, y) {
@@ -209,6 +232,8 @@ class SharedBackend {
 
   destroy() {
     this.destroyed = true;
+    for (const entry of this.#entries.values()) sharedGL.release(entry);
+    this.#entries.clear();
   }
 }
 
@@ -299,14 +324,30 @@ class GPUBackend {
   }
 
   draw(el, name, uniforms) {
-    const buffer = this.#pool[this.#draws.length] ?? (this.#pool[this.#draws.length] = this.device.createBuffer({ size: WGSL_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
-    this.device.queue.writeBuffer(buffer, 0, packWGSLUniforms(uniforms, this.canvas.width / uniforms.canvas[0]));
+    const idx = this.#draws.length;
+    let slot = this.#pool[idx];
+    if (!slot) {
+      slot = {
+        buffer: this.device.createBuffer({ size: WGSL_UNIFORM_SIZE, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
+        binds: new WeakMap(), // GPUTextureView -> { pipeline, bind }
+      };
+      this.#pool[idx] = slot;
+    }
+    this.device.queue.writeBuffer(slot.buffer, 0, packWGSLUniforms(uniforms, this.canvas.width / uniforms.canvas[0]));
     const pipeline = this.#pipeline(name);
-    const bind = this.device.createBindGroup({
-      layout: pipeline.getBindGroupLayout(0),
-      entries: [{ binding: 0, resource: { buffer } }, { binding: 1, resource: this.sampler }, { binding: 2, resource: this.#textures.get(el).view }],
-    });
-    this.#draws.push({ pipeline, bind });
+    const view = this.#textures.get(el).view;
+    let cached = slot.binds.get(view);
+    if (!cached || cached.pipeline !== pipeline) {
+      cached = {
+        pipeline,
+        bind: this.device.createBindGroup({
+          layout: pipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: slot.buffer } }, { binding: 1, resource: this.sampler }, { binding: 2, resource: view }],
+        }),
+      };
+      slot.binds.set(view, cached);
+    }
+    this.#draws.push(cached);
   }
 
   #run(view, encoder) {
@@ -354,6 +395,7 @@ class GPUBackend {
   destroy() {
     // The device belongs to the page, so only this element's textures go.
     this.destroyed = true;
+    this.#pool.length = 0;
     try {
       this.context?.unconfigure();
     } catch {}
@@ -384,6 +426,8 @@ class SlotEffects {
   #raf = 0;
   #visible = true;
   #io;
+  #mo;
+  #unwatch;
   #off;
   #ready = false;
   #signature = '';
@@ -408,13 +452,23 @@ class SlotEffects {
     host.addEventListener('pointermove', this.#onMove);
     host.addEventListener('pointerdown', this.#onDown);
     host.addEventListener('pointerleave', this.#onLeave);
+    for (const ev of WAKE_EVENTS) host.addEventListener(ev, this.#onWake);
+    this.#unwatch = watchEnvironment(host, this.#onWake);
+    this.#mo = new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.target === host && r.attributeName === 'plain') continue;
+        if (r.attributeName === 'drawable') continue;
+        this.#watch();
+        return;
+      }
+    });
+    this.#mo.observe(host, { attributes: true, subtree: true });
     this.#off = onEffectChange(() => this.changed());
     this.#io = new IntersectionObserver(([entry]) => {
       this.#visible = entry.isIntersecting;
       if (this.#visible) this.#watch();
     }, { rootMargin: '100px' });
     this.#io.observe(host);
-    this.#watch();
   }
 
   get kind() {
@@ -443,6 +497,9 @@ class SlotEffects {
   #inside(p, s) {
     return p.x >= 0 && p.y >= 0 && p.x <= s.w && p.y <= s.h;
   }
+  #onWake = () => {
+    if (this.#visible) this.#watch();
+  };
   #onMove = (e) => {
     this.#pointer = e;
     for (const el of this.#drawn) {
@@ -475,27 +532,34 @@ class SlotEffects {
     this.#watch();
   }
 
-  // CSS can change --fx-progress at any time (a transition, :hover) and there
-  // is no event for that, so while on screen, sample the parameters every
-  // frame and ask for a paint only when one of them changed.
+  #slotSig(effect, p, i) {
+    return `${effect}|${p.progress}|${p.amount}|${p.x},${p.y}|${i.pointer?.x},${i.pointer?.y};`;
+  }
+
+  // Check CSS parameters and active animations on demand, repainting when a
+  // uniform changed and stopping the rAF loop once nothing is moving.
   #watch() {
     if (this.#raf || !this.#visible || !this.#host.isConnected) return;
     this.#raf = requestAnimationFrame(() => {
       this.#raf = 0;
+      if (!this.#visible || !this.#host.isConnected || !this.#drawn.length) return;
+      const still = reducedMotion.matches;
       let signature = '';
       let moving = false;
       for (const el of this.#drawn) {
         if (!el.isConnected) continue;
         const s = this.#state.get(el);
         const p = readParams(el);
-        const def = effects.get(this.effectFor(el));
+        const effect = this.effectFor(el);
+        const def = effects.get(effect);
         const i = s.interaction;
-        if ((def?.animated && !reducedMotion.matches) || i.clicks.length || i.hover !== (i.pointer ? 1 : 0)) moving = true;
-        signature += `${this.effectFor(el)}|${p.progress}|${p.amount}|${p.x},${p.y}|${i.pointer?.x},${i.pointer?.y};`;
+        if ((def?.animated && !still) || (!still && i.clicks.length > 0) || i.hover !== (i.pointer ? 1 : 0) || hasActiveCSSAnimation(el)) moving = true;
+        signature += this.#slotSig(effect, p, i);
       }
-      if (moving || signature !== this.#signature) this.#canvas.requestPaint();
+      const changed = signature !== this.#signature;
       this.#signature = signature;
-      this.#watch();
+      if (moving || changed) this.#canvas.requestPaint();
+      if (moving) this.#watch();
     });
   }
 
@@ -509,8 +573,11 @@ class SlotEffects {
     if (!backend.begin()) return;
     const changed = new Set(event?.changedElements ?? []);
     const time = effectTime();
+    const still = reducedMotion.matches;
     const drawn = [];
     let unit = 0; // measured once per frame, from the first slot drawn
+    let signature = '';
+    let moving = false;
 
     const draw = (name, x = 0, y = 0) => {
       const el = typeof name === 'string' ? elements.get(name) : name;
@@ -531,7 +598,8 @@ class SlotEffects {
       }
       const params = readParams(el);
       const live = s.interaction.step();
-      let effect = this.effectFor(el);
+      const resolved = this.effectFor(el);
+      let effect = resolved;
       if (!backend.has(effect)) {
         // WebGPU was chosen for the element, not asked for: use the GLSL on WebGL instead.
         if (!backend.strict) {
@@ -543,6 +611,8 @@ class SlotEffects {
         effect = 'none';
       }
       const def = effects.get(effect);
+      if ((def?.animated && !still) || live.moving || hasActiveCSSAnimation(el)) moving = true;
+      signature += this.#slotSig(resolved, params, s.interaction);
       const matrix = def.geometry?.({ width: w, height: h, pointer: s.interaction.pointer, hover: live.hover, ...params }) ?? null;
       const uniforms = {
         ...params,
@@ -581,8 +651,9 @@ class SlotEffects {
     renderer({ gl: backend.gl ?? null, device: backend.device ?? null, ctx: null, canvas, width, height, dpr, elements, draw, time: performance.now(), event });
     backend.end();
     this.#drawn = drawn;
+    this.#signature = signature;
     this.frames++;
-    this.#watch();
+    if (moving) this.#watch();
   }
 
   /** RGBA of the pixel at (x, y) CSS px on the canvas, after the current frame. */
@@ -594,11 +665,14 @@ class SlotEffects {
     cancelAnimationFrame(this.#raf);
     this.#raf = -1;
     this.#io.disconnect();
+    this.#mo.disconnect();
+    this.#unwatch?.();
     this.#off();
     const host = this.#host;
     host.removeEventListener('pointermove', this.#onMove);
     host.removeEventListener('pointerdown', this.#onDown);
     host.removeEventListener('pointerleave', this.#onLeave);
+    for (const ev of WAKE_EVENTS) host.removeEventListener(ev, this.#onWake);
     this.#backend.destroy();
   }
 }

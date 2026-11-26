@@ -178,6 +178,27 @@ function run(now) {
 
 // One plain canvas, shared by every wrapper, that holds the root background behind the element being painted.
 let scratch = null;
+// Small pool of 0x0 plain canvases reused across skin transitions so switching skins does not churn contexts.
+const oldPool = [];
+const OLD_POOL_MAX = 16;
+
+// Cached skin-root geometry per animation frame so wrappers under the same root do not repeat layout reads.
+let rootCacheFrame = -1;
+let rootCache = new WeakMap();
+function clearRootCache() { rootCacheFrame = -1; rootCache = new WeakMap(); }
+function rootMetrics(root, frameTime) {
+  if (frameTime != null && frameTime === rootCacheFrame) {
+    const cached = rootCache.get(root);
+    if (cached) return cached;
+  } else {
+    rootCacheFrame = frameTime ?? -1;
+    rootCache = new WeakMap();
+  }
+  const b = root.getBoundingClientRect();
+  const m = { left: b.left + root.clientLeft, top: b.top + root.clientTop, width: root.clientWidth, height: root.clientHeight };
+  if (frameTime != null) rootCache.set(root, m);
+  return m;
+}
 
 let count = 0;
 const live = new Set();        // connected wrappers
@@ -186,7 +207,7 @@ const applied = new WeakMap(); // root -> the skin name that apply() set, so the
 // A skin root that changed size has moved its elements over its background, so the wrappers that
 // draw that background are painted again.
 const rootSizes = typeof ResizeObserver === 'function'
-  ? new ResizeObserver(() => { for (const el of live) if (skins[el.getAttribute('now')]?.backdrop) el.request(); })
+  ? new ResizeObserver(() => { clearRootCache(); for (const el of live) if (skins[el.getAttribute('now')]?.backdrop) el.request(); })
   : null;
 
 // Far from the screen a wrapper gives its canvas memory back.
@@ -204,9 +225,9 @@ export class CanvasSkin extends HTMLElement {
 
   #canvas = null; #content = null; #box = null; #ctx = null; #filters = null;
   #near = true; #retries = 0; #blank = true; #timer = 0;
-  #cssW = 0; #cssH = 0;
+  #cssW = 0; #cssH = 0; #elW = 0; #elH = 0;
   #t0 = -1e9; #old = null; #on = null; #hover = false; #down = false; #slow = 0;
-  #seed = ++count * 7919;
+  #seed = ++count * 7919; #rootNode = null; #filterSkins = new Set();
   paints = 0;
   _cost = 0.5;           // script time of this wrapper's paints, in ms, smoothed
   plain = !SUPPORTED;
@@ -251,6 +272,7 @@ export class CanvasSkin extends HTMLElement {
 
   connectedCallback() {
     live.add(this);
+    this.#rootNode = this.getRootNode();
     if (this.plain) this.toggleAttribute('plain', true);
     const root = this.#root();
     if (root && !this.plain) rootSizes?.observe(root);
@@ -260,10 +282,11 @@ export class CanvasSkin extends HTMLElement {
   }
   disconnectedCallback() {
     live.delete(this);
+    this.#rootNode = null;
     nearby?.unobserve(this);
     waiting.delete(this); clearTimeout(this.#slow); this.#slow = 0;
     clearTimeout(this.#timer);
-    this.#freeOld();
+    this.#freeOld(true);
   }
   attributeChangedCallback(name) {
     if (name === 'skin' && this.isConnected) this.change(this.#wanted());
@@ -293,6 +316,7 @@ export class CanvasSkin extends HTMLElement {
     if (!w || !h) return;
     if (inline) this.#box.style.width = `${w}px`; else this.#box.style.removeProperty('width');
     this.#box.style.height = `${h}px`;
+    this.#elW = w; this.#elH = h;
     this.#cssW = w + 2 * BLEED; this.#cssH = h + 2 * BLEED;
     this.#resize();
   }
@@ -321,16 +345,29 @@ export class CanvasSkin extends HTMLElement {
   change(name, delay = 0, seen = true) {
     clearTimeout(this.#timer);
     const go = () => {
-      if (this.getAttribute('now') === name) return;
+      if (this.getAttribute('now') === name) {
+        if (!seen) this.#freeOld();
+        return;
+      }
       // `seen` is false for a wrapper that is not in the window. It has a canvas (it is within one screen),
       // but it changes with no copy and no entrance.
       const animate = seen && !this.plain && this.#near && this.#canvas.width > 0 && this.paints > 0 && !reduced.matches;
       if (!animate) { this.#freeOld(); this.#t0 = -1e9; }
       if (animate) {
-        // A copy of the canvas as it is now, in a plain canvas. drawImage() of a drawable canvas is allowed.
-        const old = this.#old ??= document.createElement('canvas');
-        old.width = this.#canvas.width; old.height = this.#canvas.height;
-        old.getContext('2d').drawImage(this.#canvas, 0, 0);
+        // A copy of the canvas as it is now, in a plain canvas capped at 2x scale to keep GPU memory low.
+        // drawImage() of a drawable canvas is allowed.
+        const curScale = this.#cssW ? this.#canvas.width / this.#cssW : devicePixelRatio;
+        const oldScale = Math.min(curScale, 2);
+        const ow = Math.max(1, Math.round(this.#cssW * oldScale));
+        const oh = Math.max(1, Math.round(this.#cssH * oldScale));
+        const old = this.#old ??= oldPool.pop() ?? document.createElement('canvas');
+        if (old.width !== ow) old.width = ow;
+        if (old.height !== oh) old.height = oh;
+        const octx = old.getContext('2d');
+        if (octx) {
+          octx.clearRect(0, 0, ow, oh);
+          octx.drawImage(this.#canvas, 0, 0, ow, oh);
+        } else this.#freeOld(true);
         this.#t0 = performance.now();
       }
       this.setAttribute('now', name);   // the skin's CSS for this element applies from here
@@ -339,11 +376,13 @@ export class CanvasSkin extends HTMLElement {
     };
     if (delay > 0) this.#timer = setTimeout(go, delay); else go();
   }
-  #freeOld() {
-    if (!this.#old) return;
-    this.#old.width = this.#old.height = 0;
-    window.__gfx?.retire?.(this.#old);
+  #freeOld(retire = false) {
+    const old = this.#old;
+    if (!old) return;
     this.#old = null;
+    old.width = old.height = 0;
+    if (!retire && oldPool.length < OLD_POOL_MAX) oldPool.push(old);
+    else window.__gfx?.retire?.(old);
   }
   // #endregion change
 
@@ -351,7 +390,7 @@ export class CanvasSkin extends HTMLElement {
   #paint() {
     const canvas = this.#canvas, ctx = this.#ctx, content = this.#content, el = this.target;
     if (this.plain || !el || !this.#cssW || !canvas.width || !canvas.height || ctx.isContextLost?.()) return;   // not measured yet
-    const w = content.offsetWidth, h = content.offsetHeight;
+    const w = this.#elW, h = this.#elH;
     if (!w || !h) return;
     // The browser also raises paint when the element's own rendering changed, which a change of skin does
     // for every wrapper at once. When this frame's paints have already taken twice the budget, this one
@@ -363,7 +402,7 @@ export class CanvasSkin extends HTMLElement {
     this.paints++;
     const name = this.getAttribute('now');
     const skin = skins[name] ?? skins.native;
-    if (skin.filters && !this.#filters.querySelector(`[data-skin="${name}"]`)) this.#addFilters(name, skin);
+    if (skin.filters && !this.#filterSkins.has(name)) { this.#filterSkins.add(name); this.#addFilters(name, skin); }
 
     const kind = this.getAttribute('kind') || 'card';
     const control = CONTROL.has(kind);   // a kind that a skin draws whole
@@ -371,8 +410,9 @@ export class CanvasSkin extends HTMLElement {
     const t = clamp((now - this.#t0) / ENTER_MS);
     let again = t < 1, missed = false;
 
+    const scale = canvas.width / this.#cssW;
     ctx.reset();
-    ctx.scale(canvas.width / this.#cssW, canvas.height / this.#cssH);
+    ctx.scale(scale, canvas.height / this.#cssH);
     ctx.translate(BLEED, BLEED);        // 0, 0 is the element's top left corner, in CSS pixels
 
     // Every draw passes a width and height. An element has no picture before its first paint.
@@ -385,55 +425,67 @@ export class CanvasSkin extends HTMLElement {
     };
 
     // State, read from the element at paint time.
-    const max = Number(el.max) || (el.localName === 'progress' ? 1 : 100), min = Number(el.min) || 0;
+    const tag = el.localName;
+    const max = Number(el.max) || (tag === 'progress' ? 1 : 100), min = Number(el.min) || 0;
     const value = kind === 'range' || kind === 'bar' ? clamp((Number(el.value) - min) / ((max - min) || 1)) : 0;
     const checked = !!el.checked;
     if (this.#on === null) this.#on = checked ? 1 : 0;
     else if (Math.abs(this.#on - (checked ? 1 : 0)) > 0.02) { this.#on += ((checked ? 1 : 0) - this.#on) * 0.3; again = true; }
     else this.#on = checked ? 1 : 0;
 
-    let rootBox = null;
-    const root = skin.backdrop ? this.#root() : null;
-    if (root) {
-      const a = this.#box.getBoundingClientRect(), b = root.getBoundingClientRect();
-      rootBox = { x: a.left - b.left - root.clientLeft, y: a.top - b.top - root.clientTop, width: root.clientWidth, height: root.clientHeight };
-    }
+    let rootBox;
+    const getRootBox = () => {
+      if (rootBox !== undefined) return rootBox;
+      const root = skin.backdrop ? this.#root() : null;
+      if (!root) return (rootBox = null);
+      const a = this.#box.getBoundingClientRect(), m = rootMetrics(root, frame0);
+      return (rootBox = { x: a.left - m.left, y: a.top - m.top, width: m.width, height: m.height });
+    };
+
+    const primary = el.classList.contains('primary') || el.getAttribute('type')?.toLowerCase() === 'submit';
+    const heading = tag.length === 2 && tag[0] === 'h' && tag[1] >= '1' && tag[1] <= '6';
+    const disabled = !!el.disabled || ((control || kind === 'button' || kind === 'field' || tag === 'fieldset' || tag.includes('-')) && el.matches(':disabled'));
+    const rootNode = this.#rootNode ?? document;
+    const focused = rootNode.activeElement === el && el.matches(':focus');
+    const focus = focused && (control || kind === 'button' || kind === 'field') && el.matches(':focus-visible');
 
     const frame = {
-      width: w, height: h, kind, el, t, time: now / 1000, seed: this.#seed, bleed: BLEED, scale: canvas.width / this.#cssW,
-      primary: el.matches('.primary, [type="submit"]'),
-      heading: /^h[1-6]$/.test(el.localName),
+      width: w, height: h, kind, el, t, time: now / 1000, seed: this.#seed, bleed: BLEED, scale,
+      primary,
+      heading,
       state: {
-        checked, on: this.#on, value, disabled: el.matches(':disabled'), open: !!el.open,
-        focus: (control || kind === 'button' || kind === 'field') && el.matches(':focus-visible'),
-        focused: el.matches(':focus'),     // also after a tap, which does not show a focus ring
-        hover: this.#hover, active: this.#down && !el.matches(':disabled'),
+        checked, on: this.#on, value, disabled, open: !!el.open,
+        focus,
+        focused,     // also after a tap, which does not show a focus ring
+        hover: this.#hover, active: this.#down && !disabled,
       },
       draw,
       again: false,
       wait: 0,
       // Draw the skin root's background where it lies behind this element, enlarged by `scale` about cx, cy.
       backdrop: (scale = 1, cx = w / 2, cy = h / 2) => {
-        if (!rootBox) return false;
+        const rb = getRootBox();
+        if (!rb) return false;
         ctx.save();
         ctx.translate(cx, cy); ctx.scale(scale, scale); ctx.translate(-cx, -cy);
-        ctx.translate(-rootBox.x, -rootBox.y);
-        skin.backdrop(ctx, rootBox, { x: rootBox.x - BLEED, y: rootBox.y - BLEED, width: w + 2 * BLEED, height: h + 2 * BLEED });
+        ctx.translate(-rb.x, -rb.y);
+        skin.backdrop(ctx, rb, { x: rb.x - BLEED, y: rb.y - BLEED, width: w + 2 * BLEED, height: h + 2 * BLEED });
         ctx.restore();
         return true;
       },
       // The same background as an image, for a skin that draws it several times: { image, sx, sy, sw, sh } in
       // the image's pixels, covering x, y, width, height in the element's CSS pixels. Valid until the next paint.
       backdropCopy: (pad = BLEED) => {
-        if (!rootBox) return null;
-        const k = canvas.width / this.#cssW, cw = Math.ceil((w + 2 * pad) * k), ch = Math.ceil((h + 2 * pad) * k);
+        const rb = getRootBox();
+        if (!rb) return null;
+        const k = scale, cw = Math.ceil((w + 2 * pad) * k), ch = Math.ceil((h + 2 * pad) * k);
         scratch ??= document.createElement('canvas');
         if (scratch.width < cw) scratch.width = cw;      // it only grows
         if (scratch.height < ch) scratch.height = ch;
         const c = scratch.getContext('2d');
         c.setTransform(k, 0, 0, k, 0, 0);
-        c.translate(pad - rootBox.x, pad - rootBox.y);
-        skin.backdrop(c, rootBox, { x: rootBox.x - pad, y: rootBox.y - pad, width: w + 2 * pad, height: h + 2 * pad });
+        c.translate(pad - rb.x, pad - rb.y);
+        skin.backdrop(c, rb, { x: rb.x - pad, y: rb.y - pad, width: w + 2 * pad, height: h + 2 * pad });
         return { image: scratch, sx: 0, sy: 0, sw: cw, sh: ch, x: -pad, y: -pad, width: cw / k, height: ch / k };
       },
     };
@@ -450,9 +502,9 @@ export class CanvasSkin extends HTMLElement {
 
     // The copy of the old skin's drawing, fading out over the new one.
     if (this.#old) {
-      if (t < 1) {
+      if (t < 0.6) {
         ctx.save(); ctx.resetTransform();
-        ctx.globalAlpha = 1 - clamp(t / 0.6) ** 2;
+        ctx.globalAlpha = 1 - (t / 0.6) ** 2;
         ctx.drawImage(this.#old, 0, 0, canvas.width, canvas.height);
         ctx.restore();
       } else this.#freeOld();
@@ -481,7 +533,7 @@ export class CanvasSkin extends HTMLElement {
     if (this.plain) return;
     this.plain = true;
     waiting.delete(this); clearTimeout(this.#slow); this.#slow = 0;
-    this.#freeOld();
+    this.#freeOld(true);
     this.#box.append(this.#content);            // out of the canvas, still holding the slot
     this.toggleAttribute('plain', true);
     this.dispatchEvent(new CustomEvent('canvas-skin-plain', { bubbles: true, composed: true, detail: { why } }));
@@ -530,18 +582,37 @@ export class CanvasSkin extends HTMLElement {
   static apply(root, name, { x, y, speed = 1.2, maxDelay = 800 } = {}) {
     const from = root.getAttribute('skin');
     if (from === name) return 0;
+
+    // Read phase: measure root and all matching wrappers before any DOM or attribute mutation
+    // so off-screen wrappers changing synchronously never force a layout per wrapper.
     const box = root.getBoundingClientRect();
+    const clientLeft = root.clientLeft, clientTop = root.clientTop;
+    const vw = innerWidth, vh = innerHeight;
     x ??= box.left + box.width / 2;
     y ??= Math.max(box.top, 0);
     const still = reduced.matches;
 
+    let last = 0;
+    const plan = [];
+    for (const el of root.querySelectorAll('canvas-skin')) {
+      const nearest = el.closest('[skin]');
+      if (nearest && nearest !== root && root.contains(nearest)) continue;  // it has a skin of its own, or a nearer root
+      const r = el.getBoundingClientRect();
+      const seen = r.bottom > -40 && r.top < vh + 40 && r.width > 0;
+      const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+      const delay = still || !seen ? 0 : Math.min(d / speed, maxDelay);
+      if (seen) last = Math.max(last, delay);
+      plan.push([el, delay, seen]);
+    }
+
+    // Write phase: update veils, root skin attribute and each wrapper.
     if (from && !still) {
       // Two layers behind the root's content: the old background, and over it the new one, cut to a
       // circle that grows from the point. A clip-path circle is animated by the browser with no script.
       for (const old of root.querySelectorAll(':scope > .canvas-skin-veil')) old.remove();
-      const ox = x - box.left - root.clientLeft, oy = y - box.top - root.clientTop;
+      const ox = x - box.left - clientLeft, oy = y - box.top - clientTop;
       // Far enough to cover what is on screen. The rest of a tall root is not visible while it runs.
-      const reach = Math.min(Math.hypot(Math.max(ox, box.width - ox), Math.max(oy, box.height - oy)), Math.hypot(innerWidth, innerHeight)) + 80;
+      const reach = Math.min(Math.hypot(Math.max(ox, box.width - ox), Math.max(oy, box.height - oy)), Math.hypot(vw, vh)) + 80;
       const veils = [from, name].map((skin) => {
         const veil = document.createElement('div');
         veil.className = 'canvas-skin-veil';
@@ -551,7 +622,7 @@ export class CanvasSkin extends HTMLElement {
         return veil;
       });
       // The old background is needed only where the window shows it.
-      const top = Math.max(0, -box.top - root.clientTop - 100), bottom = Math.max(0, box.bottom - innerHeight - 100);
+      const top = Math.max(0, -box.top - clientTop - 100), bottom = Math.max(0, box.bottom - vh - 100);
       veils[0].style.clipPath = `inset(${top}px 0 ${bottom}px 0)`;
       const run = veils[1].animate({ clipPath: [`circle(0px at ${ox}px ${oy}px)`, `circle(${reach}px at ${ox}px ${oy}px)`] }, { duration: reach / speed, easing: 'linear', fill: 'forwards' });
       const done = () => { for (const veil of veils) veil.remove(); };
@@ -560,16 +631,8 @@ export class CanvasSkin extends HTMLElement {
 
     applied.set(root, name);
     root.setAttribute('skin', name);
-    let last = 0;
-    for (const el of root.querySelectorAll('canvas-skin')) {
-      if (el.closest('[skin]') !== root) continue;          // it has a skin of its own, or a nearer root
-      const r = el.getBoundingClientRect();
-      const seen = r.bottom > -40 && r.top < innerHeight + 40 && r.width > 0;
-      const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
-      const delay = still || !seen ? 0 : Math.min(d / speed, maxDelay);
-      if (seen) last = Math.max(last, delay);
-      el.change(name, delay, seen);
-    }
+    clearRootCache();
+    for (const [el, delay, seen] of plan) el.change(name, delay, seen);
     return still ? 0 : last + ENTER_MS;      // ms until the last entrance on screen has ended
   }
   // #endregion apply

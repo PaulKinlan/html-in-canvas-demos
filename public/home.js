@@ -26,12 +26,26 @@ const numbered = new Map(allDemos.map((d, i) => [d.href, i + 1]));
 
 let activeGroup = 'all';
 let query = '';
-let grids = []; // { grid, fold, enhanced, resize }
+let grids = []; // { grid, fold, enhanced, resize, repaint, destroy }
 let builtFor = 0;
+let filterTimer = 0;
+
+const MAX_CANVAS_PX = 3_600_000;
+const darkMql = matchMedia('(prefers-color-scheme: dark)');
+const reducedMql = matchMedia('(prefers-reduced-motion: reduce)');
+const readPalette = () => {
+  const cs = getComputedStyle(document.documentElement);
+  return { accent: cs.getPropertyValue('--accent').trim(), muted: cs.getPropertyValue('--muted').trim(), dark: darkMql.matches };
+};
+let palette = readPalette();
+darkMql.addEventListener('change', () => {
+  palette = readPalette();
+  for (const entry of grids) entry.repaint?.();
+});
 
 const columns = () => Math.max(1, Math.floor((Math.max(260, root.clientWidth - 32) + GAP) / (MIN_CARD + GAP)));
-// Keep at most 2 cards per canvas in a single column on phones (DPR 3 stays under 4 MP).
-const perCanvas = (cols) => (!supported ? Infinity : cols === 1 ? 2 : cols === 2 ? 4 : cols);
+// Keep at most 2 cards per canvas in a single column on phones, and 1 row per canvas in wider layouts.
+const perCanvas = (cols) => (!supported ? Infinity : cols === 1 ? 2 : cols);
 
 function matches(d, terms) {
   if (activeGroup !== 'all' && d.group !== activeGroup) return false;
@@ -75,8 +89,13 @@ function updateToggleButton() {
 }
 
 function build() {
+  clearTimeout(filterTimer);
+  filterTimer = 0;
   builtFor = perCanvas(columns());
-  for (const entry of grids) window.__gfx?.retire(entry.grid.shadowRoot?.querySelector('canvas') ?? entry.grid);
+  for (const entry of grids) {
+    entry.destroy?.();
+    window.__gfx?.retire(entry.grid.shadowRoot?.querySelector('canvas') ?? entry.grid);
+  }
   grids = [];
   root.replaceChildren();
 
@@ -107,7 +126,7 @@ function build() {
         grid = document.createElement('div');
         grid.className = 'demos';
         nav.append(grid);
-        const entry = { grid, fold, enhanced: false, resize: null };
+        const entry = { grid, fold, enhanced: false, resize: null, repaint: null, destroy: null };
         grids.push(entry);
         foldGrids.push(entry);
       }
@@ -128,7 +147,7 @@ function build() {
         for (const entry of foldGrids) {
           if (!entry.enhanced) {
             entry.enhanced = true;
-            entry.resize = enhance(entry.grid, fold);
+            Object.assign(entry, enhance(entry.grid, fold));
           } else {
             entry.resize?.();
           }
@@ -155,7 +174,8 @@ build();
 if (filterEl) {
   filterEl.addEventListener('input', () => {
     query = filterEl.value;
-    build();
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(build, 100);
   });
 }
 
@@ -228,16 +248,35 @@ function enhance(nav, fold) {
   nav.classList.add('enhanced');
 
   const PAD = 16; // room for tilt and shadows; .enhanced has a matching negative margin
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const reduced = reducedMql.matches;
   const state = cards.map(() => ({ x: 0, y: 0, w: 0, h: 0, hover: 0, target: 0, enter: 0 }));
   let dpr = devicePixelRatio;
+  let renderDpr = dpr;
   let pointer = null; // canvas-local CSS px
   let pointerEase = { x: 0, y: 0, on: 0 };
-  let running = false;
+  let rafId = 0;
+  let destroyed = false;
+  let dotPath = null, dotW = 0, dotH = 0;
   const t0 = performance.now();
 
+  function getDotPath(W, H) {
+    if (dotPath && dotW === W && dotH === H) return dotPath;
+    const path = new Path2D();
+    const step = 22;
+    for (let y = step / 2; y < H; y += step) {
+      for (let x = step / 2; x < W; x += step) {
+        path.moveTo(x + 1, y);
+        path.arc(x, y, 1, 0, 6.2832);
+      }
+    }
+    dotPath = path;
+    dotW = W;
+    dotH = H;
+    return path;
+  }
+
   function layout() {
-    if (!fold.open) return;
+    if (destroyed || !fold.open) return;
     const W = nav.clientWidth - PAD * 2;
     if (W <= 0) return;
     const cols = Math.max(1, Math.floor((W + GAP) / (MIN_CARD + GAP)));
@@ -245,48 +284,65 @@ function enhance(nav, fold) {
     nav.style.setProperty('--cw', cw + 'px');
     let y = PAD;
     for (let i = 0; i < cards.length; i += cols) {
-      const row = cards.slice(i, i + cols);
-      const h = Math.max(...row.map((c) => c.offsetHeight));
-      row.forEach((c, j) => Object.assign(state[i + j], { x: PAD + j * (cw + GAP), y, w: cw, h: c.offsetHeight }));
-      y += h + GAP;
+      let rowH = 0;
+      const end = Math.min(i + cols, cards.length);
+      for (let k = i; k < end; k++) {
+        const ch = cards[k].offsetHeight;
+        if (ch > rowH) rowH = ch;
+        const s = state[k];
+        s.x = PAD + (k - i) * (cw + GAP);
+        s.y = y;
+        s.w = cw;
+        s.h = ch;
+      }
+      y += rowH + GAP;
     }
     const height = y - GAP + PAD;
     canvas.style.height = height + 'px';
   }
 
-  new ResizeObserver(([entry]) => {
-    if (!fold.open) return;
+  const ro = new ResizeObserver(([entry]) => {
+    if (destroyed || !fold.open) return;
     const box = entry.devicePixelContentBoxSize?.[0];
     layout();
     dpr = box ? box.inlineSize / Math.max(1, entry.contentRect.width) : devicePixelRatio;
     size();
-  }).observe(nav, { box: 'device-pixel-content-box' });
+  });
+  try {
+    ro.observe(nav, { box: 'device-pixel-content-box' });
+  } catch {
+    ro.observe(nav);
+  }
 
-  // The canvas has pixels only while its group is open and within one screen of the viewport.
-  let near = (() => { const r = nav.getBoundingClientRect(); return r.top < innerHeight * 2 && r.bottom > -innerHeight; })();
+  // The canvas has pixels only while its group is open and within half a screen of the viewport.
+  let near = (() => { const r = nav.getBoundingClientRect(); return r.top < innerHeight * 1.5 && r.bottom > -innerHeight * 0.5; })();
   function size() {
+    if (destroyed) return;
     const active = near && fold.open;
     const r = active ? canvas.getBoundingClientRect() : null;
-    const w = active ? Math.round(r.width * dpr) : 0;
-    const h = active ? Math.round(r.height * dpr) : 0;
+    let w = 0, h = 0;
+    if (active && r.width > 0 && r.height > 0) {
+      const area = r.width * r.height;
+      renderDpr = Math.min(dpr, Math.sqrt(MAX_CANVAS_PX / area));
+      w = Math.max(1, Math.floor(r.width * renderDpr));
+      h = Math.max(1, Math.floor(r.height * renderDpr));
+    }
     if (canvas.width !== w) canvas.width = w;
     if (canvas.height !== h) canvas.height = h;
-    if (active) kick();
+    if (active && w && h) kick();
   }
-  new IntersectionObserver(([entry]) => { near = entry.isIntersecting; size(); }, { rootMargin: '100% 0px' }).observe(nav);
-
-  const colors = () => {
-    const cs = getComputedStyle(document.documentElement);
-    return { accent: cs.getPropertyValue('--accent').trim(), muted: cs.getPropertyValue('--muted').trim(), dark: matchMedia('(prefers-color-scheme: dark)').matches };
-  };
-  let palette = colors();
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { palette = colors(); kick(); });
+  const io = new IntersectionObserver(([entry]) => {
+    if (destroyed) return;
+    near = entry.isIntersecting;
+    size();
+  }, { rootMargin: '50% 0px' });
+  io.observe(nav);
 
   function draw() {
     const now = performance.now();
-    const W = canvas.width / dpr, H = canvas.height / dpr;
+    const W = canvas.width / renderDpr, H = canvas.height / renderDpr;
     ctx.reset();
-    ctx.scale(dpr, dpr);
+    ctx.scale(renderDpr, renderDpr);
 
     let moving = false;
     const k = reduced ? 1 : 0.16;
@@ -299,16 +355,45 @@ function enhance(nav, fold) {
     if (Math.abs(onTarget - pointerEase.on) > 0.005 || (pointer && Math.hypot(pointer.x - pointerEase.x, pointer.y - pointerEase.y) > 0.3)) moving = true;
 
     const step = 22;
-    for (let y = step / 2; y < H; y += step) {
-      for (let x = step / 2; x < W; x += step) {
-        const d = Math.hypot(x - pointerEase.x, y - pointerEase.y);
-        const f = pointerEase.on * Math.max(0, 1 - d / 190);
-        ctx.globalAlpha = 0.16 + f * 0.75;
-        ctx.fillStyle = f > 0.02 ? palette.accent : palette.muted;
-        const r = 1 + f * f * 3.2;
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, 6.2832);
-        ctx.fill();
+    const R = 190;
+    const px0 = pointerEase.x, py0 = pointerEase.y, pon = pointerEase.on;
+    const hiR = pon > 0.02 ? R * (1 - 0.02 / pon) : 0;
+    const hiR2 = hiR * hiR;
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = palette.muted;
+    if (hiR <= 0) {
+      ctx.fill(getDotPath(W, H));
+    } else {
+      ctx.beginPath();
+      for (let y = step / 2; y < H; y += step) {
+        const dy = y - py0, dy2 = dy * dy;
+        for (let x = step / 2; x < W; x += step) {
+          const dx = x - px0;
+          if (dx * dx + dy2 >= hiR2) {
+            ctx.moveTo(x + 1, y);
+            ctx.arc(x, y, 1, 0, 6.2832);
+          }
+        }
+      }
+      ctx.fill();
+
+      ctx.fillStyle = palette.accent;
+      const x0 = Math.max(0, Math.floor((px0 - hiR - step / 2) / step)) * step + step / 2;
+      const x1 = Math.min(W, px0 + hiR);
+      const y0 = Math.max(0, Math.floor((py0 - hiR - step / 2) / step)) * step + step / 2;
+      const y1 = Math.min(H, py0 + hiR);
+      for (let y = y0; y < y1; y += step) {
+        const dy = y - py0, dy2 = dy * dy;
+        for (let x = x0; x < x1; x += step) {
+          const dx = x - px0, d2 = dx * dx + dy2;
+          if (d2 >= hiR2) continue;
+          const f = pon * (1 - Math.sqrt(d2) / R);
+          ctx.globalAlpha = 0.16 + f * 0.75;
+          const r = 1 + f * f * 3.2;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, 6.2832);
+          ctx.fill();
+        }
       }
     }
     ctx.globalAlpha = 1;
@@ -336,7 +421,7 @@ function enhance(nav, fold) {
 
       ctx.shadowColor = `rgba(0,0,0,${(palette.dark ? 0.5 : 0.16) * (0.35 + tilt * 0.65)})`;
       ctx.shadowBlur = 10 + tilt * 26;
-      ctx.shadowOffsetY = (3 + tilt * 14) * dpr;
+      ctx.shadowOffsetY = (3 + tilt * 14) * renderDpr;
       try {
         ctx.drawElementImage(card, 0, 0, s.w, s.h);
       } catch {
@@ -367,17 +452,16 @@ function enhance(nav, fold) {
   }
 
   canvas.addEventListener('paint', () => {
-    if (!canvas.width || !canvas.height) return;
+    if (destroyed || !canvas.width || !canvas.height) return;
     const moving = draw();
-    if (moving && !running) {
-      running = true;
-      requestAnimationFrame(() => {
-        running = false;
-        canvas.requestPaint();
+    if (moving && !rafId) {
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        if (!destroyed) canvas.requestPaint();
       });
     }
   });
-  const kick = () => canvas.requestPaint();
+  const kick = () => { if (!destroyed) canvas.requestPaint(); };
 
   nav.addEventListener('pointermove', (e) => {
     const r = canvas.getBoundingClientRect();
@@ -407,8 +491,26 @@ function enhance(nav, fold) {
   layout();
   size();
   window.__enhanced = true;
-  return () => {
-    layout();
-    size();
+  return {
+    resize: () => {
+      if (destroyed) return;
+      layout();
+      size();
+    },
+    repaint: () => {
+      if (!destroyed && canvas.width && canvas.height) kick();
+    },
+    destroy: () => {
+      if (destroyed) return;
+      destroyed = true;
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+      ro.disconnect();
+      io.disconnect();
+      dotPath = null;
+      canvas.width = 0;
+      canvas.height = 0;
+      window.__gfx?.retire(canvas);
+    },
   };
 }

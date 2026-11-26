@@ -222,6 +222,49 @@
   </div>
   <p class="note">Each cell is sourced in the document. "Not stated" and "not documented" mean the framework's own pages didn't say.</p>
 </main>
+<script>
+// eframe's WebAssembly touchstart/touchmove handlers call event.preventDefault() without
+// checking event.cancelable, causing Chrome interventions when touching while scrolling.
+// Wrap touch listeners on the egui canvas (and window/document during start) so
+// preventDefault() is a no-op when cancelable is false.
+window.__guardTouch = (target) => {
+  const rawAdd = target.addEventListener;
+  const rawRemove = target.removeEventListener;
+  const map = new WeakMap();
+  target.addEventListener = function (type, listener, options) {
+    if ((type === 'touchstart' || type === 'touchmove') && listener) {
+      const fn = typeof listener === 'function' ? listener : listener.handleEvent?.bind(listener);
+      if (fn) {
+        let wrapped = map.get(listener);
+        if (!wrapped) {
+          wrapped = function (e) {
+            if (!e.cancelable) {
+              Object.defineProperty(e, 'preventDefault', { value() {}, configurable: true });
+              try { return fn.call(this, e); } finally { delete e.preventDefault; }
+            }
+            return fn.call(this, e);
+          };
+          map.set(listener, wrapped);
+        }
+        return rawAdd.call(this, type, wrapped, options);
+      }
+    }
+    return rawAdd.call(this, type, listener, options);
+  };
+  target.removeEventListener = function (type, listener, options) {
+    const wrapped = (type === 'touchstart' || type === 'touchmove') && listener ? map.get(listener) : null;
+    return rawRemove.call(this, type, wrapped || listener, options);
+  };
+  return () => {
+    target.addEventListener = rawAdd;
+    target.removeEventListener = rawRemove;
+  };
+};
+{
+  const canvas = document.getElementById('egui-app');
+  if (canvas) window.__guardTouch(canvas);
+}
+</script>
 <!-- #region egui-start -->
 <script type="module">
 import init, { start } from '/native-ui/egui/egui_dom.js';
@@ -230,10 +273,12 @@ await init();                                        // fetch and compile the We
 // takes focus from the reader, so focus() does nothing until the app is up.
 const focus = HTMLElement.prototype.focus;
 HTMLElement.prototype.focus = function () {};
+const unguard = [window.__guardTouch?.(window), window.__guardTouch?.(document)];
 try {
   await start(document.getElementById('egui-app'));  // eframe::WebRunner on that canvas
 } finally {
   HTMLElement.prototype.focus = focus;
+  for (const restore of unguard) restore?.();
 }
 </script>
 <!-- #endregion egui-start -->

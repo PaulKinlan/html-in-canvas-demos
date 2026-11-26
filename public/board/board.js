@@ -536,15 +536,21 @@ if (!supported) {
   // #region paint
   canvas.addEventListener('paint', paint);
   // #endregion paint
+  const MAX_CANVAS_PX = 3_900_000;
   const ro = new ResizeObserver(([entry]) => {
     const box = entry.devicePixelContentBoxSize?.[0];
     const cw = entry.contentRect.width, ch = entry.contentRect.height;
     if (!cw || !ch) return;
-    const pw = box ? box.inlineSize : Math.round(cw * devicePixelRatio), ph = box ? box.blockSize : Math.round(ch * devicePixelRatio);
+    let pw = box ? box.inlineSize : Math.round(cw * devicePixelRatio), ph = box ? box.blockSize : Math.round(ch * devicePixelRatio);
+    if (pw * ph > MAX_CANVAS_PX) {
+      const k = Math.sqrt(MAX_CANVAS_PX / (pw * ph));
+      pw = Math.max(1, Math.floor(pw * k));
+      ph = Math.max(1, Math.floor(ph * k));
+    }
     if (canvas.width !== pw) canvas.width = pw; // assigning clears the canvas, even to the same value
     if (canvas.height !== ph) canvas.height = ph;
     const first = !size.w;
-    size = { w: cw, h: ch, dpr: canvas.width / cw };
+    size = { w: cw, h: ch, dpr: Math.min(canvas.width / cw, canvas.height / ch) };
     if (first) {
       if (saved?.cam) { cam = saved.cam; changed(); }
       else {

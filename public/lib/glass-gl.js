@@ -34,6 +34,7 @@ export const GLASS_DEFAULTS = {
 };
 
 const VERTEX = `#version 300 es
+precision highp float;
 in vec2 aPos;
 out vec2 vUv;
 void main() { vUv = aPos; gl_Position = vec4(aPos.x * 2.0 - 1.0, 1.0 - aPos.y * 2.0, 0.0, 1.0); }`;
@@ -44,6 +45,7 @@ precision highp float;
 uniform sampler2D uBack;
 uniform vec2 uSize;        // panel size, CSS px
 uniform vec4 uBackRect;    // uv of the panel's top left corner in uBack, and uv per CSS px
+uniform vec4 uBackClamp;   // [minU, minV, maxU, maxV] of the valid sub-image in uBack
 uniform float uRadius, uRim, uThick, uIor, uDisp, uFrost, uSpec, uScale;
 uniform vec2 uLight;       // unit vector toward the light, on the screen (y down)
 uniform vec4 uTint;
@@ -60,7 +62,7 @@ float height(float d) {
   float t = clamp(d / uRim, 0.0, 1.0);
   return uThick * sqrt(max(1.0 - (1.0 - t) * (1.0 - t), 0.0));
 }
-vec3 back(vec2 p) { return texture(uBack, uBackRect.xy + (p + uSize * 0.5) * uBackRect.zw).rgb; }
+vec3 back(vec2 p) { return texture(uBack, clamp(uBackRect.xy + (p + uSize * 0.5) * uBackRect.zw, uBackClamp.xy, uBackClamp.zw)).rgb; }
 // What is seen at p through glass with refractive index ior and surface normal n.
 vec2 landing(vec2 p, vec3 n, float h, float ior) {
   vec3 r = refract(vec3(0.0, 0.0, -1.0), n, 1.0 / ior);    // Snell's law
@@ -106,7 +108,47 @@ void main() {
 }`;
 // #endregion shader
 
-let state = null;   // { canvas, gl, program, uniforms, texture } | { failed: reason }
+let state = null;   // { canvas, gl, program, uniforms, tex, vertex, compile, programs } | { failed: reason }
+
+function makeTexture(gl) {
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+  return { texture, w: 0, h: 0 };
+}
+
+// Grow-only upload: allocate with texImage2D only when the texture grows, then update in place with
+// texSubImage2D. UNPACK_SKIP_* is always reset to 0 after sub-rectangle uploads.
+function upload(gl, tex, source, copy) {
+  const sw = copy.sw, sh = copy.sh;
+  const sx = copy.sx || 0, sy = copy.sy || 0;
+  if (tex.w < sw || tex.h < sh) {
+    const nw = Math.max(tex.w, sw), nh = Math.max(tex.h, sh);
+    tex.w = nw; tex.h = nh;
+    if (nw === sw && nh === sh) {
+      if (sx) gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, sx);
+      if (sy) gl.pixelStorei(gl.UNPACK_SKIP_ROWS, sy);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, sw, sh, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      if (sx) gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+      if (sy) gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+      return;
+    }
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, nw, nh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  }
+  if (sx) gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, sx);
+  if (sy) gl.pixelStorei(gl.UNPACK_SKIP_ROWS, sy);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, sw, sh, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  if (sx) gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+  if (sy) gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+}
+
+function setBackUniforms(gl, locRect, locClamp, panel, copy, tex) {
+  const rx = copy.sw / tex.w, ry = copy.sh / tex.h;
+  gl.uniform4f(locRect, ((panel.x ?? 0) - copy.x) / copy.width * rx, ((panel.y ?? 0) - copy.y) / copy.height * ry, rx / copy.width, ry / copy.height);
+  gl.uniform4f(locClamp, 0.5 / tex.w, 0.5 / tex.h, (copy.sw - 0.5) / tex.w, (copy.sh - 0.5) / tex.h);
+}
 
 function start() {
   if (typeof document === 'undefined' || typeof WebGL2RenderingContext === 'undefined') return { failed: 'This browser has no WebGL 2.' };
@@ -122,15 +164,29 @@ function start() {
   // #endregion lost
   const compile = (type, source) => {
     const s = gl.createShader(type);
+    if (!s) return null;
     gl.shaderSource(s, source); gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(s));
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && !gl.isContextLost()) {
+      const log = gl.getShaderInfoLog(s);
+      gl.deleteShader(s);
+      throw new Error(log || 'Shader compilation failed');
+    }
     return s;
   };
+  const vertex = compile(gl.VERTEX_SHADER, VERTEX);
+  const frag = compile(gl.FRAGMENT_SHADER, FRAGMENT);
   const program = gl.createProgram();
-  gl.attachShader(program, compile(gl.VERTEX_SHADER, VERTEX));
-  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FRAGMENT));
+  if (!vertex || !frag || !program || gl.isContextLost()) {
+    if (vertex) gl.deleteShader(vertex);
+    if (frag) gl.deleteShader(frag);
+    if (program) gl.deleteProgram(program);
+    return { failed: 'The shared WebGL context was lost.' };
+  }
+  gl.attachShader(program, vertex);
+  gl.attachShader(program, frag);
   gl.bindAttribLocation(program, 0, 'aPos');
   gl.linkProgram(program);
+  gl.deleteShader(frag);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS) && !gl.isContextLost()) throw new Error(gl.getProgramInfoLog(program));
   gl.useProgram(program);
   gl.bindVertexArray(gl.createVertexArray());
@@ -139,11 +195,9 @@ function start() {
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
   gl.disable(gl.BLEND);
-  made.texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, made.texture);
-  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
-  made.program = program; made.compile = compile; made.programs = new Map();
-  made.uniforms = Object.fromEntries(['uBack', 'uSize', 'uBackRect', 'uRadius', 'uRim', 'uThick', 'uIor', 'uDisp', 'uFrost', 'uSpec', 'uScale', 'uLight', 'uTint'].map((n) => [n, gl.getUniformLocation(program, n)]));
+  made.tex = makeTexture(gl);
+  made.vertex = vertex; made.program = program; made.compile = compile; made.programs = new Map();
+  made.uniforms = Object.fromEntries(['uBack', 'uSize', 'uBackRect', 'uBackClamp', 'uRadius', 'uRim', 'uThick', 'uIor', 'uDisp', 'uFrost', 'uSpec', 'uScale', 'uLight', 'uTint'].map((n) => [n, gl.getUniformLocation(program, n)]));
   gl.uniform1i(made.uniforms.uBack, 0);
   return made;
 }
@@ -161,6 +215,7 @@ export function glassRoute() { return !state ? 'not started' : state.failed ? st
  * panel: { x, y, width, height, radius, tint: [r, g, b, a] } in CSS px. scale: device px per CSS px.
  */
 export function glass(source, copy, panel, settings, scale) {
+  if (!copy || !copy.sw || !copy.sh) return null;
   if (!state) { try { state = start(); } catch (err) { state = { failed: `The glass shader did not compile: ${err.message}` }; } }
   if (state.failed || state.lost) return null;
   const { gl, canvas, uniforms: u } = state;
@@ -171,16 +226,15 @@ export function glass(source, copy, panel, settings, scale) {
   if (canvas.height < ph) canvas.height = ph;
 
   // Only the part of the source that lies behind this element is uploaded.
-  gl.bindTexture(gl.TEXTURE_2D, state.texture);
-  gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, copy.sx); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, copy.sy);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, copy.sw, copy.sh, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  gl.bindTexture(gl.TEXTURE_2D, state.tex.texture);
+  upload(gl, state.tex, source, copy);
 
   const s = { ...GLASS_DEFAULTS, ...settings };
   const rim = Math.max(0.5, Math.min(s.rim, panel.width / 2, panel.height / 2));
   const angle = (s.light * Math.PI) / 180;
   gl.viewport(0, canvas.height - ph, pw, ph);        // the top left pw by ph pixels of the canvas
   gl.uniform2f(u.uSize, panel.width, panel.height);
-  gl.uniform4f(u.uBackRect, (panel.x - copy.x) / copy.width, (panel.y - copy.y) / copy.height, 1 / copy.width, 1 / copy.height);
+  setBackUniforms(gl, u.uBackRect, u.uBackClamp, panel, copy, state.tex);
   gl.uniform1f(u.uRadius, Math.max(0, Math.min(panel.radius, panel.width / 2, panel.height / 2)));
   gl.uniform1f(u.uRim, rim);
   gl.uniform1f(u.uThick, Math.min(s.thickness, rim * 2.2));   // a thin element cannot be a thick lens
@@ -212,11 +266,12 @@ precision highp float;
 uniform sampler2D uBack;
 uniform vec2 uSize;
 uniform vec4 uBackRect;
+uniform vec4 uBackClamp;
 uniform float uRadius, uScale, uTime, uSeed;
 in vec2 vUv;
 out vec4 outColor;
 float sdBox(vec2 p) { vec2 q = abs(p) - uSize * 0.5 + uRadius; return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - uRadius; }
-vec4 back(vec2 p) { return texture(uBack, uBackRect.xy + (p + uSize * 0.5) * uBackRect.zw); }
+vec4 back(vec2 p) { return texture(uBack, clamp(uBackRect.xy + (p + uSize * 0.5) * uBackRect.zw, uBackClamp.xy, uBackClamp.zw)); }
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
@@ -239,16 +294,37 @@ export function shade(name, body, panel, scale, values = {}, source = null, copy
   if (!made) {
     made = { failed: null, uniforms: new Map() };
     state.programs.set(name, made);
+    let fs = null, program = null;
     try {
       const declared = Object.entries(values).map(([k, v]) => `uniform ${typeof v === 'number' ? 'float' : `vec${v.length}`} ${k};`).join('\n');
-      const program = gl.createProgram();
-      gl.attachShader(program, state.compile(gl.VERTEX_SHADER, VERTEX));
-      gl.attachShader(program, state.compile(gl.FRAGMENT_SHADER, `${HEAD}${declared}\n${body}${TAIL}`));
+      fs = state.compile(gl.FRAGMENT_SHADER, `${HEAD}${declared}\n${body}${TAIL}`);
+      program = gl.createProgram();
+      if (!fs || !program || gl.isContextLost()) {
+        if (fs) gl.deleteShader(fs);
+        if (program) gl.deleteProgram(program);
+        state.lost = true;
+        state.programs.delete(name);
+        return null;
+      }
+      gl.attachShader(program, state.vertex);
+      gl.attachShader(program, fs);
       gl.bindAttribLocation(program, 0, 'aPos');
       gl.linkProgram(program);
-      if (!gl.getProgramParameter(program, gl.LINK_STATUS) && !gl.isContextLost()) throw new Error(gl.getProgramInfoLog(program));
+      gl.deleteShader(fs); fs = null;
+      if (gl.isContextLost()) {
+        gl.deleteProgram(program);
+        state.lost = true;
+        state.programs.delete(name);
+        return null;
+      }
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || 'Program link failed');
       made.program = program;
+      gl.useProgram(program);
+      gl.uniform1i(gl.getUniformLocation(program, 'uBack'), 0);
     } catch (err) {
+      if (fs) gl.deleteShader(fs);
+      if (program) gl.deleteProgram(program);
+      if (gl.isContextLost()) { state.lost = true; state.programs.delete(name); return null; }
       made.failed = err.message;
       window.__gfx?.report?.('shader', `canvas-skin shader "${name}" did not compile`, { message: String(err.message).slice(0, 400) });
     }
@@ -266,23 +342,21 @@ export function shade(name, body, panel, scale, values = {}, source = null, copy
     state.kept ??= new WeakMap();
     held = state.kept.get(panel.keep);
     if (!held) {
-      held = { texture: gl.createTexture(), sig: null, copy: null };
-      gl.bindTexture(gl.TEXTURE_2D, held.texture);
-      for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+      held = { ...makeTexture(gl), sig: null, copy: null };
       state.kept.set(panel.keep, held);
     }
     if (!source) { if (held.sig !== panel.sig || !held.copy) return null; copy = held.copy; }
   }
-  gl.bindTexture(gl.TEXTURE_2D, held ? held.texture : state.texture);
+  const tex = held ?? state.tex;
+  gl.bindTexture(gl.TEXTURE_2D, tex.texture);
   if (copy) {
+    if (!copy.sw || !copy.sh) return null;
     if (source) {
-      gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, copy.sx); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, copy.sy);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, copy.sw, copy.sh, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      upload(gl, tex, source, copy);
       if (held) { held.sig = panel.sig; held.copy = { sx: 0, sy: 0, sw: copy.sw, sh: copy.sh, x: copy.x, y: copy.y, width: copy.width, height: copy.height }; }
     }
-    gl.uniform4f(at('uBackRect'), ((panel.x ?? 0) - copy.x) / copy.width, ((panel.y ?? 0) - copy.y) / copy.height, 1 / copy.width, 1 / copy.height);
+    setBackUniforms(gl, at('uBackRect'), at('uBackClamp'), panel, copy, tex);
   }
-  gl.uniform1i(at('uBack'), 0);
   gl.viewport(0, canvas.height - ph, pw, ph);
   gl.uniform2f(at('uSize'), panel.width, panel.height);
   gl.uniform1f(at('uRadius'), Math.max(0, Math.min(panel.radius ?? 0, panel.width / 2, panel.height / 2)));

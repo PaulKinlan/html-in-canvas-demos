@@ -9,17 +9,31 @@ let missed = false;
 // #region mount
 // Calls paint(ctx, width, height, time) in CSS pixels on every `paint` event.
 // Return true from paint to ask for another frame. Frames stop while the canvas is off screen.
+const MAX_CANVAS_PX = 3_900_000;
 export function mount(canvas, paint) {
   const off = { ctx: null, canvas, request() {}, hit() {}, plain: true };
   if (!supported) { plain(canvas, 'none'); return off; }
   if (isPlain()) { plain(canvas); return off; }
   const ctx = canvas.getContext('2d');
   if (!ctx) { plain(canvas, 'gave no 2D context'); return off; }
-  let visible = false, queued = 0, retries = 0, dead = false, moving = false;
-  const request = () => { if (!dead) canvas.requestPaint?.(); };
-  const scale = () => canvas.width / canvas.clientWidth || 1;
+  let visible = false, near = true, queued = 0, retries = 0, dead = false, moving = false;
+  let wantW = 0, wantH = 0;
+  const request = () => { if (!dead && near && canvas.width && canvas.height) canvas.requestPaint?.(); };
+  const scale = () => Math.min(canvas.width / canvas.clientWidth, canvas.height / canvas.clientHeight) || 1;
+  const applySize = () => {
+    if (dead || !near || !wantW || !wantH) return;
+    let pw = wantW, ph = wantH;
+    if (pw * ph > MAX_CANVAS_PX) {
+      const k = Math.sqrt(MAX_CANVAS_PX / (pw * ph));
+      pw = Math.max(1, Math.floor(pw * k));
+      ph = Math.max(1, Math.floor(ph * k));
+    }
+    // Assigning width or height clears the canvas, so do it only when the size changed.
+    if (canvas.width !== pw) canvas.width = pw;
+    if (canvas.height !== ph) canvas.height = ph;
+  };
   canvas.addEventListener('paint', () => {
-    if (dead || ctx.isContextLost?.() || !canvas.clientWidth) return;
+    if (dead || !near || !canvas.width || !canvas.height || ctx.isContextLost?.() || !canvas.clientWidth) return;
     const dpr = scale();
     ctx.reset();
     ctx.scale(dpr, dpr);
@@ -39,7 +53,7 @@ export function mount(canvas, paint) {
   // a draw with no alpha moves the region. This also works outside a `paint` event, so a pointerdown
   // handler can move the region before the browser decides what the tap landed on.
   const hit = (el, matrix) => {
-    if (dead) return false;
+    if (dead || !canvas.width || !canvas.height || !canvas.clientWidth) return false;
     const dpr = scale();
     ctx.save();
     ctx.setTransform(new DOMMatrix().scale(dpr).multiply(matrix));
@@ -57,16 +71,24 @@ export function mount(canvas, paint) {
   canvas.addEventListener('contextlost', (e) => { if (e.isTrusted) remember(); dispatchEvent(new Event(EVENT)); stop('lost its context'); });
   addEventListener(EVENT, () => stop('was stopped because another canvas on this page lost its context'));
   // #endregion lost
-  new ResizeObserver(([e]) => {
+  const ro = new ResizeObserver(([e]) => {
     if (dead) return;
     const box = e.devicePixelContentBoxSize?.[0] ?? { inlineSize: Math.round(canvas.clientWidth * devicePixelRatio), blockSize: Math.round(canvas.clientHeight * devicePixelRatio) };
     if (!box.inlineSize || !box.blockSize) return;
-    // Assigning width or height clears the canvas, so do it only when the size changed.
-    if (canvas.width !== box.inlineSize) canvas.width = box.inlineSize;
-    if (canvas.height !== box.blockSize) canvas.height = box.blockSize;
+    wantW = box.inlineSize;
+    wantH = box.blockSize;
+    applySize();
     request();
-  }).observe(canvas, { box: 'device-pixel-content-box' });
+  });
+  try { ro.observe(canvas, { box: 'device-pixel-content-box' }); } catch { ro.observe(canvas); }
   new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) request(); }).observe(canvas);
+  // Release the GPU backing store when far off screen so all six canvases do not hold memory at once.
+  new IntersectionObserver(([e]) => {
+    if (dead) return;
+    near = e.isIntersecting;
+    if (near) { applySize(); request(); }
+    else if (canvas.width || canvas.height) { canvas.width = 0; canvas.height = 0; }
+  }, { rootMargin: '600px 0px' }).observe(canvas);
   return { ctx, canvas, request, hit, plain: false };
 }
 
@@ -95,7 +117,10 @@ export function plain(canvas, why) {
     again.addEventListener('click', () => { try { sessionStorage.removeItem(KEY); } catch {} location.reload(); });
     box.append(again);
   }
+  canvas.width = 0;
+  canvas.height = 0;
   canvas.hidden = true;
+  window.__gfx?.retire?.(canvas);
   canvas.parentElement.classList.add('is-plain');
   canvas.after(box);
 }
@@ -140,9 +165,9 @@ export function columns(ctx, el, W, H, n, project) {
     if (sx1 - sx0 < 0.05) continue;
     const sx = (sx1 - sx0) / (x1 - x0), sy = (s0 + s1) / 2;
     ctx.save();
-    ctx.transform(sx, 0, 0, sy, sx0 - x0 * sx, -H / 2 * sy);
-    ctx.beginPath(); ctx.rect(x0, 0, W / n + 0.5 / sx, H); ctx.clip();
-    put(ctx, el, 0, 0, W, H);
+    ctx.transform(1, 0, 0, sy, sx0 - x0 * sx, -H / 2 * sy);
+    ctx.beginPath(); ctx.rect(x0 * sx, 0, (sx1 - sx0) + 0.5, H); ctx.clip();
+    put(ctx, el, 0, 0, W * sx, H);
     ctx.restore();
   }
 }
@@ -183,7 +208,10 @@ export function onPoint(canvas, fn) {
 // draws the content at -scrollTop.
 export function scrollRange(scroller, canvas, content, extra = 0) {
   const spacer = scroller.querySelector('.spacer');
-  const size = () => { spacer.style.height = `${Math.max(0, content.offsetHeight + extra - canvas.clientHeight)}px`; };
+  const size = () => {
+    const next = `${Math.max(0, content.offsetHeight + extra - canvas.clientHeight)}px`;
+    if (spacer.style.height !== next) spacer.style.height = next;
+  };
   new ResizeObserver(size).observe(content);
   size();
 }

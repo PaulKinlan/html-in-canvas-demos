@@ -45,6 +45,7 @@ async function loadQt() {
     $('qt-parts').style.cssText = 'position:absolute;left:-9999px;top:0;width:300px';
     await script('/native-ui/qt/qtdom.js');
     await script('/native-ui/qt/qtloader.js');
+    window.__guardTouch?.($('qt-screen'));
     await window.qtLoad({
       qt: {
         entryFunction: window.qtdom_entry,

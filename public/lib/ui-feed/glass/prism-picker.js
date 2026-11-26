@@ -189,7 +189,7 @@ export class PrismPicker extends FeedControl {
       return Math.atan2((e.clientY - r.top) * k - P.C.y, (e.clientX - r.left) * k - P.C.x) * 180 / Math.PI;
     };
     turn.addEventListener('mousedown', (e) => { e.preventDefault(); turn.focus({ preventScroll: true }); });
-    turn.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+    turn.addEventListener('touchstart', (e) => { if (e.cancelable) e.preventDefault(); }, { passive: false });
     turn.addEventListener('pointerdown', (e) => {
       this.grip = { at: around(e), a: this.a };
       try { turn.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer has nothing to capture */ }

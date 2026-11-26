@@ -32,7 +32,7 @@ export const supportedGL =
   'texElementSubImage2D' in WebGL2RenderingContext.prototype;
 
 const MAX_DIM = 8192;
-const MAX_AREA = 16e6;
+const MAX_AREA = 3_900_000;
 
 const CSS = `
   :host { display: block; position: relative; }
@@ -118,6 +118,11 @@ export class SurfaceElement extends HTMLElement {
   #sizer = null;
   #observers = [];
   #raf = 0;
+  #sizeRaf = 0;
+  #sizerW = '';
+  #sizerH = '';
+  #sizerWVal = 0;
+  #sizerHVal = 0;
   #painted = false;
   #sized = false;
   #canvasRO = null;
@@ -263,14 +268,45 @@ export class SurfaceElement extends HTMLElement {
     if (!this.live) return;
     this.bleed = Number(this.getAttribute('bleed') ?? this.constructor.defaultBleed) || 0;
     this.canvas.style.setProperty('--surface-bleed', this.bleed + 'px');
+    const applySizer = (w, h) => {
+      const nextH = h > 0 ? Math.round(h * 100) / 100 + 'px' : '';
+      const nextW = this.hasAttribute('inline') && w > 0 ? Math.round(w * 100) / 100 + 'px' : '';
+      this.#sizerHVal = h;
+      this.#sizerWVal = w;
+      if (nextH !== this.#sizerH) {
+        this.#sizerH = nextH;
+        this.#sizer.style.height = nextH;
+      }
+      if (nextW !== this.#sizerW) {
+        this.#sizerW = nextW;
+        this.#sizer.style.width = nextW;
+      }
+    };
+    const initW = this.content.offsetWidth;
+    const initH = this.content.offsetHeight;
+    if (initW > 0 && initH > 0) {
+      this.width = initW;
+      this.height = initH;
+      applySizer(initW, initH);
+    }
     const contentRO = new ResizeObserver(([entry]) => {
       const box = entry.borderBoxSize?.[0];
       const w = box ? box.inlineSize : entry.contentRect.width;
       const h = box ? box.blockSize : entry.contentRect.height;
       this.width = w;
       this.height = h;
-      this.#sizer.style.height = h + 'px';
-      this.#sizer.style.width = this.hasAttribute('inline') ? w + 'px' : '';
+      const needH = (!this.#sizerH && h > 0) || Math.abs(h - this.#sizerHVal) > 0.6;
+      const needW = this.hasAttribute('inline') && ((!this.#sizerW && w > 0) || Math.abs(w - this.#sizerWVal) > 0.6);
+      if (!needH && !needW) return;
+      // Mutating #sizer inside contentRO resizes :host and <canvas> (a shallower ancestor
+      // of #content), triggering "ResizeObserver loop completed with undelivered notifications".
+      if (!this.#sizeRaf) {
+        this.#sizeRaf = requestAnimationFrame(() => {
+          this.#sizeRaf = 0;
+          if (!this.isConnected || !this.live) return;
+          applySizer(this.width, this.height);
+        });
+      }
     });
     contentRO.observe(this.content);
 
@@ -282,8 +318,8 @@ export class SurfaceElement extends HTMLElement {
       let w = box ? box.inlineSize : Math.round(cssW * devicePixelRatio);
       let h = box ? box.blockSize : Math.round(cssH * devicePixelRatio);
       const k = Math.min(1, MAX_DIM / w, MAX_DIM / h, Math.sqrt(MAX_AREA / (w * h)));
-      w = Math.max(1, Math.round(w * k));
-      h = Math.max(1, Math.round(h * k));
+      w = Math.max(1, k < 1 ? Math.floor(w * k) : Math.round(w));
+      h = Math.max(1, k < 1 ? Math.floor(h * k) : Math.round(h));
       if (this.canvas.width !== w) this.canvas.width = w;
       if (this.canvas.height !== h) this.canvas.height = h;
       // Capping rounds the two sides separately; use the smaller ratio so the
@@ -313,6 +349,12 @@ export class SurfaceElement extends HTMLElement {
     this.#canvasRO = null;
     cancelAnimationFrame(this.#raf);
     this.#raf = 0;
+    cancelAnimationFrame(this.#sizeRaf);
+    this.#sizeRaf = 0;
+    this.#sizerW = '';
+    this.#sizerH = '';
+    this.#sizerWVal = 0;
+    this.#sizerHVal = 0;
   }
 
   createContext(canvas) {

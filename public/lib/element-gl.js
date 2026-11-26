@@ -30,8 +30,14 @@ void main() {
   gl_Position = uMatrix * vec4(aPos, 0.0, 1.0);
 }`;
 
+const QUAD = new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]);
+const DEFAULT_CLEAR = [0, 0, 0, 0];
+
 export class ElementGL {
-  #fragment; #program = null; #uniforms = new Map(); #textures = new Map(); #onLost; #onRestored; #vao = null;
+  static #sizes = new WeakMap();
+  #fragment; #program = null; #uniforms = new Map(); #textures = new Map(); #onLost; #onRestored;
+  #vao = null; #vbo = null; #ro = null; #size = { w: 0, h: 0 }; #mat = new Float32Array(16);
+  #onContextLost; #onContextRestored;
   lost = false;
 
   constructor(canvas, { fragment, onLost = () => {}, onRestored = () => {}, attributes = {} }) {
@@ -39,23 +45,36 @@ export class ElementGL {
     this.#fragment = fragment;
     this.#onLost = onLost;
     this.#onRestored = onRestored;
+    ElementGL.#sizes.set(canvas, this.#size);
+    if (typeof ResizeObserver !== 'undefined') {
+      this.#ro = new ResizeObserver(([entry]) => {
+        const box = entry.contentBoxSize?.[0];
+        this.#size.w = box ? box.inlineSize : entry.contentRect.width;
+        this.#size.h = box ? box.blockSize : entry.contentRect.height;
+      });
+      this.#ro.observe(canvas);
+    }
     // #region context-loss
     // A phone under memory pressure takes the context away. preventDefault()
     // asks for it back; everything on the GPU is rebuilt when it returns.
-    canvas.addEventListener('webglcontextlost', (e) => {
+    this.#onContextLost = (e) => {
       e.preventDefault();
       this.lost = true;
       this.#program = null;
+      this.#vao = null;
+      this.#vbo = null;
       this.#textures.clear();
       this.#uniforms.clear();
       this.#onLost();
-    });
-    canvas.addEventListener('webglcontextrestored', () => {
+    };
+    this.#onContextRestored = () => {
       this.lost = false;
       this.#build();
       this.#onRestored();
       canvas.requestPaint?.();
-    });
+    };
+    canvas.addEventListener('webglcontextlost', this.#onContextLost);
+    canvas.addEventListener('webglcontextrestored', this.#onContextRestored);
     // #endregion context-loss
     this.gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: 'low-power', ...attributes });
     if (!this.gl) throw new Error('WebGL 2 is not available');
@@ -68,23 +87,42 @@ export class ElementGL {
       const s = gl.createShader(type);
       gl.shaderSource(s, source);
       gl.compileShader(s);
-      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(s));
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && !gl.isContextLost()) {
+        const log = gl.getShaderInfoLog(s);
+        gl.deleteShader(s);
+        throw new Error(log);
+      }
       return s;
     };
+    const vs = compile(gl.VERTEX_SHADER, VERTEX);
+    let fs = null;
     const p = gl.createProgram();
-    gl.attachShader(p, compile(gl.VERTEX_SHADER, VERTEX));
-    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, this.#fragment));
-    gl.bindAttribLocation(p, 0, 'aPos');
-    gl.linkProgram(p);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) throw new Error(gl.getProgramInfoLog(p));
+    try {
+      fs = compile(gl.FRAGMENT_SHADER, this.#fragment);
+      gl.attachShader(p, vs);
+      gl.attachShader(p, fs);
+      gl.bindAttribLocation(p, 0, 'aPos');
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) throw new Error(gl.getProgramInfoLog(p));
+    } catch (err) {
+      gl.deleteProgram(p);
+      throw err;
+    } finally {
+      gl.deleteShader(vs);
+      if (fs) gl.deleteShader(fs);
+    }
+    if (this.#program) gl.deleteProgram(this.#program);
     this.#program = p;
     this.#uniforms.clear();
-    this.#vao = gl.createVertexArray();
-    gl.bindVertexArray(this.#vao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    if (!this.#vao) {
+      this.#vao = gl.createVertexArray();
+      this.#vbo = gl.createBuffer();
+      gl.bindVertexArray(this.#vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.#vbo);
+      gl.bufferData(gl.ARRAY_BUFFER, QUAD, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    }
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   }
@@ -93,6 +131,27 @@ export class ElementGL {
   setFragment(fragment) {
     this.#fragment = fragment;
     if (!this.lost) this.#build();
+  }
+
+  /** Release GPU objects, listeners and observers held by this stage. */
+  dispose() {
+    this.#ro?.disconnect();
+    this.#ro = null;
+    ElementGL.#sizes.delete(this.canvas);
+    this.canvas.removeEventListener('webglcontextlost', this.#onContextLost);
+    this.canvas.removeEventListener('webglcontextrestored', this.#onContextRestored);
+    const gl = this.gl;
+    if (gl && !this.lost && !gl.isContextLost()) {
+      for (const t of this.#textures.values()) gl.deleteTexture(t.tex);
+      if (this.#program) gl.deleteProgram(this.#program);
+      if (this.#vbo) gl.deleteBuffer(this.#vbo);
+      if (this.#vao) gl.deleteVertexArray(this.#vao);
+    }
+    this.#textures.clear();
+    this.#uniforms.clear();
+    this.#program = null;
+    this.#vbo = null;
+    this.#vao = null;
   }
 
   // #region upload
@@ -133,14 +192,20 @@ export class ElementGL {
   has(element) { return this.#textures.has(element); }
 
   /** Match the buffer to the canvas box in device pixels, and clear. */
-  begin(clear = [0, 0, 0, 0]) {
+  begin(clear = DEFAULT_CLEAR) {
     const gl = this.gl, c = this.canvas;
     if (this.lost) return false;
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    const w = Math.max(1, Math.round(c.clientWidth * dpr)), h = Math.max(1, Math.round(c.clientHeight * dpr));
+    let cw = this.#size.w, ch = this.#size.h;
+    if (!(cw > 0 && ch > 0)) {
+      cw = c.clientWidth;
+      ch = c.clientHeight;
+      if (cw > 0 && ch > 0) { this.#size.w = cw; this.#size.h = ch; }
+    }
+    const w = Math.max(1, Math.round(cw * dpr)), h = Math.max(1, Math.round(ch * dpr));
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
     gl.viewport(0, 0, w, h);
-    gl.clearColor(...clear);
+    gl.clearColor(clear[0], clear[1], clear[2], clear[3]);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.#program);
     gl.bindVertexArray(this.#vao);
@@ -160,7 +225,13 @@ export class ElementGL {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, t.tex);
     gl.uniform1i(this.uniform('uTex'), 0);
-    gl.uniformMatrix4fv(this.uniform('uMatrix'), false, matrix);
+    let mat = matrix;
+    if (!(matrix instanceof Float32Array)) {
+      const m = this.#mat;
+      for (let i = 0; i < 16; i++) m[i] = matrix[i];
+      mat = m;
+    }
+    gl.uniformMatrix4fv(this.uniform('uMatrix'), false, mat);
     gl.uniform2f(this.uniform('uSize'), element.offsetWidth, element.offsetHeight);
     gl.uniform1f(this.uniform('uTime'), performance.now() / 1000);
     set?.(gl, this.uniform);
@@ -168,8 +239,14 @@ export class ElementGL {
   }
 
   /** The matrix that puts the unit square on a rectangle of the canvas, in CSS pixels. */
-  static rect(canvas, x, y, w, h) {
-    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
-    return new Float32Array([2 * w / cw, 0, 0, 0, 0, -2 * h / ch, 0, 0, 0, 0, 1, 0, 2 * x / cw - 1, 1 - 2 * y / ch, 0, 1]);
+  static rect(canvas, x, y, w, h, out = new Float32Array(16)) {
+    const s = ElementGL.#sizes.get(canvas);
+    const cw = (s && s.w > 0 ? s.w : canvas.clientWidth) || 1;
+    const ch = (s && s.h > 0 ? s.h : canvas.clientHeight) || 1;
+    out[0] = 2 * w / cw; out[1] = 0; out[2] = 0; out[3] = 0;
+    out[4] = 0; out[5] = -2 * h / ch; out[6] = 0; out[7] = 0;
+    out[8] = 0; out[9] = 0; out[10] = 1; out[11] = 0;
+    out[12] = 2 * x / cw - 1; out[13] = 1 - 2 * y / ch; out[14] = 0; out[15] = 1;
+    return out;
   }
 }
