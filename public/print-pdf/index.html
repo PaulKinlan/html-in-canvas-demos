@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Print and PDF handoff</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .controls { margin-bottom: 14px; }
+  .controls button { min-height: 40px; font-weight: 600; }
+  .controls button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  .state-pill {
+    font: 600 12px var(--mono);
+    padding: 5px 10px;
+    border-radius: 99px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--muted);
+  }
+  .state-pill.is-dom {
+    border-color: var(--ok);
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 12%, transparent);
+  }
+
+  .compare-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+  .panel {
+    margin: 0;
+    min-width: 0;
+  }
+  .panel figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 10px;
+    margin-bottom: 8px;
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .panel-tag {
+    font: 600 11px var(--mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .panel-tag.is-dom {
+    color: var(--ok);
+  }
+
+  .card-slot {
+    position: relative;
+    width: 100%;
+    min-height: 410px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #ece6d8;
+  }
+  .print-canvas {
+    display: block;
+    width: 100%;
+    height: 410px;
+  }
+  .card-slot.handed-off .print-canvas {
+    display: none;
+  }
+  /* Keep #print-host rendered (never display: none) so moveBefore() preserves focus. */
+  .print-host {
+    box-sizing: border-box;
+    width: 100%;
+  }
+  .print-host.active {
+    min-height: 410px;
+    padding: 14px;
+    background: var(--card);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .fallback-host {
+    padding: 14px;
+    min-height: 410px;
+    background: var(--card);
+  }
+  .sim-badge {
+    display: none;
+    margin: 0 0 8px;
+    font: 600 11px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ok);
+  }
+  .card-slot.handed-off .sim-badge {
+    display: block;
+  }
+
+  /* Printable invoice / specification card. Uses fixed archival paper colours so
+     the drawn canvas and the printed page match in both light and dark modes. */
+  .doc-card {
+    box-sizing: border-box;
+    width: calc(100% - 28px);
+    min-height: 368px;
+    padding: 14px 16px;
+    background: #fdfcf9;
+    color: #1a1917;
+    border: 1.5px solid #2c2925;
+    border-radius: 4px;
+    font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-host.active .doc-card,
+  .fallback-host .doc-card {
+    width: 100%;
+  }
+  .doc-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1.5px solid #2c2925;
+  }
+  .doc-code {
+    font: 600 10.5px var(--mono);
+    letter-spacing: 0.08em;
+    color: #6b6357;
+    text-transform: uppercase;
+  }
+  .doc-head h3 {
+    margin: 2px 0 0;
+    font-size: 16px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    color: #1a1917;
+  }
+  .doc-emblem {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    color: #b83a16;
+  }
+  .doc-meta {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    margin: 0;
+    font-size: 12px;
+  }
+  .doc-meta dt {
+    color: #6b6357;
+    font-weight: 600;
+  }
+  .doc-meta dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .doc-meta a {
+    color: #b83a16;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .doc-fine {
+    margin: 0;
+    padding: 6px 8px;
+    background: #f3efe6;
+    border-left: 2px solid #b83a16;
+    font-size: 11px;
+    line-height: 1.38;
+    color: #36322d;
+  }
+  .doc-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #36322d;
+  }
+  .doc-field input[type="text"] {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 36px;
+    padding: 5px 8px;
+    border: 1px solid #6b6357;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #1a1917;
+    font: 13.5px system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  .doc-field input[type="text"]:focus-visible,
+  .doc-check input[type="checkbox"]:focus-visible,
+  .doc-meta a:focus-visible {
+    outline: 2px solid #d2491f;
+    outline-offset: 2px;
+  }
+  .doc-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 32px;
+    font-size: 12.5px;
+    color: #1a1917;
+    cursor: pointer;
+  }
+  .doc-check input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: #b83a16;
+    flex: none;
+  }
+  .doc-foot {
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px dashed #9c9282;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .doc-barcode {
+    display: block;
+    width: 100%;
+    height: 34px;
+  }
+  .doc-serial {
+    display: flex;
+    justify-content: space-between;
+    font: 10.5px var(--mono);
+    color: #4f4a42;
+  }
+
+  .log-wrap {
+    margin-top: 14px;
+  }
+  #demo-status {
+    margin: 10px 0 0;
+    min-height: 1.5em;
+  }
+  .print-banner {
+    display: none;
+  }
+
+  /* #region print-css */
+  @media print {
+    body {
+      background: #ffffff !important;
+      color: #000000 !important;
+    }
+    /* Hide navigation, support banner, controls, code listings and prose below. */
+    #site-nav,
+    #support,
+    main > h1,
+    main > p.lede,
+    main > .about-exp,
+    .controls,
+    .log-wrap,
+    #demo-status,
+    .sim-badge,
+    details.show-code,
+    .screen-only {
+      display: none !important;
+    }
+    main {
+      max-width: none !important;
+      padding: 0 !important;
+    }
+    .stage {
+      border: 0 !important;
+      padding: 0 !important;
+      background: transparent !important;
+    }
+    .print-banner {
+      display: block !important;
+      margin: 0 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #000;
+      font: 12px/1.4 system-ui, sans-serif;
+    }
+    .print-banner strong {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 2px;
+    }
+    /* Print both cards side by side so the PDF reveals text selection and link annotations directly. */
+    .compare-grid {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr !important;
+      gap: 14px !important;
+      break-inside: avoid;
+    }
+    .panel figcaption {
+      color: #000 !important;
+      font-size: 12.5px !important;
+    }
+    .panel-tag {
+      color: #444 !important;
+    }
+    .card-slot {
+      min-height: 0 !important;
+      border: 1px solid #999 !important;
+      background: #ffffff !important;
+      overflow: visible !important;
+    }
+    /* Left card stays inside #raw-canvas. Right card has moved to #print-host on beforeprint. */
+    #raw-canvas {
+      display: block !important;
+      width: 100% !important;
+      height: 410px !important;
+    }
+    #handoff-canvas {
+      display: none !important;
+    }
+    #print-host {
+      display: block !important;
+      min-height: 0 !important;
+      padding: 12px !important;
+      background: #ffffff !important;
+    }
+    #print-host .doc-card {
+      width: 100% !important;
+    }
+  }
+  /* #endregion print-css */
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Print and PDF handoff</h1>
+  <p class="lede">
+    I wanted to know what Chrome puts into a printed page or PDF when live HTML sits inside a drawable canvas. Press Print (or Cmd/Ctrl+P) to print both cards side by side and test text selection, 800% zoom on the SVG barcode, and the clickable link. Toggle Simulate print handoff to watch <code>moveBefore()</code> pull the right card out into plain DOM and return it without dropping typed text or checkbox state.
+  </p>
+
+  <div class="stage">
+    <div class="print-banner">
+      <strong>HTML-in-canvas print and PDF audit (/print-pdf/)</strong>
+      Left: stays inside a drawable &lt;canvas layoutsubtree&gt;. Right: moved out to plain DOM on beforeprint with Element.prototype.moveBefore(). Check text selection, clickable link annotation, and SVG sharpness on both.
+    </div>
+
+    <div class="row controls">
+      <button type="button" id="btn-print">Print / Save as PDF</button>
+      <button type="button" id="btn-simulate" aria-pressed="false">Simulate print handoff</button>
+      <button type="button" id="btn-sync">Copy left inputs to right</button>
+      <span id="handoff-state" class="state-pill">Right card: in &lt;canvas&gt;</span>
+    </div>
+
+    <!-- #region markup -->
+    <div class="compare-grid">
+      <figure class="panel" id="raw-panel">
+        <figcaption>
+          <span>1. Canvas output</span>
+          <span class="panel-tag">Stays in &lt;canvas&gt; on print</span>
+        </figcaption>
+        <div class="card-slot" id="raw-slot">
+          <canvas id="raw-canvas" class="print-canvas" content="drawable" layoutsubtree aria-label="Invoice card kept inside a drawable canvas during print">
+            <article class="doc-card" id="raw-card" drawable>
+              <header class="doc-head">
+                <div>
+                  <div class="doc-code">Spec #HIC-2026-412A</div>
+                  <h3>Dispatch Pass</h3>
+                </div>
+                <svg class="doc-emblem" viewBox="0 0 40 40" aria-hidden="true">
+                  <circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  <circle cx="20" cy="20" r="11" fill="none" stroke="currentColor" stroke-width="0.8" stroke-dasharray="2 2"/>
+                  <path d="M20 2v36M2 20h36M8 8l24 24M32 8L8 32" stroke="currentColor" stroke-width="0.75"/>
+                  <circle cx="20" cy="20" r="3" fill="currentColor"/>
+                </svg>
+              </header>
+              <dl class="doc-meta">
+                <dt>Origin</dt>
+                <dd><a href="https://html-in-canvas.page/" target="_blank" rel="noopener">html-in-canvas.page</a></dd>
+                <dt>Strategy</dt>
+                <dd>Stays in <code>&lt;canvas layoutsubtree&gt;</code></dd>
+              </dl>
+              <p class="doc-fine">
+                Vector check: 11px body copy, kerning AV Ta fi, 0.5pt rules. Select this sentence in the PDF and click the link above.
+              </p>
+              <label class="doc-field" for="raw-recipient">
+                <span>Recipient name</span>
+                <input id="raw-recipient" type="text" value="Ada Lovelace" autocomplete="off">
+              </label>
+              <label class="doc-check" for="raw-verified">
+                <input id="raw-verified" type="checkbox" checked>
+                <span>Include vector audit stamp</span>
+              </label>
+              <footer class="doc-foot">
+                <svg class="doc-barcode" viewBox="0 0 220 34" preserveAspectRatio="none" aria-hidden="true">
+                  <g fill="#1a1917">
+                    <rect x="2" y="0" width="2" height="34"/><rect x="6" y="0" width="1" height="34"/><rect x="10" y="0" width="3" height="34"/>
+                    <rect x="16" y="0" width="1" height="34"/><rect x="19" y="0" width="2" height="34"/><rect x="25" y="0" width="1" height="34"/>
+                    <rect x="28" y="0" width="4" height="34"/><rect x="35" y="0" width="1" height="34"/><rect x="39" y="0" width="2" height="34"/>
+                    <rect x="44" y="0" width="1" height="34"/><rect x="48" y="0" width="3" height="34"/><rect x="54" y="0" width="2" height="34"/>
+                    <rect x="59" y="0" width="1" height="34"/><rect x="63" y="0" width="3" height="34"/><rect x="69" y="0" width="1" height="34"/>
+                    <rect x="73" y="0" width="2" height="34"/><rect x="78" y="0" width="4" height="34"/><rect x="85" y="0" width="1" height="34"/>
+                    <rect x="89" y="0" width="2" height="34"/><rect x="94" y="0" width="1" height="34"/><rect x="98" y="0" width="3" height="34"/>
+                    <rect x="104" y="0" width="2" height="34"/><rect x="109" y="0" width="1" height="34"/><rect x="113" y="0" width="4" height="34"/>
+                    <rect x="120" y="0" width="1" height="34"/><rect x="124" y="0" width="2" height="34"/><rect x="129" y="0" width="3" height="34"/>
+                    <rect x="135" y="0" width="1" height="34"/><rect x="139" y="0" width="2" height="34"/><rect x="144" y="0" width="1" height="34"/>
+                    <rect x="148" y="0" width="4" height="34"/><rect x="155" y="0" width="1" height="34"/><rect x="159" y="0" width="2" height="34"/>
+                    <rect x="164" y="0" width="3" height="34"/><rect x="170" y="0" width="1" height="34"/><rect x="174" y="0" width="2" height="34"/>
+                    <rect x="179" y="0" width="1" height="34"/><rect x="183" y="0" width="3" height="34"/><rect x="189" y="0" width="2" height="34"/>
+                    <rect x="194" y="0" width="1" height="34"/><rect x="198" y="0" width="4" height="34"/><rect x="205" y="0" width="1" height="34"/>
+                    <rect x="209" y="0" width="2" height="34"/><rect x="214" y="0" width="3" height="34"/>
+                  </g>
+                </svg>
+                <div class="doc-serial">
+                  <span>HIC-412-CANVAS-01</span>
+                  <span>2026-11-26</span>
+                </div>
+              </footer>
+            </article>
+          </canvas>
+          <div id="raw-fallback" class="fallback-host" hidden></div>
+        </div>
+      </figure>
+
+      <figure class="panel" id="handoff-panel">
+        <figcaption>
+          <span>2. moveBefore() DOM output</span>
+          <span class="panel-tag" id="handoff-tag">In &lt;canvas&gt; on screen</span>
+        </figcaption>
+        <div class="card-slot" id="handoff-slot">
+          <canvas id="handoff-canvas" class="print-canvas" content="drawable" layoutsubtree aria-label="Invoice card moved out to plain DOM on beforeprint">
+            <article class="doc-card" id="handoff-card" drawable>
+              <header class="doc-head">
+                <div>
+                  <div class="doc-code">Spec #HIC-2026-412B</div>
+                  <h3>Dispatch Pass</h3>
+                </div>
+                <svg class="doc-emblem" viewBox="0 0 40 40" aria-hidden="true">
+                  <circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  <circle cx="20" cy="20" r="11" fill="none" stroke="currentColor" stroke-width="0.8" stroke-dasharray="2 2"/>
+                  <path d="M20 2v36M2 20h36M8 8l24 24M32 8L8 32" stroke="currentColor" stroke-width="0.75"/>
+                  <circle cx="20" cy="20" r="3" fill="currentColor"/>
+                </svg>
+              </header>
+              <dl class="doc-meta">
+                <dt>Origin</dt>
+                <dd><a href="https://html-in-canvas.page/" target="_blank" rel="noopener">html-in-canvas.page</a></dd>
+                <dt>Strategy</dt>
+                <dd><code>beforeprint</code> + <code>moveBefore()</code></dd>
+              </dl>
+              <p class="doc-fine">
+                Vector check: 11px body copy, kerning AV Ta fi, 0.5pt rules. Select this sentence in the PDF and click the link above.
+              </p>
+              <label class="doc-field" for="handoff-recipient">
+                <span>Recipient name</span>
+                <input id="handoff-recipient" type="text" value="Ada Lovelace" autocomplete="off">
+              </label>
+              <label class="doc-check" for="handoff-verified">
+                <input id="handoff-verified" type="checkbox" checked>
+                <span>Include vector audit stamp</span>
+              </label>
+              <footer class="doc-foot">
+                <svg class="doc-barcode" viewBox="0 0 220 34" preserveAspectRatio="none" aria-hidden="true">
+                  <g fill="#1a1917">
+                    <rect x="2" y="0" width="2" height="34"/><rect x="6" y="0" width="1" height="34"/><rect x="10" y="0" width="3" height="34"/>
+                    <rect x="16" y="0" width="1" height="34"/><rect x="19" y="0" width="2" height="34"/><rect x="25" y="0" width="1" height="34"/>
+                    <rect x="28" y="0" width="4" height="34"/><rect x="35" y="0" width="1" height="34"/><rect x="39" y="0" width="2" height="34"/>
+                    <rect x="44" y="0" width="1" height="34"/><rect x="48" y="0" width="3" height="34"/><rect x="54" y="0" width="2" height="34"/>
+                    <rect x="59" y="0" width="1" height="34"/><rect x="63" y="0" width="3" height="34"/><rect x="69" y="0" width="1" height="34"/>
+                    <rect x="73" y="0" width="2" height="34"/><rect x="78" y="0" width="4" height="34"/><rect x="85" y="0" width="1" height="34"/>
+                    <rect x="89" y="0" width="2" height="34"/><rect x="94" y="0" width="1" height="34"/><rect x="98" y="0" width="3" height="34"/>
+                    <rect x="104" y="0" width="2" height="34"/><rect x="109" y="0" width="1" height="34"/><rect x="113" y="0" width="4" height="34"/>
+                    <rect x="120" y="0" width="1" height="34"/><rect x="124" y="0" width="2" height="34"/><rect x="129" y="0" width="3" height="34"/>
+                    <rect x="135" y="0" width="1" height="34"/><rect x="139" y="0" width="2" height="34"/><rect x="144" y="0" width="1" height="34"/>
+                    <rect x="148" y="0" width="4" height="34"/><rect x="155" y="0" width="1" height="34"/><rect x="159" y="0" width="2" height="34"/>
+                    <rect x="164" y="0" width="3" height="34"/><rect x="170" y="0" width="1" height="34"/><rect x="174" y="0" width="2" height="34"/>
+                    <rect x="179" y="0" width="1" height="34"/><rect x="183" y="0" width="3" height="34"/><rect x="189" y="0" width="2" height="34"/>
+                    <rect x="194" y="0" width="1" height="34"/><rect x="198" y="0" width="4" height="34"/><rect x="205" y="0" width="1" height="34"/>
+                    <rect x="209" y="0" width="2" height="34"/><rect x="214" y="0" width="3" height="34"/>
+                  </g>
+                </svg>
+                <div class="doc-serial">
+                  <span>HIC-412-DOM-HANDOFF-02</span>
+                  <span>2026-11-26</span>
+                </div>
+              </footer>
+            </article>
+          </canvas>
+          <div id="print-host" class="print-host">
+            <p class="sim-badge">Handed off to plain DOM via moveBefore()</p>
+          </div>
+        </div>
+      </figure>
+    </div>
+    <!-- #endregion markup -->
+
+    <p id="demo-status" class="note">&nbsp;</p>
+    <div id="event-log" class="log-wrap"></div>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>the two cards, the canvas paint effect, the beforeprint handoff, the print CSS</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The two cards.</b> Two copies of one dispatch card inside drawable canvases, with a sibling <code>#print-host</code> ready for the right card.</li>
+      <li data-code="/print-pdf/print.js#paint"><b>Drawing on screen.</b> Sizes the backing store with <code>device-pixel-content-box</code>, draws crop marks, tilts the card with 5-argument <code>drawElementImage()</code>, then adds paper grain and an angled stamp.</li>
+      <li data-code="/print-pdf/print.js#handoff"><b>The <code>beforeprint</code> and <code>afterprint</code> handoff.</b> Moves the right card out with <code>moveBefore()</code> (with an <code>appendChild()</code> fallback), records state survival, and moves it back with <code>requestPaint()</code>.</li>
+      <li data-code="#print-css"><b>Print styles.</b> Hides site chrome and places both cards side by side in the printed page or PDF.</li>
+    </ol>
+  </details>
+
+  <section class="screen-only">
+    <h2>How it works</h2>
+    <p>Both cards start inside a <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>. On screen, the 2D <code>paint</code> handler renders each card onto a warm drafting mat with corner crop marks, a slight tilt, paper grain and a red "CANVAS 2D" rubber stamp. That makes it obvious on screen when a card is painted by a canvas versus sitting in plain DOM.</p>
+    <p>When you open Print or Save as PDF, two things happen at once. The left card stays inside <code>#raw-canvas</code> so the PDF captures whatever Chrome's print pipeline emits for a drawable canvas. On the right card, the <code>beforeprint</code> listener (and <code>window.matchMedia('print')</code> as a backup) calls <code>printHost.moveBefore(card, null)</code> to move the live <code>&lt;article&gt;</code> out of <code>#handoff-canvas</code> into <code>#print-host</code>.</p>
+    <p>Because <code>#print-host</code> is kept rendered rather than <code>display: none</code>, moving the card with <code>moveBefore()</code> preserves the typed text in "Recipient name", the text selection range, the checkbox state, and keyboard focus. When the print dialog closes, <code>afterprint</code> un-hides <code>#handoff-canvas</code> first, calls <code>handoffCanvas.moveBefore(card, null)</code>, and calls <code>handoffCanvas.requestPaint()</code> so the styled canvas snaps back.</p>
+    <p>In a browser without <code>moveBefore()</code>, the handoff falls back to <code>appendChild()</code>. In a browser without HTML-in-canvas, the script moves both cards out of their canvases into plain HTML so neither shows up as an empty box.</p>
+
+    <h2>Live checks</h2>
+    <p class="note">These run on their own fixtures in the corner of the window. They never touch the cards above and never call <code>window.print()</code>.</p>
+    <table class="results"><tbody id="tests"></tbody></table>
+
+    <h2 id="findings">Findings</h2>
+    <ul class="findings">
+      <li><code>Element.prototype.moveBefore()</code> lets a page move a live interactive subtree out of a <code>&lt;canvas layoutsubtree&gt;</code> into a sibling print container and back again without losing typed text, selection range, or checkbox state.</li>
+      <li>The destination container must not be <code>display: none</code> when <code>moveBefore()</code> runs. Keeping <code>#print-host</code> rendered on screen and un-hiding <code>#handoff-canvas</code> before moving the card back avoids dropping focus on the return leg.</li>
+      <li>After returning the element to the canvas, calling <code>canvas.requestPaint()</code> repaints the drawable child on the next paint event.</li>
+      <li>Not verified in a headless browser: what Chrome's native print dialog and Save as PDF output emit for the left card (whether <code>drawElementImage()</code> text and <code>&lt;a href&gt;</code> links are flattened into a raster bitmap, preserved as vector text, or left blank). Press Print / Save as PDF on a desktop or Android browser to check the saved PDF directly.</li>
+    </ul>
+  </section>
+</main>
+<script type="module" src="/print-pdf/print.js"></script>
+</body>
+</html>

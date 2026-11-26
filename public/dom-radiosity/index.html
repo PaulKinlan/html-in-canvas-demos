@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>DOM radiosity</title>
+<meta name="description" content="Live HTML buttons, dark movable pillars and a glowing text input uploaded with drawElementImageToTexture(), turned into a Jump-Flood distance field and 2D Radiance Cascades global illumination on the GPU.">
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .rad-stage {
+    padding: 0;
+    overflow: hidden;
+    background: #07080d;
+  }
+  #wrap {
+    position: relative;
+    width: 100%;
+    background: #07080d;
+  }
+  #stage {
+    display: block;
+    width: 100%;
+    height: 430px;
+    background: #07080d;
+  }
+  @media (min-width: 720px) {
+    #stage { height: 500px; }
+  }
+  #plain-stage {
+    position: relative;
+    width: 100%;
+    height: 430px;
+    background: #07080d;
+  }
+  @media (min-width: 720px) {
+    #plain-stage { height: 500px; }
+  }
+
+  /* #region markup */
+  /* The live HTML scene drawn into the canvas. Colours here are fixed so the GPU
+     can separate emitters (bright) from occluders (dark opaque) by pixel value alone. */
+  #scene {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    user-select: none;
+  }
+
+  .neon-sign {
+    position: absolute;
+    left: 50%;
+    top: 17%;
+    transform: translate(-50%, -50%);
+    width: min(86%, 560px);
+    text-align: center;
+  }
+  #neon-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 4px 8px;
+    border: 0;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.09);
+    border-radius: 6px;
+    background: transparent;
+    color: hsl(var(--neon-hue, 18) 100% 62%);
+    font: 900 clamp(34px, 7.5vw, 66px) / 1.05 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    letter-spacing: 0.07em;
+    text-align: center;
+    text-transform: uppercase;
+    caret-color: hsl(var(--neon-hue, 18) 100% 72%);
+  }
+  #neon-input::placeholder {
+    color: rgba(255, 112, 40, 0.35);
+  }
+
+  .lamp {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    min-height: 40px;
+    min-width: 72px;
+    padding: 7px 14px;
+    border-radius: 99px;
+    border: 2px solid #242a3a;
+    background: #131620;
+    color: #3a4254;
+    font: 700 13px / 1.1 system-ui, sans-serif;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .lamp-amber { left: 14%; top: 76%; }
+  .lamp-cyan  { left: 86%; top: 76%; }
+  .lamp-rose  { left: 50%; top: 88%; }
+
+  .lamp-amber.lit {
+    background: #ff6b1a;
+    border-color: #ffc085;
+    color: #fff8f0;
+  }
+  .lamp-cyan.lit {
+    background: #00d8ff;
+    border-color: #a6f4ff;
+    color: #031922;
+  }
+  .lamp-rose.lit {
+    background: #ff2b9a;
+    border-color: #ffa3d4;
+    color: #fff0f8;
+  }
+
+  /* Solid dark occluder blocks: alpha 1.0, every RGB channel <= 0.33 so they
+     strictly absorb rays and cast shadows unless their inner glow switch is on. */
+  .pillar {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 74px;
+    min-height: 92px;
+    padding: 8px 6px;
+    border-radius: 10px;
+    border: 2px solid #202636;
+    background: #10131b;
+    color: #394154;
+    cursor: grab;
+    touch-action: none;
+  }
+  .pillar:active { cursor: grabbing; }
+  .pillar-a { left: 29%; top: 50%; }
+  .pillar-b { left: 71%; top: 50%; }
+  .pillar-wide {
+    left: 50%;
+    top: 60%;
+    width: min(34%, 172px);
+    min-height: 36px;
+    padding: 6px 10px;
+    border-radius: 8px;
+  }
+  .pillar-grip {
+    font: 600 11px / 1 var(--mono, monospace);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #394154;
+    pointer-events: none;
+  }
+  .pillar-switch {
+    min-height: 32px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #242b3d;
+    background: #151924;
+    color: #394154;
+    font: 700 11px / 1 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .pillar-switch.lit-emerald {
+    background: #14eb7a;
+    border-color: #9effcc;
+    color: #041b0f;
+  }
+  .pillar-switch.lit-gold {
+    background: #ffd43b;
+    border-color: #fff2b2;
+    color: #1f1604;
+  }
+  /* #endregion markup */
+
+  .controls {
+    margin-top: 12px;
+  }
+  .controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    min-height: 40px;
+  }
+  .controls select,
+  .controls button {
+    min-height: 40px;
+    font: inherit;
+  }
+  .controls input[type="range"] {
+    width: 108px;
+    accent-color: var(--accent);
+  }
+  #message {
+    min-height: 1.5em;
+    margin: 8px 0 0;
+  }
+  #stats {
+    margin: 6px 0 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    min-height: 1.4em;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>DOM radiosity</h1>
+  <p class="lede">
+    I wanted to know if a WebGPU compute pipeline could take a live HTML texture straight from <code>drawElementImageToTexture()</code>, build a Jump-Flood distance field and run 2D Radiance Cascades global illumination with zero CPU readback. Type into the glowing word, toggle the lamps or drag the dark pillars to sweep coloured shadows across the stage.
+  </p>
+  <p id="route"></p>
+
+  <div class="stage rad-stage">
+    <div id="wrap">
+      <!-- #region canvas -->
+      <canvas id="stage" content="drawable" layoutsubtree>
+        <div id="scene" drawable>
+          <div class="neon-sign">
+            <input id="neon-input" type="text" value="LIGHT" maxlength="14" aria-label="Glowing text that casts light" spellcheck="false" autocomplete="off">
+          </div>
+
+          <button type="button" class="lamp lamp-amber lit" data-lamp="amber" aria-pressed="true">Amber</button>
+          <button type="button" class="lamp lamp-cyan lit" data-lamp="cyan" aria-pressed="true">Cyan</button>
+          <button type="button" class="lamp lamp-rose lit" data-lamp="rose" aria-pressed="true">Rose</button>
+
+          <div class="pillar pillar-a" id="pillar-a" data-pillar="a" role="group" aria-label="Movable shadow pillar A">
+            <span class="pillar-grip">Drag</span>
+            <button type="button" class="pillar-switch" data-switch="a" aria-pressed="false">Glow</button>
+          </div>
+          <div class="pillar pillar-b" id="pillar-b" data-pillar="b" role="group" aria-label="Movable shadow pillar B">
+            <span class="pillar-grip">Drag</span>
+            <button type="button" class="pillar-switch" data-switch="b" aria-pressed="false">Glow</button>
+          </div>
+          <div class="pillar pillar-wide" id="pillar-c" data-pillar="c" role="group" aria-label="Movable shadow wall">
+            <span class="pillar-grip">Drag wall</span>
+          </div>
+        </div>
+      </canvas>
+      <!-- #endregion canvas -->
+    </div>
+  </div>
+
+  <div class="row controls">
+    <label>View
+      <select id="view-mode" aria-label="View mode">
+        <option value="radiosity">Radiosity</option>
+        <option value="light">Light field only</option>
+        <option value="sdf">JFA distance field</option>
+        <option value="plain">Unlit HTML</option>
+      </select>
+    </label>
+    <label>Text hue
+      <input id="hue-slider" type="range" min="0" max="360" step="1" value="18" aria-label="Glowing text hue">
+    </label>
+    <label>Exposure
+      <input id="exposure-slider" type="range" min="0.5" max="2.6" step="0.05" value="1.45" aria-label="Radiosity exposure">
+    </label>
+    <label>Bounce
+      <input id="bounce-slider" type="range" min="0" max="0.85" step="0.05" value="0.35" aria-label="Indirect bounce strength">
+    </label>
+    <button type="button" id="orbit-btn" aria-pressed="false">Orbit lamps</button>
+    <button type="button" id="reset-btn">Reset</button>
+  </div>
+
+  <p class="note" id="stats" role="status"></p>
+  <p class="note" id="message" role="status"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>upload, Jump-Flood SDF, 4-cascade Radiance Cascades and hit-testing</small></summary>
+    <ol>
+      <li data-code="#canvas"><b>One drawable HTML gallery inside the canvas.</b> Bright glyphs and lit buttons act as emitters; dark opaque pillars act as occluders.</li>
+      <li data-code="/dom-radiosity/radiosity.js#seed"><b>Seed compute pass (WGSL).</b> Reads the live HTML texture with <code>textureLoad()</code>, unpremultiplies alpha and writes emitter radiance and JFA seeds.</li>
+      <li data-code="/dom-radiosity/radiosity.js#jfa"><b>Jump-Flood Algorithm (WGSL).</b> Runs <code>log2(N)</code> passes to compute exact Euclidean distance to the nearest live glyph or occluder.</li>
+      <li data-code="/dom-radiosity/radiosity.js#cascades"><b>2D Radiance Cascades (WGSL).</b> Marches 4 angular-spatial cascades (4, 16, 64 and 256 rays) against the JFA distance field and merges upper cascades bilinearly.</li>
+      <li data-code="/dom-radiosity/radiosity.js#composite"><b>Composite and hit-testing.</b> Composites the native-resolution DOM texture over the lit floor and calls <code>updateElementGeometry()</code> so clicks and typing stay aligned.</li>
+      <li data-code="/dom-radiosity/radiosity.js#checks"><b>Live checks.</b> Probes <code>drawElementImageToTexture()</code> usage flags, <code>textureLoad()</code> premultiplied alpha, compute shadow contrast and <code>elementFromPoint()</code>.</li>
+    </ol>
+  </details>
+
+  <h2 id="how">How it works</h2>
+  <p>
+    Every interactive element in the gallery lives inside a single <code>&lt;div id="scene" drawable&gt;</code> child of the canvas. When you type a letter, toggle a lamp or drag a pillar, Chrome fires a <code>paint</code> event on the canvas and the page uploads the element's current picture to an <code>rgba8unorm</code> texture with <code>GPUQueue.drawElementImageToTexture()</code> (or <code>gl.texElementSubImage2D()</code> on the WebGL 2 route through <code>ElementGL</code>).
+  </p>
+  <p>
+    The GPU classifies every pixel directly from that live texture, with no DOM geometry readback in JavaScript. Transparent pixels (<code>alpha &lt; 0.14</code>) are air. Bright pixels (<code>max(r, g, b) &gt; 0.38</code> after unpremultiplying) are emissive light sources. Dark opaque pixels (<code>alpha &gt; 0.45</code> and <code>max(r, g, b) &lt;= 0.38</code>) are solid occluders. That means typed glyph strokes float in open air as light emitters, while the dark pillar boxes block rays and cast coloured penumbra shadows.
+  </p>
+  <p>
+    On WebGPU, four <code>@compute</code> stages run on a downscaled grid (up to 384 px on the long side, rounded to multiples of 16) before the full-resolution composite pass:
+  </p>
+  <ol>
+    <li><strong>Seed pass:</strong> reads <code>domTex</code> with <code>textureLoad()</code>, writes emitter colour and solidity to an <code>rgba16float</code> scene texture, and seeds the Jump-Flood coordinate buffer.</li>
+    <li><strong>Jump-Flood SDF:</strong> runs 9 ping-pong passes (step 256 down to 1) so every pixel stores the exact Euclidean distance to the nearest solid glyph or pillar.</li>
+    <li><strong>Radiance Cascades:</strong> runs 4 cascades from coarse to fine (256, 64, 16 and 4 angular bins at probe spacings of 16, 8, 4 and 2 grid cells), sphere-tracing each cascade's ray interval against the JFA distance field and bilinearly merging unoccluded rays from the cascade above.</li>
+    <li><strong>Resolve and composite:</strong> resolves cascade 0 into a smooth irradiance texture, feeds it back as indirect bounce on the next frame, and composites the crisp native-resolution DOM texture over the lit gallery floor.</li>
+  </ol>
+  <p>
+    After each draw, <code>updateElementGeometry()</code> keeps the hit boxes of the text input, lamp buttons and movable pillars aligned with their drawn positions, and toggling a data attribute clears Chromium's hit-test cache whenever a pillar moves. On browsers without a usable WebGPU device (including headless test browsers with software adapters), the page runs the same JFA and 4-cascade Radiance Cascades algorithm in WebGL 2 fragment shaders inside one <code>ElementGL</code> context, and falls back to 2D canvas or plain HTML if WebGL is unavailable.
+  </p>
+
+  <h2 id="tests">Live checks</h2>
+  <p class="note">These checks run on isolated fixtures when you press the button, using the shared device from <code>checkDevice()</code>. They never touch or scroll the gallery above.</p>
+  <table class="results">
+    <thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead>
+    <tbody id="results"></tbody>
+  </table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li><strong>Zero-readback DOM classification works from a single texture.</strong> Separating transparent air, dark opaque occluders and bright emitters purely by unpremultiplied RGB and alpha lets typed letters, toggled buttons and dragged boxes drive global illumination without querying <code>getBoundingClientRect()</code> per element.</li>
+    <li><strong>The upload texture needs <code>RENDER_ATTACHMENT</code> in Chromium 157.</strong> Earlier measurements on <code>/webgpu-features/</code> showed <code>drawElementImageToTexture()</code> expects <code>COPY_DST | RENDER_ATTACHMENT | TEXTURE_BINDING</code> on an <code>rgba8unorm</code> target. The first two live checks above test whether <code>TEXTURE_BINDING | COPY_DST</code> alone or an added <code>STORAGE_BINDING</code> flag are accepted on this browser.</li>
+    <li><strong>Downscaled compute plus native DOM composite keeps text crisp on phones.</strong> Running JFA and 4-cascade Radiance Cascades at a maximum of 384 cells keeps the compute workload small and produces soft penumbras, while compositing <code>domTex</code> at full device pixel resolution keeps the live input and buttons readable.</li>
+    <li><strong>Hit-testing inside a full-stage drawable container stays aligned.</strong> Putting the input, lamps and draggable pillars inside one <code>drawable</code> container means one texture upload and one <code>updateElementGeometry()</code> call per paint, with a data-attribute toggle to clear the hit-test cache when a pillar moves.</li>
+    <li><strong>Real GPU performance and on-screen WebGPU presentation are not verified here.</strong> Run the live checks on Chrome with hardware WebGPU to confirm direct <code>STORAGE_BINDING</code> behaviour, compute readback values and frame rate on a phone.</li>
+  </ul>
+</main>
+<script type="module" src="/dom-radiosity/radiosity.js"></script>
+</body>
+</html>

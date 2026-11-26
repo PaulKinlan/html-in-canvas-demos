@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Head-tracked 3D portal</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .toolbar { margin: 14px 0 10px; gap: 8px 10px; font-size: 14px; }
+  .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg > button {
+    border: 0; border-radius: 0; background: var(--card); color: var(--fg);
+    padding: 7px 11px; min-height: 40px; font: inherit; font-size: 13.5px; cursor: pointer;
+  }
+  .seg > button + button { border-left: 1px solid var(--line); }
+  .seg > button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+  .toolbar .ctl-btn { min-height: 40px; font-size: 13.5px; }
+  .toolbar .ctl-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .toolbar .ctl-label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); min-height: 40px; font-size: 13.5px; }
+
+  .portal-stage { padding: 0; overflow: hidden; position: relative; background: #0d1117; }
+  .stage-viewport { position: relative; width: 100%; aspect-ratio: 16 / 10; max-height: 540px; overflow: hidden; }
+  @media (max-width: 620px) {
+    .stage-viewport { aspect-ratio: 4 / 5; max-height: 62svh; }
+  }
+  #portal-canvas {
+    display: block; width: 100%; height: 100%;
+    touch-action: none; cursor: grab; overflow-anchor: none;
+  }
+  #portal-canvas.dragging { cursor: grabbing; }
+  #portal-canvas[hidden] { display: none; }
+
+  .stage-hud {
+    position: absolute; left: 10px; bottom: 8px;
+    padding: 4px 8px; border-radius: 6px;
+    font: 11px/1.4 var(--mono);
+    background: rgb(12 15 22 / 0.86); color: #e2e8f0;
+    border: 1px solid rgb(255 255 255 / 0.16);
+    pointer-events: none; max-width: calc(100% - 20px);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .plain-host {
+    padding: 14px; display: flex; flex-wrap: wrap; gap: 14px;
+    align-items: flex-start; justify-content: center; background: var(--bg);
+  }
+  .plain-host:empty { display: none; }
+  .plain-host > [drawable] { position: static !important; max-width: 100%; height: auto !important; }
+
+  /* Shared styling for live drawable HTML cards inside the portal canvas. */
+  #portal-canvas > [drawable] {
+    position: absolute; left: 0; top: 0;
+    box-sizing: border-box;
+    font: 13px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    overflow: hidden;
+    pointer-events: auto;
+  }
+  #portal-canvas > [drawable] * { box-sizing: border-box; }
+  #portal-canvas > [drawable] :focus-visible { outline: 3px solid #22d3ee; outline-offset: 1px; }
+
+  /* Layer 1: Foreground pop-out strip (z = +0.15) */
+  #card-fg {
+    width: 340px; height: 74px;
+    padding: 10px 12px;
+    background: #101926; color: #f1f5f9;
+    border: 2px solid #38bdf8; border-radius: 10px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .fg-meta { display: flex; flex-direction: column; gap: 2px; min-width: 78px; }
+  .layer-pill {
+    display: inline-block; width: fit-content;
+    padding: 2px 6px; border-radius: 4px;
+    font: 700 10px/1.2 var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
+    background: #0ea5e9; color: #08101a;
+  }
+  .fg-title { font: 700 12px/1.2 system-ui, sans-serif; color: #e2e8f0; }
+  .fg-actions { display: flex; gap: 6px; align-items: center; }
+  .card-btn {
+    border: 1.5px solid #475569; border-radius: 6px;
+    padding: 7px 9px; min-height: 36px;
+    background: #1e293b; color: #f8fafc;
+    font: 600 12px/1.1 system-ui, sans-serif; cursor: pointer; white-space: nowrap;
+  }
+  .card-btn:hover { border-color: #38bdf8; }
+  .card-btn-accent { background: #0284c7; border-color: #38bdf8; color: #fff; }
+  .card-btn-accent[aria-pressed="true"] { background: #f97316; border-color: #fdba74; color: #fff; }
+
+  /* Layer 2: Mid-depth interactive form card (z = -0.35) */
+  #card-mid {
+    width: 304px; height: 204px;
+    padding: 13px 14px;
+    background: #f4f6fa; color: #141923;
+    border: 3px solid #2c374b; border-radius: 10px;
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .mid-head {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 2px solid #cbd5e1; padding-bottom: 6px;
+  }
+  .mid-head .layer-pill { background: #2c374b; color: #f8fafc; }
+  .mid-head span:last-child { font: 700 11px/1 var(--mono); color: #475569; text-transform: uppercase; }
+  .mid-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .mid-field {
+    display: flex; flex-direction: column; gap: 3px;
+    font: 700 10px/1.1 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: #475569;
+  }
+  .mid-field input[type="text"],
+  .mid-field select {
+    width: 100%; padding: 6px 7px; border: 2px solid #334155; border-radius: 5px;
+    background: #fff; color: #0f172a; font: 600 12.5px/1.2 system-ui, sans-serif;
+  }
+  .mid-range {
+    display: flex; flex-direction: column; gap: 3px;
+    font: 700 10px/1.1 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: #475569;
+  }
+  .mid-range-row { display: flex; align-items: center; gap: 8px; }
+  .mid-range-row input[type="range"] { flex: 1; margin: 0; accent-color: #0284c7; }
+  .mid-range-row output { font: 700 11.5px/1 var(--mono); color: #0f172a; min-width: 34px; text-align: right; }
+  .mid-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .mid-pulse {
+    border: 2px solid #9a3412; border-radius: 6px; padding: 7px 11px;
+    background: #d2491f; color: #fff; font: 700 12px/1.1 system-ui, sans-serif; cursor: pointer;
+  }
+  .mid-pulse:hover { filter: brightness(1.06); }
+  .mid-status { font: 600 11px/1.2 var(--mono); color: #334155; }
+
+  /* Layer 3: Deep telemetry & reset card (z = -0.85) */
+  #card-deep {
+    width: 304px; height: 152px;
+    padding: 12px 14px;
+    background: #111827; color: #e5e7eb;
+    border: 2px solid #4b5563; border-radius: 10px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .deep-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #374151; padding-bottom: 5px; }
+  .deep-head .layer-pill { background: #f59e0b; color: #111827; }
+  .deep-label { font: 700 11.5px/1 var(--mono); color: #93c5fd; }
+  .deep-readout {
+    display: grid; grid-template-columns: auto 1fr; gap: 3px 10px;
+    font: 600 11px/1.35 var(--mono); color: #cbd5e1;
+  }
+  .deep-readout dt { color: #94a3b8; }
+  .deep-readout dd { margin: 0; color: #f8fafc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .deep-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 8px; font: 600 10.5px/1.2 var(--mono); color: #94a3b8; }
+  .deep-reset {
+    border: 1.5px solid #64748b; border-radius: 5px; padding: 5px 9px;
+    background: #1f2937; color: #f8fafc; font: 700 11px/1.1 var(--mono); cursor: pointer;
+  }
+  .deep-reset:hover { border-color: #f59e0b; }
+
+  /* AR Mode: Marker-pinned live HTML card */
+  #card-ar {
+    width: 248px; height: 156px;
+    padding: 11px 12px;
+    background: #fefce8; color: #1c1917;
+    border: 3px solid #15803d; border-radius: 10px;
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  .ar-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #bbf7d0; padding-bottom: 5px; }
+  .ar-head .layer-pill { background: #15803d; color: #fff; }
+  .ar-format { font: 700 10.5px/1 var(--mono); color: #166534; text-transform: uppercase; }
+  .ar-payload {
+    font: 700 11.5px/1.25 var(--mono); color: #14532d;
+    background: #dcfce7; border: 1px solid #86efac; border-radius: 5px;
+    padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ar-note-input {
+    width: 100%; padding: 5px 7px; border: 2px solid #15803d; border-radius: 5px;
+    background: #fff; color: #1c1917; font: 600 12px/1.2 system-ui, sans-serif;
+  }
+  .ar-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .ar-tap-btn {
+    border: 2px solid #14532d; border-radius: 5px; padding: 6px 10px;
+    background: #15803d; color: #fff; font: 700 12px/1.1 system-ui, sans-serif; cursor: pointer;
+  }
+  .ar-taps { font: 700 12px/1 var(--mono); color: #14532d; }
+
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Head-tracked 3D portal</h1>
+  <p class="lede">
+    I wanted to see if <code>FaceDetector</code> and <code>BarcodeDetector</code> could drive an asymmetric off-axis 3D frustum (the Johnny Chung Lee desktop-VR window) and pin live HTML onto a tilted QR code over a camera feed, while <code>updateElementGeometry()</code> keeps every button and input clickable as the perspective changes. Drag across the box below to shift the virtual eye, or tap a tracker mode to try tilt, webcam face tracking or AR barcode pinning.
+  </p>
+
+  <div class="row toolbar">
+    <span class="seg" role="group" aria-label="Tracking source">
+      <button type="button" data-source="pointer" aria-pressed="true">Pointer / drag</button>
+      <button type="button" data-source="sweep" aria-pressed="false">Auto sweep</button>
+      <button type="button" data-source="tilt" aria-pressed="false">Device tilt</button>
+      <button type="button" data-source="face" aria-pressed="false">Camera face</button>
+      <button type="button" data-source="ar" aria-pressed="false">AR barcode</button>
+    </span>
+    <button id="ar-synth-btn" class="ctl-btn" type="button" aria-pressed="false" hidden>Use synthetic QR target</button>
+    <button id="recenter-btn" class="ctl-btn" type="button">Centre eye</button>
+  </div>
+
+  <div class="stage portal-stage" id="portal-stage">
+    <div class="stage-viewport" id="stage-viewport">
+      <!-- #region portal-markup -->
+      <canvas id="portal-canvas" content="drawable" layoutsubtree aria-label="Off-axis 3D portal room with three depth-layered interactive HTML cards and an AR barcode card">
+        <section id="card-fg" drawable aria-label="Foreground pop-out controls">
+          <div class="fg-meta">
+            <span class="layer-pill">z +0.15</span>
+            <span class="fg-title">Pop-out strip</span>
+          </div>
+          <div class="fg-actions">
+            <button id="fg-ping" class="card-btn card-btn-accent" type="button">Ping (<output id="fg-pings">0</output>)</button>
+            <button id="fg-tilt" class="card-btn" type="button" aria-pressed="false">Tilt 3D</button>
+          </div>
+        </section>
+
+        <form id="card-mid" drawable autocomplete="off" aria-label="Mid-depth portal controls">
+          <div class="mid-head">
+            <span class="layer-pill">z -0.35</span>
+            <span>Mid-room form</span>
+          </div>
+          <div class="mid-grid">
+            <label class="mid-field">
+              Portal name
+              <input id="mid-label" type="text" value="Window A" maxlength="14">
+            </label>
+            <label class="mid-field">
+              Grid palette
+              <select id="mid-palette">
+                <option value="cyan">Cyan grid</option>
+                <option value="amber">Amber grid</option>
+                <option value="mono">Slate wire</option>
+              </select>
+            </label>
+          </div>
+          <label class="mid-range">
+            Parallax depth gain
+            <span class="mid-range-row">
+              <input id="mid-depth" type="range" min="0.5" max="1.8" step="0.05" value="1.0">
+              <output id="mid-depth-val" for="mid-depth">1.00x</output>
+            </span>
+          </label>
+          <div class="mid-foot">
+            <button id="mid-pulse" class="mid-pulse" type="button">Pulse depth grid</button>
+            <span class="mid-status" id="mid-status">0 pulses</span>
+          </div>
+        </form>
+
+        <section id="card-deep" drawable aria-label="Deep telemetry readout">
+          <div class="deep-head">
+            <span class="layer-pill">z -0.85</span>
+            <span class="deep-label" id="deep-title">Window A</span>
+          </div>
+          <dl class="deep-readout">
+            <dt>Eye</dt><dd id="deep-eye">(0.00, 0.00, 2.60)</dd>
+            <dt>Frustum</dt><dd id="deep-frustum">L -0.06 R 0.06 B -0.04 T 0.04</dd>
+            <dt>Source</dt><dd id="deep-source">pointer drag</dd>
+            <dt>Last hit</dt><dd id="deep-hit">none (0 total)</dd>
+          </dl>
+          <div class="deep-foot">
+            <span>Deep back plane</span>
+            <button id="deep-reset" class="deep-reset" type="button">Reset counts</button>
+          </div>
+        </section>
+
+        <section id="card-ar" drawable aria-label="AR barcode pinned HTML card">
+          <div class="ar-head">
+            <span class="layer-pill">AR pin</span>
+            <span class="ar-format" id="ar-format">synthetic qr</span>
+          </div>
+          <div class="ar-payload" id="ar-value">https://html-in-canvas.page/vision-portal/</div>
+          <input id="ar-note" class="ar-note-input" type="text" value="Pinned to 4 corners" aria-label="Note pinned to marker">
+          <div class="ar-foot">
+            <button id="ar-stamp" class="ar-tap-btn" type="button">Tap marker (+1)</button>
+            <span class="ar-taps">Taps: <output id="ar-taps">0</output></span>
+          </div>
+        </section>
+      </canvas>
+      <!-- #endregion portal-markup -->
+      <div id="stage-hud" class="stage-hud">starting...</div>
+    </div>
+    <div id="plain-host" class="plain-host"></div>
+  </div>
+
+  <p class="note" id="route-note" role="status" style="min-height:2.4em"></p>
+  <p class="note">
+    Drag empty space in the box to move the virtual eye. Click buttons, type into the mid-depth form or switch palettes directly inside the 3D scene. Camera modes only ask for permission after you tap them, and every camera track stops when you switch back or leave the page.
+  </p>
+
+  <details class="show-code">
+    <summary>Show the code <small>off-axis frustum, projective hit boxes, Shape Detection APIs and ElementGL rendering</small></summary>
+    <ol>
+      <li data-code="#portal-markup"><b>Four live <code>drawable</code> HTML cards inside one canvas.</b> Three depth layers (foreground strip at <code>z = +0.15</code>, mid-room form at <code>z = -0.35</code>, deep readout at <code>z = -0.85</code>) and one AR marker tag share a single <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>.</li>
+      <li data-code="portal.js#off-axis-frustum"><b>Asymmetric off-axis frustum from the virtual eye.</b> Projecting the screen edges at <code>z = 0</code> onto the near plane pins the window border to the canvas while shifting cards behind the glass with the eye and cards in front of the glass against it.</li>
+      <li data-code="portal.js#projective-geometry"><b>Projective <code>updateElementGeometry()</code> for 3D layers and 4-corner AR quads.</b> Each card's element-to-canvas 4×4 matrix (or 4-corner barcode homography) is scaled by <code>geometryUnit()</code> and paired with a <code>dataset.hitTick</code> toggle so Chromium clears its hit-test cache.</li>
+      <li data-code="portal.js#shape-detectors"><b>On-tap <code>FaceDetector</code> and <code>BarcodeDetector</code> polling.</b> Camera access starts only on a button tap, keeps at most one detection call in flight per frame, never reads pixels with <code>getImageData()</code>, and stops every track on mode change or <code>pagehide</code>.</li>
+      <li data-code="portal.js#gl-render"><b>One WebGL 2 context through <code>ElementGL</code>.</b> Dirty HTML children upload via <code>stage.upload(el)</code> (<code>gl.texElementSubImage2D()</code>), while companion shaders on <code>stage.gl</code> draw the anti-aliased grid room, camera video feed or synthetic QR marker.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    An off-axis projection treats the canvas itself as a physical glass pane at <code>z = 0</code>. When the virtual eye moves to <code>(ex, ey, ez)</code>, the view matrix translates the world by <code>(-ex, -ey, -ez)</code> without rotating the camera, and the frustum bounds <code>(left, right, bottom, top)</code> shift asymmetrically so the four corners of the glass stay pinned to the four corners of the canvas. Because of that shear, the back walls and the cards at <code>z = -0.35</code> and <code>z = -0.85</code> shift behind the frame, while the foreground strip at <code>z = +0.15</code> shifts the opposite way and appears to sit in front of the glass.
+  </p>
+  <p>
+    Everything draws on one WebGL 2 context created with <code>new ElementGL(canvas, ...)</code> from <code>/lib/element-gl.js</code>. Whenever a control inside any card changes, Chromium fires a <code>paint</code> event on the canvas and I upload only the dirty elements with <code>stage.upload(el)</code> (<code>gl.texElementSubImage2D()</code>). Before drawing the cards back-to-front with <code>stage.quad()</code>, a companion shader on <code>stage.gl</code> draws either the recessed perspective grid room or, in AR barcode mode, the live camera <code>&lt;video&gt;</code> texture (or a procedural tilted QR target when no camera or <code>BarcodeDetector</code> is available).
+  </p>
+  <p>
+    For hit testing, each visible card gets a 4×4 projective <code>DOMMatrix</code> mapping its CSS pixels into canvas coordinates. In portal mode that comes from <code>M_ndcToCss * VP * M_elemToWorld</code>; in AR barcode mode it comes from a closed-form projective homography fitted to the barcode's four <code>cornerPoints</code>. I scale the matrix by <code>geometryUnit()</code> from <code>/lib/surface.js</code> for HiDPI screens, pass it to <code>canvas.updateElementGeometry()</code> and toggle <code>dataset.hitTick</code> whenever the matrix moves. Cards that aren't active in the current mode get <code>inert = true</code> and move off-canvas so they don't intercept clicks or Tab focus.
+  </p>
+  <p>
+    Both Shape Detection APIs stay idle until you tap <strong>Camera face</strong> or <strong>AR barcode</strong>. Because reading pixels back with <code>getImageData()</code> in a frame loop loses 2D canvases on Android Chrome, this page never runs a pixel-readback fallback tracker. If <code>FaceDetector</code> or <code>BarcodeDetector</code> isn't exposed in your browser (many desktop builds need <code>chrome://flags/#enable-experimental-web-platform-features</code>), the status line says so directly and you can still test the off-axis portal with pointer drag, auto sweep or device tilt, and test 4-corner perspective pinning with the built-in synthetic QR target.
+  </p>
+
+  <h2>Live checks</h2>
+  <table class="results">
+    <thead><tr><th>Result</th><th>Check</th><th>Detail</th></tr></thead>
+    <tbody id="tests"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>Off-axis projection pins the glass border while shifting every depth plane.</strong> Projecting the glass edges <code>(-halfW - ex, halfW - ex) * (near / ez)</code> holds <code>z = 0</code> fixed on the canvas edge while producing opposite parallax directions for <code>z = +0.15</code> and <code>z = -0.85</code>.</li>
+    <li><strong>One <code>DOMMatrix</code> path covers both 3D frustum cards and 4-corner barcode quads.</strong> Both the off-axis <code>VP * M_elemToWorld</code> projection and the closed-form 4-corner homography output a 4×4 column-major matrix that drives both <code>ElementGL.quad()</code> and <code>updateElementGeometry()</code>.</li>
+    <li><strong>No pixel-readback loop for camera tracking.</strong> Avoiding <code>getImageData()</code> in <code>requestAnimationFrame()</code> keeps the page within the mobile GPU rules, while reporting Shape Detection availability plainly when <code>FaceDetector</code> or <code>BarcodeDetector</code> isn't enabled.</li>
+    <li><strong>Browser verification status.</strong> Syntax and graphics source checks pass locally; live execution in Chromium 157, desktop webcam <code>FaceDetector</code> and Android <code>BarcodeDetector</code> / <code>DeviceOrientationEvent</code> are not verified yet (see <code>findings/vision-portal.md</code>).</li>
+  </ul>
+</main>
+
+<script type="module" src="./portal.js"></script>
+</body>
+</html>

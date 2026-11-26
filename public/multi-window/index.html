@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Multi-window canvas world</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--card); }
+  .seg button { border: 0; border-radius: 0; min-height: 38px; padding: 6px 12px; background: transparent; color: var(--fg); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600; }
+  .controls button, .preset-row button { min-height: 38px; }
+  .preset-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; font-size: 14px; }
+  .preset-row label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  .preset-row input[type="range"] { width: 96px; accent-color: var(--accent); }
+  .preset-row output { font: 600 13px var(--mono); color: var(--fg); min-width: 38px; }
+
+  .wing-banner { display: none; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; border: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 12%, var(--card)); font-size: 14px; }
+  body.is-wing .wing-banner { display: block; }
+  body.is-wing h1 { font-size: 22px; }
+  body.is-wing .lede { margin-bottom: 12px; font-size: 15px; }
+
+  .stage { padding: 12px; overflow: hidden; }
+  .split-stage { display: flex; align-items: stretch; gap: 0; width: 100%; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .pane { flex: 1 1 0; min-width: 0; position: relative; }
+  .pane-head { display: flex; justify-content: space-between; align-items: center; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; gap: 6px; }
+  .pane-head .role-tag { padding: 2px 6px; border-radius: 99px; border: 1px solid var(--line); font-size: 10px; }
+  .pane-head .role-tag.live { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+  .pane-head .role-tag.mirror { color: var(--muted); }
+
+  .world-canvas { display: block; width: 100%; height: 320px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); touch-action: none; overflow-anchor: none; cursor: grab; }
+  .world-canvas.is-dragging { cursor: grabbing; }
+
+  .bezel-gap { flex: 0 0 18px; width: 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin-top: 22px; position: relative; color: var(--muted); font: 600 10px var(--mono); }
+  .bezel-gap::before { content: ""; position: absolute; top: 8px; bottom: 8px; width: 2px; border-left: 2px dashed var(--line); }
+  .bezel-gap span { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 3px 2px; writing-mode: vertical-rl; text-orientation: mixed; line-height: 1; }
+
+  .split-stage.is-multi #bezel-gap,
+  .split-stage.is-multi #pane-b { display: none; }
+  .split-stage.is-multi .world-canvas { height: 340px; }
+
+  /* Card drawn inside the drawable canvas: fixed colours so both halves match across windows and themes. */
+  .world-card { --card-hue: 18; box-sizing: border-box; width: 256px; margin: 0; border-radius: 12px; background: #ffffff; color: #1d1c1a; border: 2px solid hsl(var(--card-hue) 70% 42%); font: 14px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif; overflow: hidden; }
+  .world-card.is-mirror { border-style: dashed; border-color: #6b7280; }
+  .card-grip { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; background: hsl(var(--card-hue) 72% 42%); color: #ffffff; font-weight: 600; font-size: 12px; letter-spacing: 0.02em; cursor: grab; touch-action: none; }
+  .world-card.is-mirror .card-grip { background: #4b5563; }
+  .auth-badge { font: 700 10px ui-monospace, Menlo, Consolas, monospace; padding: 2px 6px; border-radius: 99px; background: rgba(0, 0, 0, 0.25); color: #ffffff; text-transform: uppercase; letter-spacing: 0.05em; }
+  .card-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .card-body .field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 600; color: #3f3d39; }
+  .card-body .field > span { display: flex; justify-content: space-between; align-items: center; }
+  .card-body .field output { font: 600 11px ui-monospace, Menlo, Consolas, monospace; color: #1d1c1a; }
+  .card-body input[type="text"] { width: 100%; font: 14px/1.3 system-ui, sans-serif; padding: 6px 8px; border-radius: 6px; border: 1px solid #c9c3b8; background: #faf8f4; color: #1d1c1a; }
+  .card-body input[type="range"] { width: 100%; margin: 2px 0; accent-color: hsl(var(--card-hue) 72% 42%); }
+  .card-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 2px; }
+  .card-actions button { font: 600 13px system-ui, sans-serif; padding: 6px 10px; border-radius: 6px; border: 1px solid hsl(var(--card-hue) 72% 42%); background: hsl(var(--card-hue) 85% 95%); color: #1d1c1a; cursor: pointer; }
+  .clip-pill { font: 600 11px ui-monospace, Menlo, Consolas, monospace; color: #5b574f; background: #f1eee8; padding: 3px 6px; border-radius: 6px; }
+
+  .hud-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font: 12px/1.4 var(--mono); }
+  .hud-cell { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; min-width: 0; }
+  .hud-cell span { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .hud-cell strong { display: block; color: var(--fg); overflow-wrap: anywhere; }
+
+  .topology-wrap { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+  .topology-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+  .topology-head strong { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  #topology-svg { display: block; width: 100%; height: 92px; }
+  #probe-output { margin: 10px 0 0; font: 13px/1.45 var(--mono); color: var(--muted); }
+  #screens-output { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+
+  .fallback-note { display: none; padding: 10px 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid var(--line); background: color-mix(in srgb, var(--warn) 14%, var(--card)); font-size: 14px; }
+  .plain-slot { display: none; justify-content: center; padding: 12px 0; }
+  .stage.is-plain .fallback-note { display: block; }
+  .stage.is-plain .plain-slot { display: flex; }
+  .stage.is-plain .split-stage { display: none; }
+
+  @media (max-width: 540px) {
+    .world-canvas { height: 280px; }
+    .split-stage.is-multi .world-canvas { height: 300px; }
+    .world-card { width: 156px; font-size: 12px; }
+    .card-grip { padding: 6px 8px; font-size: 11px; }
+    .card-body { padding: 8px; gap: 6px; }
+    .card-body input[type="text"] { font-size: 13px; padding: 5px 6px; }
+    .card-actions { flex-direction: column; align-items: stretch; gap: 5px; }
+    .card-actions button { width: 100%; font-size: 12px; padding: 5px 8px; }
+    .clip-pill { text-align: center; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+
+  <div id="wing-note" class="wing-banner">
+    <strong>Window B (wing).</strong> Move this window beside the main window on your desktop, then drag the card across the gap between them.
+  </div>
+
+  <h1>Multi-window canvas world</h1>
+  <p class="lede">
+    I wanted to see if one interactive HTML card can straddle the bezel between two Chrome windows positioned in screen coordinates, keep taking input on whichever side holds most of it, and clip cleanly at the canvas edge. Drag the card across the gap below, or open a second window on desktop to span real window frames.
+  </p>
+
+  <div class="controls" role="toolbar" aria-label="World mode and window controls">
+    <div class="seg" role="group" aria-label="Projection mode">
+      <button type="button" id="mode-split" aria-pressed="true">Split bezel (one screen)</button>
+      <button type="button" id="mode-multi" aria-pressed="false">Multi-window (screen space)</button>
+    </div>
+    <button type="button" id="open-wing">Open second window</button>
+    <button type="button" id="read-screens">Read screen topology</button>
+  </div>
+
+  <div class="preset-row">
+    <label id="bezel-wrap">Bezel gap
+      <input type="range" id="bezel-range" min="0" max="64" value="18">
+      <output id="bezel-val" for="bezel-range">18 px</output>
+    </label>
+    <button type="button" id="preset-straddle">Straddle bezel</button>
+    <button type="button" id="preset-clip-left">Clip left (-50%)</button>
+    <button type="button" id="preset-center">Centre card</button>
+    <button type="button" id="probe-edge">Sample edge pixels</button>
+    <label><input type="checkbox" id="opt-overlay" checked> Edge-clipping overlay</label>
+    <label id="movebefore-wrap"><input type="checkbox" id="opt-movebefore" checked> Reparent with <code>moveBefore()</code></label>
+  </div>
+
+  <div class="stage" id="demo-stage">
+    <div class="fallback-note" id="fallback-note" role="status"></div>
+    <div class="plain-slot" id="plain-fallback-slot"></div>
+
+    <!-- #region markup -->
+    <div class="split-stage" id="stage-wrap">
+      <div class="pane" id="pane-a">
+        <div class="pane-head">
+          <span id="pane-a-title">Window A (left)</span>
+          <span class="role-tag live" id="pane-a-role">LIVE AUTHORITY</span>
+        </div>
+        <canvas id="canvas-a" class="world-canvas" content="drawable" layoutsubtree aria-label="Window A spatial canvas">
+          <form id="card-live" class="world-card is-authority" drawable autocomplete="off">
+            <div class="card-grip">
+              <span class="grip-label">:: Drag card</span>
+              <span class="auth-badge" data-role="badge">LIVE A</span>
+            </div>
+            <div class="card-body">
+              <label class="field">
+                <span>Shared note</span>
+                <input type="text" data-role="text" value="Across the bezel" aria-label="Shared note">
+              </label>
+              <label class="field">
+                <span>Accent hue <output data-role="hue-out">18 deg</output></span>
+                <input type="range" data-role="hue" min="0" max="360" value="18" aria-label="Accent hue">
+              </label>
+              <div class="card-actions">
+                <button type="button" data-role="ping">Clicks: 0</button>
+                <span class="clip-pill" data-role="clip-pill">0% clipped</span>
+              </div>
+            </div>
+          </form>
+        </canvas>
+      </div>
+
+      <div class="bezel-gap" id="bezel-gap" aria-hidden="true">
+        <span id="bezel-label">18px</span>
+      </div>
+
+      <div class="pane" id="pane-b">
+        <div class="pane-head">
+          <span id="pane-b-title">Window B (right)</span>
+          <span class="role-tag mirror" id="pane-b-role">PEER MIRROR</span>
+        </div>
+        <canvas id="canvas-b" class="world-canvas" content="drawable" layoutsubtree aria-label="Window B spatial canvas">
+          <form id="card-mirror" class="world-card is-mirror" drawable inert aria-hidden="true" autocomplete="off">
+            <div class="card-grip">
+              <span class="grip-label">:: Drag card</span>
+              <span class="auth-badge" data-role="badge">MIRROR B</span>
+            </div>
+            <div class="card-body">
+              <label class="field">
+                <span>Shared note</span>
+                <input type="text" data-role="text" value="Across the bezel" aria-label="Shared note mirror" tabindex="-1">
+              </label>
+              <label class="field">
+                <span>Accent hue <output data-role="hue-out">18 deg</output></span>
+                <input type="range" data-role="hue" min="0" max="360" value="18" aria-label="Accent hue mirror" tabindex="-1">
+              </label>
+              <div class="card-actions">
+                <button type="button" data-role="ping" tabindex="-1">Clicks: 0</button>
+                <span class="clip-pill" data-role="clip-pill">0% clipped</span>
+              </div>
+            </div>
+          </form>
+        </canvas>
+      </div>
+    </div>
+    <!-- #endregion markup -->
+
+    <div class="hud-strip" aria-live="polite">
+      <div class="hud-cell"><span>Authority</span><strong id="hud-authority">Window A (100%)</strong></div>
+      <div class="hud-cell"><span>Card world (x, y)</span><strong id="hud-pos">0, 0</strong></div>
+      <div class="hud-cell"><span>Edge clip</span><strong id="hud-clip">inside viewport</strong></div>
+      <div class="hud-cell"><span>Handoff route</span><strong id="hud-handoff">waiting</strong></div>
+      <div class="hud-cell"><span>Connected peers</span><strong id="hud-peers">split mode (2 panes)</strong></div>
+    </div>
+
+    <div class="topology-wrap">
+      <div class="topology-head">
+        <strong>World topology</strong>
+        <span class="note" id="topology-summary">Simulated bezel: two panes in one coordinate space.</span>
+      </div>
+      <svg id="topology-svg" viewBox="0 0 600 92" role="img" aria-label="World viewport and card topology map"></svg>
+      <p id="screens-output" class="note"></p>
+      <p id="probe-output">Tap "Sample edge pixels" after moving the card across a canvas edge to inspect the clipped column.</p>
+    </div>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>screen projection, edge clipping and authority handoff</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Two drawable canvases sharing one card layout.</b> Each pane holds a <code>&lt;form drawable&gt;</code>; the peer copy stays <code>inert</code> so Tab order stays single-tracked.</li>
+      <li data-code="/multi-window/world.js#projection"><b>Screen-space projection and edge-clipped draw.</b> Each pane subtracts its world origin and calls 5-argument <code>drawElementImage(el, x, y, w, h)</code>, even when <code>x &lt; 0</code> or <code>x + w &gt; width</code>.</li>
+      <li data-code="/multi-window/world.js#handoff"><b>Live DOM authority handoff at 50% overlap.</b> Crossing the midpoint reparents the live form with <code>moveBefore()</code> in split mode, or syncs value, selection and focus over <code>BroadcastChannel</code> across windows.</li>
+      <li data-code="/multi-window/world.js#edge-probe"><b>Tap-triggered edge-clipping pixel probe.</b> Copies the drawable canvas with <code>drawImage()</code> into a plain <code>willReadFrequently</code> canvas before calling <code>getImageData()</code>.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ol>
+    <li><strong>One world coordinate space.</strong> In multi-window mode, each browser window turns its desktop position (<code>window.screenX</code>, <code>window.screenY</code>, estimated window chrome thickness and the canvas rect) into a rectangle in desktop CSS pixels. In split-bezel mode, the left pane starts at <code>x = 0</code> and the right pane starts at <code>leftWidth + bezelGap</code>.</li>
+    <li><strong>Drawing past the edge.</strong> Both panes subtract their own viewport origin from the card's world position and call <code>ctx.drawElementImage(card, localX, localY, cardW, cardH)</code>. When the card straddles the seam, the left canvas draws past its right edge and the right canvas draws from a negative <code>localX</code>.</li>
+    <li><strong>Authority handoff at 50%.</strong> Every move computes the card's overlap fraction in each viewport. Whichever side holds more than 50% of the card owns live input (not <code>inert</code>). The other side stays <code>inert</code> and mirrors the text, slider and click count so the protruding half matches pixel for pixel.</li>
+    <li><strong><code>moveBefore()</code> versus <code>BroadcastChannel</code>.</strong> In split-bezel mode (one document), crossing 50% can reparent the live <code>&lt;form&gt;</code> between the two canvases with <code>canvas.moveBefore()</code> while keeping focus and selection intact. Across two real Chrome windows, each window has its own document, so state and caret selection travel over <code>BroadcastChannel('hic-multi-window')</code> instead.</li>
+    <li><strong>Screen topology on request.</strong> Clicking "Read screen topology" calls <code>window.getScreenDetails()</code> so you can see every attached display alongside both window rectangles. Nothing prompts on load.</li>
+  </ol>
+
+  <h2>Live checks</h2>
+  <table class="results">
+    <thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead>
+    <tbody id="results"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>Negative and overflow offsets clip cleanly in 2D.</strong> Passing <code>x = -w / 2</code> or <code>x &gt; canvasWidth - w</code> to 5-argument <code>drawElementImage()</code> does not throw in the check fixture: the protruding half paints up to the canvas boundary and the off-edge portion clips without wrapping. Run the live checks above to verify on your browser.</li>
+    <li><strong><code>window.screenX</code> and <code>window.screenY</code> have no move event.</strong> In multi-window mode, a window only learns that you dragged its OS title bar by polling its coordinates in <code>requestAnimationFrame()</code> while the stage is visible. Split-bezel mode needs no idle loop and repaints only on drag, resize or input.</li>
+    <li><strong>Cross-window DOM cannot share one node.</strong> In a single document, <code>moveBefore()</code> can move the live form between two canvases, though both panes still need a second <code>inert</code> copy while the card straddles the gap. Across two Chrome windows, state and selection have to cross <code>BroadcastChannel</code>.</li>
+    <li><strong>Window chrome height is still an estimate.</strong> <code>outerHeight - innerHeight</code> approximates the tab and address bar height, and vertical alignment across two differently chromed windows (such as a full tab window beside a popup) can differ by a few pixels. Not verified on multi-monitor hardware or Chrome 159 on Android.</li>
+  </ul>
+</main>
+
+<script type="module" src="/multi-window/world.js"></script>
+</body>
+</html>

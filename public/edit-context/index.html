@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>EditContext and inline widgets</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .status-banner {
+    padding: 8px 12px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    border: 1px solid var(--line);
+  }
+  .status-banner.ok {
+    background: color-mix(in srgb, var(--ok) 12%, transparent);
+    border-color: color-mix(in srgb, var(--ok) 35%, var(--line));
+  }
+  .status-banner.warn {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    border-color: color-mix(in srgb, var(--warn) 40%, var(--line));
+  }
+  #canvas-lost-note {
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--bad) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line));
+  }
+  #editor-canvas {
+    display: block;
+    width: 100%;
+    height: 376px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #141920;
+    cursor: text;
+  }
+  #editor-canvas:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* Inline drawable widgets laid out inside the canvas subtree */
+  #w-color {
+    width: 34px;
+    height: 24px;
+    padding: 1px;
+    border: 1px solid #485466;
+    border-radius: 4px;
+    background: #1e2631;
+    cursor: pointer;
+  }
+  #w-speed {
+    width: 82px;
+    height: 24px;
+    margin: 0;
+    accent-color: #ff7a4d;
+    cursor: pointer;
+  }
+  #w-mode {
+    height: 24px;
+    padding: 0 6px;
+    font: 12px var(--mono);
+    color: #e6edf3;
+    background: #1e2631;
+    border: 1px solid #485466;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #w-insert {
+    height: 24px;
+    padding: 0 8px;
+    font: 600 11.5px system-ui, -apple-system, sans-serif;
+    color: #ffffff;
+    background: #d2491f;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #fallback-widgets {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px dashed var(--line);
+    background: var(--bg);
+  }
+  .editor-controls {
+    margin-top: 12px;
+  }
+  .editor-controls button {
+    min-height: 40px;
+  }
+  .diag-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 8px 12px;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    font: 12.5px/1.45 var(--mono);
+  }
+  .diag-label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  #bounds-readout {
+    margin: 8px 0 0;
+    font: 12px/1.45 var(--mono);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  #event-trace {
+    margin: 10px 0 0;
+    min-height: 96px;
+    max-height: 210px;
+    overflow-y: auto;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .compare-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 700px) {
+    .compare-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  #compare-canvas {
+    display: block;
+    width: 100%;
+    height: 156px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: #141920;
+  }
+  #ce-child {
+    width: 260px;
+    min-height: 124px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: #1b222c;
+    color: #e6edf3;
+    font: 13px/1.55 var(--mono);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    outline: none;
+    caret-color: #ff7a4d;
+  }
+  .compare-meta {
+    margin-top: 8px;
+    font: 12.5px/1.5 var(--mono);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .compare-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  table.compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  table.compare-table th,
+  table.compare-table td {
+    text-align: left;
+    padding: 7px 6px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  table.compare-table th {
+    font-size: 12px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>EditContext and inline widgets</h1>
+  <p class="lede">
+    In <a href="/caret/">Carets and highlights</a> I left out a canvas-drawn editor using <code>EditContext</code>. I wanted to know if attaching <code>new EditContext()</code> to a drawable <code>&lt;canvas&gt;</code> can drive typing, selection and IME composition while native <code>&lt;input drawable&gt;</code>, <code>&lt;select drawable&gt;</code> and <code>&lt;button drawable&gt;</code> controls sit inline inside the code lines. Click the code to type, drag the widgets, or press Tab to watch focus move between the canvas and its children.
+  </p>
+
+  <section class="stage" aria-label="Hybrid canvas code editor">
+    <div id="ec-status" class="status-banner" role="status">Checking EditContext and drawElementImage() support...</div>
+    <div id="canvas-lost-note" role="alert" hidden>
+      The editor canvas lost its 2D context. Reload the page if it does not come back.
+    </div>
+
+    <!-- #region markup -->
+    <canvas id="editor-canvas" content="drawable" layoutsubtree tabindex="0" role="textbox" aria-multiline="true" aria-label="Canvas code editor with inline widgets">
+      <input id="w-color" type="color" value="#ff6b35" aria-label="Tint hex colour literal" drawable>
+      <input id="w-speed" type="range" min="0.2" max="4.0" step="0.1" value="1.4" aria-label="Wave speed constant" drawable>
+      <select id="w-mode" aria-label="Wave mode literal" drawable>
+        <option value="sine">sine</option>
+        <option value="pulse">pulse</option>
+        <option value="stripes">stripes</option>
+        <option value="rings">rings</option>
+      </select>
+      <button id="w-insert" type="button" drawable>Insert</button>
+    </canvas>
+    <!-- #endregion markup -->
+
+    <div id="fallback-widgets" class="row" hidden>
+      <span class="note">Fallback controls (<code>drawElementImage()</code> unavailable):</span>
+    </div>
+
+    <div class="row editor-controls">
+      <button type="button" id="btn-focus-canvas">Focus canvas</button>
+      <button type="button" id="btn-reset-code">Reset code</button>
+      <button type="button" id="btn-clear-trace">Clear log</button>
+    </div>
+
+    <div class="diag-grid" aria-live="polite">
+      <div><span class="diag-label">Focus owner</span><span id="focus-readout">none</span></div>
+      <div><span class="diag-label">Caret / selection</span><span id="caret-readout">line 1, col 1</span></div>
+      <div><span class="diag-label">IME state</span><span id="ime-readout">idle</span></div>
+      <div><span class="diag-label">Canvas paints</span><span id="paint-readout">0</span></div>
+    </div>
+    <p id="bounds-readout">controlBounds: waiting for layout</p>
+    <pre id="event-trace" aria-label="Focus and EditContext event trace">Interact with the editor or inline widgets to see focus, keydown, widget and EditContext events.</pre>
+  </section>
+
+  <details class="show-code">
+    <summary>Show the code <small>EditContext, IME bounds, inline widgets and checks</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The canvas and its inline drawable children.</b> The <code>&lt;canvas&gt;</code> takes <code>tabindex="0"</code>, <code>content="drawable"</code> and <code>layoutsubtree</code>; each inline control carries <code>drawable</code>.</li>
+      <li data-code="/edit-context/editor.js#attach"><b>Attach <code>EditContext</code> to the canvas</b> and wire <code>textupdate</code>, <code>textformatupdate</code>, <code>compositionstart</code>, <code>compositionend</code> and <code>characterboundsupdate</code>.</li>
+      <li data-code="/edit-context/editor.js#bounds"><b>Report viewport rectangles for IME</b> with <code>updateControlBounds()</code>, <code>updateSelectionBounds()</code> and <code>updateCharacterBounds()</code>.</li>
+      <li data-code="/edit-context/editor.js#draw-widgets"><b>Draw the inline controls beside their code literals</b> with five-argument <code>drawElementImage()</code>, toggle <code>data-hit</code> when a widget moves, and set <code>inert</code> when a widget scrolls off screen.</li>
+      <li data-code="/edit-context/editor.js#sync-widgets"><b>Keep widgets and <code>EditContext</code> in sync</b> with <code>updateText()</code> and guard <code>keydown</code> so keystrokes inside a child widget never get intercepted.</li>
+      <li data-code="/edit-context/editor.js#live-checks"><b>The live check fixtures</b>, run on tap so page load never moves focus.</li>
+    </ol>
+  </details>
+
+  <h2>Comparison: EditContext on a canvas vs a drawable contenteditable child</h2>
+  <p>
+    The other way to edit text in a canvas is to draw a <code>contenteditable</code> element with <code>drawElementImage()</code>, as <a href="/caret/">Carets and highlights</a> does. Type in the box on the left and compare its paint counts with the <code>EditContext</code> editor above.
+  </p>
+  <div class="compare-grid">
+    <div class="card">
+      <canvas id="compare-canvas" content="drawable" layoutsubtree>
+        <div id="ce-child" contenteditable="true" spellcheck="false" drawable>const tint = "#ff6b35";
+Type here to compare paint counts.</div>
+      </canvas>
+      <label class="compare-toggle">
+        <input type="checkbox" id="cmp-manual-caret">
+        Set <code>caret-animation: manual</code>
+      </label>
+      <div id="compare-readout" class="compare-meta" role="status">paint events: 0 | input events: 0 | compositionstart: 0</div>
+    </div>
+
+    <div class="card">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th>Area</th>
+            <th><code>EditContext</code> on canvas</th>
+            <th>Drawable <code>contenteditable</code></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Text and caret</td>
+            <td>Drawn by your 2D or WebGL code.</td>
+            <td>Laid out and drawn by the browser.</td>
+          </tr>
+          <tr>
+            <td>Idle blink paints</td>
+            <td>None while unfocused; JS controls the blink timer when focused.</td>
+            <td>Browser fires <code>paint</code> twice a second while focused unless <code>caret-animation: manual</code> is set.</td>
+          </tr>
+          <tr>
+            <td>Inline controls</td>
+            <td>Separate <code>drawable</code> siblings placed with <code>drawElementImage()</code>.</td>
+            <td>Inline DOM nodes inside the editable subtree.</td>
+          </tr>
+          <tr>
+            <td>IME candidate box</td>
+            <td>Your code reports viewport rects via <code>updateSelectionBounds()</code> and <code>updateCharacterBounds()</code>.</td>
+            <td>Browser computes rects from the DOM selection.</td>
+          </tr>
+          <tr>
+            <td>Accessibility tree</td>
+            <td>Canvas text isn't exposed to screen readers; inline widgets keep their native roles.</td>
+            <td>Browser exposes text, caret and selection natively.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h2>How it works</h2>
+  <p>
+    Assigning <code>canvas.editContext = new EditContext({ text, selectionStart, selectionEnd })</code> turns the focusable <code>&lt;canvas tabindex="0"&gt;</code> into an editable text host without a hidden <code>&lt;textarea&gt;</code>. Printable characters, Backspace, Delete and IME composition arrive as <code>textupdate</code> events on the <code>EditContext</code>, while <code>textformatupdate</code> gives underline ranges for active compositions. Navigation keys (arrows, Home, End) and Enter are handled in the canvas's <code>keydown</code> listener.
+  </p>
+  <p>
+    Inside the same <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> sit four native HTML controls with the <code>drawable</code> attribute: a colour picker, a range slider, a <code>&lt;select&gt;</code> and a <code>&lt;button&gt;</code>. On each <code>paint</code> event, the canvas draws syntax-highlighted lines, the selection, IME underlines and the live wave strip at the bottom. Then it measures the width of each matching line and calls <code>ctx.drawElementImage(el, x, y, el.offsetWidth, el.offsetHeight)</code> to place each widget right after its literal.
+  </p>
+  <p>
+    Because Chromium hit-tests each drawable child where <code>drawElementImage()</code> placed it, clicking or tabbing into an inline widget hands focus to that HTML control instead of the canvas. The canvas's <code>pointerdown</code> and <code>keydown</code> listeners bail out whenever <code>e.target !== canvas</code>, so the widgets keep their native keyboard and pointer behaviour. When a widget changes, the script replaces the matching literal in the buffer and calls <code>editContext.updateText()</code> and <code>editContext.updateSelection()</code> so the browser's text model stays in sync.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These wait for a tap so loading the page never moves focus. Each check builds its own fixture in the corner and frees its canvas afterwards.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Not yet run in headless Chromium 157 or on Android Chrome 159. Press the button under Live checks to test this browser.</p>
+  <ul class="findings">
+    <li><strong>Two text models share one canvas:</strong> attaching <code>EditContext</code> to the <code>&lt;canvas&gt;</code> handles text and IME for the canvas surface, while each <code>drawable</code> child control keeps its own native focus, pointer hit box and keyboard input.</li>
+    <li><strong>Event guards are needed on the canvas:</strong> <code>keydown</code> and <code>pointerdown</code> bubble from drawable children to the parent <code>&lt;canvas&gt;</code>, so both handlers check <code>e.target !== canvas</code> before moving selection or calling <code>preventDefault()</code>.</li>
+    <li><strong><code>Tab</code> order stays native:</strong> leaving <code>Tab</code> unhandled lets focus step from the <code>&lt;canvas tabindex="0"&gt;</code> through each drawn inline widget in DOM order. Any widget scrolled out of view gets <code>inert = true</code> so it doesn't remain an invisible Tab stop.</li>
+    <li><strong>Moving widgets need a hit-test cache nudge:</strong> when typing pushes an inline widget right or down to a new coordinate, toggling a <code>data-hit</code> attribute on that element clears Chromium's cached hit box.</li>
+    <li><strong>Not verified yet:</strong> real OS IME candidate window alignment (Japanese/Chinese/Korean desktop IME and Android Gboard composition), native <code>&lt;input type="color"&gt;</code> and <code>&lt;select&gt;</code> popups anchored to drawn coordinates, screen-reader announcements, and live check pass/fail in headless Chromium 157 and Android Chrome 159.</li>
+  </ul>
+</main>
+
+<script type="module" src="/edit-context/editor.js"></script>
+</body>
+</html>

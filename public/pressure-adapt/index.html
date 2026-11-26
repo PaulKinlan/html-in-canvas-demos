@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Compute pressure fallback</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 900px; }
+
+  .tier-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .seg-group {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .tier-btn, #burn-btn {
+    min-height: 40px;
+    padding: 6px 12px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .tier-btn[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  #burn-btn {
+    margin-left: auto;
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  #burn-btn[disabled] {
+    opacity: 0.65;
+    cursor: progress;
+  }
+
+  .telemetry {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .metric {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    min-width: 0;
+  }
+  .metric-label {
+    display: block;
+    font: 600 11px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .metric-value {
+    display: block;
+    font: 600 14px/1.3 var(--mono);
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  .metric-value[data-tier="nominal"] { color: var(--ok); }
+  .metric-value[data-tier="fair"] { color: var(--fg); }
+  .metric-value[data-tier="serious"] { color: var(--warn); }
+  .metric-value[data-tier="critical"] { color: var(--bad); }
+
+  /* #region markup-styles */
+  #card-host {
+    position: relative;
+    isolation: isolate;
+    width: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  #card-host > canvas {
+    display: block;
+    width: 100%;
+    border-radius: 14px;
+  }
+  #control-card {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 20px;
+    border-radius: 14px;
+    color: #f4f6fb;
+    background:
+      radial-gradient(120% 100% at 88% 8%, rgba(76, 175, 255, 0.32), transparent 55%),
+      radial-gradient(90% 90% at 10% 95%, rgba(255, 118, 72, 0.24), transparent 52%),
+      linear-gradient(145deg, #161c2c 0%, #1d263b 52%, #131826 100%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    display: grid;
+    gap: 14px;
+  }
+  #control-card[data-tier="serious"] {
+    border-color: rgba(240, 192, 96, 0.55);
+  }
+  #control-card[data-tier="critical"] {
+    border-color: rgba(255, 138, 128, 0.7);
+  }
+  /* #endregion markup-styles */
+
+  .card-top {
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .card-title-wrap {
+    min-width: 0;
+    flex: 1 1 200px;
+  }
+  .card-kicker {
+    display: inline-block;
+    font: 600 11px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 8px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #c7dcff;
+    margin-bottom: 6px;
+  }
+  .card-kicker[data-tier="nominal"] { background: rgba(95, 207, 127, 0.22); color: #9cf2b4; }
+  .card-kicker[data-tier="fair"] { background: rgba(110, 184, 255, 0.22); color: #b9deff; }
+  .card-kicker[data-tier="serious"] { background: rgba(240, 192, 96, 0.24); color: #ffe09b; }
+  .card-kicker[data-tier="critical"] { background: rgba(255, 138, 128, 0.24); color: #ffb4ad; }
+
+  #control-card h3 {
+    margin: 0;
+    font-size: 20px;
+    line-height: 1.2;
+    color: #ffffff;
+  }
+  .card-sub {
+    margin: 4px 0 0;
+    font-size: 13.5px;
+    color: rgba(235, 241, 255, 0.78);
+  }
+
+  .gauge-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: rgba(8, 12, 22, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    flex: none;
+  }
+  .gauge-svg {
+    width: 54px;
+    height: 54px;
+    display: block;
+    flex: none;
+  }
+  .gauge-track {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.16);
+    stroke-width: 6;
+  }
+  .gauge-arc {
+    fill: none;
+    stroke: #6ee7b7;
+    stroke-width: 6;
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: 27px 27px;
+  }
+  .gauge-text {
+    font: 600 12px/1.35 var(--mono);
+    color: #e6eefc;
+  }
+  .gauge-text small {
+    display: block;
+    font-size: 11px;
+    color: rgba(215, 226, 250, 0.72);
+  }
+
+  .card-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .field-box {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+  }
+  .field-box label {
+    font: 600 12px var(--mono);
+    color: rgba(235, 241, 255, 0.85);
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  #card-input {
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: rgba(9, 13, 24, 0.65);
+    color: #ffffff;
+    font: 15px system-ui, -apple-system, sans-serif;
+  }
+  #card-input:focus {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+  #card-slider {
+    width: 100%;
+    min-height: 40px;
+    accent-color: #ff7a4d;
+    margin: 0;
+  }
+
+  .card-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .card-toggle {
+    min-height: 40px;
+    padding: 6px 14px;
+    border-radius: 99px;
+    border: 1px solid rgba(255, 255, 255, 0.26);
+    background: rgba(255, 255, 255, 0.08);
+    color: #f4f6fb;
+    font: 600 13.5px system-ui, -apple-system, sans-serif;
+  }
+  .card-toggle:hover {
+    border-color: #ffffff;
+  }
+  .card-toggle[aria-pressed="true"] {
+    background: #ff7a4d;
+    border-color: #ff7a4d;
+    color: #161514;
+  }
+
+  .card-meta {
+    margin: 0;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    font: 12.5px/1.4 var(--mono);
+    color: rgba(226, 234, 252, 0.8);
+  }
+
+  #stage-notice {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+    border: 1px solid var(--line);
+    font-size: 13.5px;
+  }
+
+  .sensor-panel {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  #sensor-status {
+    margin: 0 0 8px;
+    font: 13px/1.45 var(--mono);
+    color: var(--muted);
+  }
+  .timeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    min-height: 30px;
+  }
+  .tl-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 99px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    font: 12px var(--mono);
+    color: var(--fg);
+  }
+  .tl-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .tl-dot[data-tier="nominal"] { background: var(--ok); }
+  .tl-dot[data-tier="fair"] { background: #3b82f6; }
+  .tl-dot[data-tier="serious"] { background: var(--warn); }
+  .tl-dot[data-tier="critical"] { background: var(--bad); }
+
+  .tier-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin: 12px 0;
+  }
+  .tier-table th, .tier-table td {
+    text-align: left;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  @media (max-width: 620px) {
+    #burn-btn { margin-left: 0; width: 100%; }
+    .tier-table, .tier-table tbody, .tier-table tr, .tier-table td { display: block; width: auto; }
+    .tier-table thead { display: none; }
+    .tier-table tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .tier-table td { border: 0; padding: 2px 0; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+
+  <h1>Compute pressure fallback</h1>
+  <p class="lede">
+    I wanted to know if <code>PressureObserver</code> can step a live drawable canvas down from a WebGL shader to a 30 fps 2D canvas, then an on-demand 2D canvas, and finally plain HTML via <code>moveBefore()</code> without dropping what you typed. Type in the card below, then switch pressure tiers or burn CPU briefly to watch the backend change underneath it.
+  </p>
+
+  <section class="stage" aria-label="Adaptive compute pressure demo">
+    <div class="tier-controls">
+      <div class="seg-group" role="group" aria-label="Simulate pressure tier">
+        <button type="button" class="tier-btn" data-mode="live" aria-pressed="true">Live sensor</button>
+        <button type="button" class="tier-btn" data-mode="nominal" aria-pressed="false">nominal</button>
+        <button type="button" class="tier-btn" data-mode="fair" aria-pressed="false">fair</button>
+        <button type="button" class="tier-btn" data-mode="serious" aria-pressed="false">serious</button>
+        <button type="button" class="tier-btn" data-mode="critical" aria-pressed="false">critical</button>
+      </div>
+      <button type="button" id="burn-btn">Burn CPU briefly (1.5 s)</button>
+    </div>
+
+    <div class="telemetry" aria-live="polite">
+      <div class="metric">
+        <span class="metric-label">Pressure tier</span>
+        <span class="metric-value" id="stat-tier" data-tier="fair">fair (startup)</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Active backend</span>
+        <span class="metric-value" id="stat-backend">2D (30 fps)</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Live FPS</span>
+        <span class="metric-value" id="stat-fps">0 fps</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Canvas memory</span>
+        <span class="metric-value" id="stat-memory">0.0 MB</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Transition time</span>
+        <span class="metric-value" id="stat-transition">0.0 ms</span>
+      </div>
+    </div>
+
+    <!-- #region markup -->
+    <div id="card-host">
+      <article id="control-card" data-tier="fair">
+        <div class="card-top">
+          <div class="card-title-wrap">
+            <span class="card-kicker" id="card-tier-pill" data-tier="fair">fair · 2D 30 fps</span>
+            <h3>Adaptive surface control card</h3>
+            <p class="card-sub">Edit the text, drag the slider or toggle effects while changing tiers above.</p>
+          </div>
+          <div class="gauge-wrap" aria-label="Render load gauge">
+            <svg class="gauge-svg" viewBox="0 0 54 54" aria-hidden="true">
+              <circle class="gauge-track" cx="27" cy="27" r="22"></circle>
+              <circle class="gauge-arc" id="gauge-arc" cx="27" cy="27" r="22" stroke-dasharray="138.23" stroke-dashoffset="69"></circle>
+            </svg>
+            <div class="gauge-text">
+              <span id="gauge-label">50% load</span>
+              <small id="gauge-sub">30 fps 2D</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-fields">
+          <div class="field-box">
+            <label for="card-input">Live note (kept across tiers)</label>
+            <input id="card-input" type="text" value="Keep typing while tiers change" autocomplete="off">
+          </div>
+          <div class="field-box">
+            <label for="card-slider">
+              <span>Effect intensity</span>
+              <output id="card-slider-out" for="card-slider">65%</output>
+            </label>
+            <input id="card-slider" type="range" min="0" max="100" value="65">
+          </div>
+        </div>
+
+        <div class="card-toggles" role="group" aria-label="Card effect toggles">
+          <button type="button" class="card-toggle" id="tog-ripple" aria-pressed="true">Ripple wave</button>
+          <button type="button" class="card-toggle" id="tog-chroma" aria-pressed="true">Chromatic glass</button>
+          <button type="button" class="card-toggle" id="tog-highlight" aria-pressed="true">Specular sweep</button>
+        </div>
+
+        <p class="card-meta" id="card-meta">30 chars · 3 toggles on · waiting for input</p>
+      </article>
+    </div>
+    <!-- #endregion markup -->
+
+    <p id="stage-notice" hidden></p>
+
+    <div class="sensor-panel">
+      <p id="sensor-status">Checking PressureObserver…</p>
+      <div class="timeline" id="pressure-timeline" aria-label="Pressure history timeline"></div>
+    </div>
+  </section>
+
+  <details class="show-code">
+    <summary>Show the code <small>the card markup, the WebGL shader, the 4-tier handoff, the PressureObserver wiring</small></summary>
+    <ol>
+      <li data-code="#markup"><b>The interactive card.</b> Plain HTML inside <code>#card-host</code>, moved into a WebGL or 2D canvas and back out again with <code>moveBefore()</code>.</li>
+      <li data-code="/pressure-adapt/pressure.js#shader"><b>The nominal WebGL shader.</b> Chromatic RGB glass dispersion, animated ripple distortion and specular sheen over the live element texture.</li>
+      <li data-code="/pressure-adapt/pressure.js#tiers"><b>The four-tier handoff.</b> Stepping between <code>ElementGL</code>, 30 fps 2D, on-demand 2D and plain DOM while retiring replaced canvases via <code>window.__gfx?.retire()</code>.</li>
+      <li data-code="/pressure-adapt/pressure.js#observer"><b>PressureObserver and manual override.</b> Subscribing to <code>cpu</code> pressure samples at 1,000 ms intervals and feeding the tier switcher.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    The card starts as ordinary HTML in <code>#card-host</code>, then upgrades to the <code>fair</code> 2D route on load so the page doesn't open a WebGL context before it's needed. When <code>PressureObserver</code> reports a CPU state (or when you pick a tier in the selector), the stage hands the same <code>&lt;article&gt;</code> element between backends using <code>moveBefore()</code>.
+  </p>
+  <table class="tier-table">
+    <thead>
+      <tr><th>Tier</th><th>Backend</th><th>Frame budget</th><th>What changes</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>nominal</code></td>
+        <td>WebGL 2 via <code>ElementGL</code></td>
+        <td>60 fps while on screen</td>
+        <td>Uploads the card with <code>texElementSubImage2D()</code> only when it changes, draws chromatic glass refraction and ripple distortion, and keeps hit boxes aligned with <code>updateElementGeometry()</code>.</td>
+      </tr>
+      <tr>
+        <td><code>fair</code></td>
+        <td>2D canvas via <code>drawElementImage()</code></td>
+        <td>30 fps throttled</td>
+        <td>Disposes the WebGL stage, moves the card into a 2D canvas and retires the WebGL canvas with <code>window.__gfx?.retire()</code>. Draws a light tilt and drifting highlight with a 5-argument <code>drawElementImage()</code> call.</td>
+      </tr>
+      <tr>
+        <td><code>serious</code></td>
+        <td>2D canvas on-demand</td>
+        <td>0 idle frames</td>
+        <td>Stops the <code>requestAnimationFrame</code> loop completely. The canvas paints only when Chromium fires a <code>paint</code> event (for example when you type, drag the slider or press a toggle).</td>
+      </tr>
+      <tr>
+        <td><code>critical</code></td>
+        <td>Plain HTML</td>
+        <td>0 frames, 0 canvases</td>
+        <td>Calls <code>moveBefore()</code> to lift the live card straight back into <code>#card-host</code>, removes <code>drawable</code> and retires the canvas so canvas memory drops to 0.0 MB while your text and controls stay intact.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Pressing "Burn CPU briefly (1.5 s)" spawns up to four short-lived Web Workers (falling back to chunked main-thread work if workers are blocked) for 1.5 seconds so you can push real CPU load without locking the page. Any continuous animation pauses automatically when the stage leaves the viewport or the tab is hidden, and stops animating when <code>prefers-reduced-motion: reduce</code> is set.
+  </p>
+
+  <h2>Live checks</h2>
+  <p>
+    These four checks run on isolated fixtures in the corner of the window, never on the card above. Because two of them create a WebGL context and wait for canvas retirement, they wait for a tap.
+  </p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2 id="findings">Findings</h2>
+  <ul class="findings">
+    <li>Starting the page on the 2D <code>fair</code> tier avoids opening a WebGL context at load, while letting a live <code>nominal</code> sensor reading or a tap upgrade the same card to <code>ElementGL</code>.</li>
+    <li>Using <code>moveBefore()</code> to move the card between a WebGL canvas, a 2D canvas and the plain <code>#card-host</code> container keeps strict DOM node identity (<code>===</code>), typed text, slider position and toggle state across all four tiers.</li>
+    <li>Calling <code>window.__gfx?.retire(oldCanvas)</code> after removing a canvas hands its WebGL context or 2D buffer back to the site guard instead of waiting for garbage collection, so stepping to <code>critical</code> drops the card's canvas memory to 0.0 MB.</li>
+    <li>On the <code>serious</code> tier, stopping <code>requestAnimationFrame</code> and avoiding timer-driven DOM edits inside the card keeps idle paints at zero; Chromium fires <code>paint</code> only when you interact with a control.</li>
+    <li>In Chromium, <code>PressureObserver.observe('cpu')</code> may report <code>nominal</code> straight away on desktop hardware, or reject in restricted frames and headless containers. Having manual tier overrides and a short CPU burst button lets you verify every tier on any device.</li>
+    <li>Real thermal throttling and phone GPU memory recovery on Android Chrome are not verified in a headless browser. Open this page on a phone and run the live checks to measure them on real hardware.</li>
+  </ul>
+</main>
+
+<script type="module" src="/pressure-adapt/pressure.js"></script>
+</body>
+</html>
