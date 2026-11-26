@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Backend scaling</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1060px; }
+  .stage-box {
+    position: relative;
+    width: 100%;
+    height: 300px;
+    overflow: hidden;
+    contain: layout paint;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--card);
+  }
+  .stage-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .stage-canvas.bridge-gl {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .stage-canvas.bridge-2d {
+    position: relative;
+    z-index: 1;
+  }
+  .stage-alert {
+    position: absolute;
+    inset: 12px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--bad);
+    background: color-mix(in srgb, var(--card) 92%, var(--bad));
+    color: var(--fg);
+    font-size: 14px;
+  }
+  .stage-alert[hidden] { display: none; }
+
+  /* Demo tile markup drawn into the canvas. Fixed colours keep tile contrast
+     consistent across backends and themes. */
+  .bench-tile {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid #d5cab8;
+    background: #fff9ef;
+    color: #1d1c1a;
+    font: 12px/1.25 system-ui, -apple-system, sans-serif;
+  }
+  .bt-head {
+    padding: 3px 6px;
+    color: #ffffff;
+    font: 700 11px/1.2 var(--mono);
+    letter-spacing: 0.03em;
+  }
+  .bt-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 4px 6px;
+  }
+  .bt-val {
+    font: 700 16px/1 var(--mono);
+    color: #1d1c1a;
+  }
+  .bt-track {
+    width: 100%;
+    height: 6px;
+    border-radius: 99px;
+    background: #e8dfd0;
+    overflow: hidden;
+  }
+  .bt-fill {
+    height: 100%;
+    border-radius: 99px;
+  }
+  .bt-sub {
+    font-size: 11px;
+    color: #5b574f;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .controls {
+    margin: 14px 0 8px;
+    gap: 10px;
+  }
+  .controls label {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .controls select,
+  .chart-controls select {
+    font: 14px/1.2 system-ui, -apple-system, sans-serif;
+    min-height: 40px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--fg);
+  }
+  .actions {
+    margin: 10px 0 8px;
+    gap: 8px;
+  }
+  .actions button {
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+  .actions button.primary {
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  #status {
+    font: 13px/1.45 var(--mono);
+    color: var(--fg);
+    margin: 8px 0 4px;
+    min-height: 1.5em;
+  }
+  #deviceInfo {
+    font: 12.5px/1.45 var(--mono);
+    color: var(--muted);
+    margin: 0 0 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .chart-card {
+    margin: 24px 0 16px;
+  }
+  .chart-controls {
+    margin-bottom: 10px;
+    gap: 10px;
+  }
+  .chart-controls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  #chartSvg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+  }
+
+  .matrix-wrap {
+    overflow-x: auto;
+    max-width: 100%;
+    margin: 12px 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+  }
+  .matrix-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .matrix-table th,
+  .matrix-table td {
+    padding: 8px 8px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .matrix-table th.num,
+  .matrix-table td.num {
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+  .matrix-table tr:last-child td { border-bottom: 0; }
+  .matrix-table td.good { color: var(--ok); font-weight: 600; }
+  .matrix-table td.mid { color: var(--warn); font-weight: 600; }
+  .matrix-table td.bad { color: var(--bad); font-weight: 600; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Backend scaling: 2D, WebGL2, WebGPU and a shared-GL copy bridge</h1>
+  <p class="lede">
+    I wanted to know where the crossover points sit when you scale up live HTML elements in a canvas across all four drawing routes:
+    2D <code>drawElementImage()</code>, WebGL2 <code>texElementSubImage2D()</code>, WebGPU <code>drawElementImageToTexture()</code>,
+    and a 2D-to-shared-WebGL copy bridge. Pick a configuration or run a sweep below to measure frame times, upload cost, GPU timers
+    and Long Animation Frames on your device.
+  </p>
+
+  <div class="stage-box">
+    <div id="stage" style="width:100%;height:100%" aria-hidden="true"></div>
+    <div id="stageAlert" class="stage-alert" role="alert" hidden></div>
+  </div>
+
+  <div class="row controls">
+    <label>
+      Backend
+      <select id="selBackend">
+        <option value="2d" selected>2D drawElementImage()</option>
+        <option value="webgl">WebGL2 texElementSubImage2D()</option>
+        <option value="webgpu">WebGPU drawElementImageToTexture()</option>
+        <option value="bridge">Shared-GL copy bridge (2D -> GL -> 2D)</option>
+      </select>
+    </label>
+    <label>
+      Elements
+      <select id="selCount">
+        <option value="1">1</option>
+        <option value="8" selected>8</option>
+        <option value="32">32</option>
+        <option value="64">64</option>
+        <option value="128">128</option>
+      </select>
+    </label>
+    <label>
+      Tile size (CSS px)
+      <select id="selSize">
+        <option value="64" selected>64 × 64</option>
+        <option value="128">128 × 128</option>
+        <option value="256">256 × 256</option>
+      </select>
+    </label>
+    <label>
+      DOM mutation per frame
+      <select id="selMut">
+        <option value="0">0% (static texture reuse)</option>
+        <option value="10" selected>10% dirty re-upload</option>
+        <option value="100">100% dirty re-upload</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="row actions">
+    <button id="btnPreview" type="button">Start live preview</button>
+    <button id="btnRunOne" type="button">Run single config</button>
+    <button id="btnSweep" type="button" class="primary">Run backend sweep (20 cells, ~20 s)</button>
+    <button id="btnMatrix" type="button">Run full matrix (180 cells, ~2.5 min)</button>
+    <button id="btnStop" type="button" disabled>Stop</button>
+    <button id="btnSend" type="button">Send results to reports</button>
+    <button id="btnCopyJson" type="button">Copy JSON</button>
+    <button id="btnCopyMd" type="button">Copy Markdown</button>
+  </div>
+
+  <p id="status" role="status">Initialising benchmark...</p>
+  <p id="deviceInfo"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>the four backend loops and timing hooks</small></summary>
+    <ol>
+      <li data-code="/perf-backends/bench.js#backend-2d"><b>2D route:</b> draws every tile with 5-argument <code>drawElementImage(el, 0, 0, w, h)</code> under a per-tile affine transform inside <code>paint</code>.</li>
+      <li data-code="/perf-backends/bench.js#backend-webgl"><b>WebGL2 route:</b> uploads dirty tiles through <code>ElementGL.upload()</code> (<code>texElementSubImage2D()</code>), shades all quads with one context and calls <code>updateElementGeometry()</code>.</li>
+      <li data-code="/perf-backends/bench.js#backend-webgpu"><b>WebGPU route:</b> uses the shared device from <code>/shared/backend.js</code>, uploads dirty tiles with <code>GPUElementTexture.update()</code> (<code>drawElementImageToTexture()</code>) and draws every quad in one render pass.</li>
+      <li data-code="/perf-backends/bench.js#backend-bridge"><b>Shared-GL copy bridge:</b> draws dirty tiles on a drawable 2D canvas, copies each tile into a shared <code>ElementGL</code> texture via <code>texSubImage2D()</code>, shades all quads and composites back with <code>drawImage()</code>.</li>
+      <li data-code="/perf-backends/bench.js#timers"><b>Timers:</b> Long Animation Frames breakdown plus optional <code>EXT_disjoint_timer_query_webgl2</code> polling.</li>
+    </ol>
+  </details>
+
+  <section class="card chart-card">
+    <div class="row chart-controls">
+      <label>
+        Metric
+        <select id="chartMetric">
+          <option value="p50" selected>Frame time p50 (ms)</option>
+          <option value="fps">Frames per second (FPS)</option>
+          <option value="uploadMs">JS upload time (ms)</option>
+        </select>
+      </label>
+      <label>
+        Tile size
+        <select id="chartSize">
+          <option value="64" selected>64 px</option>
+          <option value="128">128 px</option>
+          <option value="256">256 px</option>
+        </select>
+      </label>
+      <label>
+        Mutation
+        <select id="chartMut">
+          <option value="0">0%</option>
+          <option value="10" selected>10%</option>
+          <option value="100">100%</option>
+        </select>
+      </label>
+    </div>
+    <svg id="chartSvg" viewBox="0 0 680 260" role="img" aria-label="Backend scaling chart comparing 2D, WebGL2, WebGPU and Shared-GL bridge across element counts"></svg>
+    <p id="chartNote" class="note"></p>
+  </section>
+
+  <div class="matrix-wrap">
+    <table class="matrix-table" id="resultsTable">
+      <thead>
+        <tr>
+          <th>Backend</th>
+          <th class="num">Count</th>
+          <th class="num">Tile</th>
+          <th class="num">Dirty</th>
+          <th class="num">FPS</th>
+          <th class="num">p50 / p95 / p99 (ms)</th>
+          <th class="num">Upload (ms)</th>
+          <th class="num">Draw (ms)</th>
+          <th class="num">GPU timer</th>
+          <th class="num">LoAFs (script/style/post)</th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody">
+        <tr><td colspan="10" class="note">No measurements yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">
+    After a backend sweep or full matrix completes, the page queues a compact summary to <code>/api/reports</code> (nothing is sent from localhost) so results from phones and desktop GPUs can be compared later.
+    LoAF columns show frames over 50 ms split into script, style/layout/paint and post-main-thread presentation delay.
+  </p>
+
+  <h2>How it works</h2>
+  <p>
+    Every route draws the same grid of live HTML cards at native <code>devicePixelRatio</code>, applying a per-tile wave, rotation and shear transform so the GPU routes and the 2D route do matching geometric work.
+    Tiles that mutated on a frame also flash a warm orange tint, so you can tell at a glance whether 0%, 10% or 100% of elements are re-uploading.
+  </p>
+  <ul>
+    <li><b>2D (<code>drawElementImage</code>):</b> there is no retained GPU texture per element, so every frame calls <code>requestPaint()</code> and draws all N children with 5-argument <code>drawElementImage(el, 0, 0, w, h)</code>.</li>
+    <li><b>WebGL2 (<code>texElementSubImage2D</code>):</b> one <code>ElementGL</code> context holds one texture per tile. At 0% mutation it skips <code>requestPaint()</code> and texture uploads after frame 0, redrawing the cached textures straight from <code>requestAnimationFrame</code>. At 10% and 100% it only re-uploads the mutated tiles and updates hit-test boxes with <code>updateElementGeometry()</code>.</li>
+    <li><b>WebGPU (<code>drawElementImageToTexture</code>):</b> uses the single shared device from <code>/shared/backend.js</code>. Each tile owns a <code>GPUTexture</code> and cached bind group, and all 128 transform matrices pack into one 32 KB dynamic uniform buffer so the draw loop allocates no GPU objects per frame. On a software WebGPU adapter, on-screen WebGPU is skipped to avoid taking down the tab, and the live check verifies WGSL and upload off-screen instead.</li>
+    <li><b>Shared-GL copy bridge:</b> mirrors how <code>/lib/shader-fx.js</code> handles more elements than a tab's WebGL context limit. Dirty tiles draw onto a drawable 2D canvas, copy into one shared <code>ElementGL</code> texture via <code>gl.texSubImage2D()</code>, shade all N quads and composite the result back onto the 2D canvas with <code>drawImage()</code>.</li>
+  </ul>
+  <p>
+    JS upload and total draw times come from <code>performance.now()</code> around the upload calls and frame callback.
+    Where available, WebGL2 queries GPU elapsed time with <code>EXT_disjoint_timer_query_webgl2</code>, and WebGPU uses <code>timestamp-query</code> when the shared device enables it, falling back to <code>queue.onSubmittedWorkDone()</code> latency otherwise.
+    Main-thread stalls over 50 ms are broken down with a <code>long-animation-frame</code> observer.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">
+    These checks create WebGL2 and WebGPU fixtures and read pixels back to verify rendering, so they wait for a tap instead of running on load.
+  </p>
+  <table class="results">
+    <thead>
+      <tr><th>Status</th><th>Check</th><th>Detail</th></tr>
+    </thead>
+    <tbody id="checksBody"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><b>Hardware GPU and Android phone curves:</b> not verified yet. Run the 20-cell backend sweep or 180-cell full matrix on a desktop GPU and on Chrome for Android to record the real crossover points between 2D, WebGL2, WebGPU and the shared-GL copy bridge.</li>
+    <li><b>GPU timer availability:</b> not verified across hardware yet. Chrome on desktop and Android may withhold <code>EXT_disjoint_timer_query_webgl2</code> or <code>timestamp-query</code> depending on flags and privacy settings; the shared WebGPU device from <code>/shared/backend.js</code> opens with default features, so WebGPU falls back to <code>queue.onSubmittedWorkDone()</code> unless the device exposes timestamps.</li>
+    <li><b>Context budget across sweeps:</b> grouping the matrix by backend and retiring each WebGL canvas via <code>window.__gfx.retire()</code> keeps peak active WebGL contexts at 1 across all 180 cells, staying inside Chrome's Android limit.</li>
+  </ul>
+</main>
+<script type="module" src="/perf-backends/bench.js"></script>
+</body>
+</html>

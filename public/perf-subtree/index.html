@@ -1,0 +1,833 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Subtree complexity</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 1040px; }
+  .controls-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .control-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px 12px;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .field label {
+    font: 600 11px var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .field select {
+    font: inherit;
+    font-size: 14px;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    min-height: 40px;
+    width: 100%;
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .actions button {
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+  .actions button.primary {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, var(--card));
+    font-weight: 600;
+  }
+  .actions button[aria-pressed="true"] {
+    border-color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 14%, var(--card));
+  }
+  #status {
+    font: 13px/1.45 var(--mono);
+    color: var(--muted);
+    margin: 0;
+    min-height: 1.5em;
+  }
+  #stage-notice {
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--bad);
+    background: color-mix(in srgb, var(--bad) 12%, transparent);
+    font-size: 14px;
+  }
+  #stage-wrap {
+    padding: 0;
+    overflow: hidden;
+  }
+  #stage {
+    position: relative;
+    width: 100%;
+    height: 356px;
+    overflow: hidden;
+    background: var(--bg);
+    contain: strict;
+  }
+  .st-canvas, .st-dom-wrap {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .st-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-rows: repeat(4, 78px);
+    gap: 8px;
+    padding: 8px;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    position: relative;
+  }
+  .st-grid.st-flow {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 6px;
+    padding: 6px;
+  }
+  .st-grid.st-flow .st-card {
+    flex: 0 1 auto;
+    min-width: 68px;
+    height: 46px;
+  }
+  .st-card {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    height: 100%;
+    background: #fffaf2;
+    color: #1d1c1a;
+    border: 1px solid #d5cab8;
+    border-radius: 8px;
+    padding: 6px 8px;
+    font: 12px/1.3 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    overflow: hidden;
+  }
+  .st-grid[data-contain="layout-paint"] .st-card { contain: layout paint; }
+  .st-grid[data-contain="strict"] .st-card { contain: strict; }
+  .st-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 4px;
+  }
+  .st-title {
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    color: #5b5349;
+  }
+  .st-chip {
+    display: inline-block;
+    font: 600 10px/1.2 var(--mono);
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #ece2d2;
+    color: #1d1c1a;
+    white-space: nowrap;
+  }
+  .st-val {
+    font: 600 12px/1.3 var(--mono);
+    color: #1d1c1a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Workload 2 & 9: nested wrapper boxes */
+  .st-w-deep .st-nest, .st-w-contain .st-nest {
+    padding: 0;
+    border-left: 1px solid rgba(210, 73, 31, 0.05);
+  }
+  /* Workload 3: rich typography */
+  .st-w-typography .st-typo {
+    font-size: 11px;
+    line-height: 1.25;
+    font-variant-ligatures: common-ligatures discretionary-ligatures;
+    font-feature-settings: "liga" 1, "dlig" 1;
+    color: #241f1a;
+  }
+  .st-w-typography .st-val {
+    display: inline;
+    font-size: 11px;
+  }
+  /* Workload 4 & 9: 5-layer blurred box-shadow stack */
+  .st-w-shadow .st-card, .st-w-contain .st-card {
+    box-shadow:
+      0 2px 5px rgba(29, 28, 26, 0.16),
+      0 6px 14px rgba(210, 73, 31, 0.18),
+      0 10px 22px rgba(29, 28, 26, 0.14),
+      0 0 0 2px rgba(210, 73, 31, 0.2),
+      inset 0 2px 8px rgba(29, 28, 26, 0.14);
+  }
+  /* Workload 5: CSS filter blur + drop-shadow on children */
+  .st-w-filter .st-chip,
+  .st-w-filter .st-val {
+    filter: blur(0.8px) drop-shadow(0 3px 6px rgba(29, 28, 26, 0.42));
+  }
+  /* Workload 6: CSS backdrop-filter: blur(8px) over striped card */
+  .st-w-backdrop .st-card {
+    background: repeating-linear-gradient(135deg, #f1dec6 0 8px, #d5e4f0 8px 16px);
+  }
+  .st-w-backdrop .st-chip {
+    background: rgba(255, 255, 255, 0.45);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(29, 28, 26, 0.2);
+  }
+  /* Workload 7: inline SVG feTurbulence + feGaussianBlur */
+  .st-w-svg-filter .st-svg-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .st-w-svg-filter .st-svg {
+    flex: 0 0 auto;
+    display: block;
+  }
+
+  .readout-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .readout-cell {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .readout-cell .k {
+    font: 600 11px var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .readout-cell .v {
+    font: 700 16px/1.3 var(--mono);
+    margin-top: 2px;
+  }
+  .table-scroll {
+    overflow-x: auto;
+    margin: 12px 0;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+  }
+  table.bench {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.bench th, table.bench td {
+    border-bottom: 1px solid var(--line);
+    padding: 7px 8px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  table.bench th:first-child, table.bench td:first-child,
+  table.bench th:nth-child(2), table.bench td:nth-child(2),
+  table.bench th:nth-child(3), table.bench td:nth-child(3),
+  table.bench th:nth-child(4), table.bench td:nth-child(4) {
+    text-align: left;
+  }
+  table.bench tr:last-child td { border-bottom: 0; }
+  table.bench td.num { font-family: var(--mono); }
+  table.bench td.good { color: var(--ok); font-weight: 600; }
+  table.bench td.mid { color: var(--warn); font-weight: 600; }
+  table.bench td.bad { color: var(--bad); font-weight: 600; }
+  @media (max-width: 520px) {
+    .st-grid { gap: 5px; padding: 6px; }
+    .st-card { padding: 4px 5px; border-radius: 6px; }
+    .st-val { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Subtree complexity</h1>
+  <p class="lede">
+    I wanted to know which HTML and CSS features inside a <code>drawable</code> subtree trigger disproportionate paint-record rebuilds or post-main-thread raster stalls, and whether <code>contain: layout paint</code> or <code>contain: strict</code> cuts the cost. Pick a workload and backend below, or run the full sweep across all nine workloads on your device.
+  </p>
+
+  <section class="card controls-card" aria-label="Benchmark controls">
+    <div class="control-grid">
+      <div class="field">
+        <label for="workload">Workload</label>
+        <select id="workload"></select>
+      </div>
+      <div class="field">
+        <label for="backend">Backend</label>
+        <select id="backend"></select>
+      </div>
+      <div class="field">
+        <label for="contain">CSS containment</label>
+        <select id="contain"></select>
+      </div>
+      <div class="field">
+        <label for="mutation">Mutation per frame (1 of 16)</label>
+        <select id="mutation"></select>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="toggle-live" type="button" aria-pressed="false">Live animate</button>
+      <button id="run-active" type="button" class="primary">Benchmark active workload</button>
+      <button id="run-full" type="button">Run full matrix (about 35 s)</button>
+      <button id="stop-run" type="button" disabled>Stop</button>
+      <button id="copy-md" type="button" disabled>Copy Markdown</button>
+    </div>
+    <p id="status">Idle. Flat baseline mounted statically on 2D canvas (no animation running).</p>
+  </section>
+
+  <div id="stage-notice" role="alert" hidden></div>
+  <div id="stage-wrap" class="stage">
+    <div id="stage" aria-label="Active benchmark workload stage"></div>
+  </div>
+  <p id="workload-desc" class="note"></p>
+
+  <div class="readout-grid" aria-live="polite">
+    <div class="readout-cell"><div class="k">Active route</div><div class="v" id="rd-route">2D</div></div>
+    <div class="readout-cell"><div class="k">rAF p50 / p95</div><div class="v" id="rd-frame">idle</div></div>
+    <div class="readout-cell"><div class="k">Paint / mutation</div><div class="v" id="rd-paint">idle</div></div>
+    <div class="readout-cell"><div class="k">changedElements</div><div class="v" id="rd-changed">idle</div></div>
+    <div class="readout-cell"><div class="k">Long frames (&gt;50 ms)</div><div class="v" id="rd-loaf">idle</div></div>
+  </div>
+
+  <h3>Measured runs</h3>
+  <div class="table-scroll">
+    <table class="bench" id="runs-table">
+      <thead>
+        <tr>
+          <th scope="col">Workload</th>
+          <th scope="col">Backend</th>
+          <th scope="col">contain</th>
+          <th scope="col">Mutation</th>
+          <th scope="col">FPS</th>
+          <th scope="col">p50 ms</th>
+          <th scope="col">p95 ms</th>
+          <th scope="col">JS ms</th>
+          <th scope="col">LoAFs (script / style+layout / after main)</th>
+          <th scope="col">Paint / mut</th>
+          <th scope="col">changedElements (mean / max)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="11" class="note">No benchmark runs yet. Press "Benchmark active workload" or "Run full matrix".</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Containment delta</h3>
+  <div class="table-scroll">
+    <table class="bench" id="delta-table">
+      <thead>
+        <tr>
+          <th scope="col">Workload</th>
+          <th scope="col">Backend</th>
+          <th scope="col">Compared mode</th>
+          <th scope="col">Base p95 ms</th>
+          <th scope="col">Contained p95 ms</th>
+          <th scope="col">p95 delta</th>
+          <th scope="col">changedElements delta</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="7" class="note">Run a workload benchmark or the full matrix to compare <code>contain: layout paint</code> and <code>contain: strict</code> against <code>contain: none</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p id="report-note" class="note"></p>
+
+  <details class="show-code">
+    <summary>Show the code <small>the workloads, 2D and WebGL paint handlers, and the frame/LoAF timer</small></summary>
+    <ol>
+      <li data-code="/perf-subtree/bench.js#workloads"><b>Build 16 sibling cards and mutate 1 per frame.</b> Each card carries <code>drawable</code> inside a canvas so <code>e.changedElements</code> counts sibling invalidation.</li>
+      <li data-code="/perf-subtree/bench.js#paint-2d"><b>2D route: 5-argument <code>drawElementImage()</code> in CSS pixel units.</b> Backing dimensions track <code>device-pixel-content-box</code> and only reassign when changed.</li>
+      <li data-code="/perf-subtree/bench.js#paint-webgl"><b>WebGL route: <code>ElementGL</code> uploads only changed cards.</b> Each card uploads with <code>texElementSubImage2D()</code> and registers its box with <code>updateElementGeometry()</code>.</li>
+      <li data-code="/perf-subtree/bench.js#measure"><b>Frame timer and Long Animation Frames breakdown.</b> Splits frames over 50 ms into script, style/layout and post-main-thread presentation time.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Every workload renders 16 sibling cards in a 4 by 4 grid. On the plain DOM route the grid sits directly in the stage. On the 2D and WebGL routes the grid sits inside a single <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>, and each of the 16 cards carries its own <code>drawable</code> attribute. On every animation frame during a timed run, the script mutates only 1 of the 16 cards (cycling through cards 0 to 15) without forcing <code>requestPaint()</code>, so Chromium decides which siblings need fresh paint records.
+  </p>
+  <p>
+    The 2D handler draws all 16 cards with 5-argument <code>drawElementImage(card, x, y, w, h)</code> after scaling the context to device pixels. The WebGL handler opens one context via <code>ElementGL</code> from <code>/lib/element-gl.js</code>, reads <code>e.changedElements</code> on each <code>paint</code> event, re-uploads only the listed cards with <code>gl.texElementSubImage2D()</code>, draws all 16 quads, and calls <code>canvas.updateElementGeometry()</code> whenever a card box changes.
+  </p>
+  <p>
+    Each timed run warms up for 4 frames, resets counters, then measures for about 600 ms (at least 14 frames). A <code>PerformanceObserver</code> watches <code>long-animation-frame</code> entries over the same window and splits every frame over 50 ms into script time (<code>renderStart</code> to <code>styleAndLayoutStart</code>), style and layout time (<code>styleAndLayoutStart</code> to end of main-thread work), and post-main-thread raster and presentation time (end of frame to <code>presentationTime</code>). When a full sweep finishes, the page sends a compact summary to <code>window.__gfx.report('perf-subtree', ...)</code> and formats a Markdown table you can copy.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">
+    The checks below wait for a tap so loading this page doesn't open a WebGL context or disturb the stage. Each check builds its own isolated fixture in a hidden test stage and retires its canvas when finished.
+  </p>
+  <table class="results">
+    <tbody id="checks"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings" id="findings-list">
+    <li><strong>Not verified on real hardware yet.</strong> This page was built on 2026-11-26 and hasn't been timed on a real phone or desktop GPU yet. Press "Run full matrix" on Chrome with <code>#canvas-draw-element</code> enabled, then copy the Markdown table or inspect <code>npm run reports</code> to record measured numbers.</li>
+    <li><strong>Why 16 separate <code>drawable</code> siblings matter.</strong> Putting <code>drawable</code> on each card lets the WebGL path skip <code>texElementSubImage2D()</code> for the 15 unchanged cards when <code>e.changedElements</code> names only the mutated sibling. Any over-invalidation shows up as <code>changedElements &gt; 1</code> and immediately multiplies texture uploads.</li>
+    <li><strong>Containment requires definite card sizes for <code>contain: strict</code>.</strong> The 4 by 4 grid fixes each track at 78 px tall so <code>contain: none</code>, <code>contain: layout paint</code> and <code>contain: strict</code> keep the same card geometry while isolating internal layout and paint bleed.</li>
+    <li><strong>Long Animation Frames only appear above 50 ms.</strong> Fast workloads on a desktop GPU will report <code>0 (&lt;50 ms)</code> LoAF entries; on a phone or under heavy blur, shadow and SVG filter stacks, post-main-thread presentation stalls show up in the third column of the LoAF split.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests } from '/shared/support.js';
+  import {
+    WORKLOADS,
+    BACKENDS,
+    CONTAIN_MODES,
+    MUTATION_MODES,
+    CARD_COUNT,
+    capability,
+    mountStage,
+    mutateOne,
+    measureRun,
+    computeContainDelta,
+    formatMarkdownReport,
+    buildCompactTelemetry,
+    buildLiveChecks,
+  } from '/perf-subtree/bench.js';
+
+  banner();
+
+  const $ = (sel) => document.querySelector(sel);
+  const selWorkload = $('#workload');
+  const selBackend = $('#backend');
+  const selContain = $('#contain');
+  const selMutation = $('#mutation');
+  const btnLive = $('#toggle-live');
+  const btnActive = $('#run-active');
+  const btnFull = $('#run-full');
+  const btnStop = $('#stop-run');
+  const btnCopy = $('#copy-md');
+  const statusEl = $('#status');
+  const noticeEl = $('#stage-notice');
+  const stageEl = $('#stage');
+  const descEl = $('#workload-desc');
+  const runsBody = $('#runs-table tbody');
+  const deltaBody = $('#delta-table tbody');
+  const reportNote = $('#report-note');
+
+  for (const w of WORKLOADS) {
+    const opt = document.createElement('option');
+    opt.value = w.id;
+    opt.textContent = w.name;
+    selWorkload.append(opt);
+  }
+  for (const b of BACKENDS) {
+    const opt = document.createElement('option');
+    opt.value = b.id;
+    opt.textContent = capability[b.id] ? b.label : `${b.label} (unavailable)`;
+    opt.disabled = !capability[b.id];
+    selBackend.append(opt);
+  }
+  for (const c of CONTAIN_MODES) {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.label;
+    selContain.append(opt);
+  }
+  for (const m of MUTATION_MODES) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.label;
+    selMutation.append(opt);
+  }
+
+  // Start light on load: flat baseline on 2D (or plain DOM if API unavailable).
+  selWorkload.value = 'flat';
+  selBackend.value = capability['2d'] ? '2d' : 'dom';
+  selContain.value = 'none';
+  selMutation.value = 'layout';
+
+  let liveHandle = null;
+  let liveRunning = false;
+  let liveRaf = 0;
+  let liveTick = 0;
+  let liveLastTs = 0;
+  let liveDts = [];
+  let liveMutations = 0;
+  let sweepAbort = null;
+  let recordedRows = [];
+  let recordedDeltas = [];
+
+  const fmt = (v, d = 1) => (v == null || !Number.isFinite(v) ? '-' : v.toFixed(d));
+
+  function showNotice(msg) {
+    if (!msg) {
+      noticeEl.hidden = true;
+      noticeEl.textContent = '';
+    } else {
+      noticeEl.hidden = false;
+      noticeEl.textContent = msg;
+    }
+  }
+
+  function updateDesc() {
+    const w = WORKLOADS.find((x) => x.id === selWorkload.value);
+    descEl.textContent = w ? w.detail : '';
+  }
+
+  function stopLive() {
+    liveRunning = false;
+    if (liveRaf) cancelAnimationFrame(liveRaf);
+    liveRaf = 0;
+    btnLive.setAttribute('aria-pressed', 'false');
+    btnLive.textContent = 'Live animate';
+  }
+
+  function mountPreview() {
+    stopLive();
+    if (liveHandle) {
+      liveHandle.destroy();
+      liveHandle = null;
+    }
+    showNotice('');
+    updateDesc();
+
+    const workloadId = selWorkload.value;
+    const backend = selBackend.value;
+    const contain = selContain.value;
+
+    $('#rd-route').textContent = BACKENDS.find((b) => b.id === backend)?.label.split(' ')[0] ?? backend;
+    $('#rd-frame').textContent = 'idle';
+    $('#rd-paint').textContent = 'idle';
+    $('#rd-changed').textContent = 'idle';
+    $('#rd-loaf').textContent = 'idle';
+
+    try {
+      liveHandle = mountStage(stageEl, {
+        workloadId,
+        backend,
+        contain,
+        onLost: (msg) => {
+          showNotice(`${msg} Switching the stage preview to plain DOM until restored.`);
+        },
+        onRestored: () => {
+          showNotice('');
+        },
+      });
+      statusEl.textContent = `Ready: ${workloadId} on ${backend} (${contain}). Drawn once; press "Live animate" or run a benchmark.`;
+    } catch (err) {
+      showNotice(`Could not start ${backend}: ${err.message}. Showing plain DOM instead.`);
+      selBackend.value = 'dom';
+      liveHandle = mountStage(stageEl, { workloadId, backend: 'dom', contain });
+      statusEl.textContent = `Fallback to plain DOM for ${workloadId}.`;
+    }
+  }
+
+  function startLive() {
+    if (!liveHandle || sweepAbort) return;
+    liveRunning = true;
+    liveTick = 0;
+    liveLastTs = 0;
+    liveDts = [];
+    liveMutations = 0;
+    liveHandle.resetStats();
+    btnLive.setAttribute('aria-pressed', 'true');
+    btnLive.textContent = 'Pause animation';
+    statusEl.textContent = `Animating ${selWorkload.value} on ${selBackend.value} (${selContain.value}, ${selMutation.value} mutation)...`;
+
+    let lastReport = performance.now();
+    const step = (ts) => {
+      if (!liveRunning || !liveHandle) return;
+      if (liveLastTs) {
+        liveDts.push(ts - liveLastTs);
+        if (liveDts.length > 60) liveDts.shift();
+      }
+      liveLastTs = ts;
+      mutateOne(liveHandle.targets, liveTick % CARD_COUNT, liveTick, selMutation.value);
+      liveTick++;
+      liveMutations++;
+
+      if (ts - lastReport >= 400 && liveDts.length >= 4) {
+        lastReport = ts;
+        const sorted = [...liveDts].sort((a, b) => a - b);
+        const p50 = sorted[Math.floor((sorted.length - 1) * 0.5)];
+        const p95 = sorted[Math.floor((sorted.length - 1) * 0.95)];
+        const s = liveHandle.stats;
+        $('#rd-frame').textContent = `${fmt(p50)} / ${fmt(p95)} ms`;
+        $('#rd-paint').textContent = liveHandle.backend === 'dom'
+          ? 'n/a (DOM)'
+          : `${fmt(liveMutations ? s.paints / liveMutations : 0, 2)}x`;
+        $('#rd-changed').textContent = liveHandle.backend === 'dom'
+          ? 'n/a'
+          : s.changedSamples
+            ? `${fmt(s.changedSum / s.changedSamples, 2)} (max ${s.changedMax})`
+            : 'n/a';
+        $('#rd-loaf').textContent = 'measured in sweep';
+      }
+      liveRaf = requestAnimationFrame(step);
+    };
+    liveRaf = requestAnimationFrame(step);
+  }
+
+  function setBusy(busy) {
+    selWorkload.disabled = busy;
+    selBackend.disabled = busy;
+    selContain.disabled = busy;
+    selMutation.disabled = busy;
+    btnLive.disabled = busy;
+    btnActive.disabled = busy;
+    btnFull.disabled = busy;
+    btnStop.disabled = !busy;
+    btnCopy.disabled = busy || recordedRows.length === 0;
+  }
+
+  function appendRunRow(r) {
+    if (recordedRows.length === 1) runsBody.replaceChildren();
+    const tr = document.createElement('tr');
+    const fpsClass = r.fps >= 54 ? 'good' : r.fps >= 30 ? 'mid' : 'bad';
+    const loafText = !r.loafSupported
+      ? 'unsupported'
+      : r.loaf
+        ? `${r.loafCount} (${fmt(r.loaf.script)} / ${fmt(r.loaf.styleAndLayout)} / ${fmt(r.loaf.afterMain)} ms)`
+        : '0 (<50 ms)';
+    const paintText = r.backend === 'dom'
+      ? '-'
+      : `${r.paints}/${r.mutations} (${fmt(r.paintPerMutation, 2)})`;
+    const chText = r.backend === 'dom'
+      ? '-'
+      : r.changedSupported
+        ? `${fmt(r.changedMean, 2)} / ${r.changedMax}`
+        : 'n/a';
+    const chClass = r.backend !== 'dom' && r.changedSupported && r.changedMean > 1.2 ? 'bad' : '';
+
+    tr.innerHTML =
+      `<td>${r.workloadId}</td>` +
+      `<td>${r.backend}</td>` +
+      `<td><code>${r.contain}</code></td>` +
+      `<td>${r.mutationMode}</td>` +
+      `<td class="num ${fpsClass}">${fmt(r.fps, 1)}</td>` +
+      `<td class="num">${fmt(r.p50, 1)}</td>` +
+      `<td class="num">${fmt(r.p95, 1)}</td>` +
+      `<td class="num">${fmt(r.scriptJsMs, 2)}</td>` +
+      `<td class="num">${loafText}</td>` +
+      `<td class="num">${paintText}</td>` +
+      `<td class="num ${chClass}">${chText}</td>`;
+    runsBody.append(tr);
+
+    $('#rd-route').textContent = `${r.workloadId} (${r.backend})`;
+    $('#rd-frame').textContent = `${fmt(r.p50)} / ${fmt(r.p95)} ms`;
+    $('#rd-paint').textContent = r.backend === 'dom' ? 'n/a (DOM)' : `${fmt(r.paintPerMutation, 2)}x`;
+    $('#rd-changed').textContent = r.backend === 'dom'
+      ? 'n/a'
+      : r.changedSupported ? `${fmt(r.changedMean, 2)} / ${r.changedMax}` : 'n/a';
+    $('#rd-loaf').textContent = r.loafSupported ? `${r.loafCount} LoAF` : 'unsupported';
+  }
+
+  function appendDeltaRow(d) {
+    if (recordedDeltas.length === 1) deltaBody.replaceChildren();
+    const tr = document.createElement('tr');
+    const sign = d.p95DeltaMs > 0 ? '+' : '';
+    const cls = d.p95DeltaPct <= -10 ? 'good' : d.p95DeltaPct >= 10 ? 'bad' : '';
+    const chStr = d.changedDelta == null
+      ? '-'
+      : `${d.changedDelta > 0 ? '+' : ''}${d.changedDelta.toFixed(2)}`;
+    tr.innerHTML =
+      `<td>${d.workloadId}</td>` +
+      `<td>${d.backend}</td>` +
+      `<td><code>${d.mode}</code></td>` +
+      `<td class="num">${fmt(d.baseP95, 1)}</td>` +
+      `<td class="num">${fmt(d.containedP95, 1)}</td>` +
+      `<td class="num ${cls}">${sign}${fmt(d.p95DeltaMs, 1)} ms (${sign}${fmt(d.p95DeltaPct, 0)}%)</td>` +
+      `<td class="num">${chStr}</td>`;
+    deltaBody.append(tr);
+  }
+
+  function buildSweepPlan(full) {
+    const activeBackends = BACKENDS.filter((b) => capability[b.id]).map((b) => b.id);
+    const plan = [];
+
+    const addWorkload = (workloadId, mutationMode) => {
+      if (workloadId === 'mutation') {
+        for (const m of ['transform', 'paint', 'layout']) {
+          for (const backend of activeBackends) {
+            plan.push({ workloadId: 'mutation', backend, contain: 'none', mutationMode: m });
+          }
+        }
+        return;
+      }
+      if (workloadId === 'contain') {
+        for (const backend of activeBackends) {
+          for (const contain of ['none', 'layout-paint', 'strict']) {
+            plan.push({ workloadId: 'contain', backend, contain, mutationMode: 'layout' });
+          }
+        }
+        return;
+      }
+      for (const backend of activeBackends) {
+        plan.push({ workloadId, backend, contain: 'none', mutationMode });
+        plan.push({ workloadId, backend, contain: 'layout-paint', mutationMode });
+      }
+    };
+
+    if (full) {
+      for (const w of WORKLOADS) addWorkload(w.id, w.defaultMutation);
+    } else {
+      addWorkload(selWorkload.value, selMutation.value);
+    }
+    return plan;
+  }
+
+  async function runSweep(full) {
+    stopLive();
+    if (liveHandle) {
+      liveHandle.destroy();
+      liveHandle = null;
+    }
+
+    const plan = buildSweepPlan(full);
+    const dwellMs = full ? 520 : 650;
+    recordedRows = [];
+    recordedDeltas = [];
+    runsBody.innerHTML = '<tr><td colspan="11" class="note">Running...</td></tr>';
+    deltaBody.innerHTML = '<tr><td colspan="7" class="note">Waiting for paired contain runs...</td></tr>';
+    reportNote.textContent = '';
+
+    sweepAbort = new AbortController();
+    setBusy(true);
+
+    const byKey = new Map();
+    for (let i = 0; i < plan.length; i++) {
+      if (sweepAbort.signal.aborted) break;
+      const step = plan[i];
+      statusEl.textContent = `[${i + 1}/${plan.length}] ${step.workloadId} on ${step.backend} (contain: ${step.contain}, ${step.mutationMode})...`;
+      try {
+        const res = await measureRun(stageEl, {
+          ...step,
+          dwellMs,
+          signal: sweepAbort.signal,
+        });
+        if (res.aborted) break;
+        recordedRows.push(res);
+        appendRunRow(res);
+        byKey.set(`${res.workloadId}|${res.backend}|${res.mutationMode}|${res.contain}`, res);
+
+        if (res.contain !== 'none') {
+          const base = byKey.get(`${res.workloadId}|${res.backend}|${res.mutationMode}|none`);
+          const delta = computeContainDelta(base, res);
+          if (delta) {
+            const row = {
+              workloadId: res.workloadId,
+              backend: res.backend,
+              mode: res.contain,
+              baseP95: base.p95,
+              containedP95: res.p95,
+              ...delta,
+            };
+            recordedDeltas.push(row);
+            appendDeltaRow(row);
+          }
+        }
+      } catch (err) {
+        statusEl.textContent = `Error on ${step.workloadId} (${step.backend}): ${err.message}`;
+      }
+    }
+
+    const stopped = sweepAbort.signal.aborted;
+    sweepAbort = null;
+    setBusy(false);
+
+    if (full && !stopped && recordedRows.length) {
+      const compact = buildCompactTelemetry(recordedRows, recordedDeltas);
+      const worst = [...recordedRows].sort((a, b) => (b.p95 ?? 0) - (a.p95 ?? 0))[0];
+      const msg = `full sweep: ${recordedRows.length} runs, slowest p95 ${fmt(worst?.p95)} ms (${worst?.workloadId}/${worst?.backend})`;
+      window.__gfx?.report?.('perf-subtree', msg, compact);
+      reportNote.textContent = `Compact sweep summary sent via window.__gfx.report('perf-subtree', ...): ${msg}.`;
+    }
+
+    window.__perfSubtree = { rows: recordedRows, deltas: recordedDeltas };
+    mountPreview();
+    statusEl.textContent = stopped
+      ? `Stopped after ${recordedRows.length} run(s).`
+      : `Finished ${recordedRows.length} run(s). Press "Copy Markdown" to export the tables.`;
+  }
+
+  selWorkload.addEventListener('change', () => {
+    const w = WORKLOADS.find((x) => x.id === selWorkload.value);
+    if (w) selMutation.value = w.defaultMutation;
+    mountPreview();
+  });
+  selBackend.addEventListener('change', mountPreview);
+  selContain.addEventListener('change', mountPreview);
+  selMutation.addEventListener('change', () => {
+    if (liveRunning) {
+      stopLive();
+      startLive();
+    }
+  });
+  btnLive.addEventListener('click', () => {
+    if (liveRunning) {
+      stopLive();
+      statusEl.textContent = 'Paused.';
+    } else {
+      startLive();
+    }
+  });
+  btnActive.addEventListener('click', () => runSweep(false));
+  btnFull.addEventListener('click', () => runSweep(true));
+  btnStop.addEventListener('click', () => sweepAbort?.abort());
+  btnCopy.addEventListener('click', async () => {
+    const md = formatMarkdownReport({
+      rows: recordedRows,
+      deltas: recordedDeltas,
+      device: {
+        ua: navigator.userAgent,
+        dpr: window.devicePixelRatio || 1,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        cores: navigator.hardwareConcurrency || '?',
+      },
+    });
+    try {
+      await navigator.clipboard.writeText(md);
+      statusEl.textContent = 'Copied Markdown report to clipboard.';
+    } catch {
+      statusEl.textContent = 'Clipboard write was blocked in this context.';
+    }
+  });
+
+  // Initial static preview on load (lightweight 2D flat baseline, no animation).
+  mountPreview();
+
+  // Live checks (wait for tap because of <meta name="checks" content="tap">).
+  runTests($('#checks'), buildLiveChecks());
+</script>
+</body>
+</html>

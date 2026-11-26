@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Input latency and hit-testing</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .controls-group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .controls-label { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); min-width: 72px; }
+  .seg-btn { min-height: 40px; padding: 6px 11px; font-size: 14px; }
+  .seg-btn[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .telemetry { font: 13px/1.4 var(--mono); color: var(--muted); min-height: 1.5em; margin: 8px 0 10px; }
+  #arena-stage {
+    position: relative;
+    width: 100%;
+    height: 300px;
+    overflow: hidden;
+    contain: strict;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    touch-action: none;
+  }
+  .arena-canvas, .arena-dom { display: block; width: 100%; height: 100%; position: relative; }
+  .arena-btn {
+    position: absolute;
+    left: 0;
+    top: 0;
+    margin: 0;
+    padding: 0 4px;
+    border-radius: 8px;
+    border: 1px solid #b8a88c;
+    background: #fff7e8;
+    color: #1d1c1a;
+    font: 600 12px/1 var(--mono);
+    cursor: pointer;
+    user-select: none;
+    touch-action: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .arena-btn.sz-sm { font-size: 11px; border-radius: 6px; }
+  .arena-btn.sz-xs { font-size: 10px; border-radius: 5px; padding: 0 2px; }
+  .arena-input {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 40px;
+    margin: 0;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 2px solid #2b6cb0;
+    background: #ffffff;
+    color: #1d1c1a;
+    font: 14px/1.3 system-ui, -apple-system, sans-serif;
+  }
+  .arena-notice {
+    margin: 8px 0 0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--warn);
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    font-size: 14px;
+  }
+  .hit-ring {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 2px 6px;
+    border-radius: 99px;
+    font: 700 11px/1.2 var(--mono);
+    pointer-events: none;
+    z-index: 5;
+    border: 2px solid currentColor;
+    background: var(--card);
+  }
+  .hit-ring.hit { color: var(--ok); }
+  .hit-ring.miss, .hit-ring.ghost { color: var(--bad); }
+
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .kpi {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .kpi-label { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 4px; }
+  .kpi-value { font: 700 20px/1.2 var(--mono); color: var(--fg); }
+  .kpi-sub { font: 12.5px/1.4 var(--mono); color: var(--muted); margin-top: 4px; }
+  .kpi-value.ok { color: var(--ok); }
+  .kpi-value.bad { color: var(--bad); }
+  .kpi-value.warn { color: var(--warn); }
+
+  .table-wrap { overflow-x: auto; margin: 12px 0; }
+  table.metrics { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.metrics th, table.metrics td { border-bottom: 1px solid var(--line); padding: 7px 8px; text-align: right; white-space: nowrap; }
+  table.metrics th:first-child, table.metrics td:first-child,
+  table.metrics th.left, table.metrics td.left { text-align: left; white-space: normal; }
+  table.metrics td.num { font: 13px var(--mono); }
+  table.metrics td.ok { color: var(--ok); font-weight: 600; }
+  table.metrics td.bad { color: var(--bad); font-weight: 600; }
+
+  #sweep-stage {
+    margin: 12px 0;
+    width: 100%;
+    max-width: 340px;
+    height: 180px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    overflow: hidden;
+    contain: strict;
+  }
+  .sweep-canvas { display: block; }
+  .sweep-btn {
+    margin: 0;
+    padding: 0;
+    border: 1px solid #b8a88c;
+    border-radius: 4px;
+    background: #fff7e8;
+    color: #1d1c1a;
+    font: 600 10px/1 var(--mono);
+  }
+  @media (max-width: 620px) {
+    .controls-label { min-width: 100%; margin-bottom: -2px; }
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Input latency and hit-testing</h1>
+  <p class="lede">
+    I wanted to know how much Interaction to Next Paint (INP) delay HTML-in-canvas adds when you tap, drag or type into moving controls, and what calling <code>updateElementGeometry()</code> plus the attribute-toggle workaround costs per frame across 1 to 200 elements. Tap or drag the moving buttons, type in the moving text box, and run the sweep below to measure overhead and hit-test drift on your browser.
+  </p>
+
+  <section class="stage" aria-label="Interactive moving controls arena">
+    <div class="controls-group" role="group" aria-label="Rendering mode">
+      <span class="controls-label">Mode</span>
+      <button type="button" class="seg-btn" data-mode="dom" aria-pressed="false">Plain DOM</button>
+      <button type="button" class="seg-btn" data-mode="2d" aria-pressed="true">2D drawElementImage()</button>
+      <button type="button" class="seg-btn" data-mode="gl-stale" aria-pressed="false">WebGL + geometry</button>
+      <button type="button" class="seg-btn" data-mode="gl-bust" aria-pressed="false">WebGL + geometry + cache bust</button>
+    </div>
+
+    <div class="controls-group" role="group" aria-label="Control count">
+      <span class="controls-label">Controls</span>
+      <button type="button" class="seg-btn" data-count="1" aria-pressed="false">1</button>
+      <button type="button" class="seg-btn" data-count="12" aria-pressed="true">12</button>
+      <button type="button" class="seg-btn" data-count="50" aria-pressed="false">50</button>
+      <button type="button" class="seg-btn" data-count="100" aria-pressed="false">100</button>
+      <button type="button" class="seg-btn" data-count="200" aria-pressed="false">200</button>
+      <button type="button" id="toggle-motion" class="seg-btn">Pause motion</button>
+      <button type="button" id="reset-stats" class="seg-btn">Reset stats</button>
+    </div>
+
+    <p id="arena-telemetry" class="telemetry">Starting arena…</p>
+    <div id="arena-stage"></div>
+    <p id="arena-notice" class="arena-notice" hidden></p>
+
+    <div class="kpi-grid" aria-live="polite">
+      <div class="kpi">
+        <div class="kpi-label">INP (p75 / p98 / worst)</div>
+        <div class="kpi-value" id="kpi-inp">-</div>
+        <div class="kpi-sub" id="kpi-count">0 interactions recorded</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Median phase split</div>
+        <div class="kpi-value" id="kpi-phases">-</div>
+        <div class="kpi-sub" id="kpi-phases-sub">input / processing / presentation</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Hit accuracy</div>
+        <div class="kpi-value" id="kpi-hits">-</div>
+        <div class="kpi-sub" id="kpi-misses">Tap moving controls to measure</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Last tap result</div>
+        <div class="kpi-value" id="kpi-last">-</div>
+        <div class="kpi-sub" id="kpi-last-sub">Waiting for input</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="metrics" id="mode-summary-table">
+        <thead>
+          <tr>
+            <th>Mode</th>
+            <th>Events</th>
+            <th>INP p75</th>
+            <th>INP p98</th>
+            <th>Worst</th>
+            <th>Input</th>
+            <th>Proc</th>
+            <th>Pres</th>
+            <th>Hit accuracy</th>
+            <th>Stale misses</th>
+          </tr>
+        </thead>
+        <tbody id="mode-summary-body">
+          <tr><td colspan="10" class="left note">Tap buttons, drag them or type in the moving input above to record real Event Timing entries.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <details>
+      <summary>Recent recorded interactions (last 10)</summary>
+      <div class="table-wrap">
+        <table class="metrics" id="recent-table">
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th class="left">Mode</th>
+              <th>Controls</th>
+              <th>Target</th>
+              <th>Input</th>
+              <th>Proc</th>
+              <th>Pres</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="recent-body">
+            <tr><td colspan="8" class="left note">None recorded yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <details class="show-code">
+    <summary>Show the code <small>arena drawing, geometry updates, Event Timing and sweep</small></summary>
+    <ol>
+      <li data-code="/perf-inp/bench.js#arena-2d"><b>2D canvas mode.</b> Draws each control with explicit width and height on <code>drawElementImage()</code>.</li>
+      <li data-code="/perf-inp/bench.js#arena-gl"><b>WebGL mode with and without cache busting.</b> One <code>ElementGL</code> context draws quads, calls <code>updateElementGeometry()</code>, and toggles <code>data-hit</code> in the cache-bust mode.</li>
+      <li data-code="/perf-inp/bench.js#inp-observer"><b>Real-interaction INP recorder.</b> Watches <code>PerformanceObserver({ type: 'event', durationThreshold: 0 })</code> and splits input delay, processing and presentation delay.</li>
+      <li data-code="/perf-inp/bench.js#sweep"><b>Automated 1 to 200 control sweep.</b> Measures per-frame JS cost, Long Animation Frames and <code>elementsFromPoint()</code> hit accuracy across each route.</li>
+    </ol>
+  </details>
+
+  <h2>Geometry overhead and hit-test drift sweep</h2>
+  <p>
+    The live arena measures real taps and typing. This sweep runs 24 frames per step across 1, 12, 50, 100 and 200 moving controls on an isolated fixture canvas, timing the per-frame JavaScript work, counting Long Animation Frames over 50 ms, and probing <code>document.elementsFromPoint()</code> after moving controls to test whether Chromium's hit-test cache went stale.
+  </p>
+  <div class="row">
+    <button type="button" id="run-sweep">Run overhead sweep (1 to 200 controls)</button>
+    <button type="button" id="stop-sweep" disabled>Stop</button>
+    <button type="button" id="copy-md">Copy Markdown</button>
+    <span id="sweep-status" class="note">Not run yet.</span>
+  </div>
+  <div id="sweep-stage" hidden aria-hidden="true"></div>
+  <p id="sweep-summary" class="note" hidden></p>
+  <div class="table-wrap">
+    <table class="metrics" id="sweep-table">
+      <thead>
+        <tr>
+          <th>Controls</th>
+          <th class="left">Route</th>
+          <th>JS median</th>
+          <th>JS p95</th>
+          <th>Geometry loop</th>
+          <th>Frame median</th>
+          <th>LoAFs (&gt;50 ms)</th>
+          <th class="left">elementsFromPoint() hits</th>
+        </tr>
+      </thead>
+      <tbody id="sweep-body">
+        <tr><td colspan="8" class="left note">Press "Run overhead sweep" to measure this browser.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>How it works</h2>
+  <p>
+    The arena puts <code>N</code> moving buttons and one moving text input through four paths: plain DOM moved with CSS <code>transform: translate3d()</code>, a 2D drawable canvas calling <code>drawElementImage(el, x, y, w, h)</code>, and one WebGL 2 <code>ElementGL</code> context calling <code>updateElementGeometry()</code> either alone or paired with <code>el.toggleAttribute('data-hit')</code>.
+  </p>
+  <p>
+    In Chromium 157 and Canary 160, moving a drawable element's geometry with <code>updateElementGeometry()</code> after the browser has already hit-tested it can leave Chromium's hit-test cache pointing at the old rectangle until a DOM attribute or style change invalidates it. The third mode leaves that toggle off on purpose so you can see and measure stale misses and ghost hits. The fourth mode turns the toggle on so you can measure what invalidating 1 to 200 elements every frame costs in JavaScript time, style recalculation and Long Animation Frames.
+  </p>
+  <p>
+    Every tap, drag and keypress inside the arena is observed with <code>PerformanceObserver({ type: 'event', durationThreshold: 0 })</code>. Each entry is split into input delay (<code>processingStart - startTime</code>), processing duration (<code>processingEnd - processingStart</code>) and presentation delay (<code>startTime + duration - processingEnd</code>). Chromium rounds Event Timing <code>duration</code> to 8 ms steps for privacy, so presentation delay is clamped at zero when rounding pulls the total slightly under <code>processingEnd</code>. On every pointer down, the page compares your pointer coordinates against the drawn control rectangles and <code>document.elementsFromPoint()</code> to count exact hits, stale misses and ghost hits at old positions.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">
+    These checks build their own fixtures on the hidden test stage and wait for a tap so loading this page never opens a WebGL context or runs a benchmark loop unasked.
+  </p>
+  <table class="results">
+    <thead><tr><th>Status</th><th>Check</th><th>Detail</th></tr></thead>
+    <tbody id="checks-body"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li><strong>Not verified yet on real hardware or headless Chromium:</strong> this page was built on 2026-11-26 and its live INP and 1 to 200 control sweep numbers haven't been collected from desktop Chrome or my Android phone yet. Open the page in Chrome with <code>#canvas-draw-element</code> enabled, tap and type across all four modes, run the sweep, and use Copy Markdown to record the results in <code>findings/perf-inp.md</code>.</li>
+    <li><strong>Why the cache-bust mode is tested separately:</strong> earlier experiments in this repository (recorded in <code>/crashes/</code> and <code>/friction/</code> on Chromium 157 and Canary 160) hit a stale hit-test cache whenever a drawn element moved without an attribute toggle. Toggling an attribute on every moving control clears that cache, which may also trigger per-frame style invalidation and extra paint work as control counts rise toward 200.</li>
+    <li><strong>Coordinate scaling at high device pixel ratios:</strong> <code>updateElementGeometry()</code> takes <code>geometryUnit()</code> from <code>/lib/surface.js</code> so the WebGL hit boxes line up on a 2.625 DPR Android screen as well as at 1x desktop scale.</li>
+    <li><strong>Open items that need a real phone:</strong> touch drag responsiveness, software keyboard and IME typing latency inside the moving canvas input, and whether 200 attribute toggles per frame push mobile frame times past 50 ms LoAFs.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, runTests } from '/shared/support.js';
+  import {
+    MODES,
+    createArena,
+    createInpRecorder,
+    runOverheadSweep,
+    formatMarkdownReport,
+    buildLiveChecks,
+    fmtMs,
+  } from '/perf-inp/bench.js';
+
+  banner();
+
+  const $ = (s) => document.querySelector(s);
+  const stageEl = $('#arena-stage');
+  const noticeEl = $('#arena-notice');
+  const telemetryEl = $('#arena-telemetry');
+  const toggleMotionBtn = $('#toggle-motion');
+  const resetStatsBtn = $('#reset-stats');
+  const modeBtns = Array.from(document.querySelectorAll('[data-mode]'));
+  const countBtns = Array.from(document.querySelectorAll('[data-count]'));
+
+  const kpiInp = $('#kpi-inp');
+  const kpiCount = $('#kpi-count');
+  const kpiPhases = $('#kpi-phases');
+  const kpiHits = $('#kpi-hits');
+  const kpiMisses = $('#kpi-misses');
+  const kpiLast = $('#kpi-last');
+  const kpiLastSub = $('#kpi-last-sub');
+  const modeSummaryBody = $('#mode-summary-body');
+  const recentBody = $('#recent-body');
+
+  const runSweepBtn = $('#run-sweep');
+  const stopSweepBtn = $('#stop-sweep');
+  const copyMdBtn = $('#copy-md');
+  const sweepStatus = $('#sweep-status');
+  const sweepStage = $('#sweep-stage');
+  const sweepSummary = $('#sweep-summary');
+  const sweepBody = $('#sweep-body');
+
+  let lastInpSnap = null;
+  let lastSweepRows = [];
+  let sweepAbort = null;
+
+  function syncModeButtons(activeMode) {
+    for (const b of modeBtns) {
+      b.setAttribute('aria-pressed', String(b.dataset.mode === activeMode));
+    }
+  }
+
+  function syncCountButtons(activeCount) {
+    for (const b of countBtns) {
+      b.setAttribute('aria-pressed', String(Number(b.dataset.count) === activeCount));
+    }
+  }
+
+  function renderInpDashboard(snap) {
+    lastInpSnap = snap;
+    const o = snap.overall;
+    if (!snap.supported) {
+      kpiInp.textContent = 'Unsupported';
+      kpiCount.textContent = 'Event Timing API not available in this browser';
+    } else if (o.count === 0) {
+      kpiInp.textContent = '-';
+      kpiCount.textContent = '0 interactions recorded';
+      kpiPhases.textContent = '-';
+    } else {
+      kpiInp.textContent = `${fmtMs(o.p75)} / ${fmtMs(o.p98)} / ${fmtMs(o.worst)}`;
+      kpiCount.textContent = `${o.count} interaction${o.count === 1 ? '' : 's'} recorded`;
+      kpiPhases.textContent = `${fmtMs(o.medInput)} / ${fmtMs(o.medProc)} / ${fmtMs(o.medPres)}`;
+    }
+
+    const h = snap.hitOverall;
+    const totalProbes = h.hits + h.misses;
+    if (totalProbes === 0 && h.ghosts === 0) {
+      kpiHits.textContent = '-';
+      kpiHits.className = 'kpi-value';
+      kpiMisses.textContent = 'Tap moving controls to measure';
+    } else {
+      const pct = totalProbes ? Math.round((h.hits / totalProbes) * 100) : 0;
+      kpiHits.textContent = totalProbes ? `${pct}% (${h.hits}/${totalProbes})` : `0 hits`;
+      kpiHits.className = `kpi-value ${pct >= 95 && h.ghosts === 0 ? 'ok' : pct >= 70 ? 'warn' : 'bad'}`;
+      kpiMisses.textContent = `${h.misses} stale miss${h.misses === 1 ? '' : 'es'}, ${h.ghosts} ghost hit${h.ghosts === 1 ? '' : 's'}`;
+    }
+
+    const activeRows = MODES.filter((m) => {
+      const s = snap.byMode[m.id];
+      return s && (s.count > 0 || s.hits > 0 || s.misses > 0 || s.ghosts > 0);
+    });
+    if (!activeRows.length) {
+      modeSummaryBody.innerHTML = '<tr><td colspan="10" class="left note">Tap buttons, drag them or type in the moving input above to record real Event Timing entries.</td></tr>';
+    } else {
+      modeSummaryBody.innerHTML = activeRows.map((m) => {
+        const s = snap.byMode[m.id];
+        const total = s.hits + s.misses;
+        const acc = total ? `${Math.round((s.hits / total) * 100)}% (${s.hits}/${total})` : '-';
+        const missCls = s.misses > 0 || s.ghosts > 0 ? 'bad' : 'ok';
+        return `<tr>
+          <td class="left">${m.short}</td>
+          <td class="num">${s.count}</td>
+          <td class="num">${fmtMs(s.p75)}</td>
+          <td class="num">${fmtMs(s.p98)}</td>
+          <td class="num">${fmtMs(s.worst)}</td>
+          <td class="num">${fmtMs(s.medInput)}</td>
+          <td class="num">${fmtMs(s.medProc)}</td>
+          <td class="num">${fmtMs(s.medPres)}</td>
+          <td class="num">${acc}</td>
+          <td class="num ${missCls}">${s.misses}${s.ghosts ? ` (+${s.ghosts} ghost)` : ''}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    if (!snap.recent.length) {
+      recentBody.innerHTML = '<tr><td colspan="8" class="left note">None recorded yet.</td></tr>';
+    } else {
+      recentBody.innerHTML = snap.recent.map((r) => {
+        const modeLabel = MODES.find((m) => m.id === r.mode)?.short ?? r.mode;
+        return `<tr>
+          <td class="num">${r.name}</td>
+          <td class="left">${modeLabel}</td>
+          <td class="num">${r.count}</td>
+          <td class="num">&lt;${r.targetTag}&gt;</td>
+          <td class="num">${fmtMs(r.inputDelay)}</td>
+          <td class="num">${fmtMs(r.processingDuration)}</td>
+          <td class="num">${fmtMs(r.presentationDelay)}</td>
+          <td class="num">${fmtMs(r.duration)}</td>
+        </tr>`;
+      }).join('');
+    }
+  }
+
+  let arena = null;
+  const recorder = createInpRecorder(
+    stageEl,
+    () => ({ mode: arena?.getMode() ?? '2d', count: arena?.getCount() ?? 12 }),
+    renderInpDashboard,
+  );
+
+  arena = createArena(stageEl, noticeEl, {
+    onModeChange: (m) => syncModeButtons(m),
+    onFrameStats: ({ mode, count, jsMs, frameMs, fps, paintsPerSec }) => {
+      const mLabel = MODES.find((m) => m.id === mode)?.short ?? mode;
+      const paintText = mode === 'dom' ? '' : `, ${paintsPerSec.toFixed(1)} paints/s`;
+      telemetryEl.textContent = `${mLabel} | ${count} buttons + 1 input | JS ${fmtMs(jsMs)}/frame | frame ${fmtMs(frameMs)} (${fps ? fps.toFixed(0) : '-'} fps)${paintText}`;
+    },
+    onHitProbe: (probe) => {
+      recorder.recordHitProbe(probe);
+      if (probe.kind === 'hit') {
+        kpiLast.textContent = `Hit (${probe.visualLabel})`;
+        kpiLast.className = 'kpi-value ok';
+        kpiLastSub.textContent = `Browser delivered pointerdown to <${probe.targetTag}>`;
+      } else if (probe.kind === 'miss') {
+        kpiLast.textContent = `Missed (${probe.visualLabel})`;
+        kpiLast.className = 'kpi-value bad';
+        kpiLastSub.textContent = `Hit <${probe.targetTag}> instead; hit box drifted ${Math.round(probe.driftPx)} px`;
+      } else {
+        kpiLast.textContent = 'Ghost hit';
+        kpiLast.className = 'kpi-value bad';
+        kpiLastSub.textContent = `Hit stale <${probe.targetTag}> where nothing is drawn (${Math.round(probe.driftPx)} px away)`;
+      }
+    },
+  });
+
+  syncModeButtons(arena.getMode());
+  syncCountButtons(arena.getCount());
+  toggleMotionBtn.textContent = arena.isPaused() ? 'Resume motion' : 'Pause motion';
+  renderInpDashboard(recorder.snapshot());
+
+  for (const b of modeBtns) {
+    b.addEventListener('click', () => {
+      const next = arena.setMode(b.dataset.mode);
+      syncModeButtons(next);
+    });
+  }
+
+  for (const b of countBtns) {
+    b.addEventListener('click', () => {
+      const n = Number(b.dataset.count);
+      arena.setCount(n);
+      syncCountButtons(n);
+    });
+  }
+
+  toggleMotionBtn.addEventListener('click', () => {
+    const p = arena.setPaused(!arena.isPaused());
+    toggleMotionBtn.textContent = p ? 'Resume motion' : 'Pause motion';
+  });
+
+  resetStatsBtn.addEventListener('click', () => {
+    recorder.reset();
+    kpiLast.textContent = '-';
+    kpiLast.className = 'kpi-value';
+    kpiLastSub.textContent = 'Waiting for input';
+  });
+
+  function renderSweepRow(r) {
+    const hitText = !r.probe.visible
+      ? 'off-screen'
+      : `${r.probe.hits}/${r.probe.total}${r.probe.ghosts ? ` (${r.probe.ghosts} ghost)` : ''}`;
+    const hitCls = !r.probe.visible ? '' : r.probe.hits === r.probe.total && r.probe.ghosts === 0 ? 'ok' : 'bad';
+    const loafText = r.loafCount ? `${r.loafCount} (max ${r.loafMax.toFixed(0)} ms)` : '0';
+    return `<tr>
+      <td class="num">${r.count}</td>
+      <td class="left">${r.label}</td>
+      <td class="num">${fmtMs(r.jsMed)}</td>
+      <td class="num">${fmtMs(r.jsP95)}</td>
+      <td class="num">${r.geomMed != null ? fmtMs(r.geomMed) : '-'}</td>
+      <td class="num">${fmtMs(r.frameMed)}</td>
+      <td class="num">${loafText}</td>
+      <td class="left ${hitCls}">${hitText}</td>
+    </tr>`;
+  }
+
+  runSweepBtn.addEventListener('click', async () => {
+    runSweepBtn.disabled = true;
+    stopSweepBtn.disabled = false;
+    sweepSummary.hidden = true;
+    sweepStage.hidden = false;
+    sweepBody.replaceChildren();
+    lastSweepRows = [];
+    sweepAbort = new AbortController();
+
+    // Pause and retire the live arena so the sweep owns the single WebGL context and CPU budget cleanly.
+    arena.suspend();
+    try {
+      const rows = await runOverheadSweep(sweepStage, {
+        signal: sweepAbort.signal,
+        onStatus: (text) => { sweepStatus.textContent = text; },
+        onRow: (row) => {
+          lastSweepRows.push(row);
+          sweepBody.insertAdjacentHTML('beforeend', renderSweepRow(row));
+        },
+      });
+      const r200Stale = rows.find((r) => r.count === 200 && r.route === 'gl-stale');
+      const r200Bust = rows.find((r) => r.count === 200 && r.route === 'gl-bust');
+      const r200TwoD = rows.find((r) => r.count === 200 && r.route === '2d');
+      const staleMissTotal = rows.filter((r) => r.route === 'gl-stale' && r.probe.visible).reduce((a, r) => a + (r.probe.total - r.probe.hits), 0);
+      const bustMissTotal = rows.filter((r) => r.route === 'gl-bust' && r.probe.visible).reduce((a, r) => a + (r.probe.total - r.probe.hits), 0);
+
+      let summaryText = sweepAbort.signal.aborted
+        ? `Stopped after ${rows.length} steps.`
+        : `Sweep finished (${rows.length} steps).`;
+      if (r200Stale && r200Bust) {
+        summaryText += ` At 200 controls: 2D ${fmtMs(r200TwoD?.jsMed)}, WebGL geometry-only ${fmtMs(r200Stale.geomMed)} (${fmtMs(r200Stale.frameMed)}/frame), WebGL + toggleAttribute ${fmtMs(r200Bust.geomMed)} (${fmtMs(r200Bust.frameMed)}/frame). Stale misses across counts: ${staleMissTotal} without toggle, ${bustMissTotal} with toggle.`;
+      }
+      sweepStatus.textContent = sweepAbort.signal.aborted ? 'Stopped.' : 'Done.';
+      sweepSummary.textContent = summaryText;
+      sweepSummary.hidden = false;
+
+      if (!sweepAbort.signal.aborted && rows.length) {
+        window.__gfx?.report?.('perf-inp', summaryText, {
+          dpr: devicePixelRatio,
+          cores: navigator.hardwareConcurrency ?? null,
+          inpOverall: lastInpSnap?.overall ?? null,
+          hitOverall: lastInpSnap?.hitOverall ?? null,
+          sweep: rows.map((r) => ({
+            n: r.count,
+            route: r.route,
+            jsMed: r.jsMed != null ? +r.jsMed.toFixed(2) : null,
+            geomMed: r.geomMed != null ? +r.geomMed.toFixed(2) : null,
+            frameMed: r.frameMed != null ? +r.frameMed.toFixed(2) : null,
+            loafs: r.loafCount,
+            hits: r.probe.visible ? `${r.probe.hits}/${r.probe.total}` : 'off-screen',
+            ghosts: r.probe.ghosts,
+          })),
+        });
+      }
+    } finally {
+      sweepStage.hidden = true;
+      runSweepBtn.disabled = false;
+      stopSweepBtn.disabled = true;
+      sweepAbort = null;
+      arena.resume();
+    }
+  });
+
+  stopSweepBtn.addEventListener('click', () => {
+    sweepAbort?.abort();
+  });
+
+  copyMdBtn.addEventListener('click', async () => {
+    const md = formatMarkdownReport({ inpSnap: lastInpSnap, sweepRows: lastSweepRows });
+    try {
+      await navigator.clipboard.writeText(md);
+      sweepStatus.textContent = 'Copied Markdown report to clipboard.';
+    } catch {
+      sweepStatus.textContent = 'Clipboard write failed; check browser permissions.';
+    }
+  });
+
+  runTests($('#checks-body'), buildLiveChecks());
+</script>
+</body>
+</html>

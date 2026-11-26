@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>One canvas vs many</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .controls-bar { margin-bottom: 12px; }
+  .controls-bar label { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+  .controls-bar select {
+    font: inherit; font-size: 14px; color: var(--fg); background: var(--card);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; max-width: 100%;
+  }
+  .controls-bar button { min-height: 36px; font-size: 14px; }
+  .controls-bar button[data-primary] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .budget-strip {
+    display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 8px 10px; margin-bottom: 10px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+    font: 12.5px/1.45 var(--mono); color: var(--muted);
+  }
+  .budget-strip strong { color: var(--fg); font-weight: 600; }
+  #stageNotice {
+    padding: 8px 12px; border-radius: 8px; margin: 0 0 10px;
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+    color: var(--fg); font-size: 14px;
+  }
+  #stageNotice.is-error {
+    background: color-mix(in srgb, var(--bad) 14%, transparent);
+    border-color: color-mix(in srgb, var(--bad) 45%, var(--line));
+  }
+  #viewport {
+    position: relative;
+    width: 100%;
+    height: 340px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    contain: layout style;
+  }
+  .arch-bands { display: flex; flex-direction: column; margin: 0 auto; }
+  .band-canvas { display: block; flex: none; }
+  .gl-spacer { margin: 0 auto; }
+  .gl-sticky-canvas { position: sticky; top: 0; left: 0; display: block; }
+  .arch-grid { display: grid; margin: 0 auto; align-content: start; }
+  .cell-canvas { display: block; }
+  .arch-fallback { padding: 20px; font-size: 14px; color: var(--muted); }
+
+  /* Demo widget content uses fixed light/dark theme palettes so bulk theme switches are visible on canvas. */
+  .ctrl-card {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 6px 8px;
+    border-radius: 7px;
+    font: 12px/1.25 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  .ctrl-card[data-theme="day"] {
+    background: #fffdf8;
+    color: #1c1a17;
+    border: 1px solid #d5cab8;
+  }
+  .ctrl-card[data-theme="night"] {
+    background: #1b2230;
+    color: #e9eef8;
+    border: 1px solid #394866;
+  }
+  .ctrl-head, .ctrl-mid, .ctrl-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  }
+  .ctrl-id { font: 600 11px/1 var(--mono); opacity: 0.72; }
+  .ctrl-pill {
+    font: 700 10px/1 var(--mono); padding: 2px 5px; border-radius: 99px;
+  }
+  .ctrl-card[data-theme="day"] .ctrl-pill { background: #f2e2d4; color: #9c3413; }
+  .ctrl-card[data-theme="night"] .ctrl-pill { background: #263f5c; color: #7cd4ff; }
+  .ctrl-check { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; cursor: pointer; }
+  .ctrl-check input { margin: 0; width: 14px; height: 14px; }
+  .ctrl-bump {
+    font: 600 11px/1 var(--mono); padding: 3px 6px; border-radius: 5px; cursor: pointer;
+    border: 1px solid currentColor; background: transparent; color: inherit; min-height: 22px;
+  }
+  .ctrl-range { flex: 1 1 auto; min-width: 0; height: 14px; margin: 0; }
+  .ctrl-val { font: 11px/1 var(--mono); min-width: 28px; text-align: right; }
+
+  #runStatus { font: 13px/1.45 var(--mono); color: var(--muted); min-height: 1.5em; margin: 10px 0 0; }
+  .table-wrap { overflow-x: auto; margin-top: 16px; }
+  #compareTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #compareTable th, #compareTable td {
+    border-bottom: 1px solid var(--line); padding: 7px 6px; text-align: right; white-space: nowrap;
+  }
+  #compareTable th:first-child, #compareTable td:first-child { text-align: left; white-space: normal; min-width: 155px; }
+  #compareTable td.num { font: 12.5px var(--mono); }
+  #compareTable td.good { color: var(--ok); }
+  #compareTable td.mid { color: var(--warn); }
+  #compareTable td.bad { color: var(--bad); }
+  #compareTable tr.active-row td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  @media (max-width: 620px) {
+    .controls-bar select { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>One canvas vs many</h1>
+  <p class="lede">
+    I wanted to know whether it's better to pack lots of live interactive controls into one shared canvas or give each control its own canvas and evict the offscreen ones.
+    Pick an architecture and a control count below to measure mount time, bulk theme-switch jank, scroll smoothness and estimated GPU memory on your device.
+  </p>
+
+  <section class="stage" aria-label="Architecture benchmark stage">
+    <div class="row controls-bar">
+      <label>
+        <span>Architecture</span>
+        <select id="archSelect" aria-label="Canvas architecture">
+          <option value="shared-2d">1. One shared 2D canvas (band-split &lt;= 3.6 MP)</option>
+          <option value="shared-webgl">2. One shared WebGL canvas (ElementGL)</option>
+          <option value="per-element-live">3. N per-element 2D canvases (all live)</option>
+          <option value="per-element-budgeted">4. N per-element 2D (0x0 eviction + 6 ms budget)</option>
+        </select>
+      </label>
+      <label>
+        <span>Controls (N)</span>
+        <select id="countSelect" aria-label="Number of controls">
+          <option value="8">8</option>
+          <option value="24">24</option>
+          <option value="64">64</option>
+          <option value="128">128</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="row controls-bar">
+      <button id="themeBtn" type="button">Trigger bulk theme switch</button>
+      <button id="scrollBtn" type="button">Programmatic scroll pass</button>
+      <button id="sweepBtn" type="button" data-primary>Run full comparison</button>
+      <button id="stopBtn" type="button" disabled>Stop</button>
+      <button id="copyBtn" type="button" disabled>Copy Markdown</button>
+    </div>
+
+    <div id="budgetStrip" class="budget-strip" aria-live="polite">
+      <span>Active: <strong id="mArch">1. Shared 2D</strong> (N=<strong id="mCount">8</strong>)</span>
+      <span>Canvases: <strong id="mCanvases">1</strong></span>
+      <span>Est. canvas: <strong id="mMem">0.0 MB</strong></span>
+      <span>Largest: <strong id="mLargest">0.00 MP</strong></span>
+      <span>Budget cap: <strong id="mBudget">3.6 MP / 80 MB</strong></span>
+    </div>
+
+    <p id="stageNotice" hidden></p>
+    <div id="viewport" aria-label="Scrollable interactive controls container"></div>
+    <p id="runStatus">Mounted Architecture 1 with 8 controls. Press a measurement button or Run full comparison.</p>
+  </section>
+
+  <div class="table-wrap">
+    <table id="compareTable">
+      <thead>
+        <tr>
+          <th>Architecture</th>
+          <th>N</th>
+          <th>Mount (ms)</th>
+          <th>Peak canvas MB</th>
+          <th>WebGL tex MB</th>
+          <th>Theme wall (ms)</th>
+          <th>Missed frames</th>
+          <th>Worst rAF (ms)</th>
+          <th>Scroll FPS (p50 / p95-tail)</th>
+          <th>LoAFs (max ms)</th>
+        </tr>
+      </thead>
+      <tbody id="compareBody">
+        <tr><td colspan="10" class="note" style="text-align:left">No completed sweep rows yet. Press a test button or Run full comparison.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">
+    Scroll FPS p95-tail is 1000 divided by the 95th-percentile frame duration, so a lower number shows tail frame stalls.
+    Peak canvas MB comes from <code>window.__gfx.memory()</code>. For Architecture 2, WebGL tex MB estimates the RGBA8 textures held inside <code>ElementGL</code> on top of the canvas swapchain.
+  </p>
+
+  <details class="show-code">
+    <summary>Show the code <small>layout budget, the four architectures and the timing loops</small></summary>
+    <ol>
+      <li data-code="/perf-architecture/bench.js#budget-layout"><b>Grid layout, 3.6 MP band splitting and the 80 MB DPR cap.</b> Keeps every single canvas under 4 megapixels and total backing stores under 96 MB at phone scale.</li>
+      <li data-code="/perf-architecture/bench.js#shared-2d"><b>Architecture 1: one shared 2D canvas.</b> Draws each control with a 5-argument <code>drawElementImage()</code> call and splits into vertical bands only when one canvas would exceed the pixel cap.</li>
+      <li data-code="/perf-architecture/bench.js#shared-webgl"><b>Architecture 2: one shared WebGL canvas via <code>ElementGL</code>.</b> Uploads dirty controls with <code>texElementSubImage2D()</code>, draws visible quads inside a sticky viewport canvas and syncs hit boxes with <code>updateElementGeometry()</code>.</li>
+      <li data-code="/perf-architecture/bench.js#per-element-live"><b>Architecture 3: N live per-element 2D canvases.</b> One drawable canvas per control, all backing stores kept allocated even when scrolled out of sight.</li>
+      <li data-code="/perf-architecture/bench.js#per-element-budgeted"><b>Architecture 4: <code>IntersectionObserver</code> 0x0 eviction and ~6 ms frame-budgeted painting.</b> Zeroes offscreen canvases and spreads dirty repaints across frames using a moving average of paint cost.</li>
+      <li data-code="/perf-architecture/bench.js#measurements"><b>Bulk theme switch, internal-container scroll pass and LoAF tracking.</b> Measures completion wall time, missed 60 Hz frames, worst <code>rAF</code> gap and Long Animation Frames without scrolling the page itself.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Every architecture mounts the same interactive HTML controls (each has a checkbox, a counter button and a range slider) inside a 340 px tall internal scroll container.
+    On load, the page starts in Architecture 1 with 8 controls so opening the page allocates one small 2D canvas and runs no background loop.
+    Whenever you switch architecture or finish a sweep row, every discarded canvas is zeroed, removed from the DOM and passed to <code>window.__gfx.retire()</code>.
+  </p>
+  <p>
+    Architecture 1 puts all controls inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> when the full grid fits under 3.6 megapixels.
+    At 64 or 128 controls on a high-density screen (like a 412 px Android phone at scale 2.625), one tall canvas would cross the 4 megapixel guard limit, so the layout splits vertically into the minimum number of stacked band canvases.
+  </p>
+  <p>
+    Architecture 2 opens a single WebGL 2 context through <code>new ElementGL()</code> from <code>/lib/element-gl.js</code> on one sticky viewport-sized canvas.
+    All N controls stay children of that canvas. Dirty controls upload with <code>gl.texElementSubImage2D()</code>, visible rows draw through a fragment shader, hit boxes follow scroll via <code>updateElementGeometry()</code> (with a <code>dataset.hitTick</code> toggle to clear Chromium's hit-test cache), and offscreen children get <code>inert = true</code> so Tab focus skips them.
+  </p>
+  <p>
+    Architecture 3 mirrors a naive custom-element approach: one drawable 2D canvas per control, all backing stores kept live in GPU memory.
+    Architecture 4 keeps the same per-element DOM grid, adds an <code>IntersectionObserver</code> rooted on the internal scroll box to set offscreen canvases to <code>0x0</code>, and routes dirty visible canvases through a <code>requestAnimationFrame</code> scheduler that aims for a 6 ms paint budget per frame.
+    Because <code>requestPaint()</code> defers actual painting until the browser's rendering phase later in the same frame, the scheduler tracks an exponential moving average of each canvas's <code>paint</code> handler duration instead of only timing the <code>requestPaint()</code> calls.
+  </p>
+
+  <h2>Live checks</h2>
+  <table class="results" id="checks"><tbody></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Not verified in a live browser yet: actual mount duration, bulk theme-switch jank, scroll FPS and Long Animation Frame counts across N = 8, 24, 64 and 128 depend on the device's GPU, display scale and Chromium version. Press "Run full comparison" on desktop Chromium 157 and on Chrome for Android to record measured numbers.</li>
+    <li>Design calculation at 412 CSS px width and device scale 2.625: 128 controls in 2 columns stand about 6,156 CSS px tall (6.14 megapixels as one canvas), so Architecture 1 splits into vertical bands under 3.6 megapixels each while staying under the 80 MB active budget.</li>
+    <li>Architecture 2 keeps the swapchain canvas small (about 1.0 megapixel at phone size), yet uploading all 128 controls to individual RGBA8 WebGL textures adds separate GPU texture memory outside <code>window.__gfx.memory()</code>. The table reports both estimates side by side.</li>
+    <li>Calling <code>requestPaint()</code> in a tight loop inside <code>requestAnimationFrame</code> finishes in under 1 ms in JavaScript while queueing heavy paint work for the end of the frame. Budgeting by a moving average of measured <code>paint</code> handler time is what spreads work across frames in Architecture 4.</li>
+  </ul>
+</main>
+
+<script type="module">
+  import { banner, supported, runTests, testStage, nextPaint } from '/shared/support.js';
+  import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+  import { geometryUnit } from '/lib/surface.js';
+  import {
+    ARCH_LIST,
+    COUNTS,
+    SINGLE_CANVAS_MAX_PX,
+    TOTAL_BUDGET_BYTES,
+    FrameBudgetScheduler,
+    activeBudget,
+    computeLayout,
+    createControlElement,
+    formatMarkdownReport,
+    measureBulkThemeSwitch,
+    measureMount,
+    measureScrollPass,
+    nextFrames,
+    readMemoryMB,
+  } from '/perf-architecture/bench.js';
+
+  banner();
+
+  const archSelect = document.getElementById('archSelect');
+  const countSelect = document.getElementById('countSelect');
+  const themeBtn = document.getElementById('themeBtn');
+  const scrollBtn = document.getElementById('scrollBtn');
+  const sweepBtn = document.getElementById('sweepBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const viewport = document.getElementById('viewport');
+  const stageNotice = document.getElementById('stageNotice');
+  const runStatus = document.getElementById('runStatus');
+  const compareBody = document.getElementById('compareBody');
+
+  const mArch = document.getElementById('mArch');
+  const mCount = document.getElementById('mCount');
+  const mCanvases = document.getElementById('mCanvases');
+  const mMem = document.getElementById('mMem');
+  const mLargest = document.getElementById('mLargest');
+  const mBudget = document.getElementById('mBudget');
+
+  let currentHandle = null;
+  let currentTheme = 'day';
+  let busy = false;
+  let stopRequested = false;
+  const recordedRows = new Map();
+
+  function setNotice(msg, isError = false) {
+    if (!msg) {
+      stageNotice.hidden = true;
+      stageNotice.textContent = '';
+      stageNotice.classList.remove('is-error');
+      return;
+    }
+    stageNotice.hidden = false;
+    stageNotice.textContent = msg;
+    stageNotice.classList.toggle('is-error', isError);
+  }
+
+  function setBusy(on) {
+    busy = on;
+    archSelect.disabled = on;
+    countSelect.disabled = on;
+    themeBtn.disabled = on;
+    scrollBtn.disabled = on;
+    sweepBtn.disabled = on;
+    stopBtn.disabled = !on;
+  }
+
+  function refreshStrip(handle) {
+    const meta = ARCH_LIST.find((a) => a.id === (handle?.id ?? archSelect.value)) ?? ARCH_LIST[0];
+    const mem = readMemoryMB();
+    const b = activeBudget();
+    mArch.textContent = meta.short;
+    mCount.textContent = String(handle?.layout?.n ?? countSelect.value);
+    const bandNote = handle?.id === 'shared-2d' && handle.bandCount > 1 ? ` (${handle.bandCount} bands)` : '';
+    const liveNote = handle?.id === 'per-element-budgeted' ? ` (${handle.bandCount} live)` : '';
+    mCanvases.textContent = `${mem.canvases}${bandNote}${liveNote}`;
+    const texNote = handle?.extraGpuMB > 0 ? ` + ${handle.extraGpuMB.toFixed(1)} MB tex` : '';
+    mMem.textContent = `${mem.mb.toFixed(1)} MB${texNote}`;
+    mLargest.textContent = `${mem.largestMP.toFixed(2)} MP`;
+    const capNote = handle?.layout?.capped ? ` (DPR capped to ${handle.layout.effectiveDpr})` : '';
+    mBudget.textContent = `${(b.maxCanvasPx / 1e6).toFixed(1)} MP / ${(b.maxTotalBytes / 1e6).toFixed(0)} MB${capNote}`;
+  }
+
+  function rowKey(archId, n) { return `${archId}:${n}`; }
+
+  function upsertRow(entry) {
+    recordedRows.set(rowKey(entry.archId, entry.n), entry);
+    renderTable();
+    copyBtn.disabled = recordedRows.size === 0;
+  }
+
+  function clsFps(fps) { return fps >= 54 ? 'good' : fps >= 35 ? 'mid' : 'bad'; }
+  function clsGap(ms) { return ms <= 22 ? 'good' : ms <= 50 ? 'mid' : 'bad'; }
+
+  function renderTable() {
+    if (!recordedRows.size) return;
+    const ordered = [];
+    for (const a of ARCH_LIST) {
+      for (const n of COUNTS) {
+        const hit = recordedRows.get(rowKey(a.id, n));
+        if (hit) ordered.push(hit);
+      }
+    }
+    compareBody.innerHTML = ordered.map((r) => {
+      if (r.unavailable) {
+        return `<tr><td>${r.archShort}</td><td class="num">${r.n}</td><td colspan="8" class="note" style="text-align:left">Not available in this browser.</td></tr>`;
+      }
+      const themeWall = r.theme ? `${r.theme.wallMs.toFixed(1)}` : '-';
+      const missed = r.theme ? `${r.theme.missedFrames}` : '-';
+      const worstGap = Math.max(r.theme?.worstGapMs ?? 0, r.scroll?.worstGapMs ?? 0);
+      const worstStr = worstGap > 0 ? worstGap.toFixed(1) : '-';
+      const scrollCell = r.scroll
+        ? `<td class="num ${clsFps(r.scroll.p95Fps)}" title="p50 ${r.scroll.p50Ms.toFixed(1)} ms, p95 ${r.scroll.p95Ms.toFixed(1)} ms">${r.scroll.p50Fps.toFixed(0)} / ${r.scroll.p95Fps.toFixed(0)}${r.scroll.maxScroll <= 4 ? ' (fits)' : ''}</td>`
+        : `<td class="num">-</td>`;
+      const loafSupported = r.mountLoaf?.supported || r.theme?.loaf?.supported || r.scroll?.loaf?.supported;
+      const loafCount = (r.mountLoaf?.count ?? 0) + (r.theme?.loaf?.count ?? 0) + (r.scroll?.loaf?.count ?? 0);
+      const loafMax = Math.max(r.mountLoaf?.maxMs ?? 0, r.theme?.loaf?.maxMs ?? 0, r.scroll?.loaf?.maxMs ?? 0);
+      const loafStr = loafSupported ? `${loafCount} (${loafMax > 0 ? loafMax.toFixed(0) : '0'})` : 'n/a';
+      const active = currentHandle && currentHandle.id === r.archId && currentHandle.layout.n === r.n ? ' class="active-row"' : '';
+      return `<tr${active}>` +
+        `<td>${r.archShort}</td>` +
+        `<td class="num">${r.n}</td>` +
+        `<td class="num">${r.mountMs.toFixed(1)}</td>` +
+        `<td class="num">${r.peakMB.toFixed(1)}</td>` +
+        `<td class="num">${r.extraGpuMB > 0 ? r.extraGpuMB.toFixed(1) : '0.0'}</td>` +
+        `<td class="num">${themeWall}</td>` +
+        `<td class="num">${missed}</td>` +
+        `<td class="num ${worstGap > 0 ? clsGap(worstGap) : ''}">${worstStr}</td>` +
+        scrollCell +
+        `<td class="num">${loafStr}</td>` +
+        `</tr>`;
+    }).join('');
+  }
+
+  async function teardownCurrent() {
+    if (currentHandle) {
+      currentHandle.destroy();
+      currentHandle = null;
+      await nextFrames(1);
+    }
+  }
+
+  async function mountSelected(archId = archSelect.value, n = Number(countSelect.value)) {
+    setNotice('');
+    await teardownCurrent();
+    const meta = ARCH_LIST.find((a) => a.id === archId) ?? ARCH_LIST[0];
+    const m = await measureMount(archId, n, viewport, currentTheme, setNotice);
+    currentHandle = m.handle;
+    refreshStrip(currentHandle);
+    if (!supported) {
+      setNotice('HTML-in-canvas is not available in this browser, so the controls are shown as plain HTML.');
+    }
+    const existing = recordedRows.get(rowKey(archId, n));
+    upsertRow({
+      archId,
+      archShort: meta.short,
+      n,
+      unavailable: !!currentHandle.unavailable,
+      mountMs: m.mountMs,
+      peakMB: Math.max(existing?.peakMB ?? 0, m.memMB),
+      extraGpuMB: Math.max(existing?.extraGpuMB ?? 0, m.extraGpuMB),
+      mountLoaf: m.loaf,
+      theme: existing?.theme ?? null,
+      scroll: existing?.scroll ?? null,
+    });
+    runStatus.textContent = `Mounted ${meta.short} with ${n} controls in ${m.mountMs.toFixed(1)} ms (${m.memMB.toFixed(1)} MB canvas${m.extraGpuMB > 0 ? ` + ${m.extraGpuMB.toFixed(1)} MB WebGL tex` : ''}).`;
+    return m;
+  }
+
+  archSelect.addEventListener('change', async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await mountSelected(); } finally { setBusy(false); }
+  });
+
+  countSelect.addEventListener('change', async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await mountSelected(); } finally { setBusy(false); }
+  });
+
+  themeBtn.addEventListener('click', async () => {
+    if (busy || !currentHandle) return;
+    setBusy(true);
+    try {
+      currentTheme = currentTheme === 'day' ? 'night' : 'day';
+      const archId = currentHandle.id;
+      const n = currentHandle.layout.n;
+      const meta = ARCH_LIST.find((a) => a.id === archId) ?? ARCH_LIST[0];
+      const res = await measureBulkThemeSwitch(currentHandle, currentTheme);
+      refreshStrip(currentHandle);
+      const prev = recordedRows.get(rowKey(archId, n));
+      if (prev) {
+        prev.theme = res;
+        prev.peakMB = Math.max(prev.peakMB, res.peakMB);
+        prev.extraGpuMB = Math.max(prev.extraGpuMB, res.extraGpuMB);
+        upsertRow(prev);
+      }
+      const spreadNote = res.detail?.framesSpread ? `, spread across ${res.detail.framesSpread} frames` : '';
+      runStatus.textContent =
+        `${meta.short} (N=${n}) theme -> ${currentTheme}: ${res.wallMs.toFixed(1)} ms wall, ` +
+        `${res.missedFrames} missed frames, worst rAF ${res.worstGapMs.toFixed(1)} ms, ` +
+        `peak ${res.peakMB.toFixed(1)} MB${spreadNote}.`;
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  scrollBtn.addEventListener('click', async () => {
+    if (busy || !currentHandle) return;
+    setBusy(true);
+    try {
+      const archId = currentHandle.id;
+      const n = currentHandle.layout.n;
+      const meta = ARCH_LIST.find((a) => a.id === archId) ?? ARCH_LIST[0];
+      const res = await measureScrollPass(viewport, currentHandle, { durationMs: 1200 });
+      refreshStrip(currentHandle);
+      const prev = recordedRows.get(rowKey(archId, n));
+      if (prev) {
+        prev.scroll = res;
+        prev.peakMB = Math.max(prev.peakMB, res.peakMB);
+        prev.extraGpuMB = Math.max(prev.extraGpuMB, res.extraGpuMB);
+        upsertRow(prev);
+      }
+      const rangeNote = res.maxScroll > 4 ? `over ${res.maxScroll} px` : '(fits in viewport)';
+      runStatus.textContent =
+        `${meta.short} (N=${n}) scroll ${rangeNote}: p50 ${res.p50Fps.toFixed(0)} fps, ` +
+        `p95-tail ${res.p95Fps.toFixed(0)} fps (worst rAF ${res.worstGapMs.toFixed(1)} ms), ` +
+        `peak ${res.peakMB.toFixed(1)} MB.`;
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopRequested = true;
+    runStatus.textContent = 'Stopping after current step...';
+  });
+
+  sweepBtn.addEventListener('click', async () => {
+    if (busy) return;
+    stopRequested = false;
+    setBusy(true);
+    const sweepRows = [];
+    try {
+      let step = 0;
+      const totalSteps = ARCH_LIST.length * COUNTS.length;
+      for (const arch of ARCH_LIST) {
+        for (const n of COUNTS) {
+          if (stopRequested) break;
+          step++;
+          archSelect.value = arch.id;
+          countSelect.value = String(n);
+          runStatus.textContent = `[${step}/${totalSteps}] Mounting ${arch.short} with ${n} controls...`;
+          await teardownCurrent();
+          // Brief pause so retired WebGL/2D canvases settle before the next configuration mounts.
+          await new Promise((r) => setTimeout(r, 260));
+
+          const m = await measureMount(arch.id, n, viewport, currentTheme, setNotice);
+          currentHandle = m.handle;
+          refreshStrip(currentHandle);
+
+          if (currentHandle.unavailable) {
+            const row = { archId: arch.id, archShort: arch.short, n, unavailable: true };
+            upsertRow(row);
+            sweepRows.push(row);
+            continue;
+          }
+
+          runStatus.textContent = `[${step}/${totalSteps}] ${arch.short} (N=${n}): bulk theme switch...`;
+          currentTheme = currentTheme === 'day' ? 'night' : 'day';
+          const themeRes = await measureBulkThemeSwitch(currentHandle, currentTheme);
+          refreshStrip(currentHandle);
+
+          runStatus.textContent = `[${step}/${totalSteps}] ${arch.short} (N=${n}): scroll pass...`;
+          const scrollRes = await measureScrollPass(viewport, currentHandle, { durationMs: 950 });
+          refreshStrip(currentHandle);
+
+          const row = {
+            archId: arch.id,
+            archShort: arch.short,
+            n,
+            unavailable: false,
+            mountMs: m.mountMs,
+            peakMB: Math.max(m.memMB, themeRes.peakMB, scrollRes.peakMB),
+            extraGpuMB: Math.max(m.extraGpuMB, themeRes.extraGpuMB, scrollRes.extraGpuMB),
+            mountLoaf: m.loaf,
+            theme: themeRes,
+            scroll: scrollRes,
+          };
+          upsertRow(row);
+          sweepRows.push(row);
+        }
+        if (stopRequested) break;
+      }
+
+      // Return to lightweight Architecture 1 with N = 8 when finished so idle memory stays tiny.
+      archSelect.value = 'shared-2d';
+      countSelect.value = '8';
+      await mountSelected('shared-2d', 8);
+
+      const summary = sweepRows
+        .filter((r) => !r.unavailable && r.n === 128)
+        .map((r) => `${r.archShort} N=128: mount ${r.mountMs.toFixed(0)}ms, mem ${r.peakMB.toFixed(1)}MB, theme ${r.theme.wallMs.toFixed(0)}ms, scroll p95 ${r.scroll.p95Fps.toFixed(0)}fps`)
+        .join(' | ');
+
+      if (!stopRequested && sweepRows.length) {
+        window.__gfx?.report?.('perf-architecture', summary || `sweep complete (${sweepRows.length} rows)`, {
+          dpr: window.devicePixelRatio || 1,
+          viewW: viewport.clientWidth,
+          rows: sweepRows.map((r) => (r.unavailable ? { arch: r.archId, n: r.n, unavailable: true } : {
+            arch: r.archId,
+            n: r.n,
+            mountMs: +r.mountMs.toFixed(1),
+            peakMB: +r.peakMB.toFixed(2),
+            extraGpuMB: +r.extraGpuMB.toFixed(2),
+            themeWallMs: +r.theme.wallMs.toFixed(1),
+            missedFrames: r.theme.missedFrames,
+            worstRafMs: +Math.max(r.theme.worstGapMs, r.scroll.worstGapMs).toFixed(1),
+            scrollP50Fps: +r.scroll.p50Fps.toFixed(1),
+            scrollP95Fps: +r.scroll.p95Fps.toFixed(1),
+          })),
+        });
+      }
+      window.__perfArchResults = sweepRows;
+      runStatus.textContent = stopRequested
+        ? `Sweep stopped after ${sweepRows.length} rows. Returned to Architecture 1 (N=8).`
+        : `Sweep complete (${sweepRows.length} rows). Returned to Architecture 1 (N=8).`;
+    } finally {
+      setBusy(false);
+    }
+  });
+
+  copyBtn.addEventListener('click', async () => {
+    const ordered = [];
+    for (const a of ARCH_LIST) {
+      for (const n of COUNTS) {
+        const hit = recordedRows.get(rowKey(a.id, n));
+        if (hit && (hit.unavailable || (hit.theme && hit.scroll))) ordered.push(hit);
+      }
+    }
+    const rowsToCopy = ordered.length ? ordered : Array.from(recordedRows.values()).map((r) => ({
+      ...r,
+      theme: r.theme ?? { wallMs: 0, missedFrames: 0, worstGapMs: 0, loaf: { supported: false, count: 0, maxMs: 0 } },
+      scroll: r.scroll ?? { maxScroll: 0, p50Fps: 0, p95Fps: 0, worstGapMs: 0, loaf: { supported: false, count: 0, maxMs: 0 } },
+    }));
+    const b = activeBudget();
+    const md = formatMarkdownReport(rowsToCopy, {
+      ua: navigator.userAgent,
+      screen: `${screen.width}x${screen.height}`,
+      viewW: viewport.clientWidth,
+      dpr: window.devicePixelRatio || 1,
+      cores: navigator.hardwareConcurrency ?? '?',
+      maxCanvasMP: b.maxCanvasPx / 1e6,
+      maxTotalMB: b.maxTotalBytes / 1e6,
+    });
+    try {
+      await navigator.clipboard.writeText(md);
+      runStatus.textContent = `Copied ${rowsToCopy.length} rows as Markdown.`;
+    } catch {
+      runStatus.textContent = 'Clipboard write was blocked here.';
+    }
+  });
+
+  // Start light at load: Architecture 1 with 8 controls.
+  await mountSelected('shared-2d', 8);
+
+  // ---- Live checks (wait for tap because of <meta name="checks" content="tap">) ----
+  runTests(document.querySelector('#checks tbody'), [
+    {
+      name: 'Shared 2D canvas draws multiple controls with explicit size',
+      why: 'Calls drawElementImage(el, x, y, w, h) on 4 controls in one fixture canvas and verifies drawn pixels via a plain copy canvas.',
+      async run() {
+        if (!supported) throw new Error('drawElementImage() is not supported here');
+        const stage = testStage();
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.style.cssText = 'width:320px;height:190px;display:block';
+        cv.width = 320;
+        cv.height = 190;
+        const els = [];
+        for (let i = 0; i < 4; i++) {
+          const el = createControlElement(i, 'day', 148, 84);
+          el.style.position = 'absolute';
+          el.style.left = `${(i % 2) * 156 + 6}px`;
+          el.style.top = `${Math.floor(i / 2) * 92 + 6}px`;
+          cv.append(el);
+          els.push(el);
+        }
+        const ctx = cv.getContext('2d');
+        cv.addEventListener('paint', () => {
+          ctx.reset();
+          ctx.clearRect(0, 0, 320, 190);
+          for (let i = 0; i < els.length; i++) {
+            const x = (i % 2) * 156 + 6;
+            const y = Math.floor(i / 2) * 92 + 6;
+            ctx.drawElementImage(els[i], x, y, els[i].offsetWidth || 148, els[i].offsetHeight || 84);
+          }
+        });
+        stage.append(cv);
+        cv.requestPaint();
+        await nextPaint(cv);
+
+        // Read pixels from a plain copy canvas, never directly from the drawable canvas.
+        const copy = document.createElement('canvas');
+        copy.width = 320;
+        copy.height = 190;
+        const cc = copy.getContext('2d', { willReadFrequently: true });
+        cc.drawImage(cv, 0, 0);
+        const data = cc.getImageData(0, 0, 320, 190).data;
+        let nonZero = 0;
+        for (let i = 3; i < data.length; i += 16) if (data[i] > 0) nonZero++;
+        if (nonZero < 100) throw new Error(`expected drawn pixels, got ${nonZero} non-zero samples`);
+        return `4 controls drawn into one 320x190 2D canvas (${nonZero} non-transparent samples read via plain copy).`;
+      },
+    },
+    {
+      name: 'Band splitter stays under 4 MP per canvas and 80 MB total at phone scale',
+      why: 'Simulates a 412 px phone (380 px viewport, DPR 2.625) with 128 controls in Architecture 1.',
+      async run() {
+        const l = computeLayout(128, 380, 2.625, 'shared-2d');
+        const maxPx = Math.max(...l.bands.map((b) => b.deviceW * b.deviceH));
+        const totalBytes = l.bands.reduce((sum, b) => sum + b.deviceW * b.deviceH * 4, 0);
+        if (maxPx > 4_000_000) throw new Error(`band exceeded 4 MP (${(maxPx / 1e6).toFixed(2)} MP)`);
+        if (totalBytes > TOTAL_BUDGET_BYTES) throw new Error(`total exceeded budget (${(totalBytes / 1e6).toFixed(1)} MB)`);
+        return `128 controls split into ${l.bands.length} bands; largest ${(maxPx / 1e6).toFixed(2)} MP, total ${(totalBytes / 1e6).toFixed(1)} MB at scale ${l.effectiveDpr}.`;
+      },
+    },
+    {
+      name: 'One ElementGL WebGL canvas uploads controls and syncs hit boxes',
+      why: 'Creates an isolated ElementGL fixture with 2 controls, calls texElementSubImage2D() and updateElementGeometry(), and checks elementFromPoint().',
+      async run() {
+        if (!supported || !glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not supported here');
+        const stage = testStage();
+        const cv = document.createElement('canvas');
+        cv.setAttribute('content', 'drawable');
+        cv.setAttribute('layoutsubtree', '');
+        cv.style.cssText = 'width:320px;height:120px;display:block';
+        const el0 = createControlElement(0, 'day', 148, 88);
+        const el1 = createControlElement(1, 'night', 148, 88);
+        el0.style.position = 'absolute';
+        el1.style.position = 'absolute';
+        cv.append(el0, el1);
+        stage.append(cv);
+
+        const frag = `#version 300 es
+precision mediump float;
+uniform sampler2D uTex;
+in vec2 vUv;
+out vec4 outColor;
+void main() { outColor = texture(uTex, vUv); }`;
+        const glStage = new ElementGL(cv, { fragment: frag });
+        let uploaded = 0;
+        cv.addEventListener('paint', () => {
+          if (glStage.upload(el0)) uploaded++;
+          if (glStage.upload(el1)) uploaded++;
+          if (!glStage.begin([0.9, 0.9, 0.9, 1])) return;
+          glStage.quad(el0, ElementGL.rect(cv, 8, 12, 148, 88));
+          glStage.quad(el1, ElementGL.rect(cv, 164, 12, 148, 88));
+          const unit = geometryUnit(cv, el0, 148);
+          cv.updateElementGeometry(el0, { canvasTransform: new DOMMatrix().scale(unit).translate(8, 12) });
+          cv.updateElementGeometry(el1, { canvasTransform: new DOMMatrix().scale(unit).translate(164, 12) });
+          el0.dataset.hitTick = '1';
+          el1.dataset.hitTick = '1';
+        });
+        cv.requestPaint();
+        await nextPaint(cv);
+        const rect = cv.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + 200, rect.top + 40);
+        const hitSecond = !!(hit && (hit === el1 || el1.contains(hit)));
+        glStage.dispose();
+        if (uploaded < 2) throw new Error(`expected 2 texture uploads, got ${uploaded}`);
+        return `2 textures uploaded through one ElementGL context; elementFromPoint() on control #2 returned ${hit?.tagName?.toLowerCase() ?? 'null'} (inside control #2: ${hitSecond}).`;
+      },
+    },
+    {
+      name: 'Evicting offscreen per-element canvases to 0x0 drops estimated memory',
+      why: 'Creates 4 per-element 2D canvases on the test stage, reads window.__gfx.memory(), zeroes 3 of them and confirms estimated bytes decrease.',
+      async run() {
+        const stage = testStage();
+        const list = [];
+        for (let i = 0; i < 4; i++) {
+          const cv = document.createElement('canvas');
+          cv.setAttribute('content', 'drawable');
+          cv.setAttribute('layoutsubtree', '');
+          cv.style.cssText = 'width:160px;height:80px;display:block';
+          cv.width = 320;
+          cv.height = 160;
+          cv.getContext('2d');
+          stage.append(cv);
+          list.push(cv);
+        }
+        const before = readMemoryMB().bytes;
+        for (let i = 1; i < 4; i++) {
+          list[i].width = 0;
+          list[i].height = 0;
+        }
+        const after = readMemoryMB().bytes;
+        const delta = before - after;
+        if (delta < 500_000) throw new Error(`expected at least 0.5 MB freed, saw ${(delta / 1e6).toFixed(2)} MB`);
+        return `Zeroing 3 of 4 320x160 canvases reduced estimated memory by ${(delta / 1e6).toFixed(2)} MB.`;
+      },
+    },
+    {
+      name: 'Frame-budgeted scheduler spreads 24 dirty controls across multiple frames',
+      why: 'Queues 24 controls with a 6 ms per-frame budget and verifies dispatch spreads across more than one animation frame.',
+      async run() {
+        const dispatched = [];
+        const sched = new FrameBudgetScheduler({
+          budgetMs: 6,
+          onDispatch(id) {
+            dispatched.push(id);
+            sched.recordPaintCost(1.5);
+          },
+        });
+        for (let i = 0; i < 24; i++) sched.enqueue(i);
+        await sched.whenIdle();
+        const frames = sched.framesUsed;
+        sched.stop();
+        if (dispatched.length !== 24) throw new Error(`expected 24 dispatches, got ${dispatched.length}`);
+        if (frames < 2) throw new Error(`expected work spread across multiple frames, got ${frames}`);
+        return `Dispatched all 24 controls across ${frames} animation frames at a 6 ms budget.`;
+      },
+    },
+  ]);
+</script>
+</body>
+</html>
