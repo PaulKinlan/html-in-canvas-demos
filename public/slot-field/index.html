@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<meta name="reduced-motion" content="warn">
+<meta name="reduced-motion-note" content="Slot gaps snap straight open or shut with zero spring motion when reduced motion is active, and shader noise steps pause.">
+<title>Splitting text lines and inline shader reveal</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Live editable essay inside an ElementGL WebGL 2 canvas. Hovering, tapping or selecting an anchor word slides neighbouring text lines apart vertically while animated GPU pixel blocks or an iridescent…">
+<link rel="canonical" href="https://html-in-canvas.page/slot-field/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Splitting text lines and inline shader reveal">
+<meta property="og:description" content="Live editable essay inside an ElementGL WebGL 2 canvas. Hovering, tapping or selecting an anchor word slides neighbouring text lines apart vertically while animated GPU pixel blocks or an iridescent…">
+<meta property="og:url" content="https://html-in-canvas.page/slot-field/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Splitting text lines and inline shader reveal&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-27">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Splitting text lines and inline shader reveal">
+<meta name="twitter:description" content="Live editable essay inside an ElementGL WebGL 2 canvas. Hovering, tapping or selecting an anchor word slides neighbouring text lines apart vertically while animated GPU pixel blocks or an iridescent…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Splitting text lines and inline shader reveal&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/slot-field/",
+   "url": "https://html-in-canvas.page/slot-field/",
+   "mainEntityOfPage": "https://html-in-canvas.page/slot-field/",
+   "headline": "Splitting text lines and inline shader reveal",
+   "name": "Splitting text lines and inline shader reveal",
+   "description": "Live editable essay inside an ElementGL WebGL 2 canvas. Hovering, tapping or selecting an anchor word slides neighbouring text lines apart vertically while animated GPU pixel blocks or an iridescent optical ribbon fill the opened slot.",
+   "abstract": "Can hovering, tapping or selecting an anchor keyword inside a live editable HTML essay cause surrounding lines to slide apart vertically, holding the word steady inside an illuminated slot while GPU pixel blocks or an optical GLSL ribbon fill the gap, with zero DOM text reflow and working links and selection?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-27",
+   "keywords": "WebGL, ElementGL, text, Range, updateElementGeometry, texElementSubImage2D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Splitting text lines and inline shader reveal",
+     "item": "https://html-in-canvas.page/slot-field/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  main { max-width: 880px; }
+
+  .slot-stage {
+    padding: 12px;
+  }
+
+  .stage-frame {
+    position: relative;
+    width: 100%;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #111318;
+    border: 1px solid var(--line);
+  }
+
+  .stage-frame.is-plain {
+    background: #faf8f3;
+    overflow: visible;
+  }
+
+  #slot-canvas {
+    display: block;
+    width: 100%;
+    height: 410px;
+    touch-action: pan-y;
+    overflow-anchor: none;
+  }
+
+  .stage-frame.is-plain #slot-canvas {
+    display: none;
+  }
+
+  .plain-host {
+    display: none;
+    width: 100%;
+  }
+
+  .stage-frame.is-plain .plain-host {
+    display: block;
+  }
+
+  /* Live editorial essay inside the drawable canvas */
+  .slot-article {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 20px 24px 18px;
+    background: #faf8f3;
+    color: #1c1b18;
+    font: 16px/1.9 Georgia, 'Times New Roman', serif;
+    user-select: text;
+    -webkit-user-select: text;
+    pointer-events: auto;
+  }
+
+  .stage-frame.is-plain .slot-article {
+    position: relative;
+    padding: 18px 18px 16px;
+  }
+
+  @media (max-width: 540px) {
+    .slot-article {
+      padding: 16px 15px 14px;
+      font-size: 15px;
+      line-height: 1.85;
+    }
+  }
+
+  .slot-article * {
+    box-sizing: border-box;
+  }
+
+  .slot-article::selection,
+  .slot-article ::selection {
+    background: #ffe182;
+    color: #1c1b18;
+  }
+
+  .essay-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    margin: 0 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e2ddd3;
+    font: 600 11px/1.3 var(--mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #6b655c;
+  }
+
+  .essay-hud {
+    color: #b43912;
+    font-weight: 700;
+  }
+
+  .slot-article p {
+    margin: 0 0 12px;
+  }
+
+  .slot-article p:last-of-type {
+    margin-bottom: 10px;
+  }
+
+  .slot-article .anchor-word {
+    display: inline;
+    font: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+    color: #b43912;
+    background: #f2e8df;
+    border: 0;
+    border-bottom: 1.5px solid #d2491f;
+    border-radius: 3px;
+    padding: 0 4px;
+    margin: 0 1px;
+    text-decoration: none;
+    cursor: pointer;
+    vertical-align: baseline;
+    white-space: nowrap;
+    -webkit-appearance: none;
+    appearance: none;
+    touch-action: manipulation;
+  }
+
+  .slot-article .anchor-word:hover,
+  .slot-article .anchor-word[aria-expanded="true"] {
+    background: #ffe5d2;
+    color: #882104;
+  }
+
+  .slot-article .anchor-word:focus-visible,
+  .slot-article .pin-toggle:focus-visible,
+  .slot-article .editable-line:focus-visible {
+    outline: 2.5px solid #d2491f;
+    outline-offset: 2px;
+  }
+
+  .slot-article .editable-line {
+    display: inline;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: #ede9df;
+    border-bottom: 1px dashed #6b655c;
+    color: #1c1b18;
+    cursor: text;
+    outline: none;
+  }
+
+  .essay-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #e2ddd3;
+    font: 12.5px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color: #5c574e;
+  }
+
+  .essay-foot code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: #1c1b18;
+  }
+
+  .pin-toggle {
+    min-height: 32px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #cfc8bc;
+    background: #ffffff;
+    color: #1c1b18;
+    font: 600 12px/1.2 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .pin-toggle[aria-pressed="true"] {
+    background: #1c1b18;
+    color: #faf8f3;
+    border-color: #1c1b18;
+  }
+
+  .slot-controls {
+    margin-top: 12px;
+    gap: 8px 10px;
+  }
+
+  .slot-controls label.ctrl-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    min-height: 40px;
+  }
+
+  .slot-controls select {
+    font: inherit;
+    min-height: 40px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--fg);
+  }
+
+  .slot-controls button {
+    min-height: 40px;
+  }
+
+  .anchor-bar {
+    margin-top: 8px;
+    gap: 8px;
+  }
+
+  .anchor-bar .bar-label {
+    font: 600 12px/1.2 var(--mono);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .anchor-chip {
+    min-height: 40px;
+    padding: 6px 12px;
+    border-radius: 99px;
+    font-size: 13.5px;
+    touch-action: manipulation;
+  }
+
+  .anchor-chip[aria-pressed="true"] {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+  }
+
+  #slot-notice {
+    margin: 8px 0 2px;
+    color: var(--warn);
+  }
+
+  #slot-status {
+    margin: 6px 0 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    min-height: 2.6em;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Splitting text lines and inline shader reveal</h1>
+  <p class="lede">
+    I saw Yousuf Soomro's <a href="https://x.com/YousufSoomroDev/status/2119735673834070171">Slot Field</a> and Manoela Ilic's <a href="https://tympanus.net/Demos/InlineHoverReveals/">Inline Hover Reveals</a> and wanted to know if one live HTML essay inside an <code>ElementGL</code> canvas can slide neighbouring lines apart vertically on the GPU without reflowing the DOM. Hover, tap or select an anchor word, edit the inline phrase, or switch between pixel blocks and the optical GLSL ribbon.
+  </p>
+
+  <div id="slot-stage" class="stage slot-stage">
+    <div id="stage-frame" class="stage-frame">
+      <canvas id="slot-canvas" content="drawable" layoutsubtree aria-label="Interactive editorial essay with line-splitting GPU slot field">
+        <!-- #region markup -->
+        <article id="slot-article" class="slot-article" drawable>
+          <header class="essay-head">
+            <span>Slot field essay · 4 anchors · 0 DOM reflow</span>
+            <output id="slot-hud" class="essay-hud">rest · click or hover</output>
+          </header>
+          <p>
+            When Chrome draws DOM into a <button type="button" class="anchor-word" data-slot="compositor" aria-expanded="false">compositor</button> texture, every glyph stays crisp inside one live element. I slice that picture along the anchor line bounds so surrounding prose parts vertically while <a href="#anchor-refraction" class="anchor-word" data-slot="refraction" aria-expanded="false">refraction</a> or pixel noise opens behind the chosen word.
+          </p>
+          <p>
+            Keeping <button type="button" class="anchor-word" data-slot="hit-testing" aria-expanded="false">hit-testing</button> honest takes a second step because WebGL texture uploads leave Chromium's click boxes at rest. Here the anchored line stays unshifted while neighbouring strips glide outward, and <a href="#anchor-glyphs" class="anchor-word" data-slot="glyphs" aria-expanded="false">glyphs</a> across the opened slot stay readable and selectable.
+          </p>
+          <p>
+            Type inside this <span id="editable-line" class="editable-line" contenteditable="true" spellcheck="false" role="textbox" aria-multiline="false" aria-label="Editable essay line">editable inline phrase</span> to trigger a fresh paint event and watch the cached <code>Range</code> line rectangles update without layout shift.
+          </p>
+          <footer class="essay-foot">
+            <span>Anchor line holds at <code>dy = 0 px</code> while outer strips slide <code>&plusmn;gap / 2</code>.</span>
+            <button type="button" id="pin-slot" class="pin-toggle" aria-pressed="false">Pin slot</button>
+          </footer>
+        </article>
+        <!-- #endregion -->
+      </canvas>
+      <div id="plain-host" class="plain-host" hidden></div>
+    </div>
+
+    <div class="row slot-controls">
+      <label class="ctrl-item">
+        Effect
+        <select id="mode-select">
+          <option value="blocks">Mode 1: Slot Field (pixel blocks)</option>
+          <option value="ribbon">Mode 2: Inline Shader Reveal (GLSL ribbon)</option>
+        </select>
+      </label>
+      <label class="ctrl-item">
+        Route
+        <select id="route-select">
+          <option value="webgl">WebGL 2 (ElementGL)</option>
+          <option value="2d">2D (9-arg slice)</option>
+        </select>
+      </label>
+      <button type="button" id="btn-close-slot">Close slot</button>
+      <label class="ctrl-item">
+        <input type="checkbox" id="reduced-toggle">
+        Reduced motion
+      </label>
+    </div>
+
+    <div class="row anchor-bar" role="group" aria-label="Trigger an anchor slot">
+      <span class="bar-label">Anchors:</span>
+      <button type="button" class="anchor-chip" data-chip="compositor" aria-pressed="false">compositor</button>
+      <button type="button" class="anchor-chip" data-chip="refraction" aria-pressed="false">refraction</button>
+      <button type="button" class="anchor-chip" data-chip="hit-testing" aria-pressed="false">hit-testing</button>
+      <button type="button" class="anchor-chip" data-chip="glyphs" aria-pressed="false">glyphs</button>
+    </div>
+
+    <p id="slot-notice" class="note" hidden></p>
+    <p id="slot-status" class="note" role="status">Starting canvas…</p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>cached Range line slicing, 3-strip WebGL shader, hit mapping and 2D 9-arg fallback</small></summary>
+    <ol>
+      <li data-code="#markup"><b>One live essay inside the canvas.</b> Semantic paragraphs with inline <code>&lt;button&gt;</code> and <code>&lt;a&gt;</code> anchors, a <code>contenteditable</code> span and a <code>Pin slot</code> toggle sit inside a single <code>drawable</code> article.</li>
+      <li data-code="/slot-field/slotfield.js#line-measure"><b>Cached line slicing with <code>Range.getClientRects()</code>.</b> Reads each anchor's box and full line band relative to <code>#slot-article</code> at resize or input time, so the animation loop never forces layout.</li>
+      <li data-code="/slot-field/slotfield.js#slot-shader" data-lang="glsl"><b>Three-strip WebGL fragment shader.</b> Shifts <code>aboveAnchor</code> up and <code>belowAnchor</code> down by <code>gap / 2</code>, keeps the chosen anchor word steady in place, and fills the cavity with 8 px pixel blocks or an optical GLSL ribbon.</li>
+      <li data-code="/slot-field/slotfield.js#hit-map"><b>Geometry sync and inverse pointer mapping.</b> Scales <code>updateElementGeometry()</code> by <code>geometryUnit()</code> with <code>dataset.hitTick</code>, and maps clicks on slid strips back to rest coordinates.</li>
+      <li data-code="/slot-field/slotfield.js#fallback-2d"><b>Nine-argument 2D slice fallback.</b> Cuts the same three horizontal bands with 9-argument <code>drawElementImage()</code> and restores the article's full hit region with an empty-clip 5-argument draw.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    This page puts Yousuf Soomro's <a href="/elsewhere/#slot-field">Slot Field</a> (<a href="https://x.com/YousufSoomroDev/status/2119735673834070171">post</a>) together with Manoela Ilic's <a href="/elsewhere/#inline-hover-reveals">Inline Hover Reveals</a> (<a href="https://tympanus.net/Demos/InlineHoverReveals/">demo</a>) on a single <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>.
+    Instead of cloning text into separate DOM spans and animating margins or transforms per line, the essay stays one plain <code>&lt;article drawable&gt;</code> inside the canvas.
+  </p>
+  <ul class="findings">
+    <li><strong>Cached line measurement at rest:</strong> when the article mounts, resizes or receives <code>input</code> inside <code>#editable-line</code>, <code>measureAnchors()</code> creates a <code>Range</code> over each anchor's containing paragraph and reads <code>getClientRects()</code>. Merging all inline rects on the same vertical band gives <code>[lineTop, lineBottom]</code> around every ascender and descender without reading layout inside <code>requestAnimationFrame()</code>.</li>
+    <li><strong>Single <code>ElementGL</code> upload inside <code>paint</code>:</strong> the page waits for <code>hasPainted === true</code> inside the canvas <code>paint</code> listener before calling <code>stage.upload(articleEl)</code> (<code>gl.texElementSubImage2D()</code>). Active spring frames reuse that GPU texture and update uniforms only.</li>
+    <li><strong>Three-strip split with zero DOM reflow:</strong> the canvas reserves 32 px of dark backing above and below the article sheet. As <code>slotGap</code> springs from <code>0</code> to <code>58 px</code>, the fragment shader slides <code>aboveAnchor</code> up by <code>gap / 2</code> and <code>belowAnchor</code> down by <code>gap / 2</code>, fades surrounding words on <code>anchorLine</code> into ghosted glyphs, and holds the active keyword crisp inside an illuminated capsule.</li>
+    <li><strong>Two shader cavities:</strong> Mode 1 renders quantised 8 px animated pixel blocks and edge scan ticks inspired by Slot Field. Mode 2 renders an iridescent GLSL fluid and optical interference ribbon underneath the live link inspired by Inline Hover Reveals. Under <code>prefers-reduced-motion: reduce</code> (or the checkbox above), <code>slotGap</code> snaps in one frame and pixel flicker freezes.</li>
+    <li><strong>Unshifted anchor hit-testing and shifted strip mapping:</strong> because <code>anchorLine</code> stays at <code>dy = 0 px</code> while outer strips part around it, keeping <code>updateElementGeometry()</code> at rest aligns the active <code>&lt;button&gt;</code> or <code>&lt;a&gt;</code> 1:1 with <code>document.elementsFromPoint()</code>. For clicks on slid strips, <code>mapCanvasYToArticleY()</code> inverts <code>&plusmn;gap / 2</code> back to article layout coordinates so clicking another anchor or <code>Pin slot</code> still lands on the right target.</li>
+    <li><strong>Nine-argument 2D and plain-HTML fallbacks:</strong> switching the Route control to <code>2D (9-arg slice)</code> swaps in a fresh canvas, retires the WebGL canvas through <code>window.__gfx.retire()</code> and slices the same three strips using 9-argument <code>drawElementImage()</code>, ending with an empty-clip 5-argument draw so the hit box isn't shrunk to the last slice. If HTML-in-canvas isn't available or a context is lost, the essay moves into plain HTML without losing your edits.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds an isolated fixture on <code>testStage()</code> and retires its canvas when finished. The visible essay above isn't touched.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note" id="findings-note">Not verified in Chrome Canary or Chrome 159 for Android yet. Press "Run these 5 checks" above to measure this browser.</p>
+  <ul class="findings" id="findings-list">
+    <li><strong>Not verified yet:</strong> <code>ElementGL</code> three-strip texture upload and shader readback, <code>document.elementsFromPoint()</code> on the anchored <code>&lt;button&gt;</code> while open, spring settle and reduced-motion snap, and 412 px Android touch behaviour.</li>
+  </ul>
+</main>
+<script type="module" src="/slot-field/slotfield.js"></script>
+</body>
+</html>

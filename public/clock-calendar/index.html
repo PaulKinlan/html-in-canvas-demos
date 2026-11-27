@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<meta name="reduced-motion" content="warn">
+<meta name="reduced-motion-note" content="The live clock sweep pauses and handle edits apply directly when reduced motion is active.">
+<title>Radial clock-face day planner</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Live HTML event strips curve round a 24h or 12h WebGL 2 clock dial while native time inputs stay clickable in a dock via updateElementGeometry(). Dragging ring handles snaps to 15-minute blocks.">
+<link rel="canonical" href="https://html-in-canvas.page/clock-calendar/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Radial clock-face day planner">
+<meta property="og:description" content="Live HTML event strips curve round a 24h or 12h WebGL 2 clock dial while native time inputs stay clickable in a dock via updateElementGeometry(). Dragging ring handles snaps to 15-minute blocks.">
+<meta property="og:url" content="https://html-in-canvas.page/clock-calendar/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Radial clock-face day planner&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-27">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Radial clock-face day planner">
+<meta name="twitter:description" content="Live HTML event strips curve round a 24h or 12h WebGL 2 clock dial while native time inputs stay clickable in a dock via updateElementGeometry(). Dragging ring handles snaps to 15-minute blocks.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Radial clock-face day planner&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/clock-calendar/",
+   "url": "https://html-in-canvas.page/clock-calendar/",
+   "mainEntityOfPage": "https://html-in-canvas.page/clock-calendar/",
+   "headline": "Radial clock-face day planner",
+   "name": "Radial clock-face day planner",
+   "description": "Live HTML event strips curve round a 24h or 12h WebGL 2 clock dial while native time inputs stay clickable in a dock via updateElementGeometry\u0028). Dragging ring handles snaps to 15-minute blocks.",
+   "abstract": "Can live HTML event cards and native \u003cinput type=\"time\"> controls drive a radial 24-hour and 12-hour clock planner rendered in WebGL 2, curving event labels along polar ring wedges while projecting the active event\u0027s time inputs onto a clickable dock via updateElementGeometry\u0028)?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-27",
+   "keywords": "WebGL, ElementGL, time, polar, updateElementGeometry, texElementSubImage2D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Radial clock-face day planner",
+     "item": "https://html-in-canvas.page/clock-calendar/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .cc-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 580px;
+    margin: 0 auto;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: #0c1018;
+  }
+
+  #clock-canvas {
+    display: block;
+    width: 100%;
+    height: 552px;
+    touch-action: pan-y;
+    background: #0c1018;
+  }
+  @media (max-width: 620px) {
+    #clock-canvas {
+      height: 506px;
+    }
+  }
+  #clock-canvas.dragging-handle {
+    touch-action: none;
+    cursor: grabbing;
+  }
+
+  .cc-wrap.plain #clock-canvas,
+  .cc-wrap.plain .cc-hint {
+    display: none;
+  }
+
+  .plain-host {
+    display: none;
+  }
+  .cc-wrap.plain {
+    background: var(--bg);
+  }
+  .cc-wrap.plain .plain-host {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+  }
+  .cc-wrap.plain #clock-dial-grip,
+  .cc-wrap.plain #clock-face-dom {
+    display: none;
+  }
+  .cc-wrap.plain .ev-strip {
+    position: static;
+    width: 100%;
+    height: auto;
+  }
+  .cc-wrap.plain .ev-hit {
+    background: var(--ev-bg, #2563eb);
+    border-radius: 8px;
+    padding: 8px 12px;
+    min-height: 44px;
+  }
+  .cc-wrap.plain #clock-inspector {
+    position: static;
+    width: 100%;
+    height: auto;
+  }
+
+  #clock-dial-grip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    border-radius: 50%;
+    background: transparent;
+    pointer-events: auto;
+    touch-action: none;
+    z-index: 1;
+  }
+
+  #clock-face-dom {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    user-select: none;
+    color: #dbe5f7;
+    background: transparent;
+  }
+  .dial-num {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font: 700 10.5px/1 var(--mono);
+    color: #7d8ba8;
+    font-variant-numeric: tabular-nums;
+  }
+  .dial-num.major {
+    color: #e2e8f6;
+    font-size: 11.5px;
+  }
+  .dial-hub {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 2px;
+  }
+  .hub-mode {
+    font: 700 9px/1 var(--mono);
+    letter-spacing: 0.08em;
+    color: #8c9bb8;
+  }
+  .hub-time {
+    font: 800 19px/1.05 var(--mono);
+    color: #f8fafc;
+    font-variant-numeric: tabular-nums;
+  }
+  .hub-span {
+    font: 600 10px/1.15 var(--mono);
+    color: #93c5fd;
+    max-width: 92%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ev-strip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 138px;
+    height: 40px;
+    box-sizing: border-box;
+    pointer-events: auto;
+    touch-action: none;
+    z-index: 2;
+  }
+  .ev-hit {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 99px;
+    background: transparent;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    touch-action: none;
+    text-align: left;
+    text-shadow: 0 1px 2px rgb(0 0 0 / 0.55);
+  }
+  .ev-hit:focus-visible {
+    outline: 2px solid #fbbf24;
+    outline-offset: -2px;
+  }
+  .ev-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #ffffff;
+    flex: none;
+    box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.28);
+  }
+  .ev-text {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .ev-title {
+    font: 700 11px/1.1 system-ui, -apple-system, sans-serif;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ev-time {
+    font: 600 9.5px/1.1 var(--mono);
+    color: rgb(255 255 255 / 0.92);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Interactive active event inspector card in the canvas dock */
+  #clock-inspector {
+    position: absolute;
+    left: 0;
+    top: 0;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid #2b364d;
+    background: #161d2b;
+    color: #f1f5f9;
+    display: grid;
+    gap: 6px;
+    align-content: center;
+    pointer-events: auto;
+    z-index: 3;
+    font: 13px/1.25 system-ui, -apple-system, sans-serif;
+  }
+  #clock-inspector * {
+    box-sizing: border-box;
+  }
+  .insp-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+  .insp-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex: none;
+    border: 1px solid rgb(255 255 255 / 0.45);
+  }
+  .insp-badge {
+    font: 700 11px/1 var(--mono);
+    color: #94a3b8;
+    white-space: nowrap;
+  }
+  .insp-nav {
+    min-height: 30px;
+    padding: 4px 10px;
+    border: 1px solid #394867;
+    border-radius: 6px;
+    background: #1f293d;
+    color: #f8fafc;
+    font: 600 12px/1 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .insp-nav:hover:not(:disabled) {
+    border-color: #93c5fd;
+    background: #27344d;
+  }
+  .insp-nav:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  #ev-duration {
+    margin-left: auto;
+    padding: 3px 7px;
+    border-radius: 99px;
+    background: #0f1522;
+    border: 1px solid #2d3a54;
+    color: #93c5fd;
+    font: 700 11px/1.1 var(--mono);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .insp-fields {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: 1fr;
+  }
+  #clock-inspector.is-wide .insp-fields {
+    grid-template-columns: minmax(140px, 1.25fr) 1fr 1fr;
+    align-items: end;
+  }
+  .insp-field {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .insp-field-label {
+    font: 600 10px/1 var(--mono);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #94a3b8;
+  }
+  .insp-times {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    min-width: 0;
+  }
+  #clock-inspector.is-wide .insp-times {
+    display: contents;
+  }
+  #clock-inspector input[type="text"],
+  #clock-inspector input[type="time"] {
+    width: 100%;
+    min-width: 0;
+    min-height: 34px;
+    padding: 4px 8px;
+    border: 1.5px solid #3a4966;
+    border-radius: 7px;
+    background: #0d121c;
+    color: #f8fafc;
+    font: 600 13px/1.2 var(--mono);
+    color-scheme: dark;
+  }
+  #clock-inspector input[type="text"] {
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  #clock-inspector input:focus-visible,
+  #clock-inspector button:focus-visible {
+    outline: 2.5px solid #ff7a4d;
+    outline-offset: 1px;
+  }
+
+  .cc-hint {
+    margin: 0;
+    padding: 6px 12px;
+    border-top: 1px solid #1e2738;
+    background: #0a0e16;
+    color: #b5c2db;
+    font: 12px/1.35 var(--mono);
+  }
+
+  .cc-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+  }
+  .cc-controls button {
+    min-height: 40px;
+    padding: 6px 12px;
+    font-size: 14px;
+    touch-action: manipulation;
+  }
+  .cc-controls button[aria-pressed="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+    font-weight: 600;
+  }
+  .cc-controls button:disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
+  }
+  .cc-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .cc-status {
+    display: block;
+    margin-top: 10px;
+    min-height: 2.4em;
+    font: 12.5px/1.45 var(--mono);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .cc-notice {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+  }
+  .cc-notice[hidden] {
+    display: none;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Radial clock-face day planner</h1>
+  <p class="lede">
+    I wanted to know if live HTML event cards and native <code>&lt;input type="time"&gt;</code> controls can drive a radial 24-hour and 12-hour day planner in WebGL 2, curving each event strip round a polar ring wedge while keeping the active inspector clickable inside the canvas via <code>updateElementGeometry()</code>.
+    Drag the white start or accent end knobs on the dial, edit the event title or times in the bottom dock, or switch between 24h and 12h views.
+  </p>
+
+  <div class="stage">
+    <!-- #region clock-markup -->
+    <div id="clock-wrap" class="cc-wrap">
+      <canvas id="clock-canvas" content="drawable" layoutsubtree aria-label="Radial clock-face day planner">
+        <div id="clock-dial-grip" drawable aria-hidden="true"></div>
+        <div id="clock-face-dom" drawable inert></div>
+        <section id="clock-inspector" drawable aria-label="Active event editor">
+          <div class="insp-top">
+            <span class="insp-dot" id="insp-dot" aria-hidden="true"></span>
+            <span class="insp-badge" id="insp-badge">1 of 3</span>
+            <button type="button" class="insp-nav" id="btn-prev-ev">Prev</button>
+            <button type="button" class="insp-nav" id="btn-next-ev">Next</button>
+            <output id="ev-duration">2h 00m</output>
+          </div>
+          <div class="insp-fields">
+            <label class="insp-field">
+              <span class="insp-field-label">Event title</span>
+              <input id="ev-title-input" type="text" maxlength="28" value="Design review">
+            </label>
+            <div class="insp-times">
+              <label class="insp-field">
+                <span class="insp-field-label">Start</span>
+                <input id="ev-start" type="time" step="60" value="09:00">
+              </label>
+              <label class="insp-field">
+                <span class="insp-field-label">End</span>
+                <input id="ev-end" type="time" step="60" value="11:00">
+              </label>
+            </div>
+          </div>
+        </section>
+      </canvas>
+      <div id="plain-host" class="plain-host"></div>
+      <p class="cc-hint" id="clock-hint">Selected: Design review (09:00-11:00) · drag ring knobs to adjust</p>
+    </div>
+    <!-- #endregion clock-markup -->
+
+    <div class="cc-controls">
+      <button type="button" id="btn-mode-24" aria-pressed="true">24h dial</button>
+      <button type="button" id="btn-mode-12" aria-pressed="false">12h dial</button>
+      <button type="button" id="btn-add-block">Add block</button>
+      <button type="button" id="btn-reset-day">Reset</button>
+      <label class="cc-check">
+        <input type="checkbox" id="ctl-show-hit">
+        Show hit-test targets
+      </label>
+    </div>
+
+    <output id="clock-status" class="cc-status" aria-live="polite">Starting WebGL 2 clock planner...</output>
+    <p id="clock-notice" class="cc-notice" hidden></p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>polar shader, inverse-polar handle drag, hit-box sync and 2D fallback</small></summary>
+    <ol>
+      <li data-code="#clock-markup"><b>The dial grip, numeral overlay, event strips and inspector dock inside one canvas.</b> Each event block gets its own <code>drawable</code> strip element alongside the flat inspector dock holding <code>&lt;input type="time"&gt;</code> controls.</li>
+      <li data-code="/clock-calendar/clock.js#polar-shader"><b>The polar wedge fragment shader.</b> Draws the 24h or 12h dial ticks, wraps each uploaded event texture round a donut sector with automatic bottom-half flip so labels stay upright, and draws start and end knobs on the active block.</li>
+      <li data-code="/clock-calendar/clock.js#polar-hit"><b>Inverse-polar angle mapping and 15-minute snapping.</b> Converts pointer positions into dial minutes, snaps to 15-minute steps, clamps handle drags against sibling blocks and routes taps inside the dial.</li>
+      <li data-code="/clock-calendar/clock.js#geometry-sync"><b>Syncing <code>updateElementGeometry()</code> for the flat dock and rotated wedge hotspots.</b> Calibrates CSS scale once per resize via <code>geometryUnit()</code>, bumps <code>dataset.hitTick</code> and writes inverse hit matrices for the wireframe overlay.</li>
+      <li data-code="/clock-calendar/clock.js#fallback-2d"><b>Five-argument <code>drawElementImage()</code> 2D fallback and plain HTML rescue.</b> Draws circular arcs, tangent event badges and the flat inspector when WebGL 2 is absent, or extracts the live controls into plain HTML if the context is lost.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    I rebuilt Isaiah Trotter's <a href="/elsewhere/#clock-calendar">Clock Calendar</a> (<a href="https://x.com/eyexayuh/status/2113665711625191767">original post</a>) round live HTML elements inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>.
+    Each scheduled block has its own <code>drawable</code> <code>.ev-strip</code> element with a real <code>&lt;button&gt;</code>, colour dot, title and formatted time range, while the bottom dock holds a <code>drawable</code> inspector card containing a text input, two native <code>&lt;input type="time"&gt;</code> controls, Prev and Next buttons and a duration <code>&lt;output&gt;</code>.
+  </p>
+  <p>
+    One <code>ElementGL</code> WebGL 2 context from <code>/lib/element-gl.js</code> uploads the changed elements inside the <code>paint</code> handler via <code>gl.texElementSubImage2D()</code> only after the first paint has fired.
+    Pass 0 renders the clock bezel, quarter-hour ticks, day-night inner band and the live HTML numeral overlay.
+    Pass 1 draws one full-canvas quad per event strip, evaluating a rounded donut-wedge distance field and warping the strip texture radially and tangentially along the arc (flipping the UVs on the lower half of the clock so labels still read left to right).
+    Pass 2 adds the live current-time needle and any hit-test wireframes, and Pass 3 composites the interactive inspector dock 1:1 at the bottom of the canvas.
+  </p>
+  <p>
+    Because a polar curve can't be represented by one affine <code>DOMMatrix</code>, dragging the start or end knobs runs inverse-polar pointer maths on the CPU (<code>atan2(dx, -dy)</code> with unwrapped angular accumulation), snaps to 15-minute increments, clamps against neighbouring events so blocks don't overlap during drags, and writes the updated <code>HH:MM</code> values straight back into <code>#ev-start</code> and <code>#ev-end</code>.
+    For tapping and keyboard navigation, <code>syncClockGeometry()</code> computes a rotated tangent <code>DOMMatrix</code> at each wedge's midpoint plus the flat dock translation, scales both by <code>geometryUnit()</code>, calls <code>canvas.updateElementGeometry()</code> and toggles <code>dataset.hitTick</code>.
+    A circular <code>#clock-dial-grip</code> element with <code>touch-action: none</code> covers the dial face so finger drags don't pan the page, while the sweep loop pauses automatically off screen via <code>IntersectionObserver</code> and stops under <code>prefers-reduced-motion: reduce</code>.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">These checks wait for a tap so the page opens with one WebGL context. Each check builds its own isolated fixture on the test stage and retires its canvas afterwards.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Not verified in a live browser yet: none of the live checks, polar wedge uploads, handle drags or <code>elementsFromPoint()</code> hit probes have been measured in headless Chromium 157 or Chrome 159 on Android yet. Run the checks above to record results on this device.</li>
+    <li>Sampling each event strip in its own <code>ElementGL</code> pass keeps the shader texture count at one sampler (<code>uTex</code>) regardless of how many blocks are added, avoiding uniform sampler arrays and letting each block carry its own active glow and knobs.</li>
+    <li>In 12-hour mode, morning and afternoon events that share a clock sector (such as 09:00 and 21:00) collide if drawn in one track, so <code>computeLanes()</code> splits colliding intervals into inner AM and outer PM concentric bands while leaving non-overlapping blocks across the full track width.</li>
+    <li>HTML <code>&lt;input type="time"&gt;</code> rejects <code>24:00</code>, so 24-hour end drags clamp at <code>23:59</code> after passing the <code>23:45</code> snap mark so the native time field stays valid.</li>
+  </ul>
+</main>
+
+<script type="module" src="/clock-calendar/clock.js"></script>
+</body>
+</html>

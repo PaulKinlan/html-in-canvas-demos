@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<meta name="reduced-motion" content="warn">
+<meta name="reduced-motion-note" content="Sweeps and sort transitions settle immediately without a moving light band when reduced motion is on.">
+<title>Luminous sweep spreadsheet reveal</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A live HTML spreadsheet inside one ElementGL WebGL 2 canvas. An upward band of blurred, refracted light sweeps across an empty skeleton grid or pre-sort FBO snapshot to reveal editable cells…">
+<link rel="canonical" href="https://html-in-canvas.page/sheet-reveal/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Luminous sweep spreadsheet reveal">
+<meta property="og:description" content="A live HTML spreadsheet inside one ElementGL WebGL 2 canvas. An upward band of blurred, refracted light sweeps across an empty skeleton grid or pre-sort FBO snapshot to reveal editable cells…">
+<meta property="og:url" content="https://html-in-canvas.page/sheet-reveal/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Luminous sweep spreadsheet reveal&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-27">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Luminous sweep spreadsheet reveal">
+<meta name="twitter:description" content="A live HTML spreadsheet inside one ElementGL WebGL 2 canvas. An upward band of blurred, refracted light sweeps across an empty skeleton grid or pre-sort FBO snapshot to reveal editable cells…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Luminous sweep spreadsheet reveal&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/sheet-reveal/",
+   "url": "https://html-in-canvas.page/sheet-reveal/",
+   "mainEntityOfPage": "https://html-in-canvas.page/sheet-reveal/",
+   "headline": "Luminous sweep spreadsheet reveal",
+   "name": "Luminous sweep spreadsheet reveal",
+   "description": "A live HTML spreadsheet inside one ElementGL WebGL 2 canvas. An upward band of blurred, refracted light sweeps across an empty skeleton grid or pre-sort FBO snapshot to reveal editable cells, clickable sort headers and recalculated totals.",
+   "abstract": "When a live HTML \u003ctable> spreadsheet populates from an empty skeleton or reorders on a sort, can one ElementGL WebGL 2 canvas sweep an upward band of blurred refracted light across the cells while keeping inputs, sort buttons and totals live right behind the wavefront?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-27",
+   "keywords": "WebGL, ElementGL, table, sweep, updateElementGeometry, texElementSubImage2D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Luminous sweep spreadsheet reveal",
+     "item": "https://html-in-canvas.page/sheet-reveal/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .sheet-stage {
+    padding: 14px 12px;
+  }
+
+  .sheet-viewport {
+    position: relative;
+    width: min(640px, 100%);
+    height: 374px;
+    margin: 0 auto;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    overflow: hidden;
+    background: #0e1118;
+  }
+
+  #sheet-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: pan-y;
+    overflow-anchor: none;
+  }
+
+  .sheet-stage.is-plain #sheet-canvas {
+    display: none;
+  }
+
+  .plain-host {
+    display: none;
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  .sheet-stage.is-plain .plain-host {
+    display: block;
+  }
+
+  .sheet-stage.is-plain .sheet-viewport {
+    height: auto;
+    min-height: 374px;
+  }
+
+  /* Live HTML spreadsheet inside the drawable canvas */
+  .sheet-card {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 9px 12px 10px;
+    background: #14171f;
+    color: #f3f1eb;
+    font: 13.5px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+
+  .sheet-stage.is-plain .sheet-card {
+    position: relative;
+    height: auto;
+  }
+
+  .sheet-card * {
+    box-sizing: border-box;
+  }
+
+  .sheet-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 30px;
+  }
+
+  .sheet-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .sheet-badge {
+    flex: none;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #1f2937;
+    border: 1px solid #334155;
+    color: #7dd3fc;
+    font: 700 10px/1.2 var(--mono);
+    letter-spacing: 0.08em;
+  }
+
+  .sheet-title-wrap strong {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f8fafc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sheet-pill {
+    flex: none;
+    padding: 3px 8px;
+    border-radius: 99px;
+    background: #1b2230;
+    border: 1px solid #2b3548;
+    color: #cbd5e1;
+    font: 600 11px/1.2 var(--mono);
+  }
+
+  .sheet-table-wrap {
+    flex: 1;
+    min-height: 0;
+    border: 1px solid #262c3a;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #11151d;
+  }
+
+  .sheet-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    color: #f3f1eb;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sheet-table col.col-units { width: 88px; }
+  .sheet-table col.col-rate { width: 82px; }
+  .sheet-table col.col-total { width: 104px; }
+
+  @media (max-width: 620px) {
+    .sheet-table col.col-units { width: 60px; }
+    .sheet-table col.col-rate { width: 66px; }
+    .sheet-table col.col-total { width: 88px; }
+    .sheet-table th,
+    .sheet-table td { padding: 0 5px; }
+    .sheet-table thead th button { padding: 0 5px; }
+  }
+
+  .sheet-table thead tr {
+    height: 36px;
+    background: #191e2a;
+    border-bottom: 1px solid #2b3344;
+  }
+
+  .sheet-table tbody tr {
+    height: 40px;
+    background: #131720;
+    border-bottom: 1px solid #222836;
+  }
+
+  .sheet-table tbody tr:nth-child(even) {
+    background: #171b26;
+  }
+
+  .sheet-table tfoot tr {
+    height: 38px;
+    background: #1a202d;
+    border-top: 1px solid #303a4f;
+    font-weight: 700;
+  }
+
+  .sheet-table th,
+  .sheet-table td {
+    position: relative;
+    padding: 0 8px;
+    text-align: left;
+    vertical-align: middle;
+    border-right: 1px solid #202634;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sheet-table th:last-child,
+  .sheet-table td:last-child {
+    border-right: 0;
+  }
+
+  .sheet-table .num {
+    text-align: right;
+  }
+
+  .sheet-table thead th {
+    padding: 0;
+    font-weight: 600;
+  }
+
+  .sheet-table thead th button {
+    width: 100%;
+    min-height: 36px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #cbd5e1;
+    font: 600 12.5px/1.2 system-ui, sans-serif;
+    text-align: inherit;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .sheet-table thead th button:hover {
+    background: #212838;
+    color: #ffffff;
+  }
+
+  .sheet-table thead th[aria-sort="ascending"] button,
+  .sheet-table thead th[aria-sort="descending"] button {
+    color: #7dd3fc;
+  }
+
+  .sheet-table thead th[aria-sort="ascending"] button::after {
+    content: " ▲";
+    color: #fbbf24;
+  }
+
+  .sheet-table thead th[aria-sort="descending"] button::after {
+    content: " ▼";
+    color: #fbbf24;
+  }
+
+  .sheet-table thead th button:focus-visible,
+  .sheet-table .qty-input:focus-visible {
+    outline: 2.5px solid #ff7a4d;
+    outline-offset: -2px;
+  }
+
+  .sheet-table tbody th.col-item {
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+
+  .sheet-table td.col-units {
+    padding: 0 4px;
+  }
+
+  .sheet-table .qty-input {
+    width: 100%;
+    min-width: 0;
+    height: 32px;
+    padding: 2px 6px;
+    border: 1px solid #30394d;
+    border-radius: 6px;
+    background: #0c0f16;
+    color: #ffffff;
+    font: 600 13.5px/1.2 var(--mono);
+    text-align: right;
+    appearance: textfield;
+    -webkit-appearance: none;
+  }
+
+  .sheet-table .qty-input::-webkit-inner-spin-button,
+  .sheet-table .qty-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .sheet-table .col-rate {
+    color: #cbd5e1;
+    font-family: var(--mono);
+    font-size: 12.5px;
+  }
+
+  .sheet-table .col-total,
+  .sheet-table tfoot .grand-total {
+    color: #f8fafc;
+    font-family: var(--mono);
+    font-size: 13px;
+  }
+
+  .sheet-table tfoot .grand-total {
+    color: #6ee7b7;
+  }
+
+  .sheet-table .muted-cell {
+    color: #94a3b8;
+    font-size: 11.5px;
+    font-family: var(--mono);
+  }
+
+  /* Empty skeleton pills inside DOM when "Clear & sweep" empties the sheet */
+  .sk-pill {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    height: 10px;
+    border-radius: 99px;
+    background: #232a3b;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .sk-pill.sk-item {
+    left: 8px;
+    right: auto;
+    width: 68%;
+  }
+
+  .sk-pill.sk-num {
+    width: 66%;
+  }
+
+  .sk-pill.sk-sm {
+    width: 54%;
+  }
+
+  .sk-pill.sk-xs {
+    width: 40%;
+  }
+
+  .sheet-card[data-empty="true"] .cell-val {
+    opacity: 0;
+  }
+
+  .sheet-card[data-empty="true"] .qty-input {
+    opacity: 0;
+  }
+
+  .sheet-card[data-empty="true"] .qty-input:focus {
+    opacity: 1;
+  }
+
+  .sheet-card[data-empty="true"] .sk-pill {
+    opacity: 1;
+  }
+
+  /* Controls outside the canvas */
+  .sheet-controls {
+    margin-top: 12px;
+    gap: 10px 14px;
+  }
+
+  .sheet-controls button {
+    min-height: 40px;
+  }
+
+  .ctrl-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .ctrl-item input[type="range"] {
+    width: 132px;
+    max-width: 100%;
+    accent-color: var(--accent);
+  }
+
+  .ctrl-item input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
+
+  .ctrl-item output {
+    font: 13px/1 var(--mono);
+    color: var(--muted);
+    min-width: 3.6em;
+  }
+
+  .sheet-notice {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+  }
+
+  .sheet-notice[hidden] {
+    display: none;
+  }
+
+  #sheet-status {
+    margin: 8px 0 0;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+
+  <h1>Luminous sweep spreadsheet reveal</h1>
+  <p class="lede">
+    I rebuilt Noman Ijaz's <a href="/elsewhere/#glimm-spreadsheet-transition">glimm Spreadsheet Transition</a> (<a href="https://x.com/Nomandsign/status/2117712985804484770">original post</a>) with a real HTML <code>&lt;table&gt;</code> inside one <code>ElementGL</code> WebGL 2 canvas. Trigger a sweep, sort a column or freeze the wavefront mid-way with the slider while you edit quantities and watch totals recalculate behind the light band.
+  </p>
+
+  <div class="stage sheet-stage" id="sheet-stage">
+    <div class="sheet-viewport" id="sheet-viewport">
+      <!-- #region sheet-markup -->
+      <canvas id="sheet-canvas" content="drawable" layoutsubtree aria-label="Live interactive spreadsheet with luminous sweep transition">
+        <div id="sheet-card" class="sheet-card" drawable>
+          <header class="sheet-top">
+            <div class="sheet-title-wrap">
+              <span class="sheet-badge">LEDGER</span>
+              <strong id="sheet-title">Infra Ledger</strong>
+            </div>
+            <output id="sheet-state-pill" class="sheet-pill">6 rows</output>
+          </header>
+          <div class="sheet-table-wrap">
+            <table id="sheet-table" class="sheet-table">
+              <colgroup>
+                <col class="col-item">
+                <col class="col-units">
+                <col class="col-rate">
+                <col class="col-total">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th aria-sort="none"><button type="button" data-sort="item">Item</button></th>
+                  <th aria-sort="none" class="num"><button type="button" data-sort="units">Units</button></th>
+                  <th aria-sort="none" class="num"><button type="button" data-sort="rate">Rate</button></th>
+                  <th aria-sort="none" class="num"><button type="button" data-sort="total">Total</button></th>
+                </tr>
+              </thead>
+              <tbody id="sheet-body">
+                <tr data-id="compute" data-item="Compute" data-rate="18.5">
+                  <th scope="row" class="col-item"><span class="cell-val">Compute</span><span class="sk-pill sk-item" aria-hidden="true"></span></th>
+                  <td class="col-units num"><input type="number" inputmode="decimal" min="0" max="99999" step="1" class="qty-input" value="14" aria-label="Units for Compute"><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                  <td class="col-rate num"><span class="cell-val">£18.50</span><span class="sk-pill sk-sm" aria-hidden="true"></span></td>
+                  <td class="col-total num"><output class="row-total cell-val">£259.00</output><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                </tr>
+                <tr data-id="kv" data-item="Edge KV" data-rate="0.5">
+                  <th scope="row" class="col-item"><span class="cell-val">Edge KV</span><span class="sk-pill sk-item" aria-hidden="true"></span></th>
+                  <td class="col-units num"><input type="number" inputmode="decimal" min="0" max="99999" step="1" class="qty-input" value="420" aria-label="Units for Edge KV"><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                  <td class="col-rate num"><span class="cell-val">£0.50</span><span class="sk-pill sk-sm" aria-hidden="true"></span></td>
+                  <td class="col-total num"><output class="row-total cell-val">£210.00</output><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                </tr>
+                <tr data-id="gpu" data-item="GPU render" data-rate="32">
+                  <th scope="row" class="col-item"><span class="cell-val">GPU render</span><span class="sk-pill sk-item" aria-hidden="true"></span></th>
+                  <td class="col-units num"><input type="number" inputmode="decimal" min="0" max="99999" step="1" class="qty-input" value="8" aria-label="Units for GPU render"><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                  <td class="col-rate num"><span class="cell-val">£32.00</span><span class="sk-pill sk-sm" aria-hidden="true"></span></td>
+                  <td class="col-total num"><output class="row-total cell-val">£256.00</output><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                </tr>
+                <tr data-id="worker" data-item="Worker CPU" data-rate="4.2">
+                  <th scope="row" class="col-item"><span class="cell-val">Worker CPU</span><span class="sk-pill sk-item" aria-hidden="true"></span></th>
+                  <td class="col-units num"><input type="number" inputmode="decimal" min="0" max="99999" step="1" class="qty-input" value="65" aria-label="Units for Worker CPU"><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                  <td class="col-rate num"><span class="cell-val">£4.20</span><span class="sk-pill sk-sm" aria-hidden="true"></span></td>
+                  <td class="col-total num"><output class="row-total cell-val">£273.00</output><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                </tr>
+                <tr data-id="egress" data-item="Egress GB" data-rate="0.85">
+                  <th scope="row" class="col-item"><span class="cell-val">Egress GB</span><span class="sk-pill sk-item" aria-hidden="true"></span></th>
+                  <td class="col-units num"><input type="number" inputmode="decimal" min="0" max="99999" step="1" class="qty-input" value="180" aria-label="Units for Egress GB"><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                  <td class="col-rate num"><span class="cell-val">£0.85</span><span class="sk-pill sk-sm" aria-hidden="true"></span></td>
+                  <td class="col-total num"><output class="row-total cell-val">£153.00</output><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                </tr>
+                <tr data-id="d1" data-item="D1 rows" data-rate="3.9">
+                  <th scope="row" class="col-item"><span class="cell-val">D1 rows</span><span class="sk-pill sk-item" aria-hidden="true"></span></th>
+                  <td class="col-units num"><input type="number" inputmode="decimal" min="0" max="99999" step="1" class="qty-input" value="25" aria-label="Units for D1 rows"><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                  <td class="col-rate num"><span class="cell-val">£3.90</span><span class="sk-pill sk-sm" aria-hidden="true"></span></td>
+                  <td class="col-total num"><output class="row-total cell-val">£97.50</output><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row">Total</th>
+                  <td class="num"><output id="total-units" class="cell-val">712</output><span class="sk-pill sk-sm" aria-hidden="true"></span></td>
+                  <td class="num muted-cell"><span class="cell-val">GBP</span><span class="sk-pill sk-xs" aria-hidden="true"></span></td>
+                  <td class="num"><output id="sheet-total" class="cell-val grand-total">£1,248.50</output><span class="sk-pill sk-num" aria-hidden="true"></span></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </canvas>
+      <!-- #endregion sheet-markup -->
+      <div id="plain-host" class="plain-host"></div>
+    </div>
+
+    <div class="row sheet-controls">
+      <button type="button" id="btn-sweep">Sweep reveal</button>
+      <button type="button" id="btn-populate">Populate sample</button>
+      <button type="button" id="btn-clear">Clear &amp; sweep</button>
+      <label class="ctrl-item">
+        Scrub wavefront
+        <input id="scrub-slider" type="range" min="0" max="100" value="100">
+        <output id="scrub-out" for="scrub-slider">100%</output>
+      </label>
+      <label class="ctrl-item">
+        Wave width
+        <input id="width-slider" type="range" min="40" max="160" value="96">
+        <output id="width-out" for="width-slider">96 px</output>
+      </label>
+      <label class="ctrl-item">
+        <input id="reduced-toggle" type="checkbox">
+        Reduced motion
+      </label>
+    </div>
+
+    <p id="sheet-notice" class="sheet-notice" hidden></p>
+    <p class="note" id="sheet-status" role="status">Starting canvas…</p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>drawable spreadsheet table, luminous sweep shader, FBO snapshot capture, geometry sync and 2D fallback</small></summary>
+    <ol>
+      <li data-code="#sheet-markup"><b>The semantic <code>&lt;table&gt;</code> inside one drawable canvas.</b> All sort buttons, decimal <code>&lt;input&gt;</code> cells and <code>&lt;tfoot&gt;</code> totals sit inside <code>#sheet-card</code>.</li>
+      <li data-code="/sheet-reveal/sheet.js#sweep-shader" data-lang="glsl"><b>Upward luminous sweep fragment shader.</b> Draws either a grid-aligned shimmering skeleton or the pre-sort FBO snapshot above the wavefront, applies a 7-tap Gaussian blur with chromatic dispersion inside the band, and illuminates grid lines along the golden-cyan crest.</li>
+      <li data-code="/sheet-reveal/sheet.js#fbo-snapshot"><b>Offscreen WebGL FBO capture before DOM mutation.</b> Renders the live DOM texture into an offscreen RGBA8 framebuffer right before sorting or clearing so the wavefront dissolves the previous state into the updated rows without CPU readback.</li>
+      <li data-code="/sheet-reveal/sheet.js#geometry-sync"><b>Hit-box calibration with <code>geometryUnit()</code>.</b> Keeps sort header buttons and editable <code>&lt;input&gt;</code> fields aligned 1:1 on high-DPI screens, including when frozen mid-sweep.</li>
+      <li data-code="/sheet-reveal/sheet.js#fallback-2d"><b>Five-argument 2D and plain-HTML fallbacks.</b> Clips a 2D sweep reveal with 5-argument <code>drawElementImage()</code> and a bright linear gradient when WebGL 2 isn't available, or extracts <code>#sheet-card</code> into plain HTML on context loss.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>This rebuilds Noman Ijaz's <a href="/elsewhere/#glimm-spreadsheet-transition">glimm Spreadsheet Transition</a> (<a href="https://x.com/Nomandsign/status/2117712985804484770">original post</a>) on one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> managed by a single <code>ElementGL</code> WebGL 2 context.</li>
+    <li>When you click "Sweep reveal" or scrub back from a populated table, the shader measures header, column and row bounds from the DOM once per paint and renders a pixel-aligned empty grid with pulsing skeleton pills above the wavefront, blending across a directional blur and golden-cyan light crest into the live table below.</li>
+    <li>When you click a column header to sort, press "Populate sample" or press "Clear &amp; sweep", the handler copies the current DOM texture into an offscreen WebGL framebuffer (<code>prevFbo</code>) before mutating the DOM, reorders rows with <code>moveBefore()</code> (or updates inputs and totals), waits for the next <code>paint</code> upload via <code>gl.texElementSubImage2D()</code>, and sweeps upward from the captured snapshot into the live updated rows.</li>
+    <li>Because <code>updateElementGeometry()</code> receives a <code>geometryUnit()</code>-calibrated transform and toggles <code>dataset.hitTick</code>, every sort button and quantity <code>&lt;input&gt;</code> stays clickable and editable even while the luminous band is frozen mid-sweep with the scrub slider.</li>
+    <li>If <code>texElementSubImage2D()</code> isn't available, the canvas swaps to a 2D context drawing the reveal with 5-argument <code>drawElementImage()</code>, a clip region and a bright sweep gradient. If the context is lost or the API isn't enabled, <code>#sheet-card</code> moves out to plain HTML so editing and sorting continue working.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own isolated fixture on the hidden test stage and retires its canvas when finished. The spreadsheet above isn't altered.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note" id="findings-summary">Not verified yet in a live browser. Tap "Run these 5 checks" above to measure this browser.</p>
+  <ul class="findings" id="findings-list">
+    <li><strong>Not verified yet:</strong> real rendering, FBO Y-orientation alignment, mid-sweep <code>readPixels()</code> luminance across skeleton and crest, <code>elementsFromPoint()</code> hit testing on sort headers and <code>&lt;input&gt;</code> cells, and touch interaction on Chrome 159 for Android at 412 px wide.</li>
+    <li><strong>Zero CPU readback during transitions:</strong> copying the live <code>texElementSubImage2D()</code> texture into an offscreen WebGL FBO before DOM mutation keeps pre-sort and pre-clear snapshots entirely on the GPU, leaving <code>openSnapshots</code> at 0 and avoiding <code>getImageData()</code> or <code>readPixels()</code> inside the render loop.</li>
+    <li><strong>FBO vs default-framebuffer Y orientation:</strong> drawing into an FBO with <code>gl_Position = vec4(aPos * 2.0 - 1.0, 0.0, 1.0)</code> and <code>vUv = aPos</code> writes row 0 of the DOM texture into row 0 of the FBO texture, matching <code>texElementSubImage2D()</code> without flipping vertically when sampled in the main sweep pass.</li>
+  </ul>
+</main>
+<script type="module" src="/sheet-reveal/sheet.js"></script>
+</body>
+</html>
