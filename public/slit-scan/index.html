@@ -594,7 +594,7 @@
     <summary>Show the code <small>TEXTURE_2D_ARRAY GPU ring buffer, copyTexSubImage3D, slit-scan shader and R8 freeze brush</small></summary>
     <ol>
       <li data-code="#markup"><b>One drawable panel in one canvas.</b> The live input, animated bars, buttons and scrollable article sit inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>.</li>
-      <li data-code="/slit-scan/slitscan.js#ring-buffer"><b>Zero-snapshot GPU ring buffer.</b> Allocates one 64-layer <code>TEXTURE_2D_ARRAY</code> inside a VRAM cap (24 MB on narrow screens, 32 MB on wide screens) and copies each frame on the GPU with <code>blitFramebuffer()</code> and <code>copyTexSubImage3D()</code>.</li>
+      <li data-code="/slit-scan/slitscan.js#ring-buffer"><b>Zero-snapshot GPU ring buffer.</b> Allocates a <code>TEXTURE_2D_ARRAY</code> (32 layers inside 32 MB on phones, 64 layers inside 128 MB on desktop, up to 1,280 px per side) and copies each frame on the GPU with <code>blitFramebuffer()</code> and <code>copyTexSubImage3D()</code>.</li>
       <li data-code="/slit-scan/slitscan.js#shader"><b>Space-time fragment shader.</b> Computes a per-pixel delay from vertical position, radial distance, diagonal shear or the painted <code>R8</code> mask, then interpolates between adjacent ring slices.</li>
       <li data-code="/slit-scan/slitscan.js#paint"><b>Paint loop and synced hit boxes.</b> Uploads the panel with <code>ElementGL.upload()</code>, pushes into the ring buffer, draws the time-displaced quad, and keeps controls reachable with <code>updateElementGeometry()</code>.</li>
       <li data-code="/slit-scan/slitscan.js#brush"><b>Time-freeze brush mask.</b> Paints delay values into a 128 by 128 <code>Uint8Array</code> and uploads it to an <code>R8</code> texture with <code>texSubImage2D()</code> only when you draw.</li>
@@ -613,10 +613,10 @@
     Everything runs inside one <code>ElementGL</code> context from <code>/lib/element-gl.js</code>. On each captured frame,
     <code>stage.upload(panel)</code> calls <code>gl.texElementSubImage2D()</code> to update the live 2D texture at native
     resolution. That texture is attached to a <code>READ_FRAMEBUFFER</code>. When the live texture is larger than the ring
-    buffer's VRAM budget (capped at 24 MB on narrow screens and 32 MB on desktop, with a 512 px maximum side),
-    <code>gl.blitFramebuffer()</code> downscales it on the GPU into a single-frame scratch framebuffer first. Then
+    buffer's VRAM budget (32 layers inside 32 MB on phones, 64 layers inside 128 MB on desktop, up to 1,280 px per side),
+    <code>gl.blitFramebuffer()</code> downscales it on the GPU into a single-frame scratch framebuffer first so the shrink stays under 2x cleanly. Then
     <code>gl.copyTexSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, head, 0, 0, w, h)</code> copies the frame straight into slice
-    <code>head = (head + 1) % 64</code>. No pixels ever cross back to JavaScript.
+    <code>head = (head + 1) % slices</code>. No pixels ever cross back to JavaScript.
   </p>
   <p>
     The fragment shader maps each screen pixel's UV to a fractional frame age using one of four modes: vertical slit-scan,
@@ -634,11 +634,11 @@
 
   <h2>Findings</h2>
   <ul class="findings">
-    <li>A 64-layer <code>RGBA8</code> <code>TEXTURE_2D_ARRAY</code> bounded to 24 MB on phones and 32 MB on desktop keeps GPU memory predictable while holding about one second of 60 fps history (or three seconds at capture stride 3) and zero open <code>ElementImage</code> snapshots.</li>
-    <li><code>gl.copyTexSubImage3D()</code> copies pixels 1:1 from <code>READ_FRAMEBUFFER</code> and can't rescale on its own. On high-DPI screens, <code>texElementSubImage2D()</code> uploads at device pixels (often over 1,000 px wide), so adding a GPU <code>blitFramebuffer()</code> step into a small scratch framebuffer avoids cropping the element into the capped ring buffer.</li>
-    <li>Sampling the full-DPR live texture when a pixel's delay is zero and blending into the capped <code>TEXTURE_2D_ARRAY</code> for delayed regions keeps unpainted live UI sharp in time-freeze brush mode without tripling ring VRAM.</li>
-    <li>The time-freeze paint brush needs a mode switch between painting on the canvas (with <code>pointer-events: none</code> on the drawable child and <code>touch-action: none</code> on the stage) and interacting with the DOM through the painted mask, otherwise dragging selects text or scrolls the article instead of painting.</li>
-    <li>Not verified yet in a live browser (written 2026-11-26): running all four live checks in headless Chromium 157 and on Chrome 159 on Android (412 px wide, DPR 2.625), verifying <code>npm run check:jank -- /slit-scan/</code>, and checking real frame rate and context stability while typing and scrolling on a phone.</li>
+    <li>Capping the desktop ring at 512 px and 32 MB crushed a 1,852 by 976 HiDPI upload down to 498 by 262 (<code>3.7x</code>), dropping thin glyph stems in delayed article rows. Raising the desktop cap to 1,280 px and 128 MB (<code>996x524</code>, <code>1.85x</code> shrink) and using 32 slices within 32 MB on narrow viewports keeps small body text crisp on both desktop and 412 px viewports.</li>
+    <li>Sizing <code>&lt;canvas&gt;</code> in <code>ElementGL</code> before calling <code>getElementImageDefaultSize()</code> makes frame 0 upload at full HiDPI resolution instead of sticking on the 300 by 150 initial canvas buffer.</li>
+    <li><code>gl.copyTexSubImage3D()</code> copies pixels 1:1 from <code>READ_FRAMEBUFFER</code> and can't rescale on its own, so a GPU <code>blitFramebuffer()</code> pass into a scratch framebuffer avoids cropping the uploaded element.</li>
+    <li>The time-freeze paint brush separates painting on the canvas (with <code>pointer-events: none</code> on the drawable child and <code>touch-action: none</code> on the stage) from interacting with the DOM through the painted mask.</li>
+    <li>Measured in headless Chrome 160 Canary (2026-11-27, 412 px mobile DPR 2.625 and 960 px desktop DPR 2): all 4 live checks pass (<code>1.30 MP</code>, <code>10 MB</code> canvas, <code>openSnapshots: 0</code>, <code>0</code> errors). Chrome 159 on Android and <code>npm run check:jank</code> stay not verified.</li>
   </ul>
 </main>
 

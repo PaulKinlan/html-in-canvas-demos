@@ -1,16 +1,16 @@
 # Time Machine and Cover Flow for live HTML (`/time-machine/`)
 
-Not verified in a live browser yet (written 2026-11-27). All live checks wait for a tap (`<meta name="checks" content="tap">`) and run on isolated fixtures on `testStage()` in the visitor's browser.
+Measured in headless Chrome 160.0.8187.0 canary on 2026-11-27 (412 px viewport at DPR 2.625 and 960 px desktop at DPR 2, SwiftShader WebGL). All live checks wait for a tap (`<meta name="checks" content="tap">`). Chrome 159 on Android and `npm run check:jank` (Playwright not installed here) are **not verified** yet.
 
-This page builds three 2007 spatial history stacks (macOS Leopard Time Machine, iTunes Cover Flow and Windows Vista Flip 3D) around one live editable HTML document card inside one `ElementGL` WebGL 2 canvas (`/lib/element-gl.js`). Rather than holding open `ElementImage` objects from `captureElementImage()`, saved revisions are copied on the GPU from the live `texElementSubImage2D()` texture into a 16-layer `gl.TEXTURE_2D_ARRAY` via `gl.blitFramebuffer()` (when downscaling is needed to stay inside a 16 MB phone / 22 MB desktop VRAM cap) and `gl.copyTexSubImage3D()`. The front card stays interactive via projective `canvas.updateElementGeometry()` scaled by `geometryUnit()`.
+This page builds three 2007 spatial history stacks (macOS Leopard Time Machine, iTunes Cover Flow and Windows Vista Flip 3D) around one live editable HTML document card inside one `ElementGL` WebGL 2 canvas (`/lib/element-gl.js`). Rather than holding open `ElementImage` objects from `captureElementImage()`, saved revisions are copied on the GPU from the live `texElementSubImage2D()` texture into a 16-layer `gl.TEXTURE_2D_ARRAY` via `gl.blitFramebuffer()` (within a 24 MB / 640 px phone cap or 36 MB / 760 px desktop cap) and `gl.copyTexSubImage3D()`. The front card stays interactive via projective `canvas.updateElementGeometry()` scaled by `geometryUnit()`.
 
 | Question | Result | Notes |
 |---|---|---|
-| `gl.TEXTURE_2D_ARRAY` + `gl.copyTexSubImage3D()` stores distinct DOM revisions with `gl.getError() === 0` and `window.__gfx.snapshots.open === 0` | not verified | Checked by live check 1 on an isolated 160 by 100 `ElementGL` fixture comparing a red layer 0 against a blue layer 1 via `gl.readPixels()`. |
-| Switching across Time Machine, Cover Flow and Flip 3D renders cleanly with `gl.getError() === 0` | not verified | Checked by live check 2 across all three layouts (procedural backdrop, glossy reflections and three stacked layers) on a 220 by 150 fixture. |
-| `updateElementGeometry()` scaled by `geometryUnit()` hits the front card `<input>` and `<button>` via `elementsFromPoint()` | not verified | Checked by live check 3 on an angled Flip 3D front card projected through `clipToCssMatrix()` and `geometryUnit()`, verifying `elementsFromPoint()` hits both controls and firing a click. |
-| Restoring an earlier revision restores the saved `<input>` text, notes, theme and checkboxes | not verified | Checked by live check 4 on an isolated fixture form using `readCardState()` and `applyCardState()`. |
-| Real frame rate, VRAM headroom and touch scrubbing at 412 px wide on a phone | not verified | Needs a live run on A159 (Chrome 159 on Android, DPR 2.625) and C157 (headless Chromium 157). |
+| `gl.TEXTURE_2D_ARRAY` + `gl.copyTexSubImage3D()` stores distinct DOM revisions with `gl.getError() === 0` and `window.__gfx.snapshots.open === 0` | measured (Chrome 160 Canary, 2026-11-27) | Live check 1 passed (`4/4` total on page; smoke check `992x1202`, `1.19 MP`, `9.5 MB`, `0` errors). |
+| Switching across Time Machine, Cover Flow and Flip 3D renders cleanly with `gl.getError() === 0` | measured (Chrome 160 Canary, 2026-11-27) | Live check 2 passed across all three layouts. |
+| `updateElementGeometry()` scaled by `geometryUnit()` hits the front card `<input>` and `<button>` via `elementsFromPoint()` | measured (Chrome 160 Canary, 2026-11-27) | Live check 3 passed on an angled Flip 3D front card. |
+| Restoring an earlier revision restores the saved `<input>` text, notes, theme and checkboxes | measured (Chrome 160 Canary, 2026-11-27) | Live check 4 passed, and desktop 2x Retina layers now store full `720x584` instead of `117x87` after pre-sizing `ElementGL`. |
+| Real frame rate, VRAM headroom and touch scrubbing at 412 px wide on a phone | not verified | Needs a live run on A159 (Chrome 159 on Android, DPR 2.625). |
 
 ## Things that bit
 

@@ -333,8 +333,8 @@ const store = {
 
 function computeArraySize(srcW, srcH) {
   const narrow = window.innerWidth < 700;
-  const maxBytes = (narrow ? 16 : 22) * 1024 * 1024;
-  const maxSide = narrow ? 540 : 620;
+  const maxBytes = (narrow ? 24 : 36) * 1024 * 1024;
+  const maxSide = narrow ? 640 : 760;
   const maxPixels = Math.floor(maxBytes / (4 * MAX_LAYERS));
   const area = Math.max(1, srcW * srcH);
   const scale = Math.min(1, maxSide / srcW, maxSide / srcH, Math.sqrt(maxPixels / area));

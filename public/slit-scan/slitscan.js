@@ -4,10 +4,10 @@ import { geometryUnit } from '/lib/surface.js';
 
 banner();
 
-const SLICES = 64;
+const SLICES = window.innerWidth < 700 ? 32 : 64;
 const MASK_W = 128;
 const MASK_H = 128;
-const MAX_RING_SIDE = 512;
+const MAX_RING_SIDE = 1280;
 
 const stageEl = document.getElementById('ss-stage');
 const canvas = document.getElementById('ss-canvas');
@@ -30,6 +30,11 @@ const clearMaskBtn = document.getElementById('ss-clear-mask');
 const brushSizeInput = document.getElementById('ss-brush-size');
 const depthInput = document.getElementById('ss-depth');
 const depthOut = document.getElementById('ss-depth-out');
+depthInput.max = String(SLICES - 1);
+if (Number(depthInput.value) >= SLICES) {
+  depthInput.value = String(SLICES - 1);
+  depthOut.textContent = `${depthInput.value} slices`;
+}
 const strideInput = document.getElementById('ss-stride');
 const strideOut = document.getElementById('ss-stride-out');
 const pauseBtn = document.getElementById('ss-pause-btn');
@@ -182,7 +187,7 @@ const ring = {
 };
 
 function computeRingSize(srcW, srcH) {
-  const maxBytes = (window.innerWidth < 700 ? 24 : 32) * 1024 * 1024;
+  const maxBytes = (window.innerWidth < 700 ? 32 : 128) * 1024 * 1024;
   const maxPixels = Math.floor(maxBytes / (4 * SLICES));
   const area = Math.max(1, srcW * srcH);
   const scale = Math.min(1, MAX_RING_SIDE / srcW, MAX_RING_SIDE / srcH, Math.sqrt(maxPixels / area));
