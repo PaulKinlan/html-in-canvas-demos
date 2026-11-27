@@ -18,6 +18,7 @@ The question: can I recreate Android 12+ non-uniform stretch overscroll and a go
 - Calling `stage.upload(feedEl)` before `stage.begin()` on frame 1 left `<canvas>` at its default `300x150` intrinsic size when `getElementImageDefaultSize()` ran, so the first upload was `300x150` instead of `473x420` (on the fixture) or `927x1361` (on the phone stage). Calling `stage.begin()` before `stage.upload()` sizes the backing store first.
 - Leaving `neckScale = 1.0 - 0.78 * uSnap` after the metaball snapped left a small `1.8 px` dark bead anchored below the sticky header in `armed` screenshots. Driving `neckScale` down to `0.0` at `uSnap = 1.0` removes the residual bead cleanly.
 - Setting `.phone-viewport` background to `#1b2232` left faint 1 px dark slivers at the bottom rounded corners outside `#feed-scroll`. Switching `.phone-viewport` background to `var(--bg)` matched the card bottom while keeping `#1b2232` on `.feed-topbar` to match the metaball shader colour.
+- Pulling downwards with a mouse pointer inside `#feed-scroll` triggered browser text selection across the feed cards. Setting `user-select: none` on `#feed-scroll`, restoring `user-select: text` on `.feed-compose input`, cancelling `selectstart` outside inputs and clearing any active ranges on drag/overscroll start keeps pull gestures clean without breaking input editing.
 
 ## Not verified
 

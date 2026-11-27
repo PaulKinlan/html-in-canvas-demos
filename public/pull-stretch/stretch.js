@@ -892,6 +892,7 @@ feedEl.addEventListener('touchmove', (e) => {
     state.dragging = true;
     state.rawDrag = dy;
     state.pullPx = rubberBand(state.rawDrag);
+    window.getSelection?.()?.removeAllRanges?.();
     if (e.cancelable) e.preventDefault();
     scheduleLoop();
   }
@@ -910,6 +911,10 @@ feedEl.addEventListener('touchend', endTouch, { passive: true });
 feedEl.addEventListener('touchcancel', endTouch, { passive: true });
 
 // Desktop mouse drag inside the feed (preserves text selection in inputs and button clicks).
+feedEl.addEventListener('selectstart', (e) => {
+  if (!e.target.closest('input, textarea')) e.preventDefault();
+});
+
 let mouseActive = false;
 let mouseDragged = false;
 let mouseStartY = 0;
@@ -918,6 +923,7 @@ let mouseLastY = 0;
 feedEl.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'mouse' || e.button !== 0) return;
   if (e.target.closest('input, textarea, select')) return;
+  if (!e.target.closest('button')) window.getSelection?.()?.removeAllRanges?.();
   mouseActive = true;
   mouseDragged = false;
   mouseStartY = e.clientY;
@@ -932,8 +938,11 @@ window.addEventListener('pointermove', (e) => {
   mouseLastY = e.clientY;
   if (!mouseDragged && Math.abs(e.clientY - mouseStartY) > 6) {
     mouseDragged = true;
+    feedEl.classList.add('is-dragging');
+    window.getSelection?.()?.removeAllRanges?.();
   }
   if (!mouseDragged) return;
+  if (e.cancelable) e.preventDefault();
 
   const maxScroll = Math.max(0, feedEl.scrollHeight - feedEl.clientHeight);
   if (state.rawDrag > 0) {
@@ -988,6 +997,7 @@ window.addEventListener('pointermove', (e) => {
 function endMouse() {
   if (!mouseActive) return;
   mouseActive = false;
+  feedEl.classList.remove('is-dragging');
   if (mouseDragged) {
     suppressClickUntil = performance.now() + 90;
     mouseDragged = false;

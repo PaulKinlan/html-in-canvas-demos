@@ -624,9 +624,11 @@ export function mountDynamicIsland() {
         onRestored: () => {
           panelTextures.clear();
           unitCacheKey = '';
+          stage?.gl?.pixelStorei(stage.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
           restoreFromPlain();
         },
       });
+      stage.gl.pixelStorei(stage.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
       route = 'webgl';
     } catch (err) {
       say(`WebGL could not start (${err.message}).`);
@@ -1266,6 +1268,7 @@ export function mountDynamicIsland() {
         let g = null;
         try {
           g = new ElementGL(cv, { fragment: ISLAND_FRAG, attributes: { preserveDrawingBuffer: true } });
+          g.gl.pixelStorei(g.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
           await nextPaint(cv);
           drawFixtureIsland(g, cv, card, 120, 60, 140, 48, 24, 120, 60, 14, 0, 44);
           const glErr = g.gl.getError();
@@ -1303,6 +1306,7 @@ export function mountDynamicIsland() {
         let g = null;
         try {
           g = new ElementGL(cv, { fragment: ISLAND_FRAG, attributes: { preserveDrawingBuffer: true } });
+          g.gl.pixelStorei(g.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
           await nextPaint(cv);
           // Bridged: c1=(90,60) right edge 136, c2=(156,60) left edge 140 -> gap 4 px, midpoint x=138
           drawFixtureIsland(g, cv, card, 90, 60, 92, 36, 18, 156, 60, 16, 1, 46);
@@ -1349,6 +1353,7 @@ export function mountDynamicIsland() {
         try {
           if (glSupported) {
             g = new ElementGL(cv, { fragment: ISLAND_FRAG });
+            g.gl.pixelStorei(g.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
             cv.addEventListener('paint', () => {
               if (!g || g.lost) return;
               drawFixtureIsland(g, cv, activeEl, 90, 52, 120, 44, 22, 90, 52, 12, 0, 44);
@@ -1433,6 +1438,7 @@ export function mountDynamicIsland() {
               host.append(btn);
             },
           });
+          g.gl.pixelStorei(g.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
           await nextPaint(cv);
           drawFixtureIsland(g, cv, btn, 110, 55, 140, 40, 20, 110, 55, 12, 0, 44);
 
