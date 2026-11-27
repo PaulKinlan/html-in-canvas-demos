@@ -29,6 +29,7 @@ const depthSlider = $('ctl-depth');
 const depthOut = $('out-depth');
 const stripSlider = $('ctl-strip');
 const stripOut = $('out-strip');
+const crossFuseCheck = $('ctl-cross-fuse');
 
 const TOP_BAND = 34;
 const MODE_NAMES = [
@@ -39,7 +40,7 @@ const MODE_NAMES = [
   'Depth map + overlay',
 ];
 const PATTERN_NAMES = [
-  '1990s Confetti Dots',
+  'Classic SIRDS Dots',
   'Retro Wallpaper',
   'ASCII Stipple',
   'Live DOM Texture',
@@ -56,9 +57,10 @@ const state = {
   route: 'none', // 'webgl' | '2d' | 'plain'
   mode: 0,
   pattern: 0,
-  depthPct: 72,
-  stripW: 104,
+  depthPct: 80,
+  stripW: 112,
   stripUserSet: false,
+  crossFuse: false,
   peek: false,
   previewPeek: false,
   pulse: false,
@@ -67,6 +69,7 @@ const state = {
   pairSide: 'left',
   pointerX: 0.5,
   onScreen: true,
+  hasPainted: false,
   dirtyTex: true,
   lastGeoKey: '',
   paints: 0,
@@ -102,6 +105,7 @@ uniform float uPopBoost;
 uniform float uPointerX;
 uniform float uReducedMotion;
 uniform float uPlinth;
+uniform float uCrossFuse;
 
 in vec2 vUv;
 out vec4 outColor;
@@ -154,27 +158,39 @@ float waveOffset(vec2 pos, vec4 rect) {
   return add;
 }
 
-// Fast 3-tap horizontal bevelled depth lookup inside an arbitrary card rect
+// 5-tap pillowed depth lookup inside an arbitrary card rect. When uPlinth > 0,
+// blending mean + max widens thin glyphs into rounded ridges and prevents dark
+// labels from punching deep pits through bright button keycaps.
 float sampleDepthInRect(vec2 pos, vec4 rect) {
   vec2 rel = (pos - rect.xy) / max(rect.zw, vec2(1.0));
   if (rel.x < 0.0 || rel.x > 1.0 || rel.y < 0.0 || rel.y > 1.0) {
     return clamp(waveOffset(pos, rect) * 0.4, 0.0, 1.0);
   }
   vec2 cuv = clamp(rel, vec2(0.0), vec2(1.0));
-  float dx = 2.4 / max(rect.z, 1.0);
-  float l0 = luma(texture(uTex, vec2(clamp(cuv.x - dx, 0.0, 1.0), cuv.y)).rgb);
-  float l1 = luma(texture(uTex, cuv).rgb);
-  float l2 = luma(texture(uTex, vec2(clamp(cuv.x + dx, 0.0, 1.0), cuv.y)).rgb);
-  float lum = 0.25 * l0 + 0.50 * l1 + 0.25 * l2;
-  float d = smoothstep(0.05, 0.94, lum);
+  float lum;
+  if (uPlinth > 0.001) {
+    float dx = 4.2 / max(rect.z, 1.0);
+    float dy = 3.5 / max(rect.w, 1.0);
+    float lc = luma(texture(uTex, cuv).rgb);
+    float l0 = luma(texture(uTex, vec2(clamp(cuv.x - dx, 0.0, 1.0), cuv.y)).rgb);
+    float l1 = luma(texture(uTex, vec2(clamp(cuv.x + dx, 0.0, 1.0), cuv.y)).rgb);
+    float l2 = luma(texture(uTex, vec2(cuv.x, clamp(cuv.y - dy, 0.0, 1.0))).rgb);
+    float l3 = luma(texture(uTex, vec2(cuv.x, clamp(cuv.y + dy, 0.0, 1.0))).rgb);
+    float avg5 = (lc + l0 + l1 + l2 + l3) * 0.2;
+    float max5 = max(lc, max(max(l0, l1), max(l2, l3)));
+    lum = mix(avg5, max5, 0.58);
+  } else {
+    lum = luma(texture(uTex, cuv).rgb);
+  }
+  float d = smoothstep(0.05, 0.92, lum);
 
   // Soft bevelled plinth mask at the card border (disabled when uPlinth == 0.0)
-  float edgeX = smoothstep(0.0, 0.028, rel.x) * smoothstep(0.0, 0.028, 1.0 - rel.x);
-  float edgeY = smoothstep(0.0, 0.036, rel.y) * smoothstep(0.0, 0.036, 1.0 - rel.y);
+  float edgeX = smoothstep(0.0, 0.055, rel.x) * smoothstep(0.0, 0.055, 1.0 - rel.x);
+  float edgeY = smoothstep(0.0, 0.065, rel.y) * smoothstep(0.0, 0.065, 1.0 - rel.y);
   float mask = edgeX * edgeY;
 
   float base = uPlinth > 0.001 ? (uPlinth + (1.0 - uPlinth) * d) * mask : d;
-  float depth = base + uPopBoost * mask * 0.25 + waveOffset(pos, rect);
+  float depth = base + uPopBoost * mask * 0.28 + waveOffset(pos, rect);
   return clamp(depth, 0.0, 1.0);
 }
 
@@ -197,30 +213,21 @@ vec3 samplePattern(vec2 p, float stripW) {
   float y = p.y;
 
   if (uPattern == 0) {
-    // 1990s Confetti Dots: multi-scale periodic random dots with high horizontal contrast
-    float nFine = max(14.0, floor(stripW / 3.4));
-    float nMed = max(7.0, floor(stripW / 8.5));
-    vec3 nf = periodicNoise(vec2(u * nFine, y / 3.4), nFine);
-    vec3 nm = periodicNoise(vec2(u * nMed, y / 8.5), nMed);
-
-    // Subtle crisp confetti circles on a periodic grid
-    vec2 cellP = vec2(u * nMed, y / 8.5);
-    vec2 ci = floor(cellP);
-    vec2 cf = fract(cellP) - 0.5;
-    vec3 dotRand = hash23(vec2(mod(ci.x, nMed), ci.y) + vec2(11.3, 7.1));
-    float dist = length(cf - (dotRand.xy - 0.5) * 0.32);
-    float disc = 1.0 - smoothstep(0.18, 0.34, dist);
-
-    vec3 palA = mix(vec3(0.08, 0.14, 0.28), vec3(0.10, 0.72, 0.78), nf.x);
-    vec3 palB = mix(vec3(0.92, 0.34, 0.22), vec3(0.98, 0.84, 0.32), nf.y);
-    vec3 grain = mix(palA, palB, smoothstep(0.32, 0.68, nf.z));
-    vec3 dotCol = mix(vec3(0.96, 0.94, 0.88), vec3(0.62, 0.32, 0.94), dotRand.z);
-    vec3 col = mix(grain * (0.68 + 0.46 * nm.x), dotCol, disc * 0.72);
-    return col;
+    // Classic crisp 2 CSS px random-dot SIRDS matrix with exact horizontal period stripW.
+    float nCols = max(24.0, floor(stripW / 2.0 + 0.5));
+    float cx = mod(floor(u * nCols), nCols);
+    float cy = floor(y / 2.0);
+    vec3 rnd = hash23(vec2(cx, cy));
+    float fine = hash21(vec2(cx * 3.1 + cy * 1.7, cy * 2.3));
+    vec3 dark = vec3(0.03, 0.04, 0.08);
+    vec3 midA = mix(vec3(0.06, 0.78, 0.90), vec3(0.98, 0.34, 0.24), step(0.48, rnd.y));
+    vec3 midB = mix(vec3(0.98, 0.86, 0.28), vec3(0.96, 0.98, 1.00), step(0.62, rnd.z));
+    vec3 bright = mix(midA, midB, smoothstep(0.30, 0.72, fine));
+    return mix(dark + rnd * 0.14, bright, step(0.46, rnd.x));
   }
 
   if (uPattern == 1) {
-    // Retro Wallpaper: 90s geometric rosette and diagonal weave with fine grain
+    // Retro Wallpaper: 90s geometric rosette and diagonal weave with crisp micro-speckle
     float v = fract(y / stripW);
     float ang = 6.2831853 * u;
     float vang = 6.2831853 * v;
@@ -228,19 +235,19 @@ vec3 samplePattern(vec2 p, float stripW) {
     float diagB = cos((u - v) * 6.2831853 * 3.0);
     float rings = sin(length(fract(vec2(u, v) * 2.0) - 0.5) * 34.0);
     float weave = 0.5 + 0.5 * (diagA * diagB);
-    float nFine = max(14.0, floor(stripW / 4.0));
-    vec3 micro = periodicNoise(vec2(u * nFine, y / 4.0), nFine);
+    float nCols = max(24.0, floor(stripW / 2.0 + 0.5));
+    vec3 micro = hash23(vec2(mod(floor(u * nCols), nCols), floor(y / 2.0)));
 
     vec3 base = mix(vec3(0.10, 0.16, 0.34), vec3(0.12, 0.60, 0.64), weave);
     base = mix(base, vec3(0.86, 0.28, 0.44), smoothstep(0.35, 0.85, rings) * 0.68);
     base = mix(base, vec3(0.98, 0.78, 0.28), smoothstep(0.55, 0.95, sin(ang * 2.0) * cos(vang * 2.0)) * 0.55);
-    return base * (0.76 + 0.36 * micro.x) + (micro - 0.5) * 0.16;
+    return base * (0.70 + 0.44 * micro.x) + (micro - 0.5) * 0.24;
   }
 
   if (uPattern == 2) {
     // ASCII Stipple: periodic terminal glyph grid
-    float cols = max(6.0, floor(stripW / 9.0));
-    float rowH = 10.0;
+    float cols = max(8.0, floor(stripW / 7.0));
+    float rowH = 8.0;
     vec2 cell = vec2(u * cols, y / rowH);
     vec2 ci = floor(cell);
     vec2 cf = fract(cell);
@@ -266,31 +273,83 @@ vec3 samplePattern(vec2 p, float stripW) {
     return mix(bg, fg, ink);
   }
 
-  // Preset 3: Live DOM Texture tiled into the stereogram strip with subtle colour weave
+  // Preset 3: Live DOM Texture tiled into the stereogram strip with crisp SIRDS contrast
   float cardAspect = max(uCardRect.w / max(uCardRect.z, 1.0), 0.35);
   float tileH = stripW * cardAspect;
   vec2 tuv = vec2(u, fract(y / max(tileH, 24.0)));
   vec3 domTile = texture(uTex, tuv).rgb;
-  float nGrid = max(12.0, floor(stripW / 4.2));
-  vec3 grain = periodicNoise(vec2(u * nGrid, y / 4.2), nGrid);
-  vec3 tint = mix(vec3(0.12, 0.24, 0.42), vec3(0.88, 0.42, 0.24), grain.x);
-  vec3 woven = mix(tint * (0.45 + 0.55 * grain.y), domTile * vec3(1.0, 0.94, 0.86), 0.58);
-  return woven + (grain - 0.5) * 0.18;
+  float nCols = max(24.0, floor(stripW / 2.0 + 0.5));
+  vec3 grain = hash23(vec2(mod(floor(u * nCols), nCols), floor(y / 2.0)));
+  vec3 tint = mix(vec3(0.10, 0.22, 0.42), vec3(0.90, 0.42, 0.24), grain.x);
+  vec3 woven = mix(tint * (0.42 + 0.58 * grain.y), domTile * vec3(1.0, 0.94, 0.86), 0.56);
+  return woven + (grain - 0.5) * 0.26;
 }
 
 // #region stereogram-chain
-// Exact single-pass GPU autostereogram: trace left by (stripW - depth * maxShift)
-// until reaching the periodic seed strip [0, stripW). Zero FBOs, zero readback.
+float evalStereoHeight(vec2 p) {
+  float d = sampleDepthInRect(p, uCardRect);
+  return uCrossFuse > 0.5 ? (1.0 - d) : d;
+}
+
+// Exact single-pass GPU autostereogram: front-to-back heightfield raymarch along the
+// right-eye epipolar ray prevents thin-stroke self-erasure, while breaking any link
+// occluded from the left eye or compressed on a falling cliff prevents horizontal echoes.
 vec3 renderAutostereogram(vec2 pos, float stripW, float maxShift) {
   float px = pos.x;
+  float minLinkX = uCardRect.x + 0.5 * (stripW - maxShift) - 1.0;
+  float maxLinkX = uCardRect.x + uCardRect.z + 0.5 * stripW + 1.0;
+  bool yInside = pos.y >= uCardRect.y && pos.y <= uCardRect.y + uCardRect.w;
+  bool hasDynamicWave = uPulse > 0.5 || (uPopAge >= 0.0 && uPopAge < 1.5);
+
   for (int i = 0; i < 30; i++) {
     if (px < stripW) break;
-    // Two-step midpoint lookup centres the perceived 3D silhouette on the live DOM hit box.
-    float d0 = sampleDepthInRect(vec2(px - 0.5 * stripW, pos.y), uCardRect);
-    float sep0 = stripW - d0 * maxShift;
-    float d = sampleDepthInRect(vec2(px - 0.5 * sep0, pos.y), uCardRect);
-    float sep = stripW - d * maxShift;
-    px -= sep;
+    float hitD = 0.0;
+    bool occluded = false;
+    if (uCrossFuse > 0.5 || hasDynamicWave || (yInside && px >= minLinkX && px <= maxLinkX)) {
+      const int STEPS = 14;
+      float prevT = 1.0;
+      float prevD = 0.0;
+      for (int s = 0; s <= STEPS; s++) {
+        float t = 1.0 - float(s) / float(STEPS);
+        float xAtT = px - 0.5 * (stripW - t * maxShift);
+        float d = evalStereoHeight(vec2(xAtT, pos.y));
+        if (d >= t) {
+          float denom = max((prevT - prevD) + (d - t), 1e-4);
+          float frac = clamp((prevT - prevD) / denom, 0.0, 1.0);
+          hitD = mix(prevT, t, frac);
+          break;
+        }
+        prevT = t;
+        prevD = d;
+      }
+      if (maxShift > 1.0) {
+        float xHit = px - 0.5 * (stripW - hitD * maxShift);
+        // Break links on steep right-facing slopes where dxL/dpx drops below ~0.45
+        if (hitD > 0.01) {
+          float leftShoulder = max(
+            evalStereoHeight(vec2(xHit - 2.5, pos.y)),
+            evalStereoHeight(vec2(xHit - 5.5, pos.y))
+          );
+          if ((leftShoulder - hitD) * maxShift > 1.35) {
+            occluded = true;
+          }
+        }
+        // Left-eye hidden-surface test along the epipolar line from (xHit, hitD) up to t = 1.0
+        if (!occluded && hitD < 0.99) {
+          for (int k = 1; k <= 6; k++) {
+            float u = hitD + (1.0 - hitD) * (float(k) / 6.0);
+            float xL = xHit - 0.5 * (u - hitD) * maxShift;
+            if (evalStereoHeight(vec2(xL, pos.y)) >= u - 0.015) {
+              occluded = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (occluded) break;
+    float sep = stripW - hitD * maxShift;
+    px -= max(sep, 12.0);
   }
   return samplePattern(vec2(mod(px, stripW), pos.y), stripW);
 }
@@ -300,7 +359,7 @@ vec3 renderAutostereogram(vec2 pos, float stripW, float maxShift) {
 // Front-to-back horizontal heightfield raymarch for cross-eye, anaglyph and wiggle 3D.
 // eyeSign = -1 shifts raised features right (left eye); +1 shifts them left (right eye).
 vec4 sampleParallax(vec2 pos, vec4 rect, float eyeSign, float maxShift) {
-  const int STEPS = 14;
+  const int STEPS = 24;
   float prevT = 1.0;
   float prevD = 0.0;
   float hitT = 0.0;
@@ -374,7 +433,7 @@ vec3 blendPeekOverlay(vec3 baseCol, vec2 pos, vec4 rect, float amount) {
 void main() {
   vec2 pos = vUv * uCanvas;
   float stripW = max(uStripW, 44.0);
-  float maxShift = clamp(uDepth, 0.0, 0.40) * stripW;
+  float maxShift = clamp(uDepth, 0.0, 0.50) * stripW;
   vec3 rgb = vec3(0.05, 0.06, 0.09);
 
   if (uTopBand > 1.0 && pos.y < uTopBand) {
@@ -396,7 +455,7 @@ void main() {
     if (uPeek > 0.01) rgb = blendPeekOverlay(rgb, pos, uCardRect, 0.80 * uPeek);
   } else if (uMode == 1) {
     // Cross-eye stereo pair: Left half = Right eye (+1), Right half = Left eye (-1)
-    float pairShift = clamp(uDepth, 0.0, 0.40) * 34.0;
+    float pairShift = clamp(uDepth, 0.0, 0.50) * 60.0;
     float midX = uCanvas.x * 0.5;
     if (abs(pos.x - midX) < 1.25) {
       rgb = vec3(0.32, 0.38, 0.48);
@@ -409,7 +468,7 @@ void main() {
     }
   } else if (uMode == 2) {
     // Red / Cyan Anaglyph 3D (Red = Left eye, Cyan = Right eye)
-    float anaShift = clamp(uDepth, 0.0, 0.40) * 44.0;
+    float anaShift = clamp(uDepth, 0.0, 0.50) * 68.0;
     vec3 leftEye = sampleParallax(pos, uCardRect, -1.0, anaShift).rgb;
     vec3 rightEye = sampleParallax(pos, uCardRect, 1.0, anaShift).rgb;
     float rChan = clamp(leftEye.r * 0.65 + luma(leftEye) * 0.35, 0.0, 1.0);
@@ -424,7 +483,7 @@ void main() {
       float s = sin(uTime * 6.2831853 * 3.0);
       eye = s * (1.35 - 0.35 * s * s);
     }
-    float wigShift = clamp(uDepth, 0.0, 0.40) * 46.0;
+    float wigShift = clamp(uDepth, 0.0, 0.50) * 72.0;
     rgb = sampleParallax(pos, uCardRect, eye, wigShift).rgb;
     if (uPeek > 0.01) rgb = blendPeekOverlay(rgb, pos, uCardRect, 0.78 * uPeek);
   } else {
@@ -479,7 +538,7 @@ function computeLayout() {
 }
 
 function autoStripWidth(cw) {
-  return Math.max(60, Math.min(120, Math.round(cw < 540 ? 68 : 104)));
+  return Math.max(60, Math.min(130, Math.round(cw < 540 ? 76 : 112)));
 }
 
 // #region hit-geometry
@@ -514,12 +573,13 @@ function needsAnimation(nowSec) {
 
 function updateHud(layout) {
   const modeLabel = MODE_NAMES[state.mode];
-  const depthFrac = (state.depthPct / 100) * 0.36;
+  const depthFrac = (state.depthPct / 100) * 0.46;
   const shiftPx = Math.round(state.stripW * depthFrac);
   const peekTag = (state.peek || state.previewPeek) ? ' | peek ON' : '';
+  const fuseTag = state.mode === 0 && state.crossFuse ? ' | cross-eye invert' : '';
   const focusTag = document.activeElement === textInput ? ` | typing "${textInput.value || ''}"` : '';
   if (state.mode === 0) {
-    hudEl.textContent = `${modeLabel} | ${PATTERN_NAMES[state.pattern]} | strip ${state.stripW}px, max shift ${shiftPx}px${peekTag}${focusTag}`;
+    hudEl.textContent = `${modeLabel} | ${PATTERN_NAMES[state.pattern]} | strip ${state.stripW}px, max shift ${shiftPx}px${fuseTag}${peekTag}${focusTag}`;
   } else if (state.mode === 1) {
     hudEl.textContent = `${modeLabel} | hit box: ${state.pairSide} half${peekTag}${focusTag}`;
   } else if (state.mode === 3 && prefersReducedMotion) {
@@ -531,7 +591,7 @@ function updateHud(layout) {
 
 // #region gl-render
 function renderWebGL() {
-  if (!stage || stage.lost) return;
+  if (!stage || stage.lost || !state.hasPainted) return;
   const layout = computeLayout();
   if (!state.stripUserSet) {
     const autoW = autoStripWidth(layout.cw);
@@ -550,7 +610,7 @@ function renderWebGL() {
   const nowSec = performance.now() / 1000;
   const popAge = nowSec - state.popStart;
   const popBoost = popAge >= 0 && popAge < 0.7 ? Math.sin((popAge / 0.7) * Math.PI) : 0;
-  const depthNorm = (state.depthPct / 100) * 0.36;
+  const depthNorm = (state.depthPct / 100) * 0.46;
   const peekVal = (state.peek || state.previewPeek) ? 1.0 : 0.0;
 
   stage.quad(cardEl, ElementGL.rect(canvas, 0, 0, layout.cw, layout.ch), (gl, u) => {
@@ -569,7 +629,8 @@ function renderWebGL() {
     gl.uniform1f(u('uPopBoost'), popBoost);
     gl.uniform1f(u('uPointerX'), state.pointerX);
     gl.uniform1f(u('uReducedMotion'), prefersReducedMotion ? 1.0 : 0.0);
-    gl.uniform1f(u('uPlinth'), 0.12);
+    gl.uniform1f(u('uPlinth'), 0.26);
+    gl.uniform1f(u('uCrossFuse'), state.crossFuse ? 1.0 : 0.0);
   });
 
   syncHitGeometry(layout);
@@ -582,7 +643,7 @@ function renderWebGL() {
 // #endregion gl-render
 
 function render2DFallback() {
-  if (!ctx2d) return;
+  if (!ctx2d || !state.hasPainted) return;
   const layout = computeLayout();
   const dpr = Math.min(window.devicePixelRatio || 1, 3);
   const bw = Math.max(1, Math.round(layout.cw * dpr));
@@ -643,9 +704,15 @@ depthSlider.addEventListener('input', () => syncDepthValue(depthSlider.value));
 
 stripSlider.addEventListener('input', () => {
   state.stripUserSet = true;
-  state.stripW = Number(stripSlider.value) || 104;
+  state.stripW = Number(stripSlider.value) || 112;
   stripOut.textContent = `${state.stripW}px`;
   requestRender();
+});
+
+crossFuseCheck?.addEventListener('change', () => {
+  state.crossFuse = Boolean(crossFuseCheck.checked);
+  if (state.mode !== 0) setMode(0);
+  else requestRender();
 });
 
 patternSelect.addEventListener('change', () => {
@@ -819,6 +886,7 @@ function initRenderer() {
   }
 
   canvas.addEventListener('paint', () => {
+    state.hasPainted = true;
     state.paints += 1;
     state.dirtyTex = true;
     if (state.route === 'webgl') renderWebGL();
@@ -870,6 +938,7 @@ function setFixtureUniforms(gl, u, opts) {
   gl.uniform1f(u('uPointerX'), 0.5);
   gl.uniform1f(u('uReducedMotion'), 0);
   gl.uniform1f(u('uPlinth'), opts.plinth ?? 0);
+  gl.uniform1f(u('uCrossFuse'), opts.crossFuse ?? 0);
 }
 
 function bestRepeatPeriod(rowBytes, widthPx, minLag, maxLag, startX) {
@@ -1146,6 +1215,82 @@ const checks = [
         return `elementsFromPoint() hit <input> and <button> at offset (${ox}, ${oy}) with geometryUnit() = ${unit.toFixed(3)}`;
       } finally {
         fixGL?.dispose();
+        fixCanvas.remove();
+        window.__gfx?.retire?.(fixCanvas);
+      }
+    },
+  },
+  {
+    name: 'Front-to-back link raymarch preserves narrow strokes at 100% depth',
+    why: 'Draws a narrow 10 px bright vertical bar inside a dark fixture with stripW = 100 px and depth = 0.45 (where 0.5 * maxShift = 22.5 px exceeds bar width) and verifies pixels over the shifted stroke match the 55 px foreground repeat rather than the 100 px background.',
+    timeout: 6000,
+    run: async () => {
+      if (!glSupported) throw new Error('WebGL 2 texElementSubImage2D() is not available');
+      const cw = 240, ch = 90, stripW = 100, depth = 0.45;
+      const fixCanvas = document.createElement('canvas');
+      fixCanvas.setAttribute('content', 'drawable');
+      fixCanvas.setAttribute('layoutsubtree', '');
+      fixCanvas.style.cssText = `width:${cw}px;height:${ch}px;display:block;`;
+
+      const card = document.createElement('div');
+      card.setAttribute('drawable', '');
+      card.style.cssText = `position:absolute;left:0;top:0;width:${cw}px;height:${ch}px;background:#000000;overflow:hidden;`;
+      const bar = document.createElement('div');
+      bar.style.cssText = `position:absolute;left:115px;top:0;width:10px;height:${ch}px;background:#ffffff;`;
+      card.append(bar);
+      fixCanvas.append(card);
+      testStage().append(fixCanvas);
+
+      const fixGL = new ElementGL(fixCanvas, {
+        fragment: STEREO_FRAG,
+        attributes: { alpha: false, preserveDrawingBuffer: true },
+      });
+      try {
+        await nextPaint(fixCanvas);
+        fixGL.upload(card);
+        fixGL.begin([0, 0, 0, 1]);
+        fixGL.quad(card, ElementGL.rect(fixCanvas, 0, 0, cw, ch), (gl, u) => {
+          setFixtureUniforms(gl, u, { cw, ch, rect: [0, 0, cw, ch], mode: 0, pattern: 0, stripW, depth, plinth: 0 });
+        });
+        const err = fixGL.gl.getError();
+        if (err !== fixGL.gl.NO_ERROR) throw new Error(`WebGL error 0x${err.toString(16)}`);
+
+        const bw = fixCanvas.width;
+        const bh = fixCanvas.height;
+        const scaleX = bw / cw;
+        const row = new Uint8Array(bw * 4);
+        fixGL.gl.readPixels(0, Math.floor(bh * 0.5), bw, 1, fixGL.gl.RGBA, fixGL.gl.UNSIGNED_BYTE, row);
+
+        const lagFg = Math.round(55 * scaleX);
+        const lagBg = Math.round(100 * scaleX);
+        const xStart = Math.round(144 * scaleX);
+        const xEnd = Math.round(151 * scaleX);
+        const minBandErr = (centerLag) => {
+          let best = Infinity;
+          for (let dLag = -1; dLag <= 1; dLag++) {
+            const lag = centerLag + dLag;
+            if (lag < 1) continue;
+            let sum = 0, samples = 0;
+            for (let x = xStart; x <= xEnd; x++) {
+              const i = x * 4;
+              const j = (x - lag) * 4;
+              sum += Math.abs(row[i] - row[j]) + Math.abs(row[i + 1] - row[j + 1]) + Math.abs(row[i + 2] - row[j + 2]);
+              samples += 3;
+            }
+            const avg = sum / samples;
+            if (avg < best) best = avg;
+          }
+          return best;
+        };
+        const errFg = minBandErr(lagFg);
+        const errBg = minBandErr(lagBg);
+        // Fractional DPR (e.g. 2.625) can shift one 2 px dot boundary by <1 device px (~8.5 err); background misses >100.
+        if (errFg > 14 || errBg < 25 || errFg >= errBg * 0.25) {
+          throw new Error(`narrow stroke erased (55px repeat err=${errFg.toFixed(1)}, 100px bg err=${errBg.toFixed(1)})`);
+        }
+        return `10px bar at 45% shift matched 55px link (err=${errFg.toFixed(1)} vs bg err=${errBg.toFixed(1)})`;
+      } finally {
+        fixGL.dispose();
         fixCanvas.remove();
         window.__gfx?.retire?.(fixCanvas);
       }
