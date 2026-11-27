@@ -1,0 +1,28 @@
+# Zoom-blur tunnel NLE transition (`/zoom-tunnel/`)
+
+Measured on 2026-11-27 in `HeadlessChrome/160.0.0.0` (Chrome Canary 160.0.8188.0 with `--enable-features=CanvasDrawElement --enable-blink-features=CanvasDrawElement` at 412 px wide, DPR 2.625 and 1080 px desktop, DPR 2) plus static checks (`node --check`, `node tools/gfx/check.mjs`, `node tools/writing/check.mjs --strict /zoom-tunnel/`, `node tools/writing/check.mjs --docs --strict`, `node tools/social/validate.mjs /zoom-tunnel/`). Headless Chromium 157 (`npm run check:jank`) and Chrome 159 on Android (A159) are **not verified** yet.
+
+| Question | Result | Notes |
+|---|---|---|
+| One `ElementGL` WebGL 2 context uploading `#zt-scene-a` and `#zt-scene-b` with `UNPACK_PREMULTIPLY_ALPHA_WEBGL = true` and `stage.begin()` before `stage.upload()` | measured (Chrome 160, 2026-11-27) | `1` active WebGL context at load (`peak: 3` during checks, settled back to `1`), `1.096 MP` canvas (`994×1103` at 412 px @ 2.625 DPR), `8.77 MB` initial (`13.63 MB` peak), 8x anisotropic mipmaps, 0 console errors, `0` open snapshots. Check 1 passed: `texA 630×473 rgb(239,90,41), texB 630×473 rgb(14,165,233), glErr=0`. |
+| Moving optical anchor `(fx, fy)` shifts 16-tap radial zoom-blur and R/B dispersion asymmetry across quadrants | measured (Chrome 160, 2026-11-27) | Check 2 passed: anchoring at `(0.18, 0.22)` gave local contrast `10.7` (top-left) vs `2.3` (bottom-right); moving the anchor to `(0.82, 0.78)` flipped contrast to `1.7` (top-left) vs `10.7` (bottom-right). Real pointer drag on `#zt-reticle` moved focal readout to `25%, 65%` cleanly. |
+| Hyperbolic scale curves (`Zoom in` vs `Pull out`), `tMs` overshoot clamping and reduced-motion snaps across 0% to 100% | measured (Chrome 160, 2026-11-27) | Check 3 passed: `Zoom in` peaked at `2.23x` vs `Pull out` `0.40x` at 50% (`vel 1.00`), settling to `1.00x` at 100%; `stepZoomTransition()` clamped negative and overshoot `tMs` to `[0, 1]` and snapped immediately under `reducedMotion`. Emulating `prefers-reduced-motion: reduce` checked `#ctl-reduced` and snapped `Punch in` straight to `100%`. |
+| `updateElementGeometry()` calibrated with `geometryUnit()` + `dataset.hitTick` and `inert` swapping keeps controls clickable on both settled views | measured (Chrome 160, 2026-11-27) | Check 4 passed (`0% hit btnA & inpA (clicks=1); 100% hit btnB & inpB (clicks=1)`). Real CDP pointer clicks on the 412 px stage hit `Log marker #1` (`#2`) and edited `#zt-input-a` at 0%, then hit `Cue clip #1` (`#2`) at 100% after `Punch in`. |
+| Synthetic `webglcontextlost` / `webglcontextrestored`, 5-arg `drawElementImage()` 2D fallback and disabled API plain HTML fallback | measured (Chrome 160, 2026-11-27) | Check 5 passed without `loseContext()`; deleting `texElementSubImage2D` switched to the 5-argument `drawElementImage()` 2D route (`wrongDraws = 0`, `scrollWidth = 412`, 0 errors); disabling `CanvasDrawElement` hid `#zt-viewport` and rendered both scenes in `#plain-host` (`scrollWidth = 412`). |
+| Accessibility self-audit (`/lib/a11y-audit.js`) at 1080 px desktop | measured (Chrome 160, 2026-11-27) | 8 pass (`calm`, `blank`, `dom`, `hit`, `ghost`, `names`, `sharp`, `motion`), 0 fail, 2 warn (`focus` pixel hash on idle WebGL, `zoom` 150% CSS zoom backing-store scaling in `ElementGL`), 1 info (`find`). |
+
+## Things that bit
+
+- Setting the initial optical focal point at `(74%, 30%)` overlapped the subtitle text on Editorial Shot A at 412 px wide, and drawing a second `22 px` circle inside the GLSL reticle created a faint double halo around the `40 px` `#zt-reticle` button. Moving the default anchor to `(85%, 16%)` below the bullseye mark and keeping only the outer calibration ticks and centre dot in GLSL kept the landing card unobstructed and sharp.
+- Reading `window.__gfx.active()` immediately on `window.__checkState === 'done'` initially showed `3` active contexts because `/shared/context-guard.js` runs its retirement sweep every `500 ms` (`t - goneAt > 200`). Waiting one guard interval after `done` showed `active()` drop back cleanly to `1`.
+- Because `npm run build` hasn't regenerated `public/shared/pages.js` on this isolated branch yet, `/shared/learn.js` exited early before mounting the `About this experiment` and reduced-motion banner on the local static server; once `npm run build` runs on merge, `<meta name="reduced-motion" content="warn">` and `<meta name="reduced-motion-note">` activate automatically.
+
+## Not verified
+
+- `npm run check:jank -- /zoom-tunnel/` and `node tools/draw-size/audit.mjs /zoom-tunnel/` (Playwright is not installed in this environment): verifying zero layout shift across viewport height changes and zero timed readbacks under 4x CPU throttle.
+- Chrome 159 on Android (412 px wide, touch, DPR 2.625): dragging `#zt-reticle` by touch without vertical page pan, typing inside `#zt-input-a` and `#zt-input-b` with the Android soft keyboard, real GPU frame rate during the 16-tap tunnel cross-dissolve, and live `webglcontextlost` recovery under mobile GPU memory pressure.
+- Real keyboard Tab traversal and screen reader output on C157 and A159.
+
+## For the index
+
+- 3D, spatial and WebXR: `/zoom-tunnel/` composites two live interactive HTML scenes (`Editorial Shot A` and `Night Deck Shot B`) on one `ElementGL` WebGL 2 context (`UNPACK_PREMULTIPLY_ALPHA_WEBGL = true`) through a hyperbolic barrel zoom-blur tunnel with 16-tap radial streaks and R/B dispersion anchored at a draggable `(fx, fy)` reticle, swapping `inert` and `updateElementGeometry()` so both endpoints stay clickable (measured in Chrome 160 headless; Android phone not verified yet).
