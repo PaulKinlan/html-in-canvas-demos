@@ -67,8 +67,12 @@ html.page-loading body>:not(#site-nav){opacity:0}\
 #site-nav .nav-links a:hover{background:rgba(127,127,127,.14)}\
 #site-nav .nav-links a[aria-current]{background:#1d1c1a;color:#f6f4ef;font-weight:600}\
 #site-nav .panel-empty{padding:16px 4px;color:#6b6760;font-size:14px}\
-#site-nav a:focus-visible,#site-nav summary:focus-visible,#site-nav button:focus-visible{outline:2px solid #d2491f;outline-offset:1px}\
-@media (prefers-color-scheme:dark){#site-nav{color:#eeebe5;background:rgba(22,21,20,.92);border-color:#3a3733}#site-nav .top-links a{color:#a19c93}#site-nav .top-links a:hover,#site-nav .top-links a[aria-current]{color:#eeebe5}#site-nav summary.menu-btn{border-color:#3a3733}#site-nav .panel,#site-nav .panel-head{background:#1b1918;border-color:#3a3733}#site-nav .panel-quick a,#site-nav .panel-filter,#site-nav .panel-toggle,#site-nav details.nav-group{background:#211f1d;border-color:#3a3733;color:#eeebe5}#site-nav .panel-quick a:hover,#site-nav .panel-toggle:hover{border-color:#eeebe5}#site-nav details.nav-group[open]>summary{border-color:#3a3733}#site-nav .panel-count,#site-nav .nav-count,#site-nav .panel-empty{color:#a19c93;border-color:#3a3733}#site-nav .nav-links a[aria-current]{background:#eeebe5;color:#161514}}\
+#site-nav a:focus-visible,#site-nav summary:focus-visible,#site-nav button:focus-visible,#site-footer a:focus-visible{outline:2px solid #d2491f;outline-offset:1px}\
+#site-footer{margin-top:44px;padding:16px 0 0;border-top:1px solid var(--line,#ddd8cf);font:13.5px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--muted,#6b6760);display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}\
+#site-footer.outside{max-width:960px;margin:32px auto 40px;padding:16px 16px 0}\
+#site-footer a{color:var(--muted,#6b6760);text-decoration:none;display:inline-flex;align-items:center}\
+#site-footer a:hover{color:var(--fg,#1d1c1a);text-decoration:underline}\
+@media (prefers-color-scheme:dark){#site-nav{color:#eeebe5;background:rgba(22,21,20,.92);border-color:#3a3733}#site-nav .top-links a{color:#a19c93}#site-nav .top-links a:hover,#site-nav .top-links a[aria-current]{color:#eeebe5}#site-nav summary.menu-btn{border-color:#3a3733}#site-nav .panel,#site-nav .panel-head{background:#1b1918;border-color:#3a3733}#site-nav .panel-quick a,#site-nav .panel-filter,#site-nav .panel-toggle,#site-nav details.nav-group{background:#211f1d;border-color:#3a3733;color:#eeebe5}#site-nav .panel-quick a:hover,#site-nav .panel-toggle:hover{border-color:#eeebe5}#site-nav details.nav-group[open]>summary{border-color:#3a3733}#site-nav .panel-count,#site-nav .nav-count,#site-nav .panel-empty{color:#a19c93;border-color:#3a3733}#site-nav .nav-links a[aria-current]{background:#eeebe5;color:#161514}#site-footer{border-color:#3a3733;color:#a19c93}#site-footer a{color:#a19c93}#site-footer a:hover{color:#eeebe5}}\
 @media (max-width:740px){#site-nav .top-links{display:none}}\
 @media (max-width:520px){#site-nav .home .long{display:none}}';
 
@@ -162,20 +166,25 @@ html.page-loading body>:not(#site-nav){opacity:0}\
     var other = demos.filter(function (d) { return !groups.some(function (g) { return g[0] === d.group; }); });
     if (other.length) panel += groupHtml('more', 'More', other);
 
+    var rssIcon = '<svg aria-hidden="true" width="13" height="13" viewBox="0 0 16 16" fill="currentColor" style="flex:none;vertical-align:-2px;margin-right:4px"><circle cx="3.2" cy="12.8" r="1.8"/><path d="M2 7.2a6.8 6.8 0 0 1 6.8 6.8h2.2A9 9 0 0 0 2 5v2.2zm0-4.4A11.2 11.2 0 0 1 13.2 14h2.2A13.4 13.4 0 0 0 2 .6v2.2z"/></svg>';
+
     var topLinks = '<div class="top-links">' +
       '<a href="/#examples">Examples</a>' +
+      '<a href="/all/"' + (here === '/all/' ? ' aria-current="page"' : '') + '>All</a>' +
       '<a href="/#libraries">Libraries</a>' +
       '<a href="/start/"' + (here === '/start/' ? ' aria-current="page"' : '') + '>Start</a>' +
       '<a href="/about/"' + (here === '/about/' ? ' aria-current="page"' : '') + '>About</a>' +
+      '<a href="/feed.xml" type="application/rss+xml" title="RSS feed of all pages">' + rssIcon + 'RSS</a>' +
       '</div>';
 
     var quickLinks = '<div class="panel-quick">' +
       '<a href="/#examples">Examples</a>' +
+      '<a href="/all/"' + (here === '/all/' ? ' aria-current="page"' : '') + '>All demos</a>' +
       '<a href="/#libraries">Libraries</a>' +
-      '<a href="/#all">All experiments</a>' +
       '<a href="/start/">Start here</a>' +
       '<a href="/use-it/">Use it</a>' +
       '<a href="/about/">About</a>' +
+      '<a href="/feed.xml" type="application/rss+xml">' + rssIcon + 'RSS feed</a>' +
       '</div>';
 
     nav.querySelector('.bar').insertAdjacentHTML('beforeend',
@@ -271,6 +280,21 @@ html.page-loading body>:not(#site-nav){opacity:0}\
       details.open = false;
       nav.querySelector('summary.menu-btn').focus();
     });
+
+    if (window.top === window && !/[?&](bench|embed|nolearn|wing)\b/.test(location.search) && here !== '/' && !document.getElementById('site-footer')) {
+      var footerHost = document.querySelector('main') || document.body;
+      var footer = document.createElement('footer');
+      footer.id = 'site-footer';
+      footer.setAttribute('aria-label', 'Site links');
+      if (footerHost === document.body) footer.className = 'outside';
+      footer.innerHTML =
+        '<a href="/all/">All demos (newest first)</a>' +
+        '<a href="/feed.xml" type="application/rss+xml">' + rssIcon + 'RSS feed (all pages)</a>' +
+        '<a href="/elsewhere/feed.xml" type="application/rss+xml">Other people\'s demos RSS</a>' +
+        '<a href="/about/">About</a>' +
+        '<a href="https://github.com/PaulKinlan/html-in-canvas-demos">Source on GitHub</a>';
+      footerHost.appendChild(footer);
+    }
   }
 
   function ready(fn) {

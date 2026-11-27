@@ -75,6 +75,7 @@ async function item(page, { files, known }) {
       `<dc:creator>${esc(SITE.author.name)}</dc:creator>`,
       ...tags.map((t) => `<category>${esc(t)}</category>`),
       `<description>${esc(plainText(page.blurb || page.question || d.description))}</description>`,
+      `<media:content url="${esc(d.image)}" type="${SITE.image.type}" medium="image" width="${SITE.image.width}" height="${SITE.image.height}"/>`,
       `<content:encoded>${cdata(parts.join('\n'))}</content:encoded>`,
       '</item>',
     ].filter(Boolean).join('\n'),
@@ -84,13 +85,15 @@ async function item(page, { files, known }) {
 // One RSS 2.0 file. `items` is [{ xml }], `newest` the YYYY-MM-DD of the newest item.
 function channel({ title, description, link, path: feedPath, newest, items }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/">
 <channel>
 <title>${esc(title)}</title>
 <link>${esc(link)}</link>
 <atom:link href="${SITE.origin}${feedPath}" rel="self" type="application/rss+xml"/>
 <description>${esc(description)}</description>
 <language>en-gb</language>
+<docs>https://www.rssboard.org/rss-specification</docs>
+<generator>html-in-canvas-demos</generator>
 ${newest ? `<lastBuildDate>${rfc822(newest)}</lastBuildDate>\n` : ''}<image><url>${SITE.origin}/social.jpg</url><title>${esc(title)}</title><link>${esc(link)}</link></image>
 ${items.map((i) => i.xml).join('\n')}
 </channel>
