@@ -79,6 +79,7 @@ export class ElementGL {
     this.gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: 'low-power', ...attributes });
     if (!this.gl) throw new Error('WebGL 2 is not available');
     this.#build();
+    this.#syncSize();
   }
 
   #build() {
@@ -154,11 +155,27 @@ export class ElementGL {
     this.#vao = null;
   }
 
+  #syncSize() {
+    const c = this.canvas;
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    let cw = this.#size.w, ch = this.#size.h;
+    if (!(cw > 0 && ch > 0)) {
+      cw = c.clientWidth;
+      ch = c.clientHeight;
+      if (cw > 0 && ch > 0) { this.#size.w = cw; this.#size.h = ch; }
+    }
+    if (!(cw > 0 && ch > 0)) return false;
+    const w = Math.max(1, Math.round(cw * dpr)), h = Math.max(1, Math.round(ch * dpr));
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    return true;
+  }
+
   // #region upload
   /** Copy an element's current picture into its texture. Call inside the paint event. */
   upload(element) {
     const gl = this.gl;
     if (this.lost) return null;
+    this.#syncSize();
     const size = this.canvas.getElementImageDefaultSize(element);
     const w = Math.max(1, Math.ceil(size.width)), h = Math.max(1, Math.ceil(size.height));
     let t = this.#textures.get(element);
@@ -195,16 +212,8 @@ export class ElementGL {
   begin(clear = DEFAULT_CLEAR) {
     const gl = this.gl, c = this.canvas;
     if (this.lost) return false;
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    let cw = this.#size.w, ch = this.#size.h;
-    if (!(cw > 0 && ch > 0)) {
-      cw = c.clientWidth;
-      ch = c.clientHeight;
-      if (cw > 0 && ch > 0) { this.#size.w = cw; this.#size.h = ch; }
-    }
-    const w = Math.max(1, Math.round(cw * dpr)), h = Math.max(1, Math.round(ch * dpr));
-    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-    gl.viewport(0, 0, w, h);
+    this.#syncSize();
+    gl.viewport(0, 0, c.width, c.height);
     gl.clearColor(clear[0], clear[1], clear[2], clear[3]);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.#program);
