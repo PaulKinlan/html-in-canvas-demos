@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Elastic peel-away swipe list</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Six live HTML inbox rows inside one ElementGL WebGL 2 canvas with touch direction arbitration, 3D sticker-peel and elastic taffy shaders, reveal strips, and spring collapse with Undo.">
+<link rel="canonical" href="https://html-in-canvas.page/swipe-peel/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Elastic peel-away swipe list">
+<meta property="og:description" content="Six live HTML inbox rows inside one ElementGL WebGL 2 canvas with touch direction arbitration, 3D sticker-peel and elastic taffy shaders, reveal strips, and spring collapse with Undo.">
+<meta property="og:url" content="https://html-in-canvas.page/swipe-peel/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Elastic peel-away swipe list&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-27">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Elastic peel-away swipe list">
+<meta name="twitter:description" content="Six live HTML inbox rows inside one ElementGL WebGL 2 canvas with touch direction arbitration, 3D sticker-peel and elastic taffy shaders, reveal strips, and spring collapse with Undo.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Elastic peel-away swipe list&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/swipe-peel/",
+   "url": "https://html-in-canvas.page/swipe-peel/",
+   "mainEntityOfPage": "https://html-in-canvas.page/swipe-peel/",
+   "headline": "Elastic peel-away swipe list",
+   "name": "Elastic peel-away swipe list",
+   "description": "Six live HTML inbox rows inside one ElementGL WebGL 2 canvas with touch direction arbitration, 3D sticker-peel and elastic taffy shaders, reveal strips, and spring collapse with Undo.",
+   "abstract": "Can I solve vertical-vs-horizontal touch arbitration on a scrollable inbox list while bending swiped live HTML rows on a GPU peel and elastic mesh that reveals Archive or Delete actions and smoothly spring-collapses remaining rows?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-27",
+   "keywords": "WebGL, ElementGL, swipe, gesture, updateElementGeometry, texElementSubImage2D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Elastic peel-away swipe list",
+     "item": "https://html-in-canvas.page/swipe-peel/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .swipe-stage {
+    padding: 0;
+    overflow: hidden;
+    margin: 0 0 12px;
+    background: var(--card);
+  }
+  .stage-status {
+    margin: 0;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    font-size: 14px;
+  }
+  .stage-status[hidden] {
+    display: none;
+  }
+  .feed-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--card);
+    font-size: 13px;
+  }
+  .feed-head strong {
+    font-size: 14px;
+  }
+  .feed-counts {
+    font: 600 12px/1.3 var(--mono);
+    color: var(--muted);
+  }
+  .feed-hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font: 600 11.5px/1.2 var(--mono);
+    color: var(--muted);
+  }
+  .hint-archive {
+    color: var(--ok);
+  }
+  .hint-delete {
+    color: var(--bad);
+  }
+
+  #feed-viewport {
+    position: relative;
+    height: 388px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    background: #141821;
+    overflow-anchor: none;
+  }
+  #feed-viewport:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+  }
+  #feed-scroll-track {
+    position: relative;
+    width: 100%;
+    height: 602px;
+  }
+  #peel-canvas {
+    position: sticky;
+    top: 0;
+    left: 0;
+    display: block;
+    width: 100%;
+    height: 388px;
+    touch-action: pan-y;
+    overflow-anchor: none;
+    cursor: grab;
+  }
+  #peel-canvas.dragging {
+    cursor: grabbing;
+  }
+  #swipe-stage.plain #feed-viewport {
+    height: auto;
+    max-height: 440px;
+    padding: 12px;
+  }
+  #swipe-stage.plain #feed-scroll-track {
+    height: auto;
+  }
+  .plain-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .plain-list[hidden],
+  .empty-inbox[hidden] {
+    display: none;
+  }
+  .empty-inbox {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: 10px;
+    text-align: center;
+    padding: 24px;
+    color: #e6ebf4;
+    pointer-events: none;
+  }
+  .empty-inbox p {
+    margin: 0;
+    font-size: 15px;
+    color: #b7c0d1;
+  }
+  .empty-inbox button {
+    pointer-events: auto;
+    justify-self: center;
+    min-height: 40px;
+    padding: 8px 16px;
+  }
+
+  /* Live HTML inbox rows inside <canvas content="drawable" layoutsubtree> */
+  .mail-row {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: var(--row-w, calc(100% - 24px));
+    height: 88px;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: 40px 36px minmax(0, 1fr) 40px;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 10px 10px 6px;
+    border-radius: 12px;
+    border: 1px solid #d9d3c6;
+    border-left: 4px solid #c9c1b2;
+    background: linear-gradient(180deg, #ffffff 0%, #f8f5ef 100%);
+    color: #181a1f;
+    font: 14px/1.3 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    user-select: none;
+    touch-action: pan-y;
+    overflow: hidden;
+  }
+  .mail-row.is-checked {
+    border-color: #d2491f;
+    border-left-width: 5px;
+    background: linear-gradient(180deg, #fff8f4 0%, #fef0e8 100%);
+  }
+  #swipe-stage.plain .mail-row {
+    position: static;
+    width: 100%;
+    height: auto;
+    min-height: 88px;
+    grid-template-columns: 40px 36px minmax(0, 1fr) 40px auto;
+  }
+  .check-hit {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+    touch-action: pan-y;
+  }
+  .row-check {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: #d2491f;
+    cursor: pointer;
+    touch-action: pan-y;
+  }
+  .sender-badge {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    background: var(--badge, #d2491f);
+    color: #ffffff;
+    font: 700 12px/1 var(--mono);
+    letter-spacing: 0.03em;
+  }
+  .mail-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .mail-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .mail-sender {
+    font-size: 13px;
+    font-weight: 700;
+    color: #181a1f;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mail-time {
+    flex: none;
+    padding: 1px 6px;
+    border-radius: 99px;
+    background: #eae4d8;
+    color: #4f4a42;
+    font: 600 11px/1.35 var(--mono);
+  }
+  .mail-subject {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #20242c;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mail-snippet {
+    font-size: 12px;
+    color: #5b5750;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .star-btn {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    border: 1px solid #dfd8cb;
+    background: #fcfaf6;
+    color: #7c7468;
+    font-size: 19px;
+    line-height: 1;
+    touch-action: pan-y;
+  }
+  .star-btn[aria-pressed="true"] {
+    border-color: #d99b18;
+    background: #fff7dc;
+    color: #b46d00;
+  }
+  .plain-actions {
+    display: none;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  #swipe-stage.plain .plain-actions {
+    display: flex;
+  }
+  .plain-actions button {
+    min-height: 36px;
+    padding: 4px 9px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  /* Controls below the stage */
+  .swipe-toolbar {
+    margin: 0 0 10px;
+    gap: 8px 10px;
+  }
+  .mode-tabs {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--card);
+  }
+  .mode-tabs button {
+    border: 0;
+    border-radius: 0;
+    min-height: 40px;
+    padding: 6px 12px;
+    font-weight: 600;
+    background: transparent;
+    color: var(--fg);
+  }
+  .mode-tabs button + button {
+    border-left: 1px solid var(--line);
+  }
+  .mode-tabs button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+  }
+  .swipe-toolbar > button {
+    min-height: 40px;
+  }
+  .swipe-toolbar > button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .telemetry {
+    display: block;
+    margin: 0 0 16px;
+    font: 12.5px/1.45 var(--mono);
+    overflow-wrap: anywhere;
+  }
+
+  @media (max-width: 520px) {
+    #feed-viewport,
+    #peel-canvas {
+      height: 368px;
+    }
+    .mail-row {
+      padding: 9px 8px 9px 4px;
+      gap: 6px;
+    }
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+
+  <h1>Elastic peel-away swipe list</h1>
+  <p class="lede">
+    I wanted to see if a scrollable inbox inside one <code>ElementGL</code> WebGL 2 canvas could arbitrate vertical touch pans against horizontal row swipes, while curling or rubber-banding the live HTML rows over Archive and Delete strips and spring-collapsing the list. Scroll the feed up and down, tap any Star or checkbox, or swipe a row left or right.
+  </p>
+
+  <div id="swipe-stage" class="stage swipe-stage">
+    <p id="stage-status" class="stage-status" hidden></p>
+    <div class="feed-head">
+      <div>
+        <strong>Inbox</strong>
+        <span id="remaining-count" class="feed-counts">6 of 6 remaining</span>
+        <span aria-hidden="true"> · </span>
+        <span id="tally-out" class="feed-counts">Archived 0 · Deleted 0</span>
+      </div>
+      <div class="feed-hints">
+        <span class="hint-archive">Swipe right: Archive</span>
+        <span class="hint-delete">Swipe left: Delete</span>
+      </div>
+    </div>
+
+    <div id="feed-viewport" tabindex="0" role="region" aria-label="Scrollable inbox list">
+      <div id="feed-scroll-track">
+        <!-- #region peel-markup -->
+        <canvas id="peel-canvas" content="drawable" layoutsubtree aria-label="Swipeable inbox list with six live HTML rows">
+          <article class="mail-row" id="mail-0" data-id="0" drawable>
+            <label class="check-hit" aria-label="Select message from Paul Kinlan"><input type="checkbox" class="row-check"></label>
+            <span class="sender-badge" style="--badge:#d2491f;" aria-hidden="true">PK</span>
+            <div class="mail-main">
+              <div class="mail-top"><span class="mail-sender">Paul Kinlan</span><time class="mail-time">2m ago</time></div>
+              <div class="mail-subject">Android 159 peel gesture trace</div>
+              <div class="mail-snippet">Check lock angle at 14 px horizontal delta on Pixel.</div>
+            </div>
+            <button type="button" class="star-btn" aria-pressed="true" aria-label="Star message from Paul Kinlan">★</button>
+            <div class="plain-actions"><button type="button" class="plain-archive">Archive</button><button type="button" class="plain-delete">Delete</button></div>
+          </article>
+
+          <article class="mail-row" id="mail-1" data-id="1" drawable>
+            <label class="check-hit" aria-label="Select message from Ada Rivera"><input type="checkbox" class="row-check"></label>
+            <span class="sender-badge" style="--badge:#2563eb;" aria-hidden="true">AR</span>
+            <div class="mail-main">
+              <div class="mail-top"><span class="mail-sender">Ada Rivera</span><time class="mail-time">14m ago</time></div>
+              <div class="mail-subject">WebGL texture budget on mobile</div>
+              <div class="mail-snippet">Keep backing store under 4 MP and release retired slots.</div>
+            </div>
+            <button type="button" class="star-btn" aria-pressed="false" aria-label="Star message from Ada Rivera">☆</button>
+            <div class="plain-actions"><button type="button" class="plain-archive">Archive</button><button type="button" class="plain-delete">Delete</button></div>
+          </article>
+
+          <article class="mail-row is-checked" id="mail-2" data-id="2" drawable>
+            <label class="check-hit" aria-label="Select message from Jonah Meyer"><input type="checkbox" class="row-check" checked></label>
+            <span class="sender-badge" style="--badge:#0f766e;" aria-hidden="true">JM</span>
+            <div class="mail-main">
+              <div class="mail-top"><span class="mail-sender">Jonah Meyer</span><time class="mail-time">38m ago</time></div>
+              <div class="mail-subject">Spring collapse timing curve</div>
+              <div class="mail-snippet">Stiffness 260 with damping 26 settles cleanly in 280 ms.</div>
+            </div>
+            <button type="button" class="star-btn" aria-pressed="false" aria-label="Star message from Jonah Meyer">☆</button>
+            <div class="plain-actions"><button type="button" class="plain-archive">Archive</button><button type="button" class="plain-delete">Delete</button></div>
+          </article>
+
+          <article class="mail-row" id="mail-3" data-id="3" drawable>
+            <label class="check-hit" aria-label="Select message from Elena Lin"><input type="checkbox" class="row-check"></label>
+            <span class="sender-badge" style="--badge:#7c3aed;" aria-hidden="true">EL</span>
+            <div class="mail-main">
+              <div class="mail-top"><span class="mail-sender">Elena Lin</span><time class="mail-time">1h ago</time></div>
+              <div class="mail-subject">Touch-action pan-y notes</div>
+              <div class="mail-snippet">Vertical pan yields cleanly past the 8 px deadzone.</div>
+            </div>
+            <button type="button" class="star-btn" aria-pressed="true" aria-label="Star message from Elena Lin">★</button>
+            <div class="plain-actions"><button type="button" class="plain-archive">Archive</button><button type="button" class="plain-delete">Delete</button></div>
+          </article>
+
+          <article class="mail-row" id="mail-4" data-id="4" drawable>
+            <label class="check-hit" aria-label="Select message from Samira Khan"><input type="checkbox" class="row-check"></label>
+            <span class="sender-badge" style="--badge:#b45309;" aria-hidden="true">SK</span>
+            <div class="mail-main">
+              <div class="mail-top"><span class="mail-sender">Samira Khan</span><time class="mail-time">3h ago</time></div>
+              <div class="mail-subject">Hit-test cache invalidation</div>
+              <div class="mail-snippet">Flip dataset.hitTick only when a row slot moves.</div>
+            </div>
+            <button type="button" class="star-btn" aria-pressed="false" aria-label="Star message from Samira Khan">☆</button>
+            <div class="plain-actions"><button type="button" class="plain-archive">Archive</button><button type="button" class="plain-delete">Delete</button></div>
+          </article>
+
+          <article class="mail-row" id="mail-5" data-id="5" drawable>
+            <label class="check-hit" aria-label="Select message from Theo Ross"><input type="checkbox" class="row-check"></label>
+            <span class="sender-badge" style="--badge:#be185d;" aria-hidden="true">TR</span>
+            <div class="mail-main">
+              <div class="mail-top"><span class="mail-sender">Theo Ross</span><time class="mail-time">5h ago</time></div>
+              <div class="mail-subject">Context-loss recovery test</div>
+              <div class="mail-snippet">Move live rows into plain HTML if the GPU drops.</div>
+            </div>
+            <button type="button" class="star-btn" aria-pressed="false" aria-label="Star message from Theo Ross">☆</button>
+            <div class="plain-actions"><button type="button" class="plain-archive">Archive</button><button type="button" class="plain-delete">Delete</button></div>
+          </article>
+        </canvas>
+        <!-- #endregion peel-markup -->
+      </div>
+
+      <div id="plain-list" class="plain-list" hidden></div>
+      <div id="empty-inbox" class="empty-inbox" hidden>
+        <p>All six messages archived or deleted.</p>
+        <button id="empty-reset" type="button">Reset list</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row swipe-toolbar">
+    <div class="mode-tabs" role="group" aria-label="Swipe physics mode">
+      <button id="mode-peel" type="button" aria-pressed="true">Sticker peel (3D curl)</button>
+      <button id="mode-taffy" type="button" aria-pressed="false">Elastic taffy</button>
+    </div>
+    <button id="btn-demo-swipe" type="button">Swipe row #2 demo</button>
+    <button id="btn-undo" type="button" disabled>Undo last</button>
+    <button id="btn-reset" type="button">Reset list</button>
+  </div>
+
+  <output id="swipe-telemetry" class="note telemetry" aria-live="off">Drag any row sideways to peel or stretch past 42%, or drag vertically to scroll.</output>
+
+  <details class="show-code">
+    <summary>Show the code <small>touch arbitration, 28x10 peel and taffy shaders, springs, geometry sync</small></summary>
+    <ol>
+      <li data-code="#peel-markup"><b>Six live inbox rows inside one drawable canvas.</b> Each row is a direct <code>drawable</code> child inside a sticky WebGL canvas over an <code>overflow-y: auto</code> scroll track.</li>
+      <li data-code="/swipe-peel/peel.js#touch-arbitration"><b>Angle-locked touch arbitration.</b> An 8 px deadzone separates taps on Star or checkbox controls from directional locks: <code>|dx| &gt; 8</code> and <code>|dx| &gt; |dy| * 1.4</code> locks horizontal peel, while <code>|dy| &gt; 8</code> yields to vertical scroll.</li>
+      <li data-code="/swipe-peel/peel.js#peel-shader" data-lang="glsl"><b>28 by 10 Sticker Peel and Elastic Taffy shaders.</b> Sticker Peel curls the row round a rolling cylinder and shades <code>gl_FrontFacing</code> vs the matte underside with a lit specular crease over procedural SDF Archive and Delete strips; Elastic Taffy stretches the leading edge ahead of the trailing anchor with Poisson necking.</li>
+      <li data-code="/swipe-peel/peel.js#elastic-spring"><b>240 Hz sub-stepped spring collapse.</b> Releasing past 42% flings the row away and spring-collapses lower rows upward, or settles immediately under <code>prefers-reduced-motion: reduce</code>.</li>
+      <li data-code="/swipe-peel/peel.js#geometry-sync"><b>Hit-box tracking with <code>updateElementGeometry()</code>.</b> Each visible row's matrix scales by <code>geometryUnit()</code> and toggles <code>dataset.hitTick</code> only when its quantized slot or <code>inert</code> flag changes.</li>
+      <li data-code="/swipe-peel/peel.js#render-loop"><b>Single <code>ElementGL</code> pass and 2D 5-argument fallback.</b> Uploads dirty rows via <code>texElementSubImage2D()</code> and drops to 5-argument <code>drawElementImage()</code> or plain HTML if WebGL is missing or lost.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Six live HTML inbox rows sit directly inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> backed by a single <code>ElementGL</code> WebGL 2 context from <code>/lib/element-gl.js</code>. Rather than growing the canvas to the full list height (which risks crossing 4 megapixels on a phone), the canvas uses <code>position: sticky; top: 0</code> at 388 CSS pixels tall (368 px below 520 px wide) inside an <code>overflow-y: auto</code> feed track. That keeps the GPU backing store around 1 megapixel at 412 px wide and 2.625 DPR while native wheel, scrollbar and <code>touch-action: pan-y</code> momentum scroll keep working.
+  </p>
+  <p>
+    When your finger or pointer moves past an 8 px deadzone, <code>decideLock()</code> compares horizontal and vertical travel. If <code>|dx| &gt; 8</code> and <code>|dx| &gt; |dy| * 1.4</code>, horizontal peel locks, <code>setPointerCapture()</code> holds the pointer, and a non-passive <code>touchmove</code> guard prevents vertical drift from stealing the swipe. Otherwise, <code>|dy| &gt; 8</code> yields to native vertical scrolling without bending the row. Short taps inside the 8 px deadzone pass straight through to the row's Star button or checkbox.
+  </p>
+  <p>
+    In Sticker Peel mode, a 28 by 10 triangle mesh wraps the peeled edge round a 3D cylinder whose axis tilts slightly with vertical grab position. Reversed column draw order (Painter's sorting) renders the flat adhesive face first and the lifted curl on top, using <code>gl_FrontFacing</code> to paint the live HTML card on the front and a matte paper underside with a lit specular crease on the back. In Elastic Taffy mode, the leading edge pulls ahead of a lagging trailing anchor while the row waist narrows via Poisson necking until it pops at the 42% commit threshold.
+  </p>
+  <p>
+    Releasing past 42% (or pressing "Swipe row #2 demo") completes the swipe, spring-collapses the row slot upward via 240 Hz symplectic springs, detaches the committed row, and calls <code>stage.forget(el)</code> to delete its GPU texture without leaks. "Undo last" re-inserts the exact DOM node (preserving its starred or checked state) so the next <code>paint</code> event re-uploads it via <code>texElementSubImage2D()</code>. If WebGL 2 isn't available, the page falls back to 5-argument <code>drawElementImage()</code>, and on context loss or missing HTML-in-canvas it moves all live rows into plain HTML.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">
+    Each check builds an isolated fixture on <code>testStage()</code> and waits for a tap so opening the page doesn't open extra WebGL contexts or steal focus.
+  </p>
+  <table class="results">
+    <thead>
+      <tr><th>Status</th><th>Check</th><th>Detail</th></tr>
+    </thead>
+    <tbody id="tests"></tbody>
+  </table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Static checks run on 2026-11-27 (<code>node --check public/swipe-peel/peel.js</code>, <code>node tools/gfx/check.mjs</code>, and <code>node tools/writing/check.mjs --strict /swipe-peel/</code>). Live browser runs in headless Chromium 157 and Chrome 159 on Android are not verified yet.</li>
+    <li>Using a sticky viewport-sized <code>ElementGL</code> canvas inside an outer <code>overflow-y: auto</code> scroll track keeps the GPU canvas near 1 megapixel at 412 px and 2.625 DPR regardless of list length, while keeping direct <code>drawable</code> children unclipped.</li>
+    <li>Reversing column triangle index order for right-side peels avoids depth-buffer alpha artefacts along rounded row corners while still keeping the curled underside above the flat adhesive section.</li>
+    <li>Calling <code>stage.forget(rowEl)</code> as soon as a row finishes collapsing deletes its WebGL texture immediately, while keeping the detached DOM element in the undo stack preserves checkbox and Star state for instant re-upload on Undo.</li>
+  </ul>
+</main>
+<script type="module" src="./peel.js"></script>
+</body>
+</html>

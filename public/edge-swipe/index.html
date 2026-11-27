@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<meta name="reduced-motion-note" content="Scrubbed releases snap immediately between views with no spring animation when reduced motion is on.">
+<title>Thumb-scrubbed page peel back navigation</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Two live HTML app screens stacked inside one ElementGL WebGL 2 canvas. Drag from a 28 px inset left gutter to curl the detail screen round a 3D cylinder, revealing the inbox underneath with parallax…">
+<link rel="canonical" href="https://html-in-canvas.page/edge-swipe/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Thumb-scrubbed page peel back navigation">
+<meta property="og:description" content="Two live HTML app screens stacked inside one ElementGL WebGL 2 canvas. Drag from a 28 px inset left gutter to curl the detail screen round a 3D cylinder, revealing the inbox underneath with parallax…">
+<meta property="og:url" content="https://html-in-canvas.page/edge-swipe/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Thumb-scrubbed page peel back navigation&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-27">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Thumb-scrubbed page peel back navigation">
+<meta name="twitter:description" content="Two live HTML app screens stacked inside one ElementGL WebGL 2 canvas. Drag from a 28 px inset left gutter to curl the detail screen round a 3D cylinder, revealing the inbox underneath with parallax…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Thumb-scrubbed page peel back navigation&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/edge-swipe/",
+   "url": "https://html-in-canvas.page/edge-swipe/",
+   "mainEntityOfPage": "https://html-in-canvas.page/edge-swipe/",
+   "headline": "Thumb-scrubbed page peel back navigation",
+   "name": "Thumb-scrubbed page peel back navigation",
+   "description": "Two live HTML app screens stacked inside one ElementGL WebGL 2 canvas. Drag from a 28 px inset left gutter to curl the detail screen round a 3D cylinder, revealing the inbox underneath with parallax, a shaded cream underside and spring cancellation.",
+   "abstract": "Can I pair a safe inset gesture gutter with a GPU 3D cylinder page-peel shader over two live drawable app screens so scrubbing back reveals the underlying live page with parallax, shaded fold curl and mid-swipe spring cancellation?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-27",
+   "keywords": "WebGL, ElementGL, navigation, page-curl, updateElementGeometry, texElementSubImage2D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Thumb-scrubbed page peel back navigation",
+     "item": "https://html-in-canvas.page/edge-swipe/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .swipe-stage {
+    padding: 14px 12px;
+  }
+
+  .phone-shell {
+    width: min(368px, 100%);
+    margin: 0 auto;
+    padding: 8px;
+    border-radius: 30px;
+    background: #1c1b19;
+    border: 1px solid var(--line);
+  }
+
+  .phone-viewport {
+    position: relative;
+    width: 100%;
+    height: 508px;
+    border-radius: 22px;
+    overflow: hidden;
+    background: #eceae4;
+  }
+
+  @media (max-width: 620px) {
+    .phone-viewport {
+      height: 488px;
+    }
+  }
+
+  #swipe-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: pan-y;
+    overflow-anchor: none;
+  }
+
+  .swipe-stage.is-plain #swipe-canvas,
+  .swipe-stage.is-plain .swipe-gutter {
+    display: none;
+  }
+
+  /* Safe 28 px inset swipe gutter inside the left edge (x <= 32 px) */
+  .swipe-gutter {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 32px;
+    z-index: 4;
+    touch-action: none;
+    cursor: grab;
+    background: transparent;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .swipe-gutter:active {
+    cursor: grabbing;
+  }
+
+  .plain-host {
+    display: none;
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  .swipe-stage.is-plain .plain-host {
+    display: block;
+  }
+  .swipe-stage.is-plain .app-screen {
+    width: 100%;
+    height: 100%;
+  }
+  .swipe-stage.is-plain .app-screen[data-active="false"] {
+    display: none;
+  }
+
+  /* Two live app views inside the drawable canvas (fixed readable phone UI palette) */
+  .app-screen {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font: 14px/1.42 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    user-select: text;
+    -webkit-user-select: text;
+    pointer-events: auto;
+  }
+  .app-screen * {
+    box-sizing: border-box;
+  }
+  .app-screen :focus-visible {
+    outline: 3px solid #d2491f;
+    outline-offset: 2px;
+  }
+
+  .status-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 16px 4px;
+    font: 700 11px/1.2 var(--mono);
+    letter-spacing: 0.04em;
+    color: #5b5750;
+  }
+
+  /* View 1: Root inbox list screen */
+  .view-list {
+    background: #f5f2eb;
+    color: #191816;
+  }
+
+  .list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 16px 10px;
+  }
+  .list-head h2 {
+    margin: 0;
+    font: 800 22px/1.15 system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
+    color: #191816;
+  }
+
+  .filter-btn {
+    min-height: 36px;
+    padding: 5px 11px;
+    border: 1px solid #cfc8bc;
+    border-radius: 99px;
+    background: #ffffff;
+    color: #191816;
+    font: 600 12.5px/1.2 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .filter-btn[aria-pressed="true"] {
+    background: #191816;
+    color: #ffffff;
+    border-color: #191816;
+  }
+
+  .search-wrap {
+    padding: 0 16px 10px;
+  }
+  .search-wrap label {
+    display: block;
+    font: 600 11px/1.2 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #5f5b54;
+    margin-bottom: 4px;
+  }
+  .search-wrap input {
+    width: 100%;
+    min-height: 38px;
+    padding: 7px 11px;
+    border: 1px solid #cbc3b6;
+    border-radius: 10px;
+    background: #ffffff;
+    color: #191816;
+    font: 14px/1.2 system-ui, sans-serif;
+  }
+
+  .inbox-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .inbox-row {
+    width: 100%;
+    text-align: left;
+    display: grid;
+    grid-template-columns: 10px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 54px;
+    padding: 8px 11px;
+    border: 1px solid #dfd8cb;
+    border-radius: 12px;
+    background: #ffffff;
+    color: #191816;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .inbox-row:hover {
+    border-color: #191816;
+  }
+  .inbox-row.is-selected {
+    border-color: #d2491f;
+    background: #fff9f6;
+  }
+  .inbox-row[hidden] {
+    display: none;
+  }
+
+  .row-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #d2491f;
+  }
+  .inbox-row[data-read="true"] .row-dot {
+    background: transparent;
+    border: 1.5px solid #c3bbb0;
+  }
+
+  .row-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .row-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #191816;
+  }
+  .row-pin {
+    font: 600 10.5px/1 var(--mono);
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: #f3e8d2;
+    color: #6d4700;
+  }
+  .row-sub {
+    font-size: 12.5px;
+    color: #5b5750;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row-chev {
+    font: 700 18px/1 system-ui, sans-serif;
+    color: #8b857b;
+  }
+
+  .list-foot {
+    padding: 8px 16px 11px;
+    border-top: 1px solid #e1dad0;
+    background: #efebe2;
+    font: 12px/1.3 var(--mono);
+    color: #55514a;
+  }
+
+  /* View 2: Detail screen layered on top, with 28 px safe inset gutter along left */
+  .view-detail {
+    background: #ffffff;
+    color: #191816;
+    padding-left: 38px;
+  }
+
+  /* Decorative visual cue for the 28 px safe inset gutter (from x = 4 px to x = 32 px) */
+  .gutter-visual {
+    position: absolute;
+    left: 4px;
+    top: 12px;
+    bottom: 12px;
+    width: 28px;
+    border-radius: 14px;
+    background: linear-gradient(90deg, rgb(210 73 31 / 0.14), rgb(210 73 31 / 0.04));
+    border: 1px dashed rgb(210 73 31 / 0.35);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .gutter-visual i {
+    display: block;
+    width: 4px;
+    height: 44px;
+    border-radius: 99px;
+    background: #d2491f;
+    opacity: 0.72;
+  }
+  .gutter-visual span {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font: 700 9.5px/1 var(--mono);
+    letter-spacing: 0.12em;
+    color: #9e3514;
+    text-transform: uppercase;
+  }
+
+  .detail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 14px 8px 4px;
+    border-bottom: 1px solid #ebe6dc;
+  }
+  .back-btn {
+    min-height: 38px;
+    padding: 5px 11px;
+    border: 1px solid #cfc8bc;
+    border-radius: 9px;
+    background: #f8f6f1;
+    color: #191816;
+    font: 700 13.5px/1.2 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .back-btn:hover {
+    border-color: #191816;
+  }
+  .detail-tag {
+    padding: 3px 9px;
+    border-radius: 99px;
+    background: #f6ebe5;
+    color: #9e3514;
+    font: 700 11px/1.2 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .detail-body-wrap {
+    flex: 1;
+    padding: 12px 14px 12px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    overflow-y: auto;
+  }
+  .detail-body-wrap h3 {
+    margin: 0;
+    font: 800 18px/1.2 system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.015em;
+    color: #191816;
+  }
+  .detail-body-wrap p {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: #3d3a35;
+  }
+
+  .detail-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font: 700 11px/1.2 var(--mono);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #5b5750;
+  }
+  .detail-field input[type="text"] {
+    width: 100%;
+    min-height: 38px;
+    padding: 6px 10px;
+    border: 1px solid #c9c1b3;
+    border-radius: 8px;
+    background: #fbfaf7;
+    color: #191816;
+    font: 13.5px/1.2 system-ui, sans-serif;
+  }
+
+  .switch-group {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 40px;
+    padding: 6px 10px;
+    border: 1px solid #e3ddd2;
+    border-radius: 9px;
+    background: #faf8f4;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #191816;
+    cursor: pointer;
+  }
+  .switch-row input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    accent-color: #d2491f;
+    cursor: pointer;
+  }
+
+  .detail-actions {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #ebe6dc;
+  }
+  .counter-btn {
+    min-height: 40px;
+    padding: 7px 13px;
+    border: 1px solid #b83b15;
+    border-radius: 9px;
+    background: #d2491f;
+    color: #ffffff;
+    font: 700 13px/1.2 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .counter-btn:hover {
+    background: #b53a15;
+    border-color: #7c2409;
+  }
+  .detail-meta {
+    font: 12px/1.2 var(--mono);
+    color: #5b5750;
+  }
+
+  /* External inspection controls under the phone viewport */
+  .swipe-controls {
+    margin-top: 12px;
+    gap: 10px 14px;
+  }
+  .swipe-controls button {
+    min-height: 40px;
+  }
+  .ctrl-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .ctrl-item input[type="range"] {
+    width: 132px;
+    accent-color: var(--accent);
+  }
+  .ctrl-item input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
+  .ctrl-item output {
+    font: 13px/1 var(--mono);
+    color: var(--muted);
+    min-width: 3.3em;
+  }
+
+  .swipe-notice {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+  }
+  .swipe-notice[hidden] {
+    display: none;
+  }
+  #swipe-status {
+    margin: 8px 0 0;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+
+  <h1>Thumb-scrubbed page peel back navigation</h1>
+  <p class="lede">I wanted to know if I could pair an inset 28 px swipe gutter with a 3D cylinder page-peel shader over two live <code>drawable</code> screens inside one WebGL 2 canvas. Drag right from the orange-tinted left rail to peel the detail screen away, inspect the shaded cream underside and parallax inbox underneath, and release mid-swipe to commit or spring back.</p>
+
+  <div class="stage swipe-stage" id="swipe-stage">
+    <div class="phone-shell">
+      <div class="phone-viewport" id="phone-viewport">
+        <!-- #region views-markup -->
+        <canvas id="swipe-canvas" content="drawable" layoutsubtree aria-label="Two-screen phone navigation with 3D cylindrical page peel">
+          <section id="view-list" class="app-screen view-list" inert drawable aria-label="Inbox list screen">
+            <div class="status-strip"><span>9:41</span><span>INBOX · ROOT VIEW</span></div>
+            <header class="list-head">
+              <h2>Messages</h2>
+              <button type="button" class="filter-btn" id="btn-unread-only" aria-pressed="false">Unread only</button>
+            </header>
+            <div class="search-wrap">
+              <label for="list-search">Filter threads</label>
+              <input id="list-search" type="search" placeholder="Search threads..." autocomplete="off">
+            </div>
+            <ul class="inbox-list" id="inbox-list">
+              <li>
+                <button type="button" class="inbox-row is-selected" data-id="0" data-read="false" data-pin="false">
+                  <span class="row-dot" aria-hidden="true"></span>
+                  <span class="row-copy">
+                    <span class="row-top">Gutter threshold 28 px <span class="row-pin" hidden>PIN</span></span>
+                    <span class="row-sub">Inset left rail stays clear of OS back edge swipes.</span>
+                  </span>
+                  <span class="row-chev" aria-hidden="true">›</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="inbox-row" data-id="1" data-read="false" data-pin="true">
+                  <span class="row-dot" aria-hidden="true"></span>
+                  <span class="row-copy">
+                    <span class="row-top">Cylinder fold normal <span class="row-pin">PIN</span></span>
+                    <span class="row-sub">Cream paper underside and soft drop shadow over list.</span>
+                  </span>
+                  <span class="row-chev" aria-hidden="true">›</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="inbox-row" data-id="2" data-read="true" data-pin="false">
+                  <span class="row-dot" aria-hidden="true"></span>
+                  <span class="row-copy">
+                    <span class="row-top">Parallax depth -24% <span class="row-pin" hidden>PIN</span></span>
+                    <span class="row-sub">Underlying view glides from -24% to 0% as curl opens.</span>
+                  </span>
+                  <span class="row-chev" aria-hidden="true">›</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="inbox-row" data-id="3" data-read="false" data-pin="false">
+                  <span class="row-dot" aria-hidden="true"></span>
+                  <span class="row-copy">
+                    <span class="row-top">Mid-swipe spring settle <span class="row-pin" hidden>PIN</span></span>
+                    <span class="row-sub">Releasing past 42% commits; earlier springs back.</span>
+                  </span>
+                  <span class="row-chev" aria-hidden="true">›</span>
+                </button>
+              </li>
+              <li>
+                <button type="button" class="inbox-row" data-id="4" data-read="true" data-pin="false">
+                  <span class="row-dot" aria-hidden="true"></span>
+                  <span class="row-copy">
+                    <span class="row-top">Hit-box sync check <span class="row-pin" hidden>PIN</span></span>
+                    <span class="row-sub">updateElementGeometry() and inert swap on settle.</span>
+                  </span>
+                  <span class="row-chev" aria-hidden="true">›</span>
+                </button>
+              </li>
+            </ul>
+            <output id="list-summary" class="list-foot">5 threads · 3 unread</output>
+          </section>
+
+          <section id="view-detail" class="app-screen view-detail" drawable aria-label="Thread detail screen">
+            <div class="gutter-visual" aria-hidden="true">
+              <i></i>
+              <span>Peel</span>
+            </div>
+            <div class="status-strip"><span>9:41</span><span>DETAIL · LAYERED VIEW</span></div>
+            <header class="detail-head">
+              <button type="button" id="detail-back" class="back-btn">‹ Inbox</button>
+              <span class="detail-tag" id="detail-tag">Gutter</span>
+            </header>
+            <div class="detail-body-wrap">
+              <h3 id="detail-title">Gutter threshold 28 px</h3>
+              <p id="detail-body">All buttons and inputs sit 38 px from the left edge, leaving a 28 px inset swipe rail inside the margin so taps hit controls cleanly and gutter drags peel the whole sheet.</p>
+              <label class="detail-field">
+                Editable note
+                <input id="detail-note" type="text" value="Checked at 2.625 DPR on phone" maxlength="48" autocomplete="off">
+              </label>
+              <div class="switch-group">
+                <label class="switch-row">
+                  <span>Mark as read</span>
+                  <input type="checkbox" id="detail-read">
+                </label>
+                <label class="switch-row">
+                  <span>Pin thread</span>
+                  <input type="checkbox" id="detail-pin">
+                </label>
+              </div>
+              <div class="detail-actions">
+                <button type="button" id="detail-counter" class="counter-btn">Acknowledge (0)</button>
+                <output id="detail-meta" class="detail-meta">Unread · 0 acks</output>
+              </div>
+            </div>
+          </section>
+        </canvas>
+        <!-- #endregion views-markup -->
+        <div id="swipe-gutter" class="swipe-gutter" aria-hidden="true"></div>
+        <div id="plain-host" class="plain-host"></div>
+      </div>
+    </div>
+
+    <div class="row swipe-controls">
+      <button type="button" id="btn-toggle-view">Peel back to Inbox</button>
+      <label class="ctrl-item">
+        Scrub swipe
+        <input id="scrub-slider" type="range" min="0" max="100" value="0">
+        <output id="scrub-out" for="scrub-slider">0%</output>
+      </label>
+      <label class="ctrl-item">
+        <input id="any-x-toggle" type="checkbox">
+        Any-x swipe
+      </label>
+      <label class="ctrl-item">
+        <input id="reduced-toggle" type="checkbox">
+        Reduced motion
+      </label>
+    </div>
+
+    <p id="swipe-notice" class="swipe-notice" hidden></p>
+    <p class="note" id="swipe-status" role="status">Starting canvas…</p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>two drawable screens, 3D cylinder curl shader, gutter spring, geometry sync and 2D fallback</small></summary>
+    <ol>
+      <li data-code="#views-markup"><b>Two live drawable screens in one canvas.</b> Both <code>#view-list</code> and <code>#view-detail</code> sit inside <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>, with <code>inert</code> disabling whichever screen sits underneath.</li>
+      <li data-code="/edge-swipe/swipe.js#peel-shader" data-lang="glsl"><b>Analytic 3D cylinder page-peel shader.</b> Renders <code>#view-list</code> at <code>-24%</code> to <code>0%</code> parallax with a soft cast shadow, wraps <code>#view-detail</code> round the cylinder arc, and paints the shaded cream underside flap with faint bleed-through.</li>
+      <li data-code="/edge-swipe/swipe.js#gutter-spring"><b>Safe inset gutter threshold and spring settle.</b> Restricts swipe starts to <code>x &lt;= 32</code> (unless Any-x swipe is enabled) and solves a damped spring on release to commit past 42% or cancel back to the detail screen.</li>
+      <li data-code="/edge-swipe/swipe.js#geometry-sync"><b>Hit-box calibration with <code>geometryUnit()</code>.</b> Applies parallax translation to <code>#view-list</code>, flips <code>inert</code> and <code>pointer-events</code> cleanly, calls <code>updateElementGeometry()</code> and toggles <code>dataset.hitTick</code>.</li>
+      <li data-code="/edge-swipe/swipe.js#fallback-2d"><b>Five-argument 2D and plain-HTML fallbacks.</b> Draws sliding parallax and a clipped peel lip using 5-argument and 9-argument <code>drawElementImage()</code> without WebGL 2, or extracts both views into plain HTML on context loss.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <ul class="findings">
+    <li>Both <code>#view-list</code> and <code>#view-detail</code> live inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> as direct <code>drawable</code> children. Because <code>ElementGL</code> holds one WebGL 2 context for the whole canvas, a single <code>paint</code> listener uploads changed views via <code>gl.texElementSubImage2D()</code> while active scrubs redraw the shader at display refresh rate without re-uploading unchanged DOM textures.</li>
+    <li>Browser back gestures on Android often trigger right on the physical screen edge. Here the phone viewport itself sits inside the page padding, and <code>#view-detail</code> shifts its buttons and inputs 38 px right of its left edge, leaving a 28 px inset rail inside <code>x &lt;= 32</code> where a dedicated <code>touch-action: none</code> strip captures horizontal drags cleanly without blocking central taps or vertical page scrolling.</li>
+    <li>The fragment shader divides the phone viewport at a rolling cylinder of radius <code>R</code> along the drag direction. Left of the cylinder roll, <code>#view-list</code> slides rightward from <code>-24%</code> to <code>0%</code> parallax underneath a soft exponential cast shadow. Around the roll, the near face curves smoothly into a lit 3D cream paper underside with faint mirrored ink bleed-through over flat <code>#view-detail</code>.</li>
+    <li>Releasing a thumb drag evaluates both progress (<code>&gt; 0.42</code>) and rightward flick velocity (<code>&gt; 420 px/s</code>). A damped spring carries the curl smoothly to 100% or snaps it back to 0%, except when <code>prefers-reduced-motion: reduce</code> (or the Reduced motion checkbox) is active, where release jumps straight to the final screen.</li>
+    <li>WebGL texture draws don't update Chromium's hit boxes automatically. Once a transition settles, <code>syncViewGeometry()</code> scales transforms by <code>geometryUnit()</code>, calls <code>canvas.updateElementGeometry()</code>, toggles <code>dataset.hitTick</code> to clear the hit-test cache, and flips <code>inert</code> plus <code>pointer-events</code> so controls on whichever screen sits on top answer clicks, typing and keyboard Tab order.</li>
+    <li>If WebGL 2 <code>texElementSubImage2D()</code> isn't available, the canvas swaps to a 2D context drawing sliding parallax and a vertical curl lip with 5-argument and 9-argument <code>drawElementImage()</code>. If HTML-in-canvas isn't enabled or the GPU context is lost, both views move into plain HTML until restored.</li>
+  </ul>
+
+  <h2>Live checks</h2>
+  <p class="note">Each check builds its own small fixture on the hidden test stage and retires its canvas when done. The visible demo above isn't altered.</p>
+  <table class="results"><thead><tr><th>Result</th><th>Experiment</th><th>Detail</th></tr></thead><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <p class="note">Not verified yet in headless Chromium 157 or Chrome 159 on Android. Tap "Run these 5 checks" above to measure this browser.</p>
+  <ul class="findings" id="findings-list">
+    <li><strong>Not verified yet:</strong> real rendering, two-view <code>texElementSubImage2D()</code> uploads, cylindrical fold shading, <code>updateElementGeometry()</code> click routing, 2D fallback and touch drag behaviour at 412 px wide and scale 2.625.</li>
+    <li><strong>Inset gutter vs OS edge swipe:</strong> placing the 28 px drag rail inside a 38 px left margin keeps central buttons and text fields safe from accidental drags while staying inward from the physical viewport edge.</li>
+    <li><strong>State continuity across views:</strong> toggling "Mark as read" or "Pin thread" inside <code>#view-detail</code> updates <code>#view-list</code>'s DOM immediately, so peeling back reveals the updated dot and badge gliding into place underneath.</li>
+  </ul>
+</main>
+<script type="module" src="/edge-swipe/swipe.js"></script>
+</body>
+</html>

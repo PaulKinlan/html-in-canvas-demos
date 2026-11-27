@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<meta name="reduced-motion-note" content="Detent switches and release snaps jump straight to the target height with zero spring overshoot or scroll coast when reduced motion is on.">
+<title>Multi-detent refractive bottom sheet</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="A three-detent bottom sheet drawn over a live street map inside one WebGL 2 canvas. It hands off continuous drags between an inner scrollable list and the sheet frame at scrollTop === 0, while…">
+<link rel="canonical" href="https://html-in-canvas.page/bottom-sheet/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Multi-detent refractive bottom sheet">
+<meta property="og:description" content="A three-detent bottom sheet drawn over a live street map inside one WebGL 2 canvas. It hands off continuous drags between an inner scrollable list and the sheet frame at scrollTop === 0, while…">
+<meta property="og:url" content="https://html-in-canvas.page/bottom-sheet/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Multi-detent refractive bottom sheet&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-27">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Multi-detent refractive bottom sheet">
+<meta name="twitter:description" content="A three-detent bottom sheet drawn over a live street map inside one WebGL 2 canvas. It hands off continuous drags between an inner scrollable list and the sheet frame at scrollTop === 0, while…">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Multi-detent refractive bottom sheet&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/bottom-sheet/",
+   "url": "https://html-in-canvas.page/bottom-sheet/",
+   "mainEntityOfPage": "https://html-in-canvas.page/bottom-sheet/",
+   "headline": "Multi-detent refractive bottom sheet",
+   "name": "Multi-detent refractive bottom sheet",
+   "description": "A three-detent bottom sheet drawn over a live street map inside one WebGL 2 canvas. It hands off continuous drags between an inner scrollable list and the sheet frame at scrollTop === 0, while scaling, dimming and edge-refracting the map under morphing rounded corners.",
+   "abstract": "Can a single WebGL canvas coordinate a 3-detent spring-physics bottom sheet with single-gesture nested-scroll handoff \u0028scrollTop === 0 transition into sheet drag) while progressively blurring, dimming and edge-refracting a live interactive backdrop beneath rounded corners?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-27",
+   "keywords": "WebGL, ElementGL, bottom-sheet, spring, updateElementGeometry, texElementSubImage2D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Multi-detent refractive bottom sheet",
+     "item": "https://html-in-canvas.page/bottom-sheet/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .sheet-toolbar {
+    margin: 14px 0 12px;
+    gap: 10px 12px;
+    font-size: 14px;
+  }
+  .seg-detents {
+    display: inline-flex;
+    flex-wrap: wrap;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg-detents > button {
+    border: 0;
+    border-radius: 0;
+    background: var(--card);
+    color: var(--fg);
+    padding: 7px 11px;
+    min-height: 40px;
+    font: inherit;
+    font-size: 13.5px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .seg-detents > button + button {
+    border-left: 1px solid var(--line);
+  }
+  .seg-detents > button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .ctl-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .ctl-toggle input {
+    width: 17px;
+    height: 17px;
+    margin: 0;
+    accent-color: var(--accent);
+  }
+  .ctl-btn {
+    min-height: 40px;
+    font-size: 13.5px;
+    touch-action: manipulation;
+  }
+
+  .sheet-stage {
+    padding: 12px;
+  }
+  .sheet-viewport {
+    position: relative;
+    width: 100%;
+    max-width: 412px;
+    height: min(576px, 72svh);
+    min-height: 440px;
+    margin: 0 auto;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: #0e1015;
+    contain: layout paint;
+  }
+  #sheet-canvas {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: pan-y;
+    overflow: hidden;
+    clip-path: inset(0);
+    overflow-anchor: none;
+  }
+  .sheet-stage.is-plain #sheet-canvas {
+    display: none;
+  }
+  .plain-host {
+    display: none;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  .sheet-stage.is-plain .plain-host {
+    display: block;
+  }
+
+  .stage-hud {
+    max-width: 412px;
+    margin: 8px auto 0;
+    font: 12.5px/1.4 var(--mono);
+    color: var(--muted);
+    min-height: 1.5em;
+    overflow-wrap: anywhere;
+  }
+  .sheet-notice {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+  }
+  .sheet-notice[hidden] {
+    display: none;
+  }
+
+  /* ---- Layer 1: Live Apple Maps-inspired street backdrop (fixed palette inside canvas) ---- */
+  #backdrop-dom {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    background: #ede8dc;
+    color: #191c22;
+    font: 13px/1.3 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    touch-action: pan-y;
+    user-select: none;
+    transform-origin: 50% 0%;
+  }
+  #backdrop-dom * {
+    box-sizing: border-box;
+  }
+  #backdrop-dom :focus-visible,
+  #sheet-dom :focus-visible {
+    outline: 2.5px solid #d2491f;
+    outline-offset: 2px;
+  }
+
+  .map-world {
+    position: absolute;
+    inset: -48px;
+    overflow: hidden;
+    background: #ede8dc;
+  }
+  .map-water {
+    position: absolute;
+    right: -12px;
+    top: -12px;
+    width: 42%;
+    height: 112%;
+    background: linear-gradient(155deg, #9ed2f7 0%, #83c2ee 68%, #73b6e6 100%);
+    border-left: 4px solid #d8e9f3;
+    border-bottom-left-radius: 44% 58%;
+    border-top-left-radius: 18% 22%;
+  }
+  .map-cove {
+    position: absolute;
+    right: 18%;
+    top: 46%;
+    width: 34%;
+    height: 28%;
+    background: #8cc9f2;
+    border-radius: 52% 0 0 48%;
+    border-left: 3px solid #d8e9f3;
+  }
+  .map-park {
+    position: absolute;
+    background: #c4e4ba;
+    border: 1px solid #abd2a0;
+    border-radius: 12px;
+  }
+  .map-park.p1 { left: 10%; top: 13%; width: 32%; height: 15%; }
+  .map-park.p2 { left: 14%; top: 38%; width: 26%; height: 17%; border-radius: 18px; }
+  .map-park.p3 { left: 48%; top: 64%; width: 24%; height: 16%; }
+
+  .map-block {
+    position: absolute;
+    background: #e2ddd0;
+    border: 1px solid #d4cebf;
+    border-radius: 4px;
+  }
+  .map-block.b1 { left: 12%; top: 30%; width: 12%; height: 5%; }
+  .map-block.b2 { left: 29%; top: 29%; width: 14%; height: 6%; }
+  .map-block.b3 { left: 48%; top: 19%; width: 12%; height: 7%; }
+  .map-block.b4 { left: 47%; top: 41%; width: 13%; height: 8%; }
+  .map-block.b5 { left: 13%; top: 61%; width: 16%; height: 7%; }
+  .map-block.b6 { left: 32%; top: 75%; width: 14%; height: 8%; }
+
+  .map-road {
+    position: absolute;
+    background: #ffffff;
+    border: 1px solid #cfc9b8;
+  }
+  .map-road.arterial-h1 { left: -4%; top: 27%; width: 88%; height: 11px; }
+  .map-road.arterial-h2 { left: -4%; top: 53%; width: 84%; height: 12px; }
+  .map-road.arterial-h3 { left: -4%; top: 72%; width: 92%; height: 10px; }
+  .map-road.arterial-v1 { left: 26%; top: -4%; width: 11px; height: 108%; }
+  .map-road.arterial-v2 { left: 56%; top: -4%; width: 12px; height: 108%; }
+  .map-road.highway {
+    left: -8%;
+    top: 39%;
+    width: 112%;
+    height: 14px;
+    background: #fde29b;
+    border-color: #d9ac4b;
+    transform: rotate(-14deg);
+  }
+  .map-road.diag-blvd {
+    left: 6%;
+    top: 42%;
+    width: 92%;
+    height: 13px;
+    background: #ffffff;
+    border-color: #c8c1b0;
+    transform: rotate(22deg);
+  }
+
+  .map-label {
+    position: absolute;
+    font: 700 9.5px/1 system-ui, sans-serif;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #5b5850;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 2px 5px;
+    border-radius: 4px;
+    pointer-events: none;
+  }
+  .map-label.l-market { left: 35%; top: 37%; transform: rotate(-14deg); }
+  .map-label.l-emb { left: 48%; top: 52.5%; }
+  .map-label.l-bay { right: 8%; top: 31%; color: #1d5d8e; background: rgba(255, 255, 255, 0.45); }
+  .map-label.l-park { left: 16%; top: 19%; color: #2b6131; background: rgba(255, 255, 255, 0.55); }
+
+  /* Live traffic corridor stripes toggled by the "Traffic" button */
+  .map-traffic {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  #backdrop-dom.has-traffic .map-traffic {
+    opacity: 1;
+  }
+  .traffic-seg {
+    position: absolute;
+    height: 5px;
+    border-radius: 99px;
+  }
+  .traffic-seg.t-red { background: #e11d48; box-shadow: 0 0 0 1px rgba(255,255,255,0.65); }
+  .traffic-seg.t-amber { background: #f59e0b; box-shadow: 0 0 0 1px rgba(255,255,255,0.65); }
+  .traffic-seg.t-green { background: #16a34a; box-shadow: 0 0 0 1px rgba(255,255,255,0.65); }
+  .traffic-seg.s1 { left: 12%; top: 27.6%; width: 42%; }
+  .traffic-seg.s2 { left: 34%; top: 38.2%; width: 38%; transform: rotate(-14deg); }
+  .traffic-seg.s3 { left: 18%; top: 53.7%; width: 46%; }
+  .traffic-seg.s4 { left: 26.7%; top: 16%; width: 5px; height: 48%; }
+  .traffic-seg.s5 { left: 56.7%; top: 28%; width: 5px; height: 42%; }
+
+  /* Route polyline connecting pins */
+  .route-seg {
+    position: absolute;
+    height: 7px;
+    border-radius: 99px;
+    background: #1778ff;
+    border: 1.5px solid #ffffff;
+    box-shadow: 0 1px 4px rgba(17, 68, 156, 0.35);
+    pointer-events: none;
+  }
+  .route-seg.r1 { left: 31%; top: 47.5%; width: 32%; transform: rotate(24deg); }
+  .route-seg.r2 { left: 19%; top: 32.5%; width: 22%; transform: rotate(78deg); }
+  .route-seg.r3 { left: 24%; top: 23.5%; width: 16%; transform: rotate(-14deg); }
+
+  /* Clickable map pins inside #map-world */
+  .map-pin {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px 3px 4px;
+    border-radius: 99px;
+    border: 1.5px solid #ffffff;
+    background: rgba(255, 255, 255, 0.94);
+    color: #14171f;
+    font: 700 11px/1.1 system-ui, sans-serif;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.24);
+    cursor: pointer;
+    touch-action: manipulation;
+    white-space: nowrap;
+  }
+  .map-pin:hover {
+    border-color: #14171f;
+  }
+  .map-pin .pin-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: #ffffff;
+    font: 800 10.5px/1 var(--mono);
+    flex: none;
+  }
+  .map-pin.cat-coffee .pin-dot { background: #b45309; }
+  .map-pin.cat-parks .pin-dot { background: #15803d; }
+  .map-pin.cat-transit .pin-dot { background: #0369a1; }
+  .map-pin.cat-food .pin-dot { background: #c2410c; }
+  .map-pin.is-selected {
+    background: #14171f;
+    color: #ffffff;
+    border-color: #ff7a4d;
+    z-index: 3;
+  }
+  .map-pin.p-ferry { left: 26%; top: 23%; }
+  .map-pin.p-civic { left: 68%; top: 27%; }
+  .map-pin.p-botanic { left: 28%; top: 43%; }
+  .map-pin.p-central { left: 68%; top: 56%; }
+  .map-pin.p-harbour { left: 40%; top: 70%; }
+
+  /* Top map controls bar (stays uncovered above the sheet even at 90% Full detent) */
+  .map-top-bar {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 5px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 4;
+    pointer-events: none;
+  }
+  .map-top-bar > * {
+    pointer-events: auto;
+  }
+  .map-pill-info {
+    min-width: 0;
+    flex: 1 1 auto;
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.90);
+    border: 1px solid rgba(20, 24, 34, 0.14);
+    color: #161920;
+    font: 600 11.5px/28px system-ui, sans-serif;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+  }
+  .map-ctrl-btn {
+    flex: none;
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 99px;
+    border: 1px solid rgba(20, 24, 34, 0.18);
+    background: rgba(255, 255, 255, 0.94);
+    color: #161920;
+    font: 700 11.5px/1 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+  }
+  .map-ctrl-btn:hover {
+    border-color: #161920;
+    background: #ffffff;
+  }
+  .map-ctrl-btn[aria-pressed="true"] {
+    background: #14171f;
+    color: #ffffff;
+    border-color: #14171f;
+  }
+
+  /* ---- Layer 2: Interactive Multi-Detent Bottom Sheet ---- */
+  #sheet-dom {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 94%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: transparent;
+    color: #14171f;
+    font: 13.5px/1.35 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    touch-action: none;
+    pointer-events: auto;
+  }
+  #sheet-dom * {
+    box-sizing: border-box;
+  }
+
+  .sheet-header {
+    flex: 0 0 auto;
+    padding: 4px 12px 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: transparent;
+    border-bottom: 1px solid rgba(20, 24, 34, 0.08);
+    touch-action: none;
+  }
+  .sheet-stage.is-2d .sheet-header,
+  .sheet-stage.is-plain .sheet-header {
+    background: rgba(247, 248, 251, 0.88);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .sheet-stage.is-plain #sheet-dom {
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.22);
+    border-top: 1px solid rgba(255, 255, 255, 0.75);
+  }
+
+  .sheet-grab {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 14px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+  }
+  .sheet-grab:active {
+    cursor: grabbing;
+  }
+  .grab-pill {
+    display: block;
+    width: 40px;
+    height: 5px;
+    border-radius: 99px;
+    background: rgba(20, 24, 34, 0.34);
+  }
+
+  .sheet-search-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  #sheet-search {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 32px;
+    padding: 0 11px;
+    border-radius: 10px;
+    border: 1px solid rgba(20, 24, 34, 0.16);
+    background: rgba(255, 255, 255, 0.84);
+    color: #14171f;
+    font: 13.5px/1.2 system-ui, sans-serif;
+  }
+  #sheet-search::placeholder {
+    color: #5b606b;
+  }
+  .sheet-clear-btn {
+    flex: none;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 9px;
+    border: 1px solid rgba(20, 24, 34, 0.16);
+    background: rgba(255, 255, 255, 0.86);
+    color: #14171f;
+    font: 600 12px/1 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .sheet-clear-btn[hidden] {
+    display: none;
+  }
+
+  .gesture-telemetry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 3px 9px;
+    border-radius: 99px;
+    background: rgba(20, 24, 34, 0.84);
+    color: #f4f6fa;
+    font: 600 11px/1.3 var(--mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .gesture-telemetry[data-owner="sheet-handoff"],
+  .gesture-telemetry[data-owner="scroll-handoff"] {
+    background: #b93814;
+    color: #ffffff;
+  }
+  .gesture-telemetry[data-owner="scroll"] {
+    background: #145a32;
+    color: #ffffff;
+  }
+
+  .category-pills {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 1px;
+    scrollbar-width: none;
+  }
+  .category-pills::-webkit-scrollbar {
+    display: none;
+  }
+  .cat-pill {
+    flex: none;
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 99px;
+    border: 1px solid rgba(20, 24, 34, 0.15);
+    background: rgba(255, 255, 255, 0.78);
+    color: #1c2029;
+    font: 600 12px/1 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .cat-pill[aria-pressed="true"] {
+    background: #14171f;
+    color: #ffffff;
+    border-color: #14171f;
+  }
+
+  #sheet-scroll {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: rgba(246, 247, 250, 0.92);
+    padding: 8px 12px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    touch-action: none;
+  }
+
+  .place-card {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: 9px;
+    align-items: center;
+    padding: 9px 10px;
+    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid rgba(20, 24, 34, 0.11);
+    color: #14171f;
+  }
+  .place-card[hidden] {
+    display: none;
+  }
+  .place-card.is-selected {
+    border-color: #d2491f;
+    background: #fff7f4;
+  }
+  .place-badge {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    color: #ffffff;
+    font: 800 13px/1 var(--mono);
+  }
+  .place-badge.cat-coffee { background: #b45309; }
+  .place-badge.cat-parks { background: #15803d; }
+  .place-badge.cat-transit { background: #0369a1; }
+  .place-badge.cat-food { background: #c2410c; }
+  .place-info {
+    min-width: 0;
+  }
+  .place-name {
+    display: block;
+    font: 700 13.5px/1.2 system-ui, sans-serif;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .place-meta {
+    display: block;
+    font: 11.5px/1.3 system-ui, sans-serif;
+    color: #545964;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .place-actions {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+  }
+  .place-btn {
+    min-height: 32px;
+    padding: 0 9px;
+    border-radius: 8px;
+    border: 1px solid rgba(20, 24, 34, 0.16);
+    background: #f5f6f8;
+    color: #14171f;
+    font: 600 11.5px/1 system-ui, sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .place-btn.place-route-btn {
+    background: #1778ff;
+    color: #ffffff;
+    border-color: #1778ff;
+  }
+  .place-btn.place-save-btn[aria-pressed="true"] {
+    background: #14171f;
+    color: #ffffff;
+    border-color: #14171f;
+  }
+
+  .sheet-empty {
+    padding: 20px 14px;
+    text-align: center;
+    background: #ffffff;
+    border: 1px solid rgba(20, 24, 34, 0.12);
+    border-radius: 12px;
+    color: #464b55;
+  }
+  .sheet-empty[hidden] {
+    display: none;
+  }
+  .sheet-empty button {
+    margin-top: 8px;
+    min-height: 36px;
+    background: #14171f;
+    color: #ffffff;
+    border-color: #14171f;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Multi-detent refractive bottom sheet</h1>
+  <p class="lede">
+    I wanted to know if one WebGL canvas can coordinate a three-detent spring bottom sheet with single-gesture scroll handoff at <code>scrollTop === 0</code>, while scaling, dimming and edge-refracting a live map underneath rounded corners. Drag the handle or pull down past the top of the place list, flick between 18%, 52% and 90%, or tap controls on both layers.
+  </p>
+
+  <div class="row sheet-toolbar">
+    <span class="seg-detents" role="group" aria-label="Sheet detent">
+      <button type="button" data-detent="peek" aria-pressed="false">Peek (18%)</button>
+      <button type="button" data-detent="half" aria-pressed="true">Half (52%)</button>
+      <button type="button" data-detent="full" aria-pressed="false">Full (90%)</button>
+    </span>
+    <button type="button" id="ctl-scroll-demo" class="ctl-btn">Scroll list down</button>
+    <label class="ctl-toggle">
+      <input type="checkbox" id="ctl-reduced">
+      Reduced motion
+    </label>
+  </div>
+
+  <div class="stage sheet-stage" id="sheet-stage">
+    <div class="sheet-viewport" id="sheet-viewport">
+      <!-- #region markup -->
+      <canvas id="sheet-canvas" content="drawable" layoutsubtree aria-label="Interactive street map and multi-detent bottom sheet">
+        <section id="backdrop-dom" drawable aria-label="Interactive street map">
+          <div class="map-world" id="map-world">
+            <div class="map-water" aria-hidden="true"></div>
+            <div class="map-cove" aria-hidden="true"></div>
+            <div class="map-park p1" aria-hidden="true"></div>
+            <div class="map-park p2" aria-hidden="true"></div>
+            <div class="map-park p3" aria-hidden="true"></div>
+            <div class="map-block b1" aria-hidden="true"></div>
+            <div class="map-block b2" aria-hidden="true"></div>
+            <div class="map-block b3" aria-hidden="true"></div>
+            <div class="map-block b4" aria-hidden="true"></div>
+            <div class="map-block b5" aria-hidden="true"></div>
+            <div class="map-block b6" aria-hidden="true"></div>
+            <div class="map-road arterial-h1" aria-hidden="true"></div>
+            <div class="map-road arterial-h2" aria-hidden="true"></div>
+            <div class="map-road arterial-h3" aria-hidden="true"></div>
+            <div class="map-road arterial-v1" aria-hidden="true"></div>
+            <div class="map-road arterial-v2" aria-hidden="true"></div>
+            <div class="map-road highway" aria-hidden="true"></div>
+            <div class="map-road diag-blvd" aria-hidden="true"></div>
+
+            <div class="map-traffic" aria-hidden="true">
+              <span class="traffic-seg t-green s1"></span>
+              <span class="traffic-seg t-amber s2"></span>
+              <span class="traffic-seg t-red s3"></span>
+              <span class="traffic-seg t-green s4"></span>
+              <span class="traffic-seg t-red s5"></span>
+            </div>
+
+            <div class="route-seg r1" aria-hidden="true"></div>
+            <div class="route-seg r2" aria-hidden="true"></div>
+            <div class="route-seg r3" aria-hidden="true"></div>
+
+            <span class="map-label l-park" aria-hidden="true">Harbour Park</span>
+            <span class="map-label l-market" aria-hidden="true">Market Blvd</span>
+            <span class="map-label l-emb" aria-hidden="true">Embarcadero</span>
+            <span class="map-label l-bay" aria-hidden="true">Bay Water</span>
+
+            <button type="button" class="map-pin cat-coffee p-ferry" data-pin="ferry-coffee" aria-pressed="false">
+              <span class="pin-dot" aria-hidden="true">C</span><span>Ferry Coffee</span>
+            </button>
+            <button type="button" class="map-pin cat-parks p-civic" data-pin="civic-hall" aria-pressed="false">
+              <span class="pin-dot" aria-hidden="true">P</span><span>Civic Green</span>
+            </button>
+            <button type="button" class="map-pin cat-parks p-botanic" data-pin="botanic-pier" aria-pressed="false">
+              <span class="pin-dot" aria-hidden="true">P</span><span>Botanic Pier</span>
+            </button>
+            <button type="button" class="map-pin cat-transit p-central" data-pin="central-hub" aria-pressed="false">
+              <span class="pin-dot" aria-hidden="true">T</span><span>Central Hub</span>
+            </button>
+            <button type="button" class="map-pin cat-food p-harbour" data-pin="harbour-market" aria-pressed="false">
+              <span class="pin-dot" aria-hidden="true">F</span><span>Harbour Market</span>
+            </button>
+          </div>
+
+          <div class="map-top-bar">
+            <div class="map-pill-info" id="map-status-pill">Waterfront · 12 places</div>
+            <button type="button" id="btn-traffic" class="map-ctrl-btn" aria-pressed="false">Traffic</button>
+            <button type="button" id="btn-recentre" class="map-ctrl-btn">Recentre</button>
+          </div>
+        </section>
+
+        <section id="sheet-dom" drawable aria-label="Nearby places sheet">
+          <div class="sheet-header" id="sheet-header">
+            <button type="button" id="sheet-grab" class="sheet-grab" aria-label="Sheet detent handle, tap to cycle height or use arrow keys">
+              <span class="grab-pill" aria-hidden="true"></span>
+            </button>
+            <div class="sheet-search-row">
+              <input id="sheet-search" type="search" placeholder="Search coffee, parks, transit..." aria-label="Search nearby places" autocomplete="off" spellcheck="false">
+              <button type="button" id="sheet-search-clear" class="sheet-clear-btn" hidden>Clear</button>
+            </div>
+            <div class="gesture-telemetry" id="gesture-telemetry" data-owner="idle" role="status" aria-live="polite">
+              Gesture owner: Idle · 52% · r 24 px
+            </div>
+            <div class="category-pills" id="category-pills" role="group" aria-label="Place categories">
+              <button type="button" class="cat-pill" data-cat="all" aria-pressed="true">All (12)</button>
+              <button type="button" class="cat-pill" data-cat="coffee" aria-pressed="false">Coffee</button>
+              <button type="button" class="cat-pill" data-cat="parks" aria-pressed="false">Parks</button>
+              <button type="button" class="cat-pill" data-cat="transit" aria-pressed="false">Transit</button>
+              <button type="button" class="cat-pill" data-cat="food" aria-pressed="false">Food</button>
+            </div>
+          </div>
+
+          <div id="sheet-scroll" tabindex="0" aria-label="Nearby places list">
+            <div class="sheet-empty" id="sheet-empty" hidden>
+              No places match that search.
+              <div><button type="button" id="btn-reset-filter">Reset filters</button></div>
+            </div>
+          </div>
+        </section>
+      </canvas>
+      <!-- #endregion markup -->
+      <div id="plain-host" class="plain-host"></div>
+    </div>
+    <p id="stage-hud" class="stage-hud" role="status">Starting...</p>
+    <p id="sheet-notice" class="sheet-notice" hidden></p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>backdrop depth shader, velocity spring, single-gesture scroll handoff and geometry sync</small></summary>
+    <ol>
+      <li data-code="#markup"><b>Two layered <code>drawable</code> views in one canvas.</b> The live street map (<code>#backdrop-dom</code>) and the scrollable sheet (<code>#sheet-dom</code>) sit inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>.</li>
+      <li data-code="/bottom-sheet/sheet.js#sheet-shader"><b>Progressive blur, dimming and curved edge refraction.</b> Pass 0 scales and dims the map as the sheet rises; Pass 1 refracts <code>uBgTex</code> around the top rounded corners (morphing from <code>24 px</code> down to <code>8 px</code>) and frosts the translucent header behind real inputs and chips.</li>
+      <li data-code="/bottom-sheet/sheet.js#spring-solver"><b>Velocity-aware multi-detent spring solver.</b> Projects release velocity onto the 18%, 52% and 90% detents and integrates a sub-stepped damped spring, or snaps directly under <code>prefers-reduced-motion: reduce</code>.</li>
+      <li data-code="/bottom-sheet/sheet.js#scroll-handoff"><b>Single-gesture nested-scroll handoff.</b> Consumes downward drag inside <code>#sheet-scroll</code> until <code>scrollTop === 0</code>, then feeds remaining movement straight into the sheet position without lifting the pointer.</li>
+      <li data-code="/bottom-sheet/sheet.js#geometry-sync"><b>Geometry calibration and fallbacks.</b> Multiplies both layer transforms by <code>geometryUnit()</code> before calling <code>updateElementGeometry()</code>, toggles <code>dataset.hitTick</code> when bounds move, and drops to five-argument <code>drawElementImage()</code> or plain HTML if needed.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    Standard CSS <code>backdrop-filter: blur()</code> can frost pixels behind a panel, yet native browser touch scrolling still breaks single-gesture nested handoff: once <code>touch-action: pan-y</code> starts a compositor scroll on an inner list, Chrome sends <code>pointercancel</code> and locks the rest of that finger gesture inside the scroller even after <code>scrollTop</code> reaches zero. Putting both layers inside one <code>ElementGL</code> WebGL 2 canvas lets one pointer controller manage both the sheet height and <code>#sheet-scroll.scrollTop</code> while the fragment shader handles glass blur and curved edge refraction.
+  </p>
+  <p>
+    Inside <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>, <code>#backdrop-dom</code> renders real HTML buttons (<code>Recentre</code>, <code>Traffic</code> and five clickable map pins) over a CSS street grid, harbour water, parks, traffic lanes and a route path. On each <code>paint</code> event, <code>ElementGL.upload()</code> copies changed elements with <code>gl.texElementSubImage2D()</code>. Pass 0 scales the map down slightly toward 94.5% as the sheet climbs from Peek (18%) to Full (90%), dims it proportionally and casts an upward drop shadow along the sheet's rounded rim.
+  </p>
+  <p>
+    Pass 1 draws <code>#sheet-dom</code> at <code>sheetTop</code> and binds the backdrop texture to <code>TEXTURE1</code>. A top-only rounded-rectangle signed distance field morphs the corner radius from <code>24 px</code> down to <code>8 px</code> near full height, bends UV coordinates with Snell's law and mild RGB dispersion along the top bevel, applies a 9-tap progressive frost blur across the transparent <code>.sheet-header</code>, and composites the crisp premultiplied DOM pixels on top.
+  </p>
+  <p>
+    For hit testing, <code>syncGeometry()</code> calibrates both transforms with <code>geometryUnit()</code> from <code>/lib/surface.js</code> and updates <code>canvas.updateElementGeometry()</code> only when the coordinates move, toggling <code>dataset.hitTick</code> to clear Chromium's hit-test cache without triggering an idle paint loop. When WebGL 2 isn't available, the stage falls back to five-argument <code>drawElementImage()</code> in 2D, or moves both subtrees into plain HTML on context loss.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">
+    These checks run on isolated fixtures on the test stage and leave the demo above untouched. Tap the button below to run them in this browser.
+  </p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Not verified in a live browser yet: syntax, graphics rules and prose checks pass, while headless Chromium 157 and Chrome 159 on Android runs are still pending.</li>
+    <li>Driving <code>#sheet-scroll.scrollTop</code> and <code>sheetFrac</code> from one <code>pointermove</code> state machine with <code>touch-action: none</code> avoids Chrome's mid-gesture <code>pointercancel</code>, so dragging down through <code>scrollTop === 0</code> continues pulling the sheet down to Half or Peek without lifting your finger, while mouse wheel and keyboard scrolling still scroll <code>#sheet-scroll</code> natively.</li>
+    <li>Keeping <code>#sheet-dom</code> at a fixed 94% height and translating it via <code>updateElementGeometry()</code> avoids CSS layout reflow during spring animations and keeps the inner list's <code>scrollTop</code> intact when you pull the sheet down and push it back up.</li>
+    <li>Pinning the map's <code>Recentre</code> and <code>Traffic</code> buttons inside the top 40 px strip leaves them uncovered and clickable even at Full (90%) detent after the 94.5% backdrop scale.</li>
+  </ul>
+</main>
+<script type="module" src="/bottom-sheet/sheet.js"></script>
+</body>
+</html>

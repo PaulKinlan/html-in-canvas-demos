@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<meta name="reduced-motion-note" content="Stretch springs settle without bounce, and the refresh droplet switches cleanly between resting, ready and spinning states.">
+<title>Pull-to-refresh and stretch overscroll</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Recreate Android 12+ non-uniform UV stretch overscroll and a liquid metaball pull-to-refresh droplet inside one WebGL 2 canvas holding a live scrollable HTML feed.">
+<link rel="canonical" href="https://html-in-canvas.page/pull-stretch/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Pull-to-refresh and stretch overscroll">
+<meta property="og:description" content="Recreate Android 12+ non-uniform UV stretch overscroll and a liquid metaball pull-to-refresh droplet inside one WebGL 2 canvas holding a live scrollable HTML feed.">
+<meta property="og:url" content="https://html-in-canvas.page/pull-stretch/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Pull-to-refresh and stretch overscroll&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-27">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Pull-to-refresh and stretch overscroll">
+<meta name="twitter:description" content="Recreate Android 12+ non-uniform UV stretch overscroll and a liquid metaball pull-to-refresh droplet inside one WebGL 2 canvas holding a live scrollable HTML feed.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Pull-to-refresh and stretch overscroll&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/pull-stretch/",
+   "url": "https://html-in-canvas.page/pull-stretch/",
+   "mainEntityOfPage": "https://html-in-canvas.page/pull-stretch/",
+   "headline": "Pull-to-refresh and stretch overscroll",
+   "name": "Pull-to-refresh and stretch overscroll",
+   "description": "Recreate Android 12+ non-uniform UV stretch overscroll and a liquid metaball pull-to-refresh droplet inside one WebGL 2 canvas holding a live scrollable HTML feed.",
+   "abstract": "Can I recreate Android 12+ non-uniform stretch overscroll and a gooey liquid-metaball pull-to-refresh droplet inside a single WebGL 2 canvas holding a live scrollable HTML feed, keeping interactive items clickable and overscroll-behavior-y: contain intact?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-27",
+   "keywords": "WebGL, ElementGL, overscroll, pull-to-refresh, updateElementGeometry, texElementSubImage2D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Pull-to-refresh and stretch overscroll",
+     "item": "https://html-in-canvas.page/pull-stretch/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .toolbar {
+    margin: 14px 0 12px;
+    gap: 10px 12px;
+    font-size: 14px;
+  }
+  .seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg > button {
+    border: 0;
+    border-radius: 0;
+    background: var(--card);
+    color: var(--fg);
+    padding: 7px 12px;
+    min-height: 40px;
+    font: inherit;
+    font-size: 13.5px;
+    touch-action: manipulation;
+  }
+  .seg > button + button {
+    border-left: 1px solid var(--line);
+  }
+  .seg > button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .toolbar > button {
+    min-height: 40px;
+    font-size: 13.5px;
+    touch-action: manipulation;
+  }
+  .ctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .ctl input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+  }
+
+  .stretch-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .phone-viewport {
+    position: relative;
+    width: min(100%, 386px);
+    height: 520px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  #stretch-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: pan-y;
+  }
+  .plain-host {
+    display: none;
+    width: 100%;
+    height: 520px;
+  }
+  .stretch-stage.plain #stretch-canvas {
+    display: none;
+  }
+  .stretch-stage.plain .plain-host {
+    display: block;
+  }
+
+  /* Scrollable HTML feed inside the drawable canvas */
+  #feed-scroll {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y;
+    scrollbar-width: thin;
+    background: var(--bg);
+    color: var(--fg);
+    font: 14.5px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  #feed-scroll:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+  }
+
+  .feed-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 54px;
+    padding: 10px 14px;
+    background: #1b2232;
+    color: #f6f4ef;
+    border-bottom: 1px solid #2b354b;
+  }
+  .feed-brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .feed-brand strong {
+    font-size: 16px;
+    letter-spacing: -0.01em;
+  }
+  .feed-count {
+    font: 600 12px var(--mono);
+    color: #b7c0d6;
+  }
+  .feed-state-pill {
+    font: 600 11.5px var(--mono);
+    padding: 4px 9px;
+    border-radius: 99px;
+    border: 1px solid #3c4866;
+    background: #252e42;
+    color: #eef2ff;
+    white-space: nowrap;
+  }
+  .feed-state-pill[data-ready="true"] {
+    background: #d2491f;
+    border-color: #ff7a4d;
+    color: #ffffff;
+  }
+
+  .feed-body {
+    padding: 12px 12px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .feed-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .feed-chip {
+    min-height: 36px;
+    padding: 5px 11px;
+    border-radius: 99px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--fg);
+    font: 600 12.5px system-ui, sans-serif;
+    touch-action: manipulation;
+  }
+  .feed-chip[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+
+  .feed-compose {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .feed-compose input[type="text"] {
+    flex: 1 1 140px;
+    min-width: 0;
+    min-height: 40px;
+    padding: 7px 11px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--fg);
+    font: inherit;
+  }
+  .feed-compose input[type="text"]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .feed-compose button {
+    min-height: 40px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #ffffff;
+    font-weight: 600;
+    touch-action: manipulation;
+  }
+
+  .feed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .feed-item {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .feed-item[hidden] {
+    display: none;
+  }
+  .feed-item.is-fresh {
+    border-color: var(--accent);
+  }
+  .feed-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .feed-tag {
+    font: 600 11px var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 99px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+  }
+  .feed-tag.t-scroll {
+    background: color-mix(in srgb, var(--ok) 15%, transparent);
+    color: var(--ok);
+  }
+  .feed-time {
+    font: 11.5px var(--mono);
+    color: var(--muted);
+  }
+  .feed-item h3 {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.25;
+  }
+  .feed-item p {
+    margin: 0;
+    font-size: 13.5px;
+    color: var(--muted);
+  }
+  .feed-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
+  }
+  .feed-actions button {
+    min-height: 36px;
+    padding: 4px 10px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    touch-action: manipulation;
+  }
+  .btn-save[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+
+  .stage-hud {
+    width: 100%;
+    margin: 0;
+    font: 12.5px/1.5 var(--mono);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .stage-notice {
+    width: 100%;
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 13.5px;
+  }
+  .stage-notice[hidden] {
+    display: none;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Pull-to-refresh and stretch overscroll</h1>
+  <p class="lede">
+    I wanted to see if one WebGL 2 canvas could hold a live scrolling mobile feed, stretch it from either edge like Android 12+, and pull a liquid metaball spinner out of its sticky header. Scroll inside the phone frame, tug past the top or bottom boundary, or press the trigger buttons to compare non-uniform UV strain against a uniform scale.
+  </p>
+
+  <div class="row toolbar">
+    <span class="seg" role="group" aria-label="Stretch model">
+      <button type="button" data-mode="android" aria-pressed="true">Android stretch + metaball</button>
+      <button type="button" data-mode="uniform" aria-pressed="false">Uniform CSS-like scale</button>
+    </span>
+    <button type="button" id="btn-trigger-refresh">Trigger pull refresh</button>
+    <button type="button" id="btn-overscroll-bottom">Overscroll bottom</button>
+    <label class="ctl">
+      <input id="ctl-reduced" type="checkbox">
+      Reduced motion
+    </label>
+  </div>
+
+  <div class="stage stretch-stage" id="stretch-stage">
+    <div class="phone-viewport" id="phone-viewport">
+      <!-- #region feed-markup -->
+      <canvas id="stretch-canvas" content="drawable" layoutsubtree aria-label="Scrollable mobile feed with non-uniform stretch overscroll and metaball pull-to-refresh">
+        <div id="feed-scroll" drawable tabindex="0" aria-label="Scrollable feed">
+          <header class="feed-topbar" id="feed-topbar">
+            <div class="feed-brand">
+              <strong>Field Feed</strong>
+              <span class="feed-count" id="feed-count">8 items</span>
+            </div>
+            <span class="feed-state-pill" id="feed-state-pill" data-ready="false">At top</span>
+          </header>
+
+          <div class="feed-body">
+            <div class="feed-chips" role="group" aria-label="Filter feed by topic">
+              <button type="button" class="feed-chip" data-filter="all" aria-pressed="true">All</button>
+              <button type="button" class="feed-chip" data-filter="shaders" aria-pressed="false">Shaders</button>
+              <button type="button" class="feed-chip" data-filter="scroll" aria-pressed="false">Scroll</button>
+              <button type="button" class="feed-chip" data-filter="saved" aria-pressed="false">Saved (0)</button>
+            </div>
+
+            <form class="feed-compose" id="feed-compose">
+              <input id="feed-input" type="text" maxlength="80" placeholder="Add a dispatch note..." aria-label="New feed note" autocomplete="off">
+              <button type="submit" id="feed-post-btn">Post</button>
+            </form>
+
+            <div class="feed-list" id="feed-list">
+              <article class="feed-item" data-topic="shaders" data-saved="false">
+                <div class="feed-meta"><span class="feed-tag">Shaders</span><span class="feed-time">01 · Top anchor</span></div>
+                <h3>Non-uniform edge elongation</h3>
+                <p>Pulling past scrollTop 0 stretches rows near the top edge up to 2.6x while lower cards compress slightly so the viewport stays pinned.</p>
+                <div class="feed-actions">
+                  <button type="button" class="btn-like" data-likes="4">+1 Like (4)</button>
+                  <button type="button" class="btn-save" aria-pressed="false">Bookmark</button>
+                </div>
+              </article>
+
+              <article class="feed-item" data-topic="shaders" data-saved="false">
+                <div class="feed-meta"><span class="feed-tag">Shaders</span><span class="feed-time">02 · SDF bridge</span></div>
+                <h3>Analytic 2D metaball droplet</h3>
+                <p>The spinner bulb necks out of the sticky header using 1/d1 + 1/d2 &gt; 1.0 and snaps free when pullPx crosses 78 px.</p>
+                <div class="feed-actions">
+                  <button type="button" class="btn-like" data-likes="7">+1 Like (7)</button>
+                  <button type="button" class="btn-save" aria-pressed="false">Bookmark</button>
+                </div>
+              </article>
+
+              <article class="feed-item" data-topic="scroll" data-saved="false">
+                <div class="feed-meta"><span class="feed-tag t-scroll">Scroll</span><span class="feed-time">03 · Containment</span></div>
+                <h3>Native inner scroll with overscroll-behavior-y</h3>
+                <p>The scrollable container carries drawable directly, so touch pans and mouse wheel scroll inside without chaining out to the page.</p>
+                <div class="feed-actions">
+                  <button type="button" class="btn-like" data-likes="3">+1 Like (3)</button>
+                  <button type="button" class="btn-save" aria-pressed="false">Bookmark</button>
+                </div>
+              </article>
+
+              <article class="feed-item" data-topic="scroll" data-saved="false">
+                <div class="feed-meta"><span class="feed-tag t-scroll">Scroll</span><span class="feed-time">04 · Hit boxes</span></div>
+                <h3>Button clicks stay aligned at any scrollTop</h3>
+                <p>After uploading with texElementSubImage2D(), updateElementGeometry() scales the transform by geometryUnit() and flips dataset.hitTick.</p>
+                <div class="feed-actions">
+                  <button type="button" class="btn-like" data-likes="5">+1 Like (5)</button>
+                  <button type="button" class="btn-save" aria-pressed="false">Bookmark</button>
+                </div>
+              </article>
+
+              <article class="feed-item" data-topic="shaders" data-saved="false">
+                <div class="feed-meta"><span class="feed-tag">Shaders</span><span class="feed-time">05 · Comparison</span></div>
+                <h3>Why CSS scaleY() feels flatter</h3>
+                <p>Switch to Uniform CSS-like scale above to see constant strain across every row and clipping at the far edge instead of local compression.</p>
+                <div class="feed-actions">
+                  <button type="button" class="btn-like" data-likes="2">+1 Like (2)</button>
+                  <button type="button" class="btn-save" aria-pressed="false">Bookmark</button>
+                </div>
+              </article>
+
+              <article class="feed-item" data-topic="scroll" data-saved="false">
+                <div class="feed-meta"><span class="feed-tag t-scroll">Scroll</span><span class="feed-time">06 · Rubber band</span></div>
+                <h3>Logarithmic drag resistance</h3>
+                <p>Finger and wheel deltas past the scroll boundary pass through k * log1p(d / k) so the pull tightens progressively towards 120 px.</p>
+                <div class="feed-actions">
+                  <button type="button" class="btn-like" data-likes="6">+1 Like (6)</button>
+                  <button type="button" class="btn-save" aria-pressed="false">Bookmark</button>
+                </div>
+              </article>
+
+              <article class="feed-item" data-topic="shaders" data-saved="false">
+                <div class="feed-meta"><span class="feed-tag">Shaders</span><span class="feed-time">07 · Bottom pull</span></div>
+                <h3>Mirrored bottom overscroll curve</h3>
+                <p>Scrolling past the end and dragging up reverses the exponential decay to stretch the bottom rows most while pinning the top edge.</p>
+                <div class="feed-actions">
+                  <button type="button" class="btn-like" data-likes="1">+1 Like (1)</button>
+                  <button type="button" class="btn-save" aria-pressed="false">Bookmark</button>
+                </div>
+              </article>
+
+              <article class="feed-item" data-topic="scroll" data-saved="false">
+                <div class="feed-meta"><span class="feed-tag t-scroll">Scroll</span><span class="feed-time">08 · Bottom anchor</span></div>
+                <h3>Fallbacks without WebGL 2</h3>
+                <p>If texElementSubImage2D() isn't present, the feed draws in 5-argument 2D strips via drawElementImage(), or drops to plain HTML on context loss.</p>
+                <div class="feed-actions">
+                  <button type="button" class="btn-like" data-likes="8">+1 Like (8)</button>
+                  <button type="button" class="btn-save" aria-pressed="false">Bookmark</button>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </canvas>
+      <!-- #endregion feed-markup -->
+      <div id="plain-host" class="plain-host"></div>
+    </div>
+    <p class="stage-hud" id="stage-hud" role="status">Starting...</p>
+    <p class="stage-notice" id="stage-notice" hidden></p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>drawable scroller markup, non-uniform stretch shader, metaball SDF and geometry sync</small></summary>
+    <ol>
+      <li data-code="#feed-markup"><b>Live scrollable feed inside one canvas.</b> Making <code>#feed-scroll</code> itself the single <code>drawable</code> element keeps sticky headers, inputs and scrolled cards in one paint record.</li>
+      <li data-code="/pull-stretch/stretch.js#stretch-shader"><b>Non-uniform stretch fragment shader.</b> Deforms texture Y near the pulled edge with <code>y - A * y * (1 - y) * exp(-k * y)</code> and mirrors for bottom pulls.</li>
+      <li data-code="/pull-stretch/stretch.js#metaball-sdf"><b>Analytic 2D metaball pull-to-refresh droplet.</b> Sums <code>r1/d1 + r2/d2</code> from the header bottom edge and droplet sphere, snapping free past <code>78 px</code>.</li>
+      <li data-code="/pull-stretch/stretch.js#overscroll-physics"><b>Logarithmic rubber-band and damped spring physics.</b> Shared between the main demo and the isolated live checks.</li>
+      <li data-code="/pull-stretch/stretch.js#geometry-sync"><b>Hit-box calibration with <code>updateElementGeometry()</code>.</b> Multiplies the transform by <code>geometryUnit()</code> and flips <code>dataset.hitTick</code>.</li>
+      <li data-code="/pull-stretch/stretch.js#fallback-2d"><b>Five-argument 2D strip fallback.</b> Copies a plain snapshot and draws slices with 5-argument <code>drawElementImage()</code> when WebGL 2 isn't available.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    The phone frame holds one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code> managed by a single <code>ElementGL</code> WebGL 2 context from <code>/lib/element-gl.js</code>. Its only drawable child is <code>#feed-scroll</code>, which sets <code>overflow-y: auto</code>, <code>overscroll-behavior-y: contain</code> and <code>touch-action: pan-y</code>. Keeping <code>drawable</code> on the scroll container itself (and not on individual cards inside it) lets Chromium paint the sticky header, filter chips, text input and scrolled cards in one texture via <code>gl.texElementSubImage2D()</code> while native wheel and touch scrolling work directly on the box.
+  </p>
+  <p>
+    When you drag past <code>scrollTop === 0</code> or past the bottom limit, excess delta passes through a logarithmic rubber-band curve <code>56 * log1p(d / 56)</code> up to <code>120 px</code>. In Android stretch mode, the fragment shader maps screen Y to texture Y using <code>y - A * y * (1 - y) * exp(-3.2 * y)</code>. Because its slope is below 1 near <code>y = 0</code> and slightly above 1 further down, rows near the pulled edge elongate up to 2.6x while distant rows compress gently and both boundaries stay fixed in the viewport. Uniform scale mode replaces that curve with linear <code>scaleY()</code> so you can compare the clipping and constant strain.
+  </p>
+  <p>
+    During a top pull above <code>scrollTop === 0</code>, the shader evaluates a two-source 2D metaball scalar field <code>r1 / d1 + r2 / d2</code> anchored at the stretched bottom edge of the sticky header. Pulling towards <code>78 px</code> thins the liquid neck until the critical distance breaks it cleanly into a floating sphere with a spinning loader arc, prepends a new timestamped row to the live DOM feed and springs <code>pullPx</code> back to <code>0</code>. When the spring settles, or when the frame scrolls off screen, the animation loop stops completely.
+  </p>
+  <p>
+    WebGL uploads don't move hit regions by themselves, so <code>syncGeometry()</code> scales the feed's <code>DOMMatrix</code> by <code>geometryUnit()</code> from <code>/lib/surface.js</code>, passes it to <code>canvas.updateElementGeometry()</code> and toggles <code>dataset.hitTick</code> to clear Chromium's hit-test cache. If WebGL 2 isn't available, the canvas falls back to 5-argument <code>drawElementImage()</code> strips in 2D, and if the context is lost it moves <code>#feed-scroll</code> into plain HTML so controls stay usable.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">
+    Each check builds an isolated fixture on <code>testStage()</code> without scrolling or focusing the demo above. Press Run to execute them in this browser.
+  </p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Measured in headless Chrome 160 Canary (2026-11-27, 412 px viewport at DPR 2.625): all four live checks pass, canvas memory stays at 10 MB (1.3 megapixels, peak 3 WebGL contexts during checks and 1 after retirement), and touch drag plus wheel scrolling keep the outer page stationary.</li>
+    <li>Not verified on Chrome 159 for Android or through <code>npm run check:jank</code> yet: real touch momentum handoff at <code>scrollTop === 0</code>, 2D strip fallback rendering and on-device WebGL frame timing need testing on a phone at 412 px.</li>
+    <li>Putting <code>drawable</code> on the outer scroller (<code>#feed-scroll</code>) instead of on each card avoids Chromium's nested-drawable paint clipping and preserves native scrolling with <code>overscroll-behavior-y: contain</code>.</li>
+    <li>Calling <code>stage.begin()</code> before <code>stage.upload(feedEl)</code> sizes the canvas backing store first so <code>getElementImageDefaultSize()</code> reports full HiDPI pixels on the first paint instead of 300 by 150.</li>
+    <li>A <code>wheel</code> listener attached to the <code>&lt;canvas&gt;</code> with <code>{ passive: false }</code> is cancelable when absorbing overscroll at the boundary, whereas a listener on a drawable scroll child is treated as passive by Chromium.</li>
+    <li>Using <code>y - A * y * (1 - y) * exp(-k * y)</code> keeps derivative <code>dv/dy &gt; 0</code> everywhere for <code>A &lt;= 0.65</code>, giving strong local elongation near the pulled edge with mild compression on distant rows and zero UV folding.</li>
+  </ul>
+</main>
+<script type="module" src="/pull-stretch/stretch.js"></script>
+</body>
+</html>
