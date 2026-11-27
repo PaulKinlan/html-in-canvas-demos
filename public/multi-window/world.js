@@ -137,8 +137,9 @@ function getCardFields(card) {
 
 function getCardSize() {
   const activeCard = getAuthoritativeCard();
-  const w = activeCard.offsetWidth || (window.innerWidth <= 540 ? 156 : 256);
-  const h = activeCard.offsetHeight || (window.innerWidth <= 540 ? 186 : 194);
+  const compactSplit = mode === 'split' && window.innerWidth <= 540;
+  const w = activeCard.offsetWidth || (compactSplit ? 156 : 256);
+  const h = activeCard.offsetHeight || (compactSplit ? 186 : 194);
   return { w, h };
 }
 
@@ -154,7 +155,11 @@ function isThisWindowAuthority() {
 // #region projection
 function getMyScreenViewRect() {
   const rect = canvasA.getBoundingClientRect();
-  const chromeLeft = Math.max(0, Math.round((window.outerWidth - window.innerWidth) / 2));
+  const widthDiff = Math.max(0, Math.round(window.outerWidth - window.innerWidth));
+  // On macOS, a wide horizontal chrome delta (>16 px) is typically a left vertical-tab sidebar rather than symmetric borders.
+  const chromeLeft = widthDiff > 16 && /Mac/i.test(navigator.userAgent)
+    ? widthDiff
+    : Math.round(widthDiff / 2);
   const chromeTop = Math.max(0, Math.round(window.outerHeight - window.innerHeight));
   return {
     x: Math.round(window.screenX + chromeLeft + rect.left),
@@ -757,7 +762,14 @@ function snapStraddleBezel() {
       const rightRect = myView.x <= firstPeer.rect.x ? firstPeer.rect : myView;
       const seamX = (leftRect.x + leftRect.w + rightRect.x) / 2;
       state.cardX = Math.round(seamX - cardW / 2 - 6);
-      state.cardY = Math.round(Math.max(myView.y + 18, (myView.y + myView.h / 2) - cardH / 2));
+      // Centre vertically in the overlapping Y band of both canvases when they overlap vertically.
+      const bandTop = Math.max(leftRect.y, rightRect.y);
+      const bandBottom = Math.min(leftRect.y + leftRect.h, rightRect.y + rightRect.h);
+      if (bandBottom - bandTop >= 40) {
+        state.cardY = Math.round((bandTop + bandBottom) / 2 - cardH / 2);
+      } else {
+        state.cardY = Math.round(Math.max(myView.y + 18, (myView.y + myView.h / 2) - cardH / 2));
+      }
     } else {
       state.cardX = Math.round(myView.x + myView.w - cardW / 2);
       state.cardY = Math.round(myView.y + Math.max(18, (myView.h - cardH) / 2));
@@ -1101,9 +1113,9 @@ presetCenterBtn.addEventListener('click', snapCenter);
 optOverlay.addEventListener('change', () => requestBothPaints());
 
 openWingBtn.addEventListener('click', () => {
-  const w = Math.min(480, Math.max(360, Math.round(window.outerWidth * 0.6)));
-  const h = Math.min(620, Math.max(480, window.outerHeight));
-  let left = window.screenX + window.outerWidth + 12;
+  const w = Math.min(620, Math.max(480, Math.round(window.outerWidth * 0.55)));
+  const h = Math.min(820, Math.max(560, Math.round(window.outerHeight * 0.9)));
+  let left = window.screenX + window.outerWidth + 8;
   let top = window.screenY;
 
   if (screenDetails?.screens?.length > 1) {
@@ -1119,15 +1131,14 @@ openWingBtn.addEventListener('click', () => {
     }
   }
 
-  const popup = window.open(
+  // Use noopener so the popup starts with a clean sessionStorage and does not inherit
+  // this window's context-guard heartbeat (which otherwise looks like a crashed tab).
+  window.open(
     '/multi-window/?role=wing',
-    'hic-multi-window-wing',
-    `popup,width=${w},height=${h},left=${Math.round(left)},top=${Math.round(top)}`
+    '_blank',
+    `popup,noopener,width=${w},height=${h},left=${Math.round(left)},top=${Math.round(top)}`
   );
-  if (!popup) {
-    screensOutput.textContent = 'The browser blocked the popup. Allow popups for this site or open /multi-window/?role=wing in a second window.';
-    return;
-  }
+  screensOutput.textContent = 'Opened Window B (waiting for BroadcastChannel handshake; allow popups if nothing appeared).';
   setMode('multi', { reposition: false });
 });
 

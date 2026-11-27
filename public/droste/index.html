@@ -304,6 +304,11 @@
     cursor: pointer;
     text-align: left;
   }
+  .d-swatch-btn:hover,
+  .d-mini-btn:hover {
+    filter: brightness(1.14);
+    box-shadow: inset 0 0 0 2px #ff8a3d;
+  }
   .d-swatch-btn[aria-pressed="true"] {
     background: var(--c-accent);
     color: var(--c-accent-fg);
@@ -541,7 +546,7 @@
           </div>
         </div>
       </canvas>
-      <p class="dr-hint" id="droste-hint">Drag canvas to zoom and rotate · tap controls on the outer frame</p>
+      <p class="dr-hint" id="droste-hint">Hover or tap any spiral turn to interact · drag frame to zoom and rotate</p>
     </div>
     <!-- #endregion card-markup -->
 
@@ -550,6 +555,10 @@
         <span class="dr-group-label">Mode</span>
         <button type="button" data-mode="droste" aria-pressed="true">Conformal Droste spiral</button>
         <button type="button" data-mode="mirror" aria-pressed="false">Infinite mirror tunnel</button>
+        <label class="dr-check">
+          <input type="checkbox" id="ctl-hitquad">
+          Show hit-box projection
+        </label>
       </div>
 
       <div class="dr-group" role="group" aria-label="Texture filtering">
@@ -620,7 +629,7 @@
       <li data-code="/droste/droste.js#droste-shader"><b>The conformal Escher Droste fragment shader.</b> Maps screen coordinates through a perspective homography and complex logarithm, wraps each octave to the measured cutout ratio, and passes the analytic Jacobian to <code>textureGrad()</code> so mipmaps and anisotropy stay free of branch-cut seams.</li>
       <li data-code="/droste/droste.js#mirror-shader"><b>The ping-pong mirror tunnel pass.</b> Composites the live framed card over a shrunk, rotated and colour-shifted copy of the previous framebuffer so every keystroke or button tap echoes down the tunnel.</li>
       <li data-code="/droste/droste.js#mipmap-upload"><b>Uploading with <code>texElementSubImage2D()</code> and building mipmaps.</b> Calls <code>gl.generateMipmap(gl.TEXTURE_2D)</code> right after upload and switches between <code>LINEAR</code>, <code>LINEAR_MIPMAP_LINEAR</code> and <code>EXT_texture_filter_anisotropic</code>.</li>
-      <li data-code="/droste/droste.js#hit-sync"><b>Keeping the outer frame clickable.</b> Updates <code>canvas.updateElementGeometry()</code> with the outermost card transform and toggles <code>card.dataset.hitTick</code> so Chromium refreshes its hit-test cache.</li>
+      <li data-code="/droste/droste.js#hit-sync"><b>Reprojecting hit-testing onto every spiral turn.</b> Runs the inverse Droste map and analytic Jacobian under the pointer, builds a local tangent <code>DOMMatrix</code> scaled by <code>geometryUnit()</code>, calls <code>canvas.updateElementGeometry()</code> and bumps <code>card.dataset.hitTick</code> so native hover, clicks and typing work on inner and outer turns alike.</li>
     </ol>
   </details>
 
@@ -647,7 +656,10 @@
     Every keystroke, theme switch or clock tick triggers a short burst of feedback passes so the change ripples down the hall of mirrors before settling to rest.
   </p>
   <p>
-    After layout or view updates, the page calls <code>canvas.updateElementGeometry(card, { canvasTransform })</code> and increments <code>card.dataset.hitTick</code> so clicks and typing land on the outermost frame.
+    <code>canvas.updateElementGeometry()</code> only accepts one 4 by 4 <code>DOMMatrix</code> per element, so a single static matrix can't cover an infinite curved spiral.
+    Instead, as the pointer moves or taps anywhere on the canvas, the page runs the exact same Droste map (or mirror-tunnel recursion) on the CPU to find which card pixel sits beneath the cursor, computes the analytic 2 by 2 Jacobian <code>dq/dp</code>, inverts it into a local card-to-canvas tangent matrix pinned at the pointer, scales it with <code>geometryUnit()</code> from <code>/lib/surface.js</code>, and calls <code>canvas.updateElementGeometry(card, { canvasTransform })</code> plus <code>card.dataset.hitTick</code>.
+    That moves Chromium's live hit-test box onto whichever turn of the spiral (or depth of the mirror tunnel) you point at, so native <code>:hover</code>, button clicks and typing into the <code>&lt;input&gt;</code> work on rotated, shrunken inner turns too.
+    Turn on "Show hit-box projection" to watch the tangent quad slide and scale across turns as you move across the canvas.
     An <code>IntersectionObserver</code> pauses the 1 Hz clock and any auto-zoom loop when the stage leaves the viewport.
     If WebGL 2 isn't available, a 2D canvas fallback draws concentric nested copies using five-argument <code>drawElementImage()</code>; if HTML-in-canvas isn't enabled or the WebGL context is lost, <code>#droste-card</code> moves out of the canvas so the controls stay usable as plain HTML.
   </p>

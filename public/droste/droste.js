@@ -1,5 +1,6 @@
 import { banner, supported, runTests, testStage, nextPaint } from '/shared/support.js';
 import { ElementGL, supported as glSupported } from '/lib/element-gl.js';
+import { geometryUnit } from '/lib/surface.js';
 
 banner();
 
@@ -35,6 +36,7 @@ const outTilt = $('out-tilt');
 const btnTiltAniso = $('btn-tilt-aniso');
 const btnAutoZoom = $('btn-autozoom');
 const ctlHeatmap = $('ctl-heatmap');
+const ctlHitQuad = $('ctl-hitquad');
 const btnReset = $('btn-reset');
 const ctlShrink = $('ctl-shrink');
 const outShrink = $('out-shrink');
@@ -63,6 +65,9 @@ uniform float uRot;
 uniform float uTilt;
 uniform int uMode;
 uniform int uHeatmap;
+uniform int uShowHit;
+uniform mat3 uHitInv;
+uniform vec2 uHitPt;
 
 in vec2 vUv;
 out vec4 outColor;
@@ -88,71 +93,91 @@ vec3 lodPalette(float lod) {
 }
 
 void main() {
+  vec3 rgb;
   if (uMode == 1) {
-    vec4 m = texture(uMirror, vUv);
-    outColor = vec4(m.rgb, 1.0);
-    return;
+    rgb = texture(uMirror, vUv).rgb;
+  } else {
+    vec2 s = ((vUv - 0.5) * uCanvasSize) / max(uCardHalf, 1.0);
+    float ct = cos(uTilt);
+    float st = sin(uTilt);
+    float denom = ct + s.y * (st / 2.6);
+    vec3 backdrop = mix(vec3(0.05, 0.07, 0.11), vec3(0.09, 0.12, 0.19), clamp(1.0 - vUv.y, 0.0, 1.0));
+    if (denom <= 0.05) {
+      rgb = backdrop;
+    } else {
+      // Smooth plane coordinates before log/wrap so hardware derivatives never spike at seams
+      vec2 z = vec2(s.x * ct, s.y) / denom;
+      vec2 dzdx = dFdx(z);
+      vec2 dzdy = dFdy(z);
+
+      float r1 = clamp(uInnerR, 0.25, 0.72);
+      float L = log(1.0 / r1);
+      float alpha = (uStrands * L) / 6.28318530718;
+      vec2 c = vec2(1.0, alpha);
+
+      float r = max(length(z), 1e-5);
+      float theta = atan(z.y, z.x);
+      vec2 w0 = vec2(log(r) - uZoom, theta - uRot);
+      vec2 w2 = cmul(c, w0);
+
+      // Modulo before exp() keeps floats bounded across arbitrary zoom octaves
+      float wx = mod(w2.x, L);
+      vec2 zOut = exp(wx) * vec2(cos(w2.y), sin(w2.y));
+
+      // Wrap Chebyshev norm max(|x|, |y|) into the card frame [r1, 1.0]
+      float d = max(abs(zOut.x), abs(zOut.y));
+      float k = floor(log(max(d, 1e-5) / r1) / L);
+      vec2 zTile = zOut * exp(-k * L);
+
+      // Analytic complex Jacobian of zTile(z): exact mipmap + anisotropic footprint
+      vec2 J = cmul(c, cdiv(zTile, z)) * 0.5;
+      vec2 dPdx = cmul(J, dzdx);
+      vec2 dPdy = cmul(J, dzdy);
+
+      vec2 uv = zTile * 0.5 + 0.5;
+      vec4 col = textureGrad(uTex, uv, dPdx, dPdy);
+      if (col.a < 0.98) {
+        vec2 zNext = clamp(zTile / r1, vec2(-1.0), vec2(1.0));
+        vec4 under = textureGrad(uTex, zNext * 0.5 + 0.5, dPdx / r1, dPdy / r1);
+        col = col + under * (1.0 - col.a);
+      }
+
+      rgb = col.rgb + backdrop * (1.0 - col.a);
+
+      if (uHeatmap == 1) {
+        vec2 gx = dPdx * uTexSize;
+        vec2 gy = dPdy * uTexSize;
+        float lod = max(0.0, 0.5 * log2(max(max(dot(gx, gx), dot(gy, gy)), 1e-6)));
+        rgb = mix(rgb, lodPalette(lod), 0.44);
+      }
+
+      if (uTilt > 0.05) {
+        float horizon = smoothstep(0.05, 0.24, denom);
+        rgb = mix(backdrop, rgb, horizon);
+      }
+    }
   }
 
-  vec2 s = ((vUv - 0.5) * uCanvasSize) / max(uCardHalf, 1.0);
-  float ct = cos(uTilt);
-  float st = sin(uTilt);
-  float denom = ct + s.y * (st / 2.6);
-  vec3 backdrop = mix(vec3(0.05, 0.07, 0.11), vec3(0.09, 0.12, 0.19), clamp(1.0 - vUv.y, 0.0, 1.0));
-  if (denom <= 0.05) {
-    outColor = vec4(backdrop, 1.0);
-    return;
-  }
-
-  // Smooth plane coordinates before log/wrap so hardware derivatives never spike at seams
-  vec2 z = vec2(s.x * ct, s.y) / denom;
-  vec2 dzdx = dFdx(z);
-  vec2 dzdy = dFdy(z);
-
-  float r1 = clamp(uInnerR, 0.25, 0.72);
-  float L = log(1.0 / r1);
-  float alpha = (uStrands * L) / 6.28318530718;
-  vec2 c = vec2(1.0, alpha);
-
-  float r = max(length(z), 1e-5);
-  float theta = atan(z.y, z.x);
-  vec2 w0 = vec2(log(r) - uZoom, theta - uRot);
-  vec2 w2 = cmul(c, w0);
-
-  // Modulo before exp() keeps floats bounded across arbitrary zoom octaves
-  float wx = mod(w2.x, L);
-  vec2 zOut = exp(wx) * vec2(cos(w2.y), sin(w2.y));
-
-  // Wrap Chebyshev norm max(|x|, |y|) into the card frame [r1, 1.0]
-  float d = max(abs(zOut.x), abs(zOut.y));
-  float k = floor(log(max(d, 1e-5) / r1) / L);
-  vec2 zTile = zOut * exp(-k * L);
-
-  // Analytic complex Jacobian of zTile(z): exact mipmap + anisotropic footprint
-  vec2 J = cmul(c, cdiv(zTile, z)) * 0.5;
-  vec2 dPdx = cmul(J, dzdx);
-  vec2 dPdy = cmul(J, dzdy);
-
-  vec2 uv = zTile * 0.5 + 0.5;
-  vec4 col = textureGrad(uTex, uv, dPdx, dPdy);
-  if (col.a < 0.98) {
-    vec2 zNext = clamp(zTile / r1, vec2(-1.0), vec2(1.0));
-    vec4 under = textureGrad(uTex, zNext * 0.5 + 0.5, dPdx / r1, dPdy / r1);
-    col = col + under * (1.0 - col.a);
-  }
-
-  vec3 rgb = col.rgb + backdrop * (1.0 - col.a);
-
-  if (uHeatmap == 1) {
-    vec2 gx = dPdx * uTexSize;
-    vec2 gy = dPdy * uTexSize;
-    float lod = max(0.0, 0.5 * log2(max(max(dot(gx, gx), dot(gy, gy)), 1e-6)));
-    rgb = mix(rgb, lodPalette(lod), 0.44);
-  }
-
-  if (uTilt > 0.05) {
-    float horizon = smoothstep(0.05, 0.24, denom);
-    rgb = mix(backdrop, rgb, horizon);
+  if (uShowHit == 1) {
+    vec2 cssPx = vUv * uCanvasSize;
+    vec3 qh = uHitInv * vec3(cssPx, 1.0);
+    vec2 quv = qh.xy / max(abs(qh.z), 1e-5);
+    if (qh.z > 0.0 && quv.x >= 0.0 && quv.x <= 1.0 && quv.y >= 0.0 && quv.y <= 1.0) {
+      float edge = min(min(quv.x, 1.0 - quv.x), min(quv.y, 1.0 - quv.y));
+      float fw = max(length(fwidth(quv)), 0.0025);
+      float border = 1.0 - smoothstep(fw * 1.0, fw * 2.4, edge);
+      float rHalf = clamp(uInnerR, 0.25, 0.72) * 0.5;
+      float innerEdge = abs(max(abs(quv.x - 0.5), abs(quv.y - 0.5)) - rHalf);
+      float cutoutLine = (1.0 - smoothstep(fw * 0.8, fw * 2.0, innerEdge)) * 0.75;
+      rgb = mix(rgb, vec3(0.08, 0.92, 0.96), clamp(border * 0.94 + cutoutLine * 0.55 + 0.09, 0.0, 0.95));
+    }
+    if (uHitPt.x >= 0.0) {
+      float dPin = length(cssPx - uHitPt);
+      if (dPin < 8.0) {
+        float ring = 1.0 - smoothstep(1.2, 2.6, abs(dPin - 4.5));
+        rgb = mix(rgb, vec3(1.0, 0.56, 0.16), ring);
+      }
+    }
   }
 
   outColor = vec4(rgb, 1.0);
@@ -232,6 +257,7 @@ const state = {
   tiltDeg: 0,
   autoZoom: false,
   heatmap: false,
+  showHitQuad: false,
   shrink: 0.86,
   twistDeg: 6,
   huePct: 36,
@@ -269,6 +295,13 @@ let ctx2d = null;
 let hitTick = 0;
 let lastHitKey = '';
 let lastCardSize = 0;
+let cachedInnerR = 0.46;
+let cachedControlRects = [];
+let activeHit = null;
+let lastPointerPx = null;
+let lastPointerPy = null;
+const hitInvMat3 = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+const hitPinPt = [-10, -10];
 let rafId = 0;
 let lastFrameMs = performance.now();
 let clockTimer = 0;
@@ -311,36 +344,332 @@ function computeLayout() {
 }
 
 // #region hit-sync
-function syncHitGeometry(layout, force = false) {
-  if (lastCardSize !== layout.cardSize) {
-    lastCardSize = layout.cardSize;
-    card.style.width = `${layout.cardSize}px`;
-    card.style.height = `${layout.cardSize}px`;
-  }
-  const tilt = state.mode === 'droste' ? state.tiltDeg : 0;
-  const rotDeg = state.mode === 'droste' ? Math.round(((state.rot * 180) / Math.PI) * 10) / 10 : 0;
-  const key = `${layout.cardX},${layout.cardY},${layout.cardSize},${tilt},${rotDeg},${state.mode}`;
-  if (!force && lastHitKey === key) return;
-  if (typeof canvas.updateElementGeometry !== 'function') return;
-  lastHitKey = key;
+const INTERACTIVE_CONTROLS = [...card.querySelectorAll('button, input, select, textarea')];
 
+function measureCardMetrics(cardSize) {
+  const cardW = card.offsetWidth || cardSize;
+  const cutoutW = cutout.offsetWidth || cardW * 0.46;
+  cachedInnerR = Math.max(0.28, Math.min(0.68, cutoutW / Math.max(cardW, 1)));
+  cachedControlRects = INTERACTIVE_CONTROLS.map((el) => {
+    let x = 0;
+    let y = 0;
+    let cur = el;
+    while (cur && cur !== card) {
+      x += cur.offsetLeft;
+      y += cur.offsetTop;
+      cur = cur.offsetParent;
+    }
+    const label = el.tagName === 'INPUT' ? 'Text input' : (el.textContent || el.id || 'Control').trim();
+    return { el, x, y, w: el.offsetWidth, h: el.offsetHeight, label };
+  });
+}
+
+function findLocalControl(qx, qy) {
+  for (const r of cachedControlRects) {
+    if (qx >= r.x && qx <= r.x + r.w && qy >= r.y && qy <= r.y + r.h) {
+      return r;
+    }
+  }
+  return null;
+}
+
+// Exact CPU mirror of DROSTE_FRAG + analytic 2x2 Jacobian inverse -> local tangent DOMMatrix
+export function projectDrostePoint(px, py, layout, innerR, opts = state) {
+  const half = layout.cardSize * 0.5;
+  const sx = (px - layout.cw * 0.5) / Math.max(half, 1);
+  const sy = (py - layout.ch * 0.5) / Math.max(half, 1);
+  const tilt = (opts.tiltDeg * Math.PI) / 180;
+  const ct = Math.cos(tilt);
+  const st = Math.sin(tilt);
+  const kTilt = st / 2.6;
+  const denom = ct + sy * kTilt;
+  if (denom <= 0.05) return null;
+
+  const zx = (sx * ct) / denom;
+  const zy = sy / denom;
+  const r = Math.hypot(zx, zy);
+  if (r < 1e-4) return null;
+
+  // Jacobian dz/ds
+  const invD = 1 / denom;
+  const invD2 = invD * invD;
+  const dzxDsx = ct * invD;
+  const dzxDsy = -(sx * ct * kTilt) * invD2;
+  const dzyDsy = ct * invD2;
+
+  const r1 = Math.max(0.25, Math.min(0.72, innerR));
+  const L = Math.log(1 / r1);
+  const alpha = (opts.strands * L) / (Math.PI * 2);
+  const theta = Math.atan2(zy, zx);
+  const w0x = Math.log(r) - opts.zoom;
+  const w0y = theta - opts.rot;
+  const w2x = w0x - alpha * w0y;
+  const w2y = w0y + alpha * w0x;
+
+  const octaveBase = Math.floor(w2x / L);
+  const wx = w2x - L * octaveBase;
+  const expWx = Math.exp(wx);
+  const zOutX = expWx * Math.cos(w2y);
+  const zOutY = expWx * Math.sin(w2y);
+
+  const d = Math.max(Math.abs(zOutX), Math.abs(zOutY));
+  const k = Math.floor(Math.log(Math.max(d, 1e-5) / r1) / L);
+  const scaleK = Math.exp(-k * L);
+  const zTileX = zOutX * scaleK;
+  const zTileY = zOutY * scaleK;
+
+  // Complex derivative J = c * (zTile / z)
+  const z2 = Math.max(zx * zx + zy * zy, 1e-10);
+  const qr = (zTileX * zx + zTileY * zy) / z2;
+  const qi = (zTileY * zx - zTileX * zy) / z2;
+  const jx = qr - alpha * qi;
+  const jy = qi + alpha * qr;
+
+  // Full 2x2 Jacobian dq/dp = [[jx, -jy], [jy, jx]] * (dz/ds)
+  const a00 = jx * dzxDsx;
+  const a01 = jx * dzxDsy - jy * dzyDsy;
+  const a10 = jy * dzxDsx;
+  const a11 = jy * dzxDsy + jx * dzyDsy;
+  const det = a00 * a11 - a01 * a10;
+  if (Math.abs(det) < 1e-6) return null;
+
+  // Inverse M = dp/dq (card-local CSS px -> canvas CSS px)
+  const m00 = a11 / det;
+  const m01 = -a01 / det;
+  const m10 = -a10 / det;
+  const m11 = a00 / det;
+  const scale = Math.sqrt(Math.abs(m00 * m11 - m01 * m10));
+  if (scale < 0.06 || scale > 12) return null;
+
+  const qx = (zTileX * 0.5 + 0.5) * layout.cardSize;
+  const qy = (zTileY * 0.5 + 0.5) * layout.cardSize;
+  const tx = px - (m00 * qx + m01 * qy);
+  const ty = py - (m10 * qx + m11 * qy);
+  const rotDeg = (Math.atan2(m10, m00) * 180) / Math.PI;
+
+  return {
+    a: m00,
+    b: m10,
+    c: m01,
+    d: m11,
+    e: tx,
+    f: ty,
+    qx,
+    qy,
+    px,
+    py,
+    scale,
+    rotDeg,
+    turn: octaveBase + k,
+    kind: 'Turn',
+  };
+}
+
+function projectMirrorPoint(px, py, layout, innerR) {
   const half = layout.cardSize * 0.5;
   const cx = layout.cw * 0.5;
   const cy = layout.ch * 0.5;
-  const m = new DOMMatrix().translate(cx, cy);
-  if (tilt > 0) {
-    const persp = new DOMMatrix();
-    persp.m34 = -1 / (2.6 * half);
-    m.multiplySelf(persp);
-    m.rotateAxisAngleSelf(1, 0, 0, tilt);
-  }
-  if (rotDeg !== 0) {
-    m.rotateSelf(0, 0, rotDeg);
-  }
-  m.translateSelf(-half, -half);
+  const shrink = Math.max(0.4, state.shrink);
+  const twist = (state.twistDeg * Math.PI) / 180;
+  const r1 = Math.max(0.25, Math.min(0.72, innerR));
+  let curX = px - cx;
+  let curY = py - cy;
+  const ct = Math.cos(twist);
+  const st = Math.sin(twist);
 
+  for (let k = 0; k <= 22; k++) {
+    const qx = curX + half;
+    const qy = curY + half;
+    const nx = curX / half;
+    const ny = curY / half;
+    const cheb = Math.max(Math.abs(nx), Math.abs(ny));
+    if (cheb <= 1.0 && cheb >= r1) {
+      const sc = Math.pow(shrink, k);
+      if (sc < 0.06) return null;
+      const ang = -k * twist;
+      const ca = Math.cos(ang) * sc;
+      const sa = Math.sin(ang) * sc;
+      const tx = cx - (ca * half - sa * half);
+      const ty = cy - (sa * half + ca * half);
+      return {
+        a: ca,
+        b: sa,
+        c: -sa,
+        d: ca,
+        e: tx,
+        f: ty,
+        qx,
+        qy,
+        px,
+        py,
+        scale: sc,
+        rotDeg: (-k * state.twistDeg) % 360,
+        turn: k,
+        kind: 'Echo',
+      };
+    }
+    // Step one echo deeper (matches MIRROR_FRAG inverse)
+    const rx = (curX * ct - curY * st) / shrink;
+    const ry = (curX * st + curY * ct) / shrink;
+    curX = rx;
+    curY = ry;
+  }
+  return null;
+}
+
+function project2DPoint(px, py, layout, innerR) {
+  const half = layout.cardSize * 0.5;
+  const cx = layout.cw * 0.5;
+  const cy = layout.ch * 0.5;
+  const ratio = Math.max(0.38, Math.min(0.62, innerR));
+  const twistStep = state.mode === 'mirror' ? (state.twistDeg * Math.PI) / 180 : state.strands * 0.12;
+  for (let i = 0; i <= 6; i++) {
+    const sc = Math.pow(ratio, i);
+    const ang = state.rot + i * twistStep;
+    const ca = Math.cos(-ang);
+    const sa = Math.sin(-ang);
+    const dx = px - cx;
+    const dy = py - cy;
+    const lx = (dx * ca - dy * sa) / sc;
+    const ly = (dx * sa + dy * ca) / sc;
+    const cheb = Math.max(Math.abs(lx / half), Math.abs(ly / half));
+    if (cheb <= 1.0 && cheb >= innerR) {
+      const fc = Math.cos(ang) * sc;
+      const fs = Math.sin(ang) * sc;
+      return {
+        a: fc,
+        b: fs,
+        c: -fs,
+        d: fc,
+        e: cx - (fc * half - fs * half),
+        f: cy - (fs * half + fc * half),
+        qx: lx + half,
+        qy: ly + half,
+        px,
+        py,
+        scale: sc,
+        rotDeg: (ang * 180) / Math.PI,
+        turn: -i,
+        kind: 'Layer',
+      };
+    }
+  }
+  return null;
+}
+
+function projectCanvasPoint(px, py, layout) {
+  let hit = null;
+  if (stage && !stage.lost) {
+    hit = state.mode === 'mirror'
+      ? projectMirrorPoint(px, py, layout, cachedInnerR)
+      : projectDrostePoint(px, py, layout, cachedInnerR);
+  } else if (ctx2d) {
+    hit = project2DPoint(px, py, layout, cachedInnerR);
+  }
+  if (!hit) return null;
+  const ctrl = findLocalControl(hit.qx, hit.qy);
+  hit.control = ctrl?.el ?? null;
+  hit.controlLabel = ctrl?.label ?? '';
+  return hit;
+}
+
+function writeHitInvMat3(a, b, c, d, e, f, cardSize) {
+  const det = a * d - b * c;
+  if (Math.abs(det) < 1e-8) return;
+  const inv = 1 / (det * Math.max(cardSize, 1));
+  // Inverse of [[a, c, e], [b, d, f], [0, 0, 1]], scaled by 1/cardSize on rows 0 and 1
+  const ia = d * inv;
+  const ic = -c * inv;
+  const ie = (c * f - d * e) * inv;
+  const ib = -b * inv;
+  const id = a * inv;
+  const imf = (b * e - a * f) * inv;
+  // Column-major mat3 for GLSL
+  hitInvMat3[0] = ia;
+  hitInvMat3[1] = ib;
+  hitInvMat3[2] = 0;
+  hitInvMat3[3] = ic;
+  hitInvMat3[4] = id;
+  hitInvMat3[5] = 0;
+  hitInvMat3[6] = ie;
+  hitInvMat3[7] = imf;
+  hitInvMat3[8] = 1;
+}
+
+function applyHitTransform(a, b, c, d, e, f, layout, pinX = -10, pinY = -10) {
+  if (typeof canvas.updateElementGeometry !== 'function') return;
+  const unit = geometryUnit(canvas, card, layout.cardSize);
+  const cssMat = new DOMMatrix([a, b, c, d, e, f]);
+  const m = new DOMMatrix().scale(unit).multiply(cssMat);
   canvas.updateElementGeometry(card, { canvasTransform: m });
   card.dataset.hitTick = String(++hitTick);
+  writeHitInvMat3(a, b, c, d, e, f, layout.cardSize);
+  hitPinPt[0] = pinX;
+  hitPinPt[1] = pinY;
+}
+
+function defaultHintText() {
+  return state.mode === 'droste'
+    ? 'Hover or tap any spiral turn to interact · drag frame to zoom and rotate'
+    : 'Hover or tap any mirror echo to interact · drag frame to adjust shrink and twist';
+}
+
+function updateHitHint(hit) {
+  if (!hit) {
+    hintEl.textContent = defaultHintText();
+    return;
+  }
+  const rotStr = `${hit.rotDeg >= 0 ? '+' : ''}${Math.round(hit.rotDeg)} deg`;
+  const target = hit.controlLabel ? ` · ${hit.controlLabel}` : ' · frame (drag to pan/zoom)';
+  hintEl.textContent = `${hit.kind} ${hit.turn} · ${hit.scale.toFixed(2)}x · ${rotStr}${target}`;
+}
+
+function reprojectAt(px, py, layout = computeLayout(), force = false) {
+  if (wrap.classList.contains('plain')) return null;
+  if (lastCardSize !== layout.cardSize || !cachedControlRects.length) {
+    lastCardSize = layout.cardSize;
+    card.style.width = `${layout.cardSize}px`;
+    card.style.height = `${layout.cardSize}px`;
+    measureCardMetrics(layout.cardSize);
+  }
+  const key = `pt:${Math.round(px / 2)},${Math.round(py / 2)},${layout.cardSize},${state.mode},${state.strands},${state.zoom.toFixed(3)},${state.rot.toFixed(3)},${state.tiltDeg},${state.shrink.toFixed(3)},${state.twistDeg}`;
+  if (!force && lastHitKey === key) return activeHit;
+  lastHitKey = key;
+  const hit = projectCanvasPoint(px, py, layout);
+  activeHit = hit;
+  if (hit) {
+    applyHitTransform(hit.a, hit.b, hit.c, hit.d, hit.e, hit.f, layout, hit.px, hit.py);
+  }
+  updateHitHint(hit);
+  return hit;
+}
+
+function syncHitGeometry(layout, force = false) {
+  if (lastCardSize !== layout.cardSize || !cachedControlRects.length) {
+    lastCardSize = layout.cardSize;
+    card.style.width = `${layout.cardSize}px`;
+    card.style.height = `${layout.cardSize}px`;
+    measureCardMetrics(layout.cardSize);
+  }
+  if (lastPointerPx !== null && lastPointerPy !== null && !dragging) {
+    const hit = reprojectAt(lastPointerPx, lastPointerPy, layout);
+    if (hit) return;
+  }
+  // Fallback resting placement: reproject the outer bottom rail so the <input> is ready even before hover
+  const probeX = layout.cw * 0.5;
+  const probeY = layout.ch * 0.5 + layout.cardSize * 0.38;
+  const key = `rest:${layout.cardX},${layout.cardY},${layout.cardSize},${state.mode},${state.strands},${state.zoom.toFixed(3)},${state.rot.toFixed(3)},${state.tiltDeg}`;
+  if (!force && lastHitKey === key) return;
+  lastHitKey = key;
+
+  const hit = projectCanvasPoint(probeX, probeY, layout);
+  if (hit) {
+    activeHit = hit;
+    applyHitTransform(hit.a, hit.b, hit.c, hit.d, hit.e, hit.f, layout, -10, -10);
+    return;
+  }
+  const half = layout.cardSize * 0.5;
+  applyHitTransform(1, 0, 0, 1, layout.cw * 0.5 - half, layout.ch * 0.5 - half, layout, -10, -10);
 }
 // #endregion hit-sync
 
@@ -554,6 +883,9 @@ function renderWebGL(e) {
     g.uniform1f(loc('uTilt'), (state.tiltDeg * Math.PI) / 180);
     g.uniform1i(loc('uMode'), state.mode === 'mirror' ? 1 : 0);
     g.uniform1i(loc('uHeatmap'), state.heatmap ? 1 : 0);
+    g.uniform1i(loc('uShowHit'), state.showHitQuad ? 1 : 0);
+    g.uniformMatrix3fv(loc('uHitInv'), false, hitInvMat3);
+    g.uniform2f(loc('uHitPt'), hitPinPt[0], hitPinPt[1]);
   });
 
   updateStatus();
@@ -799,10 +1131,7 @@ function setMode(nextMode) {
   for (const b of modeBtns) b.setAttribute('aria-pressed', String(b.dataset.mode === nextMode));
   panelDroste.hidden = nextMode !== 'droste';
   panelMirror.hidden = nextMode !== 'mirror';
-  hintEl.textContent =
-    nextMode === 'droste'
-      ? 'Drag canvas to zoom and rotate · tap controls on the outer frame'
-      : 'Drag canvas to adjust mirror shrink and twist · type or click to send an echo';
+  hintEl.textContent = defaultHintText();
   if (nextMode === 'mirror') {
     mirrorSeedPending = true;
     mirrorEchoSteps = 0;
@@ -867,6 +1196,11 @@ ctlHeatmap.addEventListener('change', () => {
   requestDraw(false);
 });
 
+ctlHitQuad.addEventListener('change', () => {
+  state.showHitQuad = ctlHitQuad.checked;
+  requestDraw(false);
+});
+
 btnReset.addEventListener('click', () => {
   state.zoom = state.strands === 0 ? 0 : DEFAULT_ZOOM;
   state.rot = 0;
@@ -912,55 +1246,138 @@ btnMirrorClear.addEventListener('click', () => {
   requestDraw(true);
 });
 
-// Pointer drag on canvas (outside the card rails, or inside the transparent centre cutout)
+// Pointer reprojection & drag arbitration across every spiral turn and mirror echo
 let dragging = false;
 let dragX = 0;
 let dragY = 0;
+let pendingTap = null;
+let nativeControlDown = false;
+
+function canvasLocalXY(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+canvas.addEventListener('pointermove', (e) => {
+  if (wrap.classList.contains('plain')) return;
+  if (dragging) {
+    const dx = e.clientX - dragX;
+    const dy = e.clientY - dragY;
+    dragX = e.clientX;
+    dragY = e.clientY;
+    if (state.mode === 'droste') {
+      state.rot += dx * 0.008;
+      state.zoom -= dy * 0.007;
+      requestDraw(false);
+    } else {
+      state.twistDeg = Math.max(-18, Math.min(18, Math.round((state.twistDeg + dx * 0.12) * 10) / 10));
+      state.shrink = Math.max(0.76, Math.min(0.94, Math.round((state.shrink - dy * 0.0008) * 100) / 100));
+      ctlTwist.value = String(Math.round(state.twistDeg));
+      outTwist.textContent = `${Math.round(state.twistDeg)} deg`;
+      ctlShrink.value = String(Math.round(state.shrink * 100));
+      outShrink.textContent = `${state.shrink.toFixed(2)}x`;
+      requestDraw(false);
+    }
+    return;
+  }
+  if (pendingTap && e.pointerId === pendingTap.pointerId) {
+    if (Math.hypot(e.clientX - pendingTap.startX, e.clientY - pendingTap.startY) > 8) {
+      pendingTap = null;
+      dragging = true;
+      dragX = e.clientX;
+      dragY = e.clientY;
+      canvas.classList.add('dragging');
+      try { canvas.setPointerCapture(e.pointerId); } catch {}
+    }
+    return;
+  }
+  // Keep text-selection dragging inside the live <input> undisturbed
+  if (e.buttons !== 0 && (e.target === cardInput || nativeControlDown)) return;
+
+  const { x, y } = canvasLocalXY(e);
+  lastPointerPx = x;
+  lastPointerPy = y;
+  const prevKey = lastHitKey;
+  reprojectAt(x, y);
+  if (state.showHitQuad && lastHitKey !== prevKey) {
+    requestDraw(false);
+  }
+}, { capture: true });
 
 canvas.addEventListener('pointerdown', (e) => {
-  if (e.target !== canvas) return;
+  if (wrap.classList.contains('plain')) return;
+  const { x, y } = canvasLocalXY(e);
+  lastPointerPx = x;
+  lastPointerPy = y;
+  const hit = reprojectAt(x, y, computeLayout(), true);
+  if (state.showHitQuad) requestDraw(false);
+
+  const nativeControl = e.target instanceof Element ? e.target.closest('button, input, select, textarea') : null;
+  if (hit?.control) {
+    if (nativeControl === hit.control) {
+      // Browser already hit-tested the exact control natively (hover preceded click)
+      nativeControlDown = true;
+      pendingTap = null;
+      return;
+    }
+    // Cold tap (e.g. mobile touch or click after auto-zoom moved the spiral):
+    // wait for pointerup within 8 px to activate the reprojected control, or drag if moved
+    pendingTap = { control: hit.control, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY };
+    return;
+  }
+
+  nativeControlDown = false;
+  pendingTap = null;
   e.preventDefault();
   dragging = true;
   dragX = e.clientX;
   dragY = e.clientY;
   canvas.classList.add('dragging');
-  canvas.setPointerCapture(e.pointerId);
-});
+  try { canvas.setPointerCapture(e.pointerId); } catch {}
+}, { capture: true });
 
-canvas.addEventListener('pointermove', (e) => {
-  if (!dragging) return;
-  const dx = e.clientX - dragX;
-  const dy = e.clientY - dragY;
-  dragX = e.clientX;
-  dragY = e.clientY;
-  if (state.mode === 'droste') {
-    state.rot += dx * 0.008;
-    state.zoom -= dy * 0.007;
-    syncHitGeometry(computeLayout());
-    requestDraw(false);
-  } else {
-    state.twistDeg = Math.max(-18, Math.min(18, Math.round((state.twistDeg + dx * 0.12) * 10) / 10));
-    state.shrink = Math.max(0.76, Math.min(0.94, Math.round((state.shrink - dy * 0.0008) * 100) / 100));
-    ctlTwist.value = String(Math.round(state.twistDeg));
-    outTwist.textContent = `${Math.round(state.twistDeg)} deg`;
-    ctlShrink.value = String(Math.round(state.shrink * 100));
-    outShrink.textContent = `${state.shrink.toFixed(2)}x`;
-    requestDraw(false);
+const endPointer = (e) => {
+  nativeControlDown = false;
+  if (pendingTap && e.pointerId === pendingTap.pointerId) {
+    const tap = pendingTap;
+    pendingTap = null;
+    if (e.type === 'pointerup' && Math.hypot(e.clientX - tap.startX, e.clientY - tap.startY) <= 8) {
+      if (tap.control.tagName === 'INPUT') {
+        tap.control.focus({ preventScroll: true });
+      } else {
+        tap.control.click();
+      }
+      requestDraw(true);
+    }
   }
-});
-
-const endDrag = () => {
   if (!dragging) return;
   dragging = false;
   canvas.classList.remove('dragging');
+  if (lastPointerPx !== null && lastPointerPy !== null) {
+    reprojectAt(lastPointerPx, lastPointerPy, computeLayout(), true);
+    if (state.showHitQuad) requestDraw(false);
+  }
 };
-canvas.addEventListener('pointerup', endDrag);
-canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('pointerup', endPointer, { capture: true });
+canvas.addEventListener('pointercancel', endPointer, { capture: true });
+canvas.addEventListener('pointerleave', () => {
+  if (dragging) return;
+  lastPointerPx = null;
+  lastPointerPy = null;
+  hitPinPt[0] = -10;
+  hitPinPt[1] = -10;
+  hintEl.textContent = defaultHintText();
+  if (state.showHitQuad) requestDraw(false);
+});
 
 canvas.addEventListener('wheel', (e) => {
-  if (e.target !== canvas || state.mode !== 'droste') return;
+  if (state.mode !== 'droste' || wrap.classList.contains('plain')) return;
   e.preventDefault();
   state.zoom -= e.deltaY * 0.0018;
+  const { x, y } = canvasLocalXY(e);
+  lastPointerPx = x;
+  lastPointerPy = y;
+  reprojectAt(x, y, computeLayout(), true);
   requestDraw(false);
 }, { passive: false });
 
@@ -1159,7 +1576,8 @@ const tests = [
       }
 
       const px = new Uint8Array(4);
-      gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      // Pixel (44, 32) lies inside step 0's transparent cutout (radius 16 px) where echoed step 1-2 borders appear
+      gl.readPixels(44, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
       const err = gl.getError();
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.enable(gl.BLEND);
@@ -1223,6 +1641,77 @@ const tests = [
       return need(
         gotInput && gotBtn,
         `input hit=${gotInput} (top: <${hitInput[0]?.tagName?.toLowerCase() ?? 'none'}>), button hit=${gotBtn} (top: <${hitBtn[0]?.tagName?.toLowerCase() ?? 'none'}>).`
+      );
+    },
+  },
+  {
+    name: 'Local-Jacobian Droste reprojection hits a button on an inner shrunk, rotated spiral turn',
+    expect: 'pass',
+    why: 'Picks a point on an inner spiral turn (scale < 0.65x), applies the inverted analytic Jacobian DOMMatrix scaled by geometryUnit() and verifies document.elementsFromPoint() lands on the target button.',
+    run: async () => {
+      if (!supported) throw new Error('HTML-in-canvas is not available');
+      const cv = document.createElement('canvas');
+      cv.setAttribute('content', 'drawable');
+      cv.setAttribute('layoutsubtree', '');
+      cv.style.cssText = 'width:260px;height:260px;display:block';
+
+      const box = document.createElement('div');
+      box.setAttribute('drawable', '');
+      box.style.cssText = 'box-sizing:border-box;position:relative;width:200px;height:200px;background:transparent';
+      // Bottom rail button covering y in [148..196], x in [12..188]
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Inner turn';
+      btn.style.cssText = 'position:absolute;left:12px;top:148px;width:176px;height:48px;box-sizing:border-box';
+      box.append(btn);
+      cv.append(box);
+      testStage().append(cv);
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      cv.width = Math.round(260 * dpr);
+      cv.height = Math.round(260 * dpr);
+      const ctx = cv.getContext('2d');
+      cv.addEventListener('paint', () => {
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, 260, 260);
+        ctx.drawElementImage(box, 30, 30, 200, 200);
+      });
+      await nextPaint(cv);
+
+      // Search an inner ring around the centre for a pixel that maps into the bottom-rail button at scale < 0.65
+      const lay = { cw: 260, ch: 260, cardSize: 200, cardX: 30, cardY: 30 };
+      const probeOpts = { strands: 1, zoom: DEFAULT_ZOOM, rot: 0, tiltDeg: 0 };
+      let found = null;
+      for (let rad = 28; rad <= 56 && !found; rad += 4) {
+        for (let deg = 0; deg < 360; deg += 12) {
+          const a = (deg * Math.PI) / 180;
+          const px = 130 + Math.cos(a) * rad;
+          const py = 130 + Math.sin(a) * rad;
+          const h = projectDrostePoint(px, py, lay, 0.46, probeOpts);
+          if (h && h.scale < 0.65 && h.qx >= 24 && h.qx <= 176 && h.qy >= 156 && h.qy <= 188) {
+            found = h;
+            break;
+          }
+        }
+      }
+      if (!found) {
+        window.__gfx?.retire(cv);
+        throw new Error('Could not find an inner spiral turn landing on the bottom button');
+      }
+
+      const unit = geometryUnit(cv, box, 200);
+      const localMat = new DOMMatrix([found.a, found.b, found.c, found.d, found.e, found.f]);
+      cv.updateElementGeometry?.(box, { canvasTransform: new DOMMatrix().scale(unit).multiply(localMat) });
+      box.dataset.hitTick = '1';
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+      const r = cv.getBoundingClientRect();
+      const hits = document.elementsFromPoint(r.left + found.px, r.top + found.py);
+      const ok = hits.includes(btn);
+      window.__gfx?.retire(cv);
+      return need(
+        ok,
+        `Reprojected Turn ${found.turn} (scale ${found.scale.toFixed(2)}x, rot ${Math.round(found.rotDeg)} deg, unit ${unit.toFixed(2)}) at (${Math.round(found.px)}, ${Math.round(found.py)}) -> hit button=${ok} (top: <${hits[0]?.tagName?.toLowerCase() ?? 'none'}>).`
       );
     },
   },
