@@ -1,0 +1,30 @@
+# Brewster kaleidoscope (`/kaleidoscope/`)
+
+Not verified in a live browser yet as of 2026-11-27. Static checks (`node --check`, `node tools/gfx/check.mjs`, `node tools/writing/check.mjs --strict /kaleidoscope/`) and the pure JavaScript mirror-folding invariants have been checked in Node; WebGL 2 rendering, negative-determinant `updateElementGeometry()` hit-testing and touch behaviour need a live run in Chromium 157 (C157) and Chrome 159 for Android (A159).
+
+| Question | Result | Reason or detail |
+|---|---|---|
+| Can one live interactive HTML card be reflected across `D4`, `D6`, `D8`, `D12` and equilateral-triangle (`p3m1`) kaleidoscope chambers on one WebGL 2 canvas? | Not verified | One `ElementGL` context uploads `#kaleido-card` via `gl.texElementSubImage2D()` and `gl.generateMipmap(gl.TEXTURE_2D)`, folding coordinates in `KALEIDOSCOPE_FRAG` with pre-fold `dFdx(u)` / `dFdy(u)` gradients passed to `textureGrad()`. Open `/kaleidoscope/` in C157 or A159 and run Live check 1 to verify `gl.getError() === 0` and mirror-symmetric pixel readback. |
+| Does `updateElementGeometry()` hit a button placed in a rotated even-parity (`det > 0`) wedge? | Not verified | Live check 2 projects an off-centre button into Wedge #2 of `D6` (`+60 deg`, `det > 0`), scales the rigid `DOMMatrix` by `geometryUnit()`, bumps `dataset.hitTick` and probes `document.elementsFromPoint()`. |
+| Does Chromium's `updateElementGeometry()` accept negative-determinant (`det < 0`) mirror-reflected `DOMMatrix` transforms so buttons, sliders and inputs work natively in odd-parity wedges? | Not verified | Live check 3 places an off-centre left-side button in a `200x100` card, applies `DOMMatrix().translate(220, 20).scale(-1, 1)` scaled by `geometryUnit()`, and checks `document.elementsFromPoint()` at both the mirrored `(172, 70)` and unmirrored `(68, 70)` coordinates. On the main stage, capture-phase pointer handlers fall back to direct button click, input focus or mirrored range-slider updates if a browser rejects `det < 0` or on cold touch taps without prior hover, and display `native (det -1)` vs `fallback (det -1)` in the status line. |
+| Do the dihedral (`D4`, `D6`, `D8`, `D12`) and `p3m1` Coxeter reflections fold every wedge into the fundamental domain and invert cleanly? | Works (measured, Node 2026-11-27) | Exact Euclidean orthogonal reflection matrices `Q` (`det = +1` on even bounces, `det = -1` on odd bounces) and affine inverses `M = dp/dq` match across all five chambers, with round-trip and idempotence error below `1e-12` in JavaScript. |
+| Does a synthetic `webglcontextlost` event recover cleanly to plain HTML without calling `loseContext()`? | Not verified | Live check 5 dispatches a cancelable `Event('webglcontextlost')` and verifies `#kaleido-card` moves out of the canvas into the plain wrapper. |
+
+## Things that bit
+
+- Measuring child control rectangles inside `#kaleido-card` using `offsetLeft` and `offsetTop` alone shifts coordinates by the border width whenever `#kaleido-card` or `.k-inner` carries decorative leaded borders. Adding `offsetParent.clientLeft` and `offsetParent.clientTop` at each offset-parent step aligns local hit boxes with the element's border-box origin used by `texElementSubImage2D()` and `updateElementGeometry()`.
+- Sampling folded kaleidoscope UVs with plain `texture(uTex, uv)` spikes hardware screen-space derivatives along every reflection line and leaves a 1 px blurry seam. Computing `dFdx(u)` and `dFdy(u)` on the unfolded chamber plane and rotating or reflecting them by the orthogonal fold matrix `Q` before `textureGrad()` keeps every mirror seam sharp under mipmapping.
+- Testing a horizontal mirror flip (`scale(-1, 1)`) on a centred button can produce a false pass if a browser ignores negative determinants and falls back to an unreflected box. Placing the fixture button off-centre on the left (`x in [16..80]`) and probing both the mirrored right-side target (`172, 70`) and the unmirrored left position (`68, 70`) guarantees the probe distinguishes true reflection from a silently dropped matrix.
+- For the `p3m1` three-mirror chamber, reflecting iteratively across whichever of the three fixed equilateral-triangle walls is most violated drops the Coxeter alcove word length by one per step, giving the exact optical bounce count, parity (`bounces & 1`) and orthogonal matrix `Q` in one short loop shared by GLSL and JavaScript.
+- On a dihedral `D6` wedge (`30 deg`), the narrow apex clips wide controls if the card is centred blindly, while in `p3m1` the bottom vertex tapers to a point. Putting the live text input and four jewel palette buttons across the upper-mid band, the range slider and `+1 Gem` button below them, and bold geometric ornaments in the four corners keeps every control reachable in both dihedral wedges and triangular tiles.
+
+## Not verified
+
+- Running all five live checks in Chromium 157 (C157) and Chrome 159 for Android (A159) to record the actual Chromium answer for `updateElementGeometry()` with `det(canvasTransform) < 0` (`DOMMatrix().scale(-1, 1)`).
+- Real GPU rendering, visual sharpness across `D4`, `D6`, `D8`, `D12` and `p3m1`, brass seam appearance and frame rate during "Slow barrel turn" on A159 at 412 px wide and device scale 2.625.
+- Running `npm run check:jank -- /kaleidoscope/` to verify zero layout shift, zero blank frames, 1 WebGL context and backing-store size well below 4 megapixels and 96 MB.
+- Touch interaction on a phone: cold taps on buttons, text input focus and on-screen keyboard behaviour, dragging the `#card-scale` range slider inside a mirror-reflected wedge, dragging the chamber frame to turn or pan, and `webglcontextlost` recovery under memory pressure.
+
+## For the index
+
+- Hit-testing and `updateElementGeometry()`: negative-determinant (`det < 0`) mirror-reflected `DOMMatrix` probe and pointer-following rigid reflection reprojection across dihedral (`D4`, `D6`, `D8`, `D12`) and equilateral-triangle (`p3m1`) kaleidoscope chambers on one `ElementGL` WebGL 2 canvas (not verified in a live browser yet).
