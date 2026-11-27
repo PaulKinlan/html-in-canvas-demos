@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<meta name="reduced-motion" content="warn">
+<meta name="reduced-motion-note" content="Smooth scroll jumps snap straight to the target offset without animation when reduced motion is on.">
+<title>Progressive backdrop blur behind floating bars</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Composite a live scrollable HTML feed and floating top and bottom bars inside one WebGL 2 canvas with a multi-pass progressive Gaussian blur.">
+<link rel="canonical" href="https://html-in-canvas.page/progressive-blur/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Progressive backdrop blur behind floating bars">
+<meta property="og:description" content="Composite a live scrollable HTML feed and floating top and bottom bars inside one WebGL 2 canvas with a multi-pass progressive Gaussian blur.">
+<meta property="og:url" content="https://html-in-canvas.page/progressive-blur/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Progressive backdrop blur behind floating bars&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-27">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Progressive backdrop blur behind floating bars">
+<meta name="twitter:description" content="Composite a live scrollable HTML feed and floating top and bottom bars inside one WebGL 2 canvas with a multi-pass progressive Gaussian blur.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Progressive backdrop blur behind floating bars&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/progressive-blur/",
+   "url": "https://html-in-canvas.page/progressive-blur/",
+   "mainEntityOfPage": "https://html-in-canvas.page/progressive-blur/",
+   "headline": "Progressive backdrop blur behind floating bars",
+   "name": "Progressive backdrop blur behind floating bars",
+   "description": "Composite a live scrollable HTML feed and floating top and bottom bars inside one WebGL 2 canvas with a multi-pass progressive Gaussian blur.",
+   "abstract": "Can one ElementGL WebGL 2 canvas run a multi-pass separable Gaussian blur that ramps smoothly behind a floating header and bottom capsule over a live scrolling feed, while keeping buttons and inputs in both subtrees clickable with updateElementGeometry\u0028)?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-27",
+   "keywords": "WebGL, ElementGL, blur, FBO, scroll, updateElementGeometry, texElementSubImage2D\u0028), drawElementImage\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Progressive backdrop blur behind floating bars",
+     "item": "https://html-in-canvas.page/progressive-blur/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .toolbar {
+    margin: 14px 0 12px;
+    gap: 10px 12px;
+    font-size: 14px;
+  }
+  .seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg > button {
+    border: 0;
+    border-radius: 0;
+    background: var(--card);
+    color: var(--fg);
+    padding: 7px 11px;
+    min-height: 40px;
+    font: inherit;
+    font-size: 13px;
+    touch-action: manipulation;
+  }
+  .seg > button + button {
+    border-left: 1px solid var(--line);
+  }
+  .seg > button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .ctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  .ctl input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+  }
+
+  .pb-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .phone-viewport {
+    position: relative;
+    width: min(100%, 384px);
+    height: min(510px, 64svh);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  #pb-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: pan-y;
+  }
+  .plain-host {
+    display: none;
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  .pb-stage.is-plain #pb-canvas {
+    display: none;
+  }
+  .pb-stage.is-plain .plain-host {
+    display: block;
+  }
+
+  /* Subtree 1: scrollable rich HTML feed */
+  #pb-feed {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y;
+    scrollbar-width: thin;
+    background: #f4f1ea;
+    color: #15161a;
+    font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    padding: 66px 12px 76px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+  }
+  #pb-feed.is-dragging {
+    cursor: grabbing;
+  }
+  #pb-feed:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: -3px;
+  }
+
+  .pb-search-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  #pb-search {
+    flex: 1 1 120px;
+    min-width: 0;
+    min-height: 38px;
+    padding: 6px 11px;
+    border-radius: 10px;
+    border: 1px solid #d5cfc3;
+    background: #ffffff;
+    color: #15161a;
+    font: inherit;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+  }
+  #pb-search:focus-visible {
+    outline: 2px solid #d2491f;
+    outline-offset: 1px;
+  }
+  #pb-search-clear {
+    min-height: 38px;
+    padding: 4px 10px;
+    border-radius: 10px;
+    border: 1px solid #d5cfc3;
+    background: #ffffff;
+    color: #15161a;
+    font: 600 12.5px system-ui, sans-serif;
+    touch-action: manipulation;
+  }
+  #pb-search-clear[hidden] {
+    display: none;
+  }
+
+  .pb-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .pb-chip {
+    min-height: 34px;
+    padding: 4px 10px;
+    border-radius: 99px;
+    border: 1px solid #d5cfc3;
+    background: #ffffff;
+    color: #15161a;
+    font: 600 12px system-ui, sans-serif;
+    touch-action: manipulation;
+  }
+  .pb-chip[aria-pressed="true"] {
+    background: #15161a;
+    color: #ffffff;
+    border-color: #15161a;
+  }
+
+  /* High-contrast optical swatch & calibration strip */
+  .pb-calibration {
+    background: #ffffff;
+    border: 1px solid #d5cfc3;
+    border-radius: 12px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .pb-cal-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font: 700 11px/1.2 var(--mono);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #5b574f;
+  }
+  .pb-swatches {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    height: 28px;
+    border-radius: 7px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.14);
+  }
+  .pb-stripes {
+    height: 30px;
+    border-radius: 7px;
+    border: 1px solid #15161a;
+    background: repeating-linear-gradient(
+      90deg,
+      #111827 0 8px,
+      #ffffff 8px 16px,
+      #d2491f 16px 24px,
+      #1d5fa8 24px 32px,
+      #f59e0b 32px 40px
+    );
+  }
+
+  .pb-card {
+    background: #ffffff;
+    border: 1px solid #dad4c8;
+    border-radius: 12px;
+    padding: 11px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .pb-card[hidden] {
+    display: none;
+  }
+  .pb-card.is-pinned {
+    border-color: #d2491f;
+    box-shadow: inset 0 0 0 1px #d2491f;
+  }
+  .pb-card-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .pb-badge-art {
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    color: #ffffff;
+    font: 700 12px/1 var(--mono);
+  }
+  .pb-card-titles {
+    min-width: 0;
+    flex: 1;
+  }
+  .pb-card-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    font: 600 11px/1.2 var(--mono);
+    color: #6b6760;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .pb-topic-pill {
+    padding: 1px 6px;
+    border-radius: 99px;
+    background: #f1ece2;
+    color: #2b2924;
+  }
+  .pb-card h3 {
+    margin: 2px 0 0;
+    font-size: 14.5px;
+    line-height: 1.25;
+    color: #15161a;
+  }
+  .pb-card p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: #4b4842;
+  }
+  .pb-card-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .pb-card-actions button {
+    min-height: 34px;
+    padding: 4px 10px;
+    border-radius: 7px;
+    border: 1px solid #d5cfc3;
+    background: #f8f6f2;
+    color: #15161a;
+    font: 600 12px system-ui, sans-serif;
+    touch-action: manipulation;
+  }
+  .pb-card-actions .btn-pin[aria-pressed="true"] {
+    background: #15161a;
+    color: #ffffff;
+    border-color: #15161a;
+  }
+  .pb-empty {
+    margin: 12px 0;
+    padding: 16px;
+    text-align: center;
+    border: 1px dashed #c8c1b4;
+    border-radius: 12px;
+    color: #5b574f;
+    font-size: 13.5px;
+  }
+  .pb-empty[hidden] {
+    display: none;
+  }
+
+  /* Subtree 2: floating transparent-backed top header & bottom action capsule */
+  #pb-chrome {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    z-index: 3;
+    pointer-events: none;
+    background: transparent;
+    font: 13px/1.2 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .pb-topbar {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 8px;
+    height: 48px;
+    padding: 0 10px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(252, 250, 246, 0.48);
+    border: 1px solid rgba(255, 255, 255, 0.78);
+    color: #14151a;
+    pointer-events: auto;
+  }
+  .pb-topbar strong {
+    font-size: 14px;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+  .pb-readout {
+    margin-right: auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: 600 11px/1.2 var(--mono);
+    padding: 4px 7px;
+    border-radius: 99px;
+    background: rgba(20, 22, 28, 0.08);
+    color: #252730;
+  }
+  .pb-bar-btn {
+    min-height: 32px;
+    padding: 0 9px;
+    border-radius: 99px;
+    border: 1px solid rgba(20, 22, 28, 0.16);
+    background: rgba(255, 255, 255, 0.62);
+    color: #14151a;
+    font: 600 12px/1 system-ui, sans-serif;
+    white-space: nowrap;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .pb-bar-btn[aria-pressed="true"] {
+    background: #14151a;
+    color: #ffffff;
+    border-color: #14151a;
+  }
+
+  .pb-dock {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 10px;
+    height: 50px;
+    padding: 0 8px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 5px;
+    background: rgba(252, 250, 246, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    color: #14151a;
+    pointer-events: auto;
+  }
+  .pb-dock-status {
+    margin-left: auto;
+    font: 700 11px/1 var(--mono);
+    padding: 6px 9px;
+    border-radius: 99px;
+    background: #d2491f;
+    color: #ffffff;
+    white-space: nowrap;
+  }
+
+  .pb-stage.is-plain .pb-topbar,
+  .pb-stage.is-plain .pb-dock {
+    background: rgba(248, 246, 241, 0.72);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    #pb-feed {
+      background: #15171e;
+      color: #eef0f6;
+    }
+    #pb-search,
+    #pb-search-clear,
+    .pb-chip,
+    .pb-calibration,
+    .pb-card {
+      background: #1e212b;
+      border-color: #323747;
+      color: #eef0f6;
+    }
+    .pb-chip[aria-pressed="true"] {
+      background: #eef0f6;
+      color: #15171e;
+      border-color: #eef0f6;
+    }
+    .pb-cal-label,
+    .pb-card-meta,
+    .pb-card p,
+    .pb-empty {
+      color: #adb3c4;
+    }
+    .pb-topic-pill {
+      background: #2b3040;
+      color: #eef0f6;
+    }
+    .pb-card h3 {
+      color: #f8fafc;
+    }
+    .pb-card-actions button {
+      background: #272b38;
+      border-color: #3a4054;
+      color: #eef0f6;
+    }
+    .pb-card-actions .btn-pin[aria-pressed="true"] {
+      background: #ff7a4d;
+      color: #14151a;
+      border-color: #ff7a4d;
+    }
+    .pb-topbar,
+    .pb-dock {
+      background: rgba(22, 25, 34, 0.56);
+      border-color: rgba(255, 255, 255, 0.18);
+      color: #f8fafc;
+    }
+    .pb-readout {
+      background: rgba(255, 255, 255, 0.12);
+      color: #e2e8f0;
+    }
+    .pb-bar-btn {
+      background: rgba(36, 41, 56, 0.76);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: #f8fafc;
+    }
+    .pb-bar-btn[aria-pressed="true"] {
+      background: #f8fafc;
+      color: #14151a;
+      border-color: #f8fafc;
+    }
+    .pb-stage.is-plain .pb-topbar,
+    .pb-stage.is-plain .pb-dock {
+      background: rgba(22, 25, 34, 0.76);
+    }
+  }
+
+  .sliders {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 8px 14px;
+    width: min(100%, 384px);
+  }
+  .slider-ctl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--bg);
+    font-size: 13px;
+  }
+  .slider-ctl span {
+    white-space: nowrap;
+    color: var(--muted);
+  }
+  .slider-ctl input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .slider-ctl output {
+    min-width: 46px;
+    text-align: right;
+    font: 600 12px/1 var(--mono);
+  }
+
+  .stage-hud {
+    width: 100%;
+    margin: 0;
+    font: 12px/1.45 var(--mono);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .stage-notice {
+    width: 100%;
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 13.5px;
+  }
+  .stage-notice[hidden] {
+    display: none;
+  }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Progressive backdrop blur behind floating bars</h1>
+  <p class="lede">
+    I wanted to know if one WebGL 2 canvas could run a multi-pass progressive Gaussian blur behind a floating top navigation header and bottom capsule over a live scrolling feed, while keeping controls in both subtrees clickable with <code>updateElementGeometry()</code>. Scroll the feed, type in the search box, or compare progressive blur against stepped CSS bands and uniform blur.
+  </p>
+
+  <div class="row toolbar">
+    <span class="seg" role="group" aria-label="Backdrop blur mode">
+      <button type="button" data-mode="progressive" aria-pressed="true">Progressive</button>
+      <button type="button" data-mode="stepped" aria-pressed="false">Stepped CSS bands</button>
+      <button type="button" data-mode="uniform" aria-pressed="false">Uniform</button>
+    </span>
+    <label class="ctl">
+      <input id="ctl-reduced" type="checkbox">
+      Reduced motion
+    </label>
+  </div>
+
+  <div class="stage pb-stage" id="pb-stage">
+    <div class="phone-viewport" id="phone-viewport">
+      <!-- #region pb-markup -->
+      <canvas id="pb-canvas" content="drawable" layoutsubtree aria-label="Scrollable feed with progressive backdrop blur behind floating top and bottom bars">
+        <div id="pb-feed" drawable tabindex="0" aria-label="Scrollable feed">
+          <div class="pb-search-row">
+            <input id="pb-search" type="search" maxlength="60" placeholder="Search cards (blur, colour, webgl)..." aria-label="Filter feed cards" autocomplete="off">
+            <button type="button" id="pb-search-clear" hidden>Clear</button>
+          </div>
+
+          <div class="pb-chips" role="group" aria-label="Filter cards by topic">
+            <button type="button" class="pb-chip" data-filter="all" aria-pressed="true">All</button>
+            <button type="button" class="pb-chip" data-filter="optics" aria-pressed="false">Optics</button>
+            <button type="button" class="pb-chip" data-filter="colour" aria-pressed="false">Colour</button>
+            <button type="button" class="pb-chip" data-filter="liked" aria-pressed="false">Liked (6)</button>
+          </div>
+
+          <div class="pb-calibration">
+            <div class="pb-cal-label">
+              <span>Optical ramp target</span>
+              <span>Scroll under bars</span>
+            </div>
+            <div class="pb-swatches" aria-hidden="true">
+              <div style="background:#141b2d"></div>
+              <div style="background:#d2491f"></div>
+              <div style="background:#f59e0b"></div>
+              <div style="background:#1f7a3a"></div>
+              <div style="background:#1d5fa8"></div>
+              <div style="background:#7c3aed"></div>
+              <div style="background:#db2777"></div>
+            </div>
+            <div class="pb-stripes" aria-hidden="true"></div>
+          </div>
+
+          <article class="pb-card" data-topic="optics">
+            <div class="pb-card-head">
+              <div class="pb-badge-art" style="background:linear-gradient(135deg,#d2491f,#f59e0b)">FBO</div>
+              <div class="pb-card-titles">
+                <div class="pb-card-meta"><span class="pb-topic-pill">Optics</span><span>01 · Pyramid</span></div>
+                <h3>Six-pass separable Gaussian mip pyramid</h3>
+              </div>
+            </div>
+            <p>Horizontal and vertical 9-tap passes build half-res, 0.42x CSS and 0.18x CSS levels so 28 px blur stays smooth without grid stippling.</p>
+            <div class="pb-card-actions">
+              <button type="button" class="btn-like" data-likes="6">+1 Like (6)</button>
+              <button type="button" class="btn-pin" aria-pressed="false">Pin</button>
+            </div>
+          </article>
+
+          <article class="pb-card" data-topic="optics">
+            <div class="pb-card-head">
+              <div class="pb-badge-art" style="background:linear-gradient(135deg,#1d5fa8,#06b6d4)">CSS</div>
+              <div class="pb-card-titles">
+                <div class="pb-card-meta"><span class="pb-topic-pill">Optics</span><span>02 · Comparison</span></div>
+                <h3>Why stacked CSS backdrop-filter shows bands</h3>
+              </div>
+            </div>
+            <p>Switch to Stepped CSS bands above to quantize the edge ramp into four mask plateaus and reveal step boundaries along sharp stripes.</p>
+            <div class="pb-card-actions">
+              <button type="button" class="btn-like" data-likes="4">+1 Like (4)</button>
+              <button type="button" class="btn-pin" aria-pressed="false">Pin</button>
+            </div>
+          </article>
+
+          <article class="pb-card" data-topic="colour">
+            <div class="pb-card-head">
+              <div class="pb-badge-art" style="background:linear-gradient(135deg,#1f7a3a,#84cc16)">RGB</div>
+              <div class="pb-card-titles">
+                <div class="pb-card-meta"><span class="pb-topic-pill">Colour</span><span>03 · Premult</span></div>
+                <h3>Premultiplied alpha keeps white pills crisp</h3>
+              </div>
+            </div>
+            <p>Setting UNPACK_PREMULTIPLY_ALPHA_WEBGL to true prevents dark fringing when anti-aliased text in #pb-chrome composites over blurred colour.</p>
+            <div class="pb-card-actions">
+              <button type="button" class="btn-like" data-likes="5">+1 Like (5)</button>
+              <button type="button" class="btn-pin" aria-pressed="false">Pin</button>
+            </div>
+          </article>
+
+          <article class="pb-card" data-topic="optics">
+            <div class="pb-card-head">
+              <div class="pb-badge-art" style="background:linear-gradient(135deg,#4f46e5,#ec4899)">HIT</div>
+              <div class="pb-card-titles">
+                <div class="pb-card-meta"><span class="pb-topic-pill">Optics</span><span>04 · Geometry</span></div>
+                <h3>Dual subtree hit testing at any scroll offset</h3>
+              </div>
+            </div>
+            <p>Both #pb-feed and #pb-chrome call updateElementGeometry() with geometryUnit() and toggle data-hit-tick so buttons in either layer respond.</p>
+            <div class="pb-card-actions">
+              <button type="button" class="btn-like" data-likes="3">+1 Like (3)</button>
+              <button type="button" class="btn-pin" aria-pressed="false">Pin</button>
+            </div>
+          </article>
+
+          <article class="pb-card" data-topic="colour">
+            <div class="pb-card-head">
+              <div class="pb-badge-art" style="background:linear-gradient(135deg,#7c3aed,#2563eb)">DPR</div>
+              <div class="pb-card-titles">
+                <div class="pb-card-meta"><span class="pb-topic-pill">Colour</span><span>05 · HiDPI</span></div>
+                <h3>CSS-normalized blur stride at 2.625 DPR</h3>
+              </div>
+            </div>
+            <p>Sizing levels 2 and 3 in CSS pixel ratios keeps a 28 px blur equally wide on a Pixel screen and a 1x desktop viewport.</p>
+            <div class="pb-card-actions">
+              <button type="button" class="btn-like" data-likes="4">+1 Like (4)</button>
+              <button type="button" class="btn-pin" aria-pressed="false">Pin</button>
+            </div>
+          </article>
+
+          <article class="pb-card" data-topic="colour">
+            <div class="pb-card-head">
+              <div class="pb-badge-art" style="background:linear-gradient(135deg,#0f172a,#475569)">2D</div>
+              <div class="pb-card-titles">
+                <div class="pb-card-meta"><span class="pb-topic-pill">Colour</span><span>06 · Fallback</span></div>
+                <h3>Five-argument drawElementImage() and plain HTML</h3>
+              </div>
+            </div>
+            <p>Without WebGL 2, a 2D canvas copies the feed into a plain buffer for banded blur; on context loss, both subtrees move to plain HTML.</p>
+            <div class="pb-card-actions">
+              <button type="button" class="btn-like" data-likes="3">+1 Like (3)</button>
+              <button type="button" class="btn-pin" aria-pressed="false">Pin</button>
+            </div>
+          </article>
+
+          <div class="pb-calibration">
+            <div class="pb-cal-label">
+              <span>Bottom dock test strip</span>
+              <span>Check capsule edge</span>
+            </div>
+            <div class="pb-stripes" aria-hidden="true"></div>
+          </div>
+
+          <p class="pb-empty" id="pb-empty" hidden>No cards match that filter. Clear the search text or press All.</p>
+        </div>
+
+        <div id="pb-chrome" drawable aria-label="Floating header and bottom dock">
+          <header class="pb-topbar" id="pb-topbar">
+            <strong>Feed</strong>
+            <span class="pb-readout" id="pb-chrome-readout">All · 6</span>
+            <button type="button" class="pb-bar-btn" id="btn-jump-top">Top</button>
+            <button type="button" class="pb-bar-btn" id="btn-chrome-liked" aria-pressed="false">Liked</button>
+          </header>
+
+          <nav class="pb-dock" id="pb-dock" aria-label="Quick feed actions">
+            <button type="button" class="pb-bar-btn" id="btn-dock-optics" aria-pressed="false">Optics</button>
+            <button type="button" class="pb-bar-btn" id="btn-dock-colour" aria-pressed="false">Colour</button>
+            <button type="button" class="pb-bar-btn" id="btn-dock-scroll">Mid</button>
+            <span class="pb-dock-status" id="pb-dock-status">25 likes</span>
+          </nav>
+        </div>
+      </canvas>
+      <!-- #endregion pb-markup -->
+      <div id="plain-host" class="plain-host"></div>
+    </div>
+
+    <div class="sliders">
+      <label class="slider-ctl">
+        <span>Blur intensity</span>
+        <input type="range" id="ctl-blur" min="0" max="32" step="1" value="28">
+        <output id="out-blur" for="ctl-blur">28 px</output>
+      </label>
+      <label class="slider-ctl">
+        <span>Edge ramp height</span>
+        <input type="range" id="ctl-ramp" min="40" max="140" step="2" value="108">
+        <output id="out-ramp" for="ctl-ramp">108 px</output>
+      </label>
+    </div>
+
+    <p class="stage-hud" id="stage-hud" role="status">Starting...</p>
+    <p class="stage-notice" id="stage-notice" hidden></p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>two drawable subtrees, 6-pass separable FBO pyramid, progressive shader and geometry sync</small></summary>
+    <ol>
+      <li data-code="#pb-markup"><b>Two sibling <code>drawable</code> subtrees in one canvas.</b> <code>#pb-feed</code> handles native inner scrolling and <code>#pb-chrome</code> holds the transparent-backed floating header and bottom capsule with <code>pointer-events: none</code> on the wrapper.</li>
+      <li data-code="/progressive-blur/blur.js#blur-pyramid" data-lang="js"><b>Six-pass separable Gaussian FBO pyramid.</b> Runs horizontal and vertical 9-tap Gaussian passes across three CSS-pixel-normalized levels, then unbinds offscreen FBOs and VAOs before compositing.</li>
+      <li data-code="/progressive-blur/blur.js#composite-shader" data-lang="glsl"><b>Progressive, stepped and uniform composite shader.</b> Smoothly interpolates across the raw texture and three blurred mip levels over <code>uRampPx</code>, or switches to 4 stepped CSS bands or rounded-box uniform blur.</li>
+      <li data-code="/progressive-blur/blur.js#paint-loop" data-lang="js"><b><code>ElementGL</code> upload, FBO composite and hit-box sync.</b> Gates uploads on <code>hasPainted</code>, calls <code>stage.begin()</code> before <code>stage.upload()</code>, keeps <code>UNPACK_PREMULTIPLY_ALPHA_WEBGL</code> enabled and updates <code>updateElementGeometry()</code>.</li>
+      <li data-code="/progressive-blur/blur.js#fallback-2d" data-lang="js"><b>Five-argument 2D fallback.</b> Draws both subtrees with 5-argument <code>drawElementImage()</code> and clips blurred top and bottom strips from a plain copy buffer.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    One <code>&lt;canvas id="pb-canvas" content="drawable" layoutsubtree&gt;</code> holds two <code>drawable</code> children inside a single <code>ElementGL</code> WebGL 2 context from <code>/lib/element-gl.js</code>. The first child, <code>#pb-feed</code>, uses <code>overflow-y: auto</code>, <code>overscroll-behavior-y: contain</code> and <code>touch-action: pan-y</code> so touch drags and wheel scrolling stay inside the phone frame while <code>#pb-search</code> keeps <code>user-select: text</code>. The second child, <code>#pb-chrome</code>, sits above it with <code>pointer-events: none</code> on the overlay and <code>pointer-events: auto</code> on the floating top header and bottom capsule.
+  </p>
+  <p>
+    On each <code>paint</code> or scroll update after <code>hasPainted</code> turns true, <code>stage.begin()</code> sizes the WebGL buffer first and <code>stage.upload()</code> copies <code>#pb-feed</code> and <code>#pb-chrome</code> via <code>gl.texElementSubImage2D()</code> with <code>UNPACK_PREMULTIPLY_ALPHA_WEBGL</code> set to <code>true</code>. Next, <code>createBlurPyramid()</code> runs six offscreen separable 9-tap Gaussian passes (horizontal then vertical across a half-res prefilter, a <code>0.42x</code> CSS level and a <code>0.18x</code> CSS level) so a <code>28 px</code> blur looks identical at <code>1x</code> and <code>2.625x</code> device pixel ratios, then unbinds every offscreen FBO and VAO before calling <code>stage.begin()</code> again for screen output.
+  </p>
+  <p>
+    In <code>Progressive</code> mode, the composite shader maps distance from the top and bottom viewport edges across <code>uRampPx</code> (<code>40</code> to <code>140 px</code>) through <code>smoothstep</code> and blends smoothly between the sharp feed texture and the three blurred pyramid levels, leaving the middle of the feed unblurred. <code>Stepped CSS bands</code> quantizes the same ramp into four mask plateaus with visible step seams, while <code>Uniform</code> clips constant blur strictly inside the rounded header and capsule boxes.
+  </p>
+  <p>
+    After drawing, <code>syncGeometry()</code> updates <code>updateElementGeometry()</code> on both <code>#pb-feed</code> and <code>#pb-chrome</code> using <code>geometryUnit()</code> from <code>/lib/surface.js</code> and toggles <code>dataset.hitTick</code> so clicks in both layers hit their moved DOM boxes. Smooth scroll jumps pause off screen via <code>IntersectionObserver</code> and when <code>document.hidden</code> is true, and snap straight to target when <code>prefers-reduced-motion: reduce</code> or the Reduced motion checkbox is checked. Without WebGL 2, the canvas switches to 5-argument <code>drawElementImage()</code> strips, and on context loss both subtrees move to plain HTML with CSS <code>backdrop-filter</code>.
+  </p>
+
+  <h2>Live checks</h2>
+  <p class="note">
+    Each check builds an isolated fixture on <code>testStage()</code> without scrolling or focusing the demo above. Press Run to test this browser.
+  </p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings" id="findings-list">
+    <li>Measured in headless Chrome 160 Canary on 2026-11-27 (<code>412x915</code> viewport, <code>2.625</code> DPR, touch emulation, SwiftShader WebGL): all <code>6/6</code> live checks pass, the canvas stays at <code>1.24 MP</code> (<code>927x1335</code>, <code>9.9 MB</code>) on <code>1</code> WebGL context, <code>0</code> console or page errors occur and <code>scrollWidth === innerWidth === 412</code>.</li>
+    <li><strong>Six-pass separable pyramid stays consistent across DPR:</strong> running a half-resolution prefilter followed by <code>0.42x</code> and <code>0.18x</code> CSS-pixel levels keeps a <code>28 px</code> optical blur equal across <code>1x</code> desktop and <code>2.625x</code> phone screens while reducing RMS stripe contrast monotonically from <code>64.2</code> in the sharp middle (<code>y = 145 px</code>) to <code>4.5</code> at <code>y = 10 px</code>.</li>
+    <li><strong>Dual subtree hit testing needs explicit wrapper sizing:</strong> inside <code>&lt;canvas layoutsubtree&gt;</code>, setting <code>inset: 0</code> on <code>#pb-chrome</code> without <code>width: 100%; height: 100%</code> collapsed the overlay height and shifted the bottom dock above the canvas. Setting explicit <code>width: 100%; height: 100%</code> with <code>pointer-events: none</code> on <code>#pb-chrome</code> and <code>pointer-events: auto</code> on the two bars lands <code>elementsFromPoint()</code> cleanly on buttons in both subtrees.</li>
+    <li><strong>Fallbacks and reduced motion:</strong> <code>?route=2d</code> renders 5-argument <code>drawElementImage()</code> strips at <code>1.24 MP</code> with <code>0</code> draw-size errors, <code>?route=plain</code> moves both subtrees into <code>#plain-host</code> with CSS <code>backdrop-filter</code>, and toggling <code>prefers-reduced-motion</code> syncs the Reduced motion checkbox and <code>.motion-warn</code> banner.</li>
+    <li><strong>Not verified yet:</strong> real Chrome 159 on Android at 412 px (GPU frame rate during touch momentum, soft keyboard over <code>#pb-search</code>) and <code>npm run check:jank -- /progressive-blur/</code> (Playwright isn't installed in this environment).</li>
+  </ul>
+</main>
+<script type="module" src="/progressive-blur/blur.js"></script>
+</body>
+</html>
