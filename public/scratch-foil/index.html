@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="checks" content="tap">
+<title>Scratch-off foil and thermal paper</title>
+<!-- social:start (written by `npm run build` from page.json, see tools/social/; do not edit) -->
+<meta name="description" content="Drag across brushed metallic foil in one ElementGL canvas to scratch an R8 mask texture, gate pointer hits via a CPU shadow mask until you clear over 35% of a control, then flip to heat-reactive thermal receipt paper.">
+<link rel="canonical" href="https://html-in-canvas.page/scratch-foil/">
+<link rel="alternate" type="application/rss+xml" title="HTML-in-canvas experiments: new pages" href="https://html-in-canvas.page/feed.xml">
+<meta name="author" content="Paul Kinlan">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="HTML-in-canvas experiments">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Scratch-off foil and thermal paper">
+<meta property="og:description" content="Drag across brushed metallic foil in one ElementGL canvas to scratch an R8 mask texture, gate pointer hits via a CPU shadow mask until you clear over 35% of a control, then flip to heat-reactive thermal receipt paper.">
+<meta property="og:url" content="https://html-in-canvas.page/scratch-foil/">
+<meta property="og:image" content="https://html-in-canvas.page/social.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The page &quot;Scratch-off foil and thermal paper&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<meta property="article:author" content="https://paul.kinlan.me/">
+<meta property="article:published_time" content="2026-11-27">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:creator" content="@Paul_Kinlan">
+<meta name="twitter:title" content="Scratch-off foil and thermal paper">
+<meta name="twitter:description" content="Drag across brushed metallic foil in one ElementGL canvas to scratch an R8 mask texture, gate pointer hits via a CPU shadow mask until you clear over 35% of a control, then flip to heat-reactive thermal receipt paper.">
+<meta name="twitter:image" content="https://html-in-canvas.page/social.jpg">
+<meta name="twitter:image:alt" content="The page &quot;Scratch-off foil and thermal paper&quot; on HTML-in-canvas experiments, with its title on a dark band">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "TechArticle",
+   "@id": "https://html-in-canvas.page/scratch-foil/",
+   "url": "https://html-in-canvas.page/scratch-foil/",
+   "mainEntityOfPage": "https://html-in-canvas.page/scratch-foil/",
+   "headline": "Scratch-off foil and thermal paper",
+   "name": "Scratch-off foil and thermal paper",
+   "description": "Drag across brushed metallic foil in one ElementGL canvas to scratch an R8 mask texture, gate pointer hits via a CPU shadow mask until you clear over 35% of a control, then flip to heat-reactive thermal receipt paper.",
+   "abstract": "Can a GPU R8 scratch-mask texture hide a live interactive HTML card behind brushed metallic foil and gate pointer hits via CPU shadow mask sync until you scratch open a control, then switch to heat-reactive thermal receipt paper warmed by a cursor stylus?",
+   "image": {
+    "@type": "ImageObject",
+    "url": "https://html-in-canvas.page/social.jpg",
+    "width": 1200,
+    "height": 630
+   },
+   "inLanguage": "en",
+   "datePublished": "2026-11-27",
+   "keywords": "WebGL, ElementGL, mask, material, updateElementGeometry, texElementSubImage2D\u0028), texSubImage2D\u0028), updateElementGeometry\u0028)",
+   "about": {
+    "@type": "Thing",
+    "name": "HTML-in-canvas API",
+    "url": "https://developer.chrome.com/docs/web-platform/html-in-canvas/concepts"
+   },
+   "author": {
+    "@type": "Person",
+    "@id": "https://html-in-canvas.page/#author",
+    "name": "Paul Kinlan",
+    "url": "https://paul.kinlan.me/",
+    "sameAs": [
+     "https://github.com/PaulKinlan"
+    ]
+   },
+   "publisher": {
+    "@id": "https://html-in-canvas.page/#author"
+   },
+   "isPartOf": {
+    "@type": "WebSite",
+    "@id": "https://html-in-canvas.page/#website",
+    "url": "https://html-in-canvas.page/",
+    "name": "HTML-in-canvas experiments"
+   }
+  },
+  {
+   "@type": "BreadcrumbList",
+   "itemListElement": [
+    {
+     "@type": "ListItem",
+     "position": 1,
+     "name": "HTML-in-canvas experiments",
+     "item": "https://html-in-canvas.page/"
+    },
+    {
+     "@type": "ListItem",
+     "position": 2,
+     "name": "Scratch-off foil and thermal paper",
+     "item": "https://html-in-canvas.page/scratch-foil/"
+    }
+   ]
+  }
+ ]
+}
+</script>
+<!-- social:end -->
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .sf-stage {
+    position: relative;
+    height: 460px;
+    padding: 0;
+    overflow: hidden;
+    background: #1b1916;
+    touch-action: none;
+    user-select: none;
+  }
+  @media (max-width: 560px) {
+    .sf-stage { height: 500px; }
+  }
+  #sf-canvas {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .sf-stage.is-thermal {
+    background: #dcd7cb;
+    border-top: 6px solid #2b2926;
+  }
+  .sf-stage.is-thermal #sf-canvas {
+    cursor: cell;
+  }
+  .sf-stage.plain {
+    height: auto;
+    min-height: 300px;
+    padding: 12px;
+    overflow: visible;
+    background: var(--card);
+    touch-action: auto;
+    user-select: auto;
+  }
+  .sf-stage.plain #sf-canvas {
+    display: none;
+  }
+
+  /* Live interactive DOM card drawn into the WebGL 2 / 2D canvas. */
+  #sf-surface {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+  .sf-stage.plain #sf-surface {
+    position: static;
+    height: auto;
+    pointer-events: auto;
+    user-select: auto;
+  }
+
+  [data-gate] {
+    pointer-events: none;
+  }
+  [data-gate][data-gated="open"],
+  .sf-stage.plain [data-gate] {
+    pointer-events: auto;
+    user-select: auto;
+    touch-action: manipulation;
+  }
+
+  /* Mode 0: Bright prize scratch-off card underneath the metallic coating. */
+  .sf-card-inner {
+    width: 100%;
+    height: 100%;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 10px;
+    background: linear-gradient(155deg, #f3faf6 0%, #ddf1e6 100%);
+    color: #13251c;
+    --card-accent: #157347;
+    --card-pill: #d4f4e2;
+    --card-border: #173a29;
+  }
+  .sf-card-inner[data-theme="amber"] {
+    background: linear-gradient(155deg, #fff9ee 0%, #fde9c5 100%);
+    color: #2b1c07;
+    --card-accent: #c85214;
+    --card-pill: #ffe0b5;
+    --card-border: #4d2c09;
+  }
+  .sf-card-inner[data-theme="cobalt"] {
+    background: linear-gradient(155deg, #f1f6ff 0%, #dbe8ff 100%);
+    color: #10203a;
+    --card-accent: #1d5fd6;
+    --card-pill: #d2e2ff;
+    --card-border: #152b52;
+  }
+  .sf-ticket-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 2px dashed var(--card-border);
+  }
+  .sf-ticket-kicker {
+    display: block;
+    font: 700 11px/1.2 var(--mono);
+    letter-spacing: 0.08em;
+    opacity: 0.78;
+  }
+  .sf-ticket-title {
+    margin: 2px 0 0;
+    font-size: 20px;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  .sf-prize-pill {
+    flex: none;
+    padding: 6px 10px;
+    border-radius: 99px;
+    border: 2px solid var(--card-border);
+    background: var(--card-pill);
+    font: 700 13px/1 var(--mono);
+  }
+
+  .sf-prize-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .sf-stat-box {
+    padding: 8px 10px;
+    border-radius: 9px;
+    border: 2px solid var(--card-border);
+    background: rgba(255, 255, 255, 0.86);
+    min-width: 0;
+  }
+  .sf-stat-label {
+    display: block;
+    font: 600 11px/1.2 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.72;
+  }
+  .sf-stat-val {
+    display: block;
+    margin-top: 2px;
+    font-size: 16px;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sf-gate-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sf-field-label {
+    font: 600 12.5px/1.2 system-ui, sans-serif;
+  }
+  .sf-gate-field input {
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 2px solid var(--card-border);
+    background: #ffffff;
+    color: #141413;
+    font: 700 15px/1.2 system-ui, sans-serif;
+  }
+  .sf-gate-field input:focus-visible,
+  .sf-card-inner button:focus-visible,
+  .sf-receipt input:focus-visible,
+  .sf-receipt button:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .sf-gate-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .sf-card-inner button {
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 2px solid var(--card-border);
+    background: #ffffff;
+    color: #141413;
+    font: 700 14px/1.2 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .sf-card-inner button.sf-btn-primary {
+    background: var(--card-accent);
+    color: #ffffff;
+  }
+  .sf-gate-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .sf-gate-swatches button {
+    min-height: 40px;
+    padding: 6px 12px;
+    flex: 1 1 70px;
+  }
+  .sf-gate-swatches button[aria-pressed="true"] {
+    background: var(--card-border);
+    color: #ffffff;
+  }
+
+  /* Mode 1: Stark thermal receipt DOM hidden until heat > 0.5 develops ink. */
+  .sf-receipt {
+    width: 100%;
+    height: 100%;
+    padding: 20px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    background: #faf9f5;
+    color: #11100e;
+    font: 14px/1.4 var(--mono);
+  }
+  .sf-receipt[hidden],
+  .sf-card-inner[hidden] {
+    display: none;
+  }
+  .sf-receipt-sheet {
+    width: min(100%, 520px);
+    margin: 0 auto;
+    padding: 14px 16px;
+    border: 2px solid #11100e;
+    border-radius: 6px;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .sf-receipt-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 15px;
+    border-bottom: 2px dashed #11100e;
+    padding-bottom: 8px;
+  }
+  .sf-receipt-sub {
+    margin: 0;
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+  }
+  .sf-receipt-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .sf-receipt-line input {
+    flex: 1 1 180px;
+    min-width: 0;
+    min-height: 42px;
+    padding: 6px 10px;
+    border: 2px solid #11100e;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #11100e;
+    font: 700 14px/1.2 var(--mono);
+  }
+  .sf-qty-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .sf-receipt button {
+    min-width: 44px;
+    min-height: 42px;
+    padding: 6px 12px;
+    border: 2px solid #11100e;
+    border-radius: 5px;
+    background: #ffffff;
+    color: #11100e;
+    font: 700 14px/1 var(--mono);
+    cursor: pointer;
+  }
+  .sf-receipt button[aria-pressed="true"] {
+    background: #11100e;
+    color: #ffffff;
+  }
+  .sf-receipt-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 8px;
+    border-top: 2px dashed #11100e;
+    font-size: 18px;
+    font-weight: 700;
+  }
+
+  @media (max-width: 520px) {
+    .sf-card-inner { padding: 12px 12px; gap: 8px; }
+    .sf-ticket-title { font-size: 17px; }
+    .sf-prize-pill { font-size: 11.5px; padding: 5px 8px; }
+    .sf-stat-box { padding: 6px 8px; }
+    .sf-stat-val { font-size: 14px; }
+    .sf-receipt { padding: 14px 12px; }
+    .sf-receipt-sheet { padding: 12px; gap: 8px; }
+  }
+
+  /* Page controls outside the canvas. */
+  .sf-controls {
+    margin-top: 12px;
+    display: grid;
+    gap: 10px;
+  }
+  .sf-controls button {
+    min-height: 40px;
+  }
+  .sf-surface-toggle button[aria-pressed="true"],
+  .sf-foil-tools button[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  .sf-tool-panel {
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--card);
+  }
+  .sf-tool-panel[hidden] { display: none; }
+  .sf-check-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .sf-check-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+  }
+  #sf-status {
+    margin: 2px 0 0;
+    font: 13px/1.4 var(--mono);
+    color: var(--fg);
+  }
+  #sf-telemetry {
+    margin: 4px 0 0;
+    font: 12.5px/1.5 var(--mono);
+    color: var(--muted);
+    min-height: 1.8em;
+  }
+  .sf-notice {
+    margin: 8px 0 0;
+    padding: 8px 12px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .sf-notice[hidden] { display: none; }
+</style>
+</head>
+<body>
+<script src="/shared/nav.js"></script>
+<main>
+  <div id="support"></div>
+  <h1>Scratch-off foil and thermal paper</h1>
+  <p class="lede">
+    I wanted to know if an <code>R8</code> mask texture in one <code>ElementGL</code> canvas can coat a live HTML card in brushed metallic foil, gate pointer hits until you scratch past 35% of a control, and flip to heat-reactive thermal receipt paper. Drag to scratch the foil, or switch to thermal paper and rub to develop the ink.
+  </p>
+
+  <div class="stage sf-stage" id="sf-stage">
+    <!-- #region markup -->
+    <canvas id="sf-canvas" content="drawable" layoutsubtree>
+      <div id="sf-surface" drawable>
+        <section id="sf-foil-card" class="sf-card-inner" data-theme="mint" aria-label="Scratch-off prize card">
+          <header class="sf-ticket-head">
+            <div>
+              <span class="sf-ticket-kicker">INSTANT TICKET #8492</span>
+              <h3 class="sf-ticket-title">Canvas Prize Card</h3>
+            </div>
+            <span class="sf-prize-pill" id="sf-prize-badge">2x BONUS</span>
+          </header>
+
+          <div class="sf-prize-row">
+            <div class="sf-stat-box">
+              <span class="sf-stat-label">Claimed</span>
+              <strong class="sf-stat-val" id="sf-claim-count">0</strong>
+            </div>
+            <div class="sf-stat-box">
+              <span class="sf-stat-label">Spin</span>
+              <strong class="sf-stat-val" id="sf-spin-val">2x</strong>
+            </div>
+            <div class="sf-stat-box">
+              <span class="sf-stat-label">Winner</span>
+              <strong class="sf-stat-val" id="sf-name-echo">Guest</strong>
+            </div>
+          </div>
+
+          <div class="sf-gate-field">
+            <label class="sf-field-label" for="sf-name-input">Winner name (scratch past 35% to type)</label>
+            <input id="sf-name-input" data-gate="name" type="text" value="Guest" maxlength="24" autocomplete="off">
+          </div>
+
+          <div class="sf-gate-actions">
+            <button type="button" id="sf-claim-btn" data-gate="claim" class="sf-btn-primary">Claim +1</button>
+            <button type="button" id="sf-spin-btn" data-gate="spin">Lucky spin</button>
+          </div>
+
+          <div class="sf-gate-swatches" role="group" aria-label="Prize card colour swatch">
+            <span class="sf-field-label">Card swatch:</span>
+            <button type="button" data-gate="swatch-mint" data-swatch="mint" aria-pressed="true">Mint</button>
+            <button type="button" data-gate="swatch-amber" data-swatch="amber" aria-pressed="false">Amber</button>
+            <button type="button" data-gate="swatch-cobalt" data-swatch="cobalt" aria-pressed="false">Cobalt</button>
+          </div>
+        </section>
+
+        <section id="sf-receipt" class="sf-receipt" hidden aria-label="Thermal paper receipt">
+          <div class="sf-receipt-sheet">
+            <div class="sf-receipt-top">
+              <strong>CANVAS HARDWARE CO.</strong>
+              <span id="sf-receipt-num">RECEIPT #0042</span>
+            </div>
+            <p class="sf-receipt-sub">80MM THERMAL ROLL · HEAT TO DEVELOP</p>
+
+            <div class="sf-receipt-line">
+              <label for="sf-item-input">Item</label>
+              <input id="sf-item-input" data-gate="item" type="text" value="Thermal Paper Roll" maxlength="26" autocomplete="off">
+            </div>
+
+            <div class="sf-receipt-line">
+              <span>Unit £4.50</span>
+              <div class="sf-qty-controls">
+                <button type="button" id="sf-qty-minus" data-gate="qty-minus" aria-label="Decrease quantity">-</button>
+                <strong id="sf-qty-val">2</strong>
+                <button type="button" id="sf-qty-plus" data-gate="qty-plus" aria-label="Increase quantity">+</button>
+              </div>
+            </div>
+
+            <div class="sf-receipt-line">
+              <span>Service</span>
+              <button type="button" id="sf-fee-btn" data-gate="fee" aria-pressed="true">Express +£1.50</button>
+            </div>
+
+            <div class="sf-receipt-total">
+              <span>SUBTOTAL</span>
+              <strong id="sf-subtotal">£10.50</strong>
+            </div>
+          </div>
+        </section>
+      </div>
+    </canvas>
+    <!-- #endregion markup -->
+  </div>
+
+  <div class="sf-controls">
+    <div class="row sf-surface-toggle" role="group" aria-label="Surface material mode">
+      <button type="button" data-surface="foil" aria-pressed="true">Scratch-off foil</button>
+      <button type="button" data-surface="thermal" aria-pressed="false">Thermal paper</button>
+    </div>
+
+    <div class="row sf-tool-panel sf-foil-tools" id="sf-foil-tools">
+      <button type="button" data-finish="0" aria-pressed="true">Brushed Gold</button>
+      <button type="button" data-finish="1" aria-pressed="false">Hologram Silver</button>
+      <button type="button" data-finish="2" aria-pressed="false">Copper Foil</button>
+      <button type="button" id="sf-reveal-btn">Peek / Reveal all</button>
+      <button type="button" id="sf-recoat-btn">Recoat foil</button>
+    </div>
+
+    <div class="row sf-tool-panel sf-thermal-tools" id="sf-thermal-tools" hidden>
+      <button type="button" id="sf-feed-btn">Print / Feed receipt</button>
+      <button type="button" id="sf-heat-all-btn">Develop all</button>
+      <label class="sf-check-toggle">
+        <input type="checkbox" id="sf-cool-check" checked>
+        <span>Cool slowly</span>
+      </label>
+    </div>
+
+    <p id="sf-status" role="status">0% scratched · 0 of 6 controls open</p>
+    <p id="sf-telemetry">&nbsp;</p>
+    <p id="sf-notice" class="sf-notice" hidden></p>
+  </div>
+
+  <details class="show-code">
+    <summary>Show the code <small>R8 mask texSubImage2D, anisotropic foil and thermal shaders, CPU hit gating, ElementGL paint</small></summary>
+    <ol>
+      <li data-code="#markup"><b>One drawable wrapper holding both cards.</b> Both the prize card and the thermal receipt sit inside one <code>&lt;canvas content="drawable" layoutsubtree&gt;</code>, with covered controls marked by <code>data-gate</code>.</li>
+      <li data-code="/scratch-foil/foil.js#shader"><b>Anisotropic foil and thermal paper fragment shader.</b> Draws brushed metallic streaks, holographic diffraction and torn flake shadows in foil mode, or converts dark DOM luminance into thermal-carbon ink surrounded by warm amber halos in thermal mode.</li>
+      <li data-code="/scratch-foil/foil.js#mask"><b>Selective R8 mask upload.</b> Stamps jagged coin strokes or thermal stylus heat into a 256 by 192 <code>Uint8Array</code> and uploads only the dirty rectangle via <code>gl.texSubImage2D()</code> with <code>UNPACK_ROW_LENGTH</code>.</li>
+      <li data-code="/scratch-foil/foil.js#gating"><b>CPU shadow mask hit-test gating.</b> Measures each control's cleared fraction against the 256 by 192 buffer and keeps <code>pointer-events: none</code> until cleared past 35%, then toggles <code>data-hit-tick</code> to flush Chromium's hit-test cache.</li>
+      <li data-code="/scratch-foil/foil.js#paint"><b>Single ElementGL paint path and 2D fallback.</b> Uploads the live DOM with <code>texElementSubImage2D()</code>, aligns hit geometry with <code>updateElementGeometry()</code>, and falls back to <code>destination-out</code> + 5-argument <code>drawElementImage()</code> or plain HTML.</li>
+    </ol>
+  </details>
+
+  <h2>How it works</h2>
+  <p>
+    I built this experiment around a single <code>ElementGL</code> context from <code>/lib/element-gl.js</code> and a
+    256 by 192 single-channel <code>Uint8Array</code> uploaded as an <code>R8</code> WebGL 2 texture. Each pointer stroke
+    updates only the dirty bounding box in that CPU array and calls <code>gl.texSubImage2D()</code> with
+    <code>UNPACK_ROW_LENGTH</code>, <code>UNPACK_SKIP_PIXELS</code> and <code>UNPACK_SKIP_ROWS</code> so no pixels are read
+    back from the GPU.
+  </p>
+  <p>
+    In scratch-off mode, the fragment shader combines directional brushed streaks, cell-based metallic flake normals,
+    pointer-tilt specular lighting and serrated edge noise to peel back the foil and cast a rim shadow onto the bright
+    HTML card beneath. Switching to thermal paper keeps the same <code>R8</code> texture as a heat field: holding the
+    stylus down pours heat into the buffer, blooming dark receipt text and borders into carbon black inside warm amber
+    scorch halos while paper areas stay pale and waxy.
+  </p>
+  <p>
+    Hit-test gating runs straight off the CPU shadow mask. Covered controls start with <code>pointer-events: none</code> and
+    <code>tabIndex = -1</code> so dragging across a button or input scratches the canvas instead of triggering taps or
+    opening the phone keyboard. Once more than 35% of a control's cached layout box reaches the cleared threshold, the
+    gating pass flips <code>data-gated="open"</code>, toggles a <code>data-hit-tick</code> attribute after
+    <code>canvas.updateElementGeometry()</code> to clear Chromium's hit-test cache, and lets taps and typing land inside
+    the scratched window.
+  </p>
+
+  <h2>Live checks</h2>
+  <p>These wait for a tap so the demo starts with no extra WebGL contexts running. Each check builds a small fixture in the corner of the window and retires it afterwards.</p>
+  <table class="results"><tbody id="tests"></tbody></table>
+
+  <h2>Findings</h2>
+  <ul class="findings">
+    <li>Keeping the authoritative scratch and heat state in a 256 by 192 <code>Uint8Array</code> lets the page stream dirty rectangles via <code>gl.texSubImage2D()</code> and compute per-control cleared fractions without a single <code>readPixels()</code> call during interaction.</li>
+    <li>Putting <code>pointer-events: none</code> on the drawable wrapper and unlocking individual <code>[data-gate]</code> controls only above 35% mask clearance avoids focusing hidden <code>&lt;input&gt;</code> fields or triggering text selection when a finger starts dragging directly on top of a covered control.</li>
+    <li>After switching a control from gated to open, toggling a <code>data-hit-tick</code> attribute alongside <code>canvas.updateElementGeometry()</code> keeps Chromium's hit-test cache current so <code>elementsFromPoint()</code> sees the uncovered control straight away.</li>
+    <li>Using one drawable wrapper holding both <code>#sf-foil-card</code> and <code>#sf-receipt</code> keeps <code>ElementGL.upload()</code> tied to a single texture and avoids reallocating GPU storage when toggling between scratch foil and thermal paper.</li>
+    <li>Measured in HeadlessChrome 160 (2026-11-27, scale factor 2.625): all four live checks pass, touch dragging scratches openings past 35% to expose <code>Claim +1</code> and <code>#sf-name-input</code> while leaving untouched controls blocked, and switching to thermal paper develops dark carbon ink over warm amber halos with <code>openSnapshots: 0</code> and <code>unasked readbacks: 0</code>. Not verified yet: <code>npm run check:jank -- /scratch-foil/</code> in headless Chromium 157, real touch hardware on Chrome 159 for Android, and the 2D <code>destination-out</code> fallback on a non-WebGL browser.</li>
+  </ul>
+</main>
+
+<script type="module" src="./foil.js"></script>
+</body>
+</html>

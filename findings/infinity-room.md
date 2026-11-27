@@ -1,0 +1,28 @@
+# Infinity mirror room (`/infinity-room/`)
+
+Measured on 2026-11-27 in `HeadlessChrome/160.0.0.0` (Chrome Canary 160.0.8187.0 with `--enable-features=CanvasDrawElement --enable-blink-features=CanvasDrawElement` at 412 px wide, DPR 2.625 and 960 px desktop, DPR 2) plus static source checks (`node --check`, `tools/gfx/check.mjs`, `tools/writing/check.mjs --strict /infinity-room/`). Headless Chromium 157 (`npm run check:jank`) and Chrome 159 on Android (A159) are **not verified** yet.
+
+| Question | Result | Notes |
+|---|---|---|
+| One `ElementGL` WebGL 2 context uploading the floating glowing plaque via `texElementSubImage2D()` with `gl.generateMipmap()` and anisotropic filtering | measured (Chrome 160, 2026-11-27) | Uploaded `830×589` plaque texture with 8x anisotropic mipmaps (`1` active WebGL context, `peak: 3` during checks, `peakMB: 11.86`, `0.992 MP` at 412 px @ 2.625 DPR). Live check 1 passed: `uploaded 120×84, gl.getError()=0, centre rgba(255,197,74,255)`. |
+| 6-wall mirrored cube raytracer inside `[-1, +1]^3` repeating the double-sided plaque up to 14 bounces with soda-lime green glass absorption (`pow(vec3(0.86, 0.94, 0.90), float(bounce))`) | measured (Chrome 160, 2026-11-27) | Live check 2 passed: `off-axis rgb(6,9,8) at 0 bounces -> rgb(245,255,255) at 12 bounces (G > R by 10)` without micro-lanterns; desktop `Corner view` rendered `1853×840` (`1.557 MP`) with visible bevel seams and alternating mirrored/upright reflections. |
+| Transparent CSS gaps and hollow corner eyelets letting mirror rays pass through the plaque frame | measured (Chrome 160, 2026-11-27) | Removing outer CSS `box-shadow` spread kept the rail gaps and corner `.plaque-eyelet` rings transparent (`alpha == 0`) in `texElementSubImage2D()`, showing reflected rooms through the cutouts. |
+| Projective `updateElementGeometry()` scaled by `geometryUnit()` and `dataset.hitTick` keeping the floating plaque editable and clickable from front and back | measured (Chrome 160, 2026-11-27) | Live check 3 passed (`unit=1.00`, hit `<input>` at `(140,71)` and `<button>` at `(140,123)`). Real CDP clicks hit `Cyan`, `+1 Ripple` (`RIPPLE 1`) and `#plaque-input` (`KUSAMA`) on the front face, and after drag-orbiting behind `z = 0` (`back`), `elementsFromPoint()` still hit the `Red` button. |
+| Context loss and 2D 5-arg `drawElementImage()` fallback without calling `loseContext()` | measured (Chrome 160, 2026-11-27) | Live check 4 passed on synthetic `webglcontextlost` and `webglcontextrestored`; launching with `--disable-blink-features=CanvasDrawElement` hid the canvas viewport and kept `#plaque` live inside `#plain-host` with 0 exceptions. 2D fallback path not separately forced in Chrome 160 yet. |
+
+## Things that bit
+
+- Outer CSS `box-shadow` glows (`0 0 14px`) on `.plaque-body`, `.plaque-eyelet` and `.plaque-badge` spread glowing amber/cyan pixels across the `6px` air gap between the rails and the card body in `texElementSubImage2D()`. Removing outer `box-shadow` spread and leaving only crisp borders and `inset` shadows made the transparent rail gaps and hollow circular eyelets completely clear so virtual rooms shine through.
+- Calling implicit-derivative `texture()` on the plaque inside a conditional bounce loop produces a 1-pixel mipmap halo along the plaque edges where adjacent pixels in a 2 by 2 quad take different bounce paths. Carrying reflected pixel differentials `rayDx` and `rayDy` across each mirror wall reflection and calling `textureGrad(uTex, uv, dUVdx, dUVdy)` keeps both depth-0 text and deep bounces clean.
+- `ElementGL.quad()` returns early if `stage.upload(el)` has not succeeded yet (`!t`), and calling `stage.begin()` before the first `paint` event would clear the canvas to a solid dark frame. Guarding `renderWebGL()` on `stage.has(plaqueEl)` and drawing immediately inside the `paint` listener avoids blank initial frames.
+- Orbiting behind `z = 0` reverses the signed 2D area of a fixed `+X` plaque quad and flips text backwards in `updateElementGeometry()`. Flipping both the shader's back-face `u` (`rd.z > 0`) and `buildPlaqueCanvasMatrix()`'s horizontal basis when `eye[2] < 0` keeps text upright and clickable from 360 degrees while making odd mirror bounces appear reversed like a real mirror.
+
+## Not verified
+
+- `npm run check:jank -- /infinity-room/` and `node tools/draw-size/audit.mjs /infinity-room/` (Playwright is not installed in this environment): confirming zero layout shift across viewport height changes and zero timed readbacks under 4x CPU throttle.
+- Chrome 159 on Android (412 px wide, touch, DPR 2.625): touch orbit dragging without scrolling the page, tapping the `<input>` headline (with the on-screen keyboard), four LED palette buttons and `+1 Ripple` inside the 3D plaque, sliding `Bounce depth` (`2..14`) and `Mirror glass tint` (`0..150%`), and verifying real frame rate while `Auto-drift` or ripple waves run.
+- Keyboard navigation (`Tab` into `#plaque-input` and palette buttons) and screen reader output on C157 and A159, plus forcing the 2D `drawElementImage()` fallback when WebGL 2 `texElementSubImage2D()` is disabled on its own.
+
+## For the index
+
+- WebGL and raytracing: `/infinity-room/` raytraces a 6-wall mirrored cube (`[-1, +1]^3`) on one `ElementGL` WebGL 2 context up to 14 bounces with soda-lime glass absorption (`pow(vec3(0.86, 0.94, 0.90), bounce)`), passes light through transparent DOM plaque cutouts, uses reflected ray differentials with `textureGrad()` to keep mipmaps sharp across bounces, and keeps the primary plaque editable and clickable from both sides via projective `updateElementGeometry()` (measured in Chrome 160 headless; Android phone not verified yet).
