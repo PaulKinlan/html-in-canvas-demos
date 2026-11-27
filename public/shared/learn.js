@@ -58,7 +58,108 @@
 .learn-box .in{padding:0 14px 12px}\
 .learn-box p{margin:0 0 6px}.learn-box p:last-child{margin:0}\
 .learn-box code{font-size:13px}\
-.learn-box .api code{font-size:12.5px;padding:1px 6px;border:1px solid var(--line,#ddd8cf);border-radius:99px;white-space:nowrap;display:inline-block;margin:2px 2px 2px 0}';
+.learn-box .api code{font-size:12.5px;padding:1px 6px;border:1px solid var(--line,#ddd8cf);border-radius:99px;white-space:nowrap;display:inline-block;margin:2px 2px 2px 0}\
+.motion-warn{margin:12px 0 16px;padding:12px 14px;border:1px solid var(--warn,#8a6100);border-left:4px solid var(--warn,#8a6100);border-radius:8px;background:color-mix(in srgb,var(--warn,#8a6100) 11%,var(--card,#fff));color:var(--fg,#1d1c1a);font-size:14px;line-height:1.5;max-width:70ch}\
+.motion-warn p{margin:0 0 8px}\
+.motion-warn .mw-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}\
+.motion-warn button,.motion-warn a.mw-jump{display:inline-flex;align-items:center;min-height:36px;padding:4px 10px;border-radius:6px;border:1px solid var(--line,#ddd8cf);background:var(--card,#fff);color:var(--fg,#1d1c1a);font:600 13px/1.2 system-ui,-apple-system,sans-serif;text-decoration:none;cursor:pointer}\
+.motion-warn button:hover,.motion-warn a.mw-jump:hover{border-color:var(--fg,#1d1c1a)}';
+
+  var MOTION_RE = /(3d|parallax|scroll|droste|stereogram|autostereogram|kaleidoscope|symmetry|anamorph|catoptric|refract|caustic|hologram|peppers-ghost|spring|slit-scan|hyperbolic|poincare|fisheye|honeycomb|lenticular|orientation|facedetector|transition|particle|cloth|pinball|conveyor|ripple|fluid|wave|wobbly|compiz|cube|mirror|infinity|kinetic|comic|time-machine|cover-flow|radiosity|submerged|foil|risograph|shader|lens|physical|canvas-skin|css-uniforms|portal|elastic|flap|mech|sim-controls|osm-fold|osm-lens|osm-markers|osm-road|tear-off|godot|player-fx|timed-comments|modular-synth|loupe|pie-menu|progressive-blur|squircle)/i;
+
+  function needsMotionWarning(here, info) {
+    var meta = document.querySelector('meta[name="reduced-motion"]');
+    if (meta) return meta.content.trim().toLowerCase() !== 'none';
+    if (!info) return false;
+    if (info.group === 'motion' || info.group === '3d') return true;
+    var hay = [here, info.title || '', (info.tags || []).join(' ')].join(' ');
+    return MOTION_RE.test(hay);
+  }
+
+  function mountMotionNotice(here, info, main, anchor, late) {
+    if (!window.matchMedia || !needsMotionWarning(here, info)) return;
+    var mql = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var dismissed = false;
+    var notice = null;
+    var stageHidden = false;
+
+    function sync() {
+      if (!mql.matches || dismissed) {
+        if (notice) { notice.remove(); notice = null; }
+        if (stageHidden) {
+          var s = main.querySelector('.stage');
+          if (s) s.hidden = false;
+          stageHidden = false;
+        }
+        return;
+      }
+      if (notice) return;
+      var noteMeta = document.querySelector('meta[name="reduced-motion-note"]');
+      var custom = noteMeta && noteMeta.content ? noteMeta.content.trim() : '';
+      var stage = main.querySelector('.stage');
+      var how = null;
+      var hs = main.querySelectorAll('h2');
+      for (var i = 0; i < hs.length; i++) {
+        if (/^how it works$/i.test(hs[i].textContent.trim())) { how = hs[i]; break; }
+      }
+      if (!how && hs.length) how = hs[0];
+      if (how && !how.id) how.id = 'how-it-works';
+
+      notice = document.createElement('aside');
+      notice.className = 'motion-warn';
+      notice.setAttribute('role', 'note');
+      notice.setAttribute('aria-label', 'Reduced motion notice');
+
+      var p = document.createElement('p');
+      var b = document.createElement('b');
+      b.textContent = 'Reduced motion is on. ';
+      p.append(b, document.createTextNode(
+        custom || 'This experiment uses strong visual motion, 3D perspective or optical distortion. Automatic loops stay paused until you start them.'
+      ));
+
+      var actions = document.createElement('div');
+      actions.className = 'mw-actions';
+
+      if (stage) {
+        var toggleBtn = document.createElement('button');
+        toggleBtn.type = 'button';
+        toggleBtn.textContent = 'Hide stage';
+        toggleBtn.setAttribute('aria-pressed', 'false');
+        toggleBtn.addEventListener('click', function () {
+          stageHidden = !stageHidden;
+          stage.hidden = stageHidden;
+          toggleBtn.textContent = stageHidden ? 'Show stage' : 'Hide stage';
+          toggleBtn.setAttribute('aria-pressed', String(stageHidden));
+        });
+        actions.append(toggleBtn);
+      }
+
+      if (how) {
+        var jump = document.createElement('a');
+        jump.className = 'mw-jump';
+        jump.href = '#' + how.id;
+        jump.textContent = 'Skip to ' + how.textContent.trim();
+        actions.append(jump);
+      }
+
+      var dismissBtn = document.createElement('button');
+      dismissBtn.type = 'button';
+      dismissBtn.textContent = 'Dismiss';
+      dismissBtn.addEventListener('click', function () {
+        dismissed = true;
+        if (notice) { notice.remove(); notice = null; }
+      });
+      actions.append(dismissBtn);
+
+      notice.append(p, actions);
+      if (stage && !late) stage.before(notice);
+      else if (anchor && !late) anchor.after(notice);
+      else main.prepend(notice);
+    }
+
+    sync();
+    if (mql.addEventListener) mql.addEventListener('change', sync);
+  }
 
   /**
    * Put the box on the page. `late` means the page is already on screen, so
@@ -99,5 +200,6 @@
 
     var anchor = !late && (main.querySelector('p.lede') || main.querySelector('h1'));
     if (anchor) anchor.after(box); else main.append(box);
+    mountMotionNotice(here, info, main, box, late);
   };
 })();
