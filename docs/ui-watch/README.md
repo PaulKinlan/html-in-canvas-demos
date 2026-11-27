@@ -29,12 +29,22 @@ Read these every week. The list grows: add a source when a run finds a good one,
 | https://tympanus.net/codrops/ and https://tympanus.net/codrops/hub/all/codrops/ | Codrops articles and demos | Refuses a plain fetch (403). Load it in the headless browser |
 | https://css-tricks.com/feed/, https://frontendmasters.com/blog/feed/, https://www.smashingmagazine.com/feed/, https://www.bram.us/feed/ | Articles on new CSS and HTML | RSS |
 | https://dev.to/alvaromontoro | "10 Cool CodePen Demos", monthly | Headless browser |
+| https://60fps.design/ | Mobile and web interaction clips | Plain fetch |
+| https://detail.design/ | Annotated UI and motion details | Plain fetch |
+| https://www.hoverstat.es/ | Experimental web interactions and shaders | Plain fetch |
+| https://godly.website/ | Curated gallery of interactive web sites | Plain fetch |
+| https://gl-transitions.com/ | Open-source GLSL transition shaders | Plain fetch |
+| https://rive.app/community/ | State-machine UI and vector motion files | Plain fetch |
+| https://www.interfaceingame.com/ | Game HUDs, menus and screen transitions | Plain fetch |
+| https://rauno.me/craft | Rauno Freiberg's interaction prototypes | Plain fetch |
+| https://emilkowal.ski/ | UI animation notes and components | Plain fetch |
 | Web search | Anything else: "html-in-canvas", `drawElementImage`, new component libraries, CSS Working Group resolutions | Search for the current month by name |
 
 Not covered here:
 
 - https://ui-feed.dev/. The thread "Rebuild ui-feed demos in canvas" works through that site. Mention it only when it adds a kind of control it didn't have.
 - X, Dribbble and Vimeo posts can't be opened from the cloud container. When the original is one of those, the report says the description comes from the site that featured it.
+- https://www.designspells.com/, https://refs.gallery/, https://www.gameuidatabase.com/ and https://www.shadertoy.com/ block plain fetches (403 or 429). Check them in a normal browser when looking for micro-interactions, game UI or shaders.
 - `github.com` pages for other people's repositories are refused in the container. `raw.githubusercontent.com` works.
 
 ## How a find is judged
