@@ -1,0 +1,32 @@
+# Cinema optical rack-focus across three depth planes (`/rack-focus/`)
+
+Measured in headless Google Chrome 160.0.8188.0 canary (`C160`) on 2026-11-27 at 412x915 (`deviceScaleFactor = 2.625`, touch enabled) and 1040x900 (`deviceScaleFactor = 1`). All live checks wait for a tap (`<meta name="checks" content="tap">`) and run on isolated `testStage()` fixtures. Chrome 159 on Android (`A159`) and `npm run check:jank` are **not verified** yet.
+
+This experiment composites three staggered, overlapping `drawable` HTML sections (`#rf-bg` at `z = 0.0`, `#rf-mid` at `z = 0.5`, `#rf-fg` at `z = 1.0`) inside one `<canvas id="rf-canvas" content="drawable" layoutsubtree>` backed by one `ElementGL` WebGL 2 context (`/lib/element-gl.js`). Each dirty plane uploads inside `paint` after `stage.begin()` with `UNPACK_PREMULTIPLY_ALPHA_WEBGL = true` and `gl.generateMipmap(gl.TEXTURE_2D)`. A deterministic `tMs` damped-spring solver drives `focusDepth` across planes with focus-breathing scale (`1 + 0.015 * coC`) and 24-tap golden-angle Poisson disc bokeh weighted by `f/1.4` to `f/11` directly to the default framebuffer (`null`).
+
+| Experiment or question | Result | Notes |
+|---|---|---|
+| Three staggered `drawable` planes upload via `ElementGL` + `texElementSubImage2D()` with `gl.getError() === 0` | measured (`C160`, 2026-11-27) | Live check 1 passed (`gl.getError()=0`; fixture textures `578x342`, `500x276`, `394x169`; `bg rgb(16,34,68)`, `mid rgb(247,242,232)`, `fg rgb(24,134,83)`). Main canvas on mobile holds `948x1036` px (`0.98 MP`, `7.86 MB` live, `8.12 MB` after checks, `0` lost contexts, `0` open snapshots, `0` unasked readbacks, `CLS = 0`). |
+| `Focus Far` to `Focus Near` sharpens foreground while blurring far edge, and `f/1.4` widens bokeh vs `f/11` | measured (`C160`, 2026-11-27) | Live check 2 passed: `Focus Far` held far edge contrast at `248` (`nearSpill = 198`); `Focus Near` at `f/1.4` sharpened near edge to `248`, dropped far edge contrast to `14` and lifted far 10 px spill to `189`; stopping down to `f/11` restored far edge contrast to `231` (`farSpill = 7`). |
+| Deterministic `tMs` spring solver glides focus depth and respects `prefers-reduced-motion` | measured (`C160`, 2026-11-27) | Live check 3 passed (`t=0 -> 0.00`, `t=120 -> 0.411`, `t=240 -> 0.796`, `t=950 -> 1.000`; continuous mid-flight retarget at `0.411`; reduced-motion instant snap to `1.00`; breathing scale `1.0150` at `coC = 1.0`). Under emulated `prefers-reduced-motion: reduce`, `#ctl-reduced` stayed checked, `Cycle rack` stayed paused and `Focus Near` snapped in one frame. |
+| `updateElementGeometry()` + `geometryUnit()` keeps controls clickable across all three planes | measured (`C160`, 2026-11-27) | Live check 4 passed in both `Focus Far` and `Focus Near` (`all-3 hit=true`, live clicks `3/3`). Real CDP clicks toggled `HDR Highlights`, incremented `CUE 01` to `CUE 02`, typed into `#rf-slate-input` (`SCENE 14A · RACK + TAKE 2`) and clicked `Apply` (`APPLIED #1`), while `selectstart` prevented plane label selection (`outPrevented=true`, `inPrevented=false`). |
+| 5-arg 2D fallback, synthetic `webglcontextlost`/`webglcontextrestored` and plain-HTML rescue | measured (`C160`, 2026-11-27) | Live check 5 passed (`2D ink=61.8%`, `preventDefault=true`, `inPlain=true`, `restored=true`, `glErr=0`). Deleting `texElementSubImage2D` ran the 2D `drawElementImage()` fallback (`948x1034` px, `3.92 MB`); deleting `drawElementImage` switched to `#plain-host` at `scrollWidth === 412`. |
+| Main stage stays drawn after live checks (`stillDrawn()`) | measured (`C160`, 2026-11-27) | Live check 6 passed (`rack-focus stage 100.0%`) with `0` console errors and `0` page errors at both 412 px and 1040 px. |
+| Mobile Android Chrome 159 (`A159`) touch scrolling, real GPU frame rate and `check:jank` | not verified | Needs a live run on Chrome 159 for Android at 412 px and `npm run check:jank -- /rack-focus/` after `npm run build`. |
+
+## Things that bit
+
+- Sampling LOD 0 of an un-mipmapped `RGBA8` DOM texture across a 22 CSS px golden-angle disc produced 24 visible ghost copies of thin 1 px text strokes (`Switch plane`, `Focus Near`, `READY`) instead of smooth optical bokeh. Generating trilinear mipmaps with `gl.generateMipmap(gl.TEXTURE_2D)` on each dirty upload and sampling `textureLod()` with per-pixel interleaved gradient noise rotation turned sharp typography into creamy optical blur while preserving circular bokeh discs on LEDs and bright pills.
+- Initializing `state.lastStatusMs = 0` skipped the initial `#rf-status` update whenever the first `paint` event landed within the first 110 ms of page load, leaving the 2D fallback status line stuck at `"Starting canvas…"` when no follow-up paint fired. Initializing `lastStatusMs` to `-1000` fixed status reporting on first paint.
+- On first paint in 2D fallback or before `updateElementGeometry()`, `syncPlaneGeometry()` initially skipped `geometryUnit()` in `'2d'` mode; calling `geometryUnit()` once per canvas size in both `'webgl'` and `'2d'` modes keeps hit-testing calibrated across device scale factors.
+- Because `public/shared/pages.js` has not been rebuilt yet (`npm run build` is held for the merge pass), `learn.js` didn't have `window.PAGES['/rack-focus/']` during standalone testing, so the build-time `.motion-warn` box from `<meta name="reduced-motion" content="warn">` remains to be checked after `npm run build`.
+
+## Not verified
+
+- Chrome 159 on Android (`A159`, 412 px wide, DPR 2.625): touch scrolling over the three overlapping planes (`touch-action: pan-y`), real mobile GPU throughput of 24-tap `textureLod()` bokeh and hardware context-loss recovery.
+- `npm run check:jank -- /rack-focus/` and `learn.js` `.motion-warn` banner rendering once `npm run build` generates `public/shared/pages.js`.
+
+## For the index
+
+- Motion and shaders: one `ElementGL` WebGL 2 canvas can composite three overlapping `drawable` HTML planes directly to the default framebuffer (`null`) with mipmapped 24-tap golden-angle disc bokeh (`textureLod()`), linear-light highlight bloom across `f/1.4..f/11` and `1 + 0.015 * coC` cinema focus breathing driven by a deterministic `tMs` spring solver (measured in `C160`, `/rack-focus/`).
+- Hit testing: syncing `geometryUnit()` and `updateElementGeometry()` with each plane's breathing scale and toggling `dataset.hitTick` keeps overlapping buttons and editable inputs clickable across all three depth planes in both `Focus Far` and `Focus Near` (measured in `C160`, `/rack-focus/`).
